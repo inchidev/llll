@@ -163,7 +163,6 @@ useHead({
               <p class="mt-3 text-base leading-7 text-muted">{{ freedom.description }}</p>
             </article>
           </div>
-          <p class="mt-8 text-xs leading-5 text-dimmed">L4 adds no member, history, mailbox, or record tiers. Your infrastructure and connected providers determine capacity and usage costs.</p>
         </UContainer>
       </section>
 
@@ -248,7 +247,7 @@ useHead({
         <UContainer class="flex w-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <BrandLogo />
           <div class="text-xs leading-5 text-dimmed">
-            <p>A project by Inchi</p>
+            <p>inchi</p>
           </div>
         </UContainer>
       </div>
