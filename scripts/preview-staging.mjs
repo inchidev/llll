@@ -19,8 +19,8 @@ function wrangler(args, { allowFailure = false } = {}) {
   return result
 }
 
-function listJson(args) {
-  return JSON.parse(wrangler([...args, '--json'], { allowFailure: true }).stdout || '[]')
+function listJson(args, { noJsonFlag = false } = {}) {
+  return JSON.parse(wrangler(noJsonFlag ? args : [...args, '--json'], { allowFailure: true }).stdout || '[]')
 }
 
 async function setup() {
@@ -31,7 +31,7 @@ async function setup() {
 
   wrangler(['r2', 'bucket', 'create', 'llll-staging-files'], { allowFailure: true })
 
-  let kvId = listJson(['kv', 'namespace', 'list']).find(candidate => candidate.title === 'llll-staging-tickets')?.id
+  let kvId = listJson(['kv', 'namespace', 'list'], { noJsonFlag: true }).find(candidate => candidate.title === 'llll-staging-tickets')?.id
   if (!kvId) {
     const created = wrangler(['kv', 'namespace', 'create', 'llll-staging-tickets'])
     kvId = created.stdout.match(/["']id["']\s*:\s*"([^"]+)"/)?.[1]
