@@ -41,6 +41,21 @@ it('surfaces Cloudflare refusal reason on the deploy page instead of a generic c
   expect(await session.text()).toContain('offline_access')
 })
 
+it('refuses to start when the grant cannot touch Workers scripts', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).endsWith('/oauth2/token')) return Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })
+    if (String(url).includes('/workers/scripts')) return Response.json({ success: false, errors: [{ message: 'No access to the specified resource' }] }, { status: 403 })
+    return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })
+  }))
+  const start = await portal.fetch(req('/api/deploy/oauth'), env)
+  const cookie = start.headers.get('set-cookie')!.split(';')[0]!
+  const auth = new URL(start.headers.get('location')!)
+  await portal.fetch(req('/api/deploy/callback?code=one&state=' + auth.searchParams.get('state'), cookie), env)
+  const blocked = await portal.fetch(req('/api/deploy/start', cookie, { accountId: 'a'.repeat(32), name: 'Community', version: 'v0.4.1' }), env)
+  expect(blocked.status).toBe(403)
+  expect(await blocked.text()).toContain('Workers access')
+})
+
 it('binds OAuth to the browser, consumes callback state once, and stores credentials encrypted', async () => {
   const start = await portal.fetch(req('/api/deploy/oauth'), env)
   const cookie = start.headers.get('set-cookie')!.split(';')[0]!

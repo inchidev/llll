@@ -104,6 +104,13 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
     const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
     const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
     if (!accounts.some(a => a.id === value.accountId)) fail(403, 'Choose an account authorized by Cloudflare')
+    // Fail fast when the grant cannot touch Workers scripts (unchecked consent
+    // scope or a Cloudflare user role without Workers rights). Otherwise this
+    // surfaces two phases later as an assets-upload 403.
+    try {
+      const probe = await fetch(`https://api.cloudflare.com/client/v4/accounts/${value.accountId}/workers/scripts?per_page=1`, { headers: { Authorization: `Bearer ${session.data.grant.accessToken}` }, signal: AbortSignal.timeout(20000) })
+      if (probe.status === 403) fail(403, 'Cloudflare denied Workers access for this grant. Reconnect Cloudflare and approve every requested permission, or ask an account admin for Workers rights.')
+    } catch (error) { if (error instanceof Error && 'status' in error) throw error }
     Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version)); await session.save()
     return json({ ok: true })
   }
