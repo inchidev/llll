@@ -1,1 +1,1 @@
-export default defineAppConfig({ ui: { colors: { primary: 'lime', neutral: 'neutral' } } })
+export default defineAppConfig({ ui: { colors: { primary: 'neutral', neutral: 'neutral' } } })
