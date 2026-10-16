@@ -6,14 +6,22 @@ const accountId = ref('')
 const busy = ref(false)
 const error = ref('')
 const config = ref<{ oauth: boolean } | null>(null)
-const session = ref<{ authorized: boolean; accounts: { id: string; name: string }[]; step?: number; name?: string; version?: string; error?: string; completed?: boolean; claim?: string; origin?: string } | null>(null)
+const session = ref<{ authorized: boolean; accounts: { id: string; name: string }[]; step?: number; name?: string; version?: string; grantExpiresIn?: number; error?: string; completed?: boolean; claim?: string; origin?: string } | null>(null)
 const versions = ref<{ version: string; name: string; published_at: string; notes_url: string }[]>([])
 const version = ref('')
 const releasesError = ref('')
 const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify installation', 'Ready']
+const now = ref(Date.now())
+const grantExpiresAt = ref(0)
+const grantLeft = computed(() => {
+  if (!session.value?.authorized || session.value.completed || !grantExpiresAt.value) return ''
+  const seconds = Math.max(0, Math.round((grantExpiresAt.value - now.value) / 1000))
+  return `Cloudflare authorization: ~${Math.floor(seconds / 60)} min left, renews automatically while deploying.`
+})
 async function refresh() {
   try { session.value = await $fetch('/api/deploy/session'); accountId.value ||= session.value?.accounts[0]?.id || ''; error.value = session.value?.error || '' }
   catch (cause) { if ((cause as { status?: number }).status !== 401) error.value = 'Could not load deployment state' }
+  if (session.value?.grantExpiresIn !== undefined) grantExpiresAt.value = Date.now() + session.value.grantExpiresIn * 1000
 }
 async function deploy() {
   busy.value = true; error.value = ''
@@ -26,6 +34,7 @@ async function deploy() {
 }
 onMounted(async () => {
   config.value = await $fetch('/api/deploy/config'); await refresh()
+  setInterval(() => { now.value = Date.now() }, 1000)
   try {
     const data = await $fetch<{ releases: { version: string; name: string; published_at: string; notes_url: string }[] }>('/api/deploy/releases')
     versions.value = data.releases
@@ -39,8 +48,9 @@ useSeoMeta({ title: 'Install L4 on your infrastructure' })
     <BrandLogo />
     <h1 class="mt-12 text-4xl font-semibold tracking-tight">Install your own L4</h1>
     <p class="mt-4 text-muted">Your accounts, servers and data. Free MIT software.</p>
-    <UTabs v-model="method" class="mt-8" :items="[{ label: 'Cloudflare', value: 'cloudflare' }, { label: 'VPS / Coolify', value: 'vps' }]" />
+    <UTabs v-if="session == null || (session.step === undefined && !session.completed)" v-model="method" class="mt-8" :items="[{ label: 'Cloudflare', value: 'cloudflare' }, { label: 'VPS / Coolify', value: 'vps' }]" />
     <section v-if="method === 'cloudflare'" class="mt-8 space-y-6">
+      <p v-if="grantLeft" class="text-sm text-muted">{{ grantLeft }}</p>
       <template v-if="session?.completed">
         <h2 class="text-2xl font-semibold">Your installation is ready</h2>
         <p class="text-muted">Create its owner, save the recovery key, then create your first server.</p>
@@ -51,9 +61,10 @@ useSeoMeta({ title: 'Install L4 on your infrastructure' })
         <template v-if="session.step === undefined">
           <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(a => ({label:a.name,value:a.id}))" class="w-full" /></UFormField>
           <UFormField label="Installation name"><UInput v-model="name" class="w-full" maxlength="80" /></UFormField>
-          <UFormField label="Release version" :hint="versions.length ? 'Published GitHub releases, newest first' : undefined">
+          <UFormField label="Release version">
             <USelect v-if="versions.length" v-model="version" :items="versions.map(r => ({label: r.published_at ? `${r.version} — ${r.published_at.slice(0, 10)}` : r.version, value: r.version}))" class="w-full" />
             <UInput v-else v-model="version" placeholder="v0.3.1" class="w-full" />
+            <template #hint><a href="https://github.com/inchidev/llll/releases" target="_blank" rel="noopener" class="underline">Published GitHub releases</a>, newest first</template>
           </UFormField>
           <p v-if="releasesError && !versions.length" class="text-sm text-muted">{{ releasesError }}</p>
         </template>

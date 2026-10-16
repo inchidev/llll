@@ -96,6 +96,8 @@ it('lists published releases for the deploy picker and pins the chosen version t
   expect(good.status).toBe(200)
   const session = await portal.fetch(req('/api/deploy/session', cookie), env)
   expect((await session.json()).version).toBe('v0.3.1')
+  const state = await (await portal.fetch(req('/api/deploy/session', cookie), env)).json() as { grantExpiresIn?: number }
+  expect(state.grantExpiresIn).toBeGreaterThan(0)
 })
 
 it('requires an installation proof and prevents directory ownership replacement', async () => {

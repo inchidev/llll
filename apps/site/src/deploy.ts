@@ -20,8 +20,13 @@ export async function cloudflare<T>(token: string, path: string, method = 'GET',
     method, redirect: 'manual', headers: { Authorization: `Bearer ${token}`, ...(body instanceof FormData || body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), signal: AbortSignal.timeout(30000),
   })
-  const data = await response.json() as { success: boolean; result: T }
-  if (!response.ok || !data.success) throw new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status}). Check account permissions and service activation.`)
+  let data: { success: boolean; result: T; errors?: { code?: number | string; message?: string }[] }
+  try { data = await response.json() as typeof data }
+  catch { throw new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status}): unreadable response. Check account permissions and service activation.`) }
+  if (!response.ok || !data.success) {
+    const detail = (data.errors || []).map(e => [e.code, e.message].filter(Boolean).join(' ')).filter(Boolean).join('; ')
+    throw new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status})${detail ? `: ${detail}` : '. Check account permissions and service activation.'}`)
+  }
   return data.result
 }
 export type ReleaseInfo = { version: string; name: string; published_at: string; notes_url: string }
