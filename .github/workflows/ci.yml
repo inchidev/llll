@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [lint, typecheck, typecheck:site, test, build, build:site, migrations]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ${{ matrix.check }}
+        if: matrix.check != 'test' && matrix.check != 'migrations'
+        run: pnpm run ${{ matrix.check }}
+
+      - name: Validate migration history
+        if: matrix.check == 'migrations'
+        env:
+          MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+        run: pnpm db:migrations:check
+
+      - name: Apply all migrations to a fresh local D1 database
+        if: matrix.check == 'migrations'
+        run: |
+          migration_state="$(mktemp -d)"
+          pnpm exec wrangler d1 migrations apply DB --local --persist-to "$migration_state"
+
+      - name: Check client types
+        if: matrix.check == 'typecheck'
+        run: >-
+          pnpm --filter @llll/mobile typecheck &&
+          pnpm --filter @llll/desktop typecheck &&
+          pnpm --filter @llll/extension typecheck &&
+          pnpm --filter @llll/installation typecheck
+
+      # Keep test output in the log: the GitHub annotations reporter crashes
+      # the runner with a Unicode EncoderFallbackException on this suite.
+      - name: Run test
+        if: matrix.check == 'test'
+        run: pnpm test --reporter=default
+
+  self-host:
+    name: self-host
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Write a local env file
+        working-directory: self-host
+        run: |
+          umask 077
+          auth="$(openssl rand -hex 32)"
+          token="$(openssl rand -hex 32)"
+          secret="$(openssl rand -hex 24)"
+          cat > .env <<EOF
+          PUBLIC_ORIGIN=http://127.0.0.1:8080
+          AUTH_SECRET=${auth}
+          ADMIN_EMAIL=owner@example.com
+          ADMIN_SETUP_TOKEN=${token}
+          ADMIN_WORKSPACE=workspace
+          RUSTFS_ACCESS_KEY=llll
+          RUSTFS_SECRET_KEY=${secret}
+          RUSTFS_BUCKET=cells
+          AWS_REGION=us-east-1
+          EOF
+
+      - name: Build the image and require health 200
+        run: bash self-host/smoke.sh
+
+      - name: Verify an installation with two isolated servers
+        run: |
+          node scripts/self-host-installation.mjs .deployment/ci-compose http://localhost:18080 alpha beta
+          docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json up -d --no-build
+          node scripts/test-self-host-installation.mjs .deployment/ci-compose
+
+      - name: Show Compose logs
+        if: failure()
+        run: |
+          docker compose -f self-host/docker-compose.yml logs --no-color
+          if [ -f .deployment/ci-compose/compose.json ]; then
+            docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json logs --no-color
+          fi
+
+      - name: Stop validation containers
+        if: always()
+        run: |
+          docker compose -f self-host/docker-compose.yml down -v
+          if [ -f .deployment/ci-compose/compose.json ]; then
+            docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json down -v
+          fi

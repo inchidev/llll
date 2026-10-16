@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "llll-dev",
+  // Local Nuxt skips AI and Browser: those bindings
+  // start a remote wrangler session and fail without CLOUDFLARE_API_TOKEN.
+  "main": "workers/index.ts",
+  "compatibility_date": "2026-10-16",
+  "triggers": { "crons": ["17 4 * * 1"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "llll",
+      "database_id": "local-llll",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "llll-files"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "TICKETS",
+      "id": "local-tickets"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CHANNEL_DO", "class_name": "ChannelDurableObject" },
+      { "name": "WORKSPACE_DO", "class_name": "WorkspaceDurableObject" },
+      { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
+      { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
+      { "name": "AGENT_DO", "class_name": "L4Agent" },
+      { "name": "AGENT_THINK", "class_name": "L4Think" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChannelDurableObject", "WorkspaceDurableObject", "RateLimitDurableObject", "NotificationDurableObject", "L4Agent", "L4Think"] }],
+  "vars": {
+    "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+  }
+}

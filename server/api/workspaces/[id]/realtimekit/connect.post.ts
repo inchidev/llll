@@ -1,0 +1,91 @@
+import { z } from 'zod'
+import { realtimekitSettings } from '../../../../../drizzle/schema'
+import type { RealtimeKitSettingsAdminDTO } from '../../../../../shared/types'
+import { nowIso, WORKSPACE_ID } from '../../../../../shared/ids'
+import { encryptSecret } from '../../../../../shared/encrypted-secret'
+import {
+  connectRealtimeKit,
+  loadRealtimeKitConfig,
+  RealtimeKitHttpError,
+  REALTIMEKIT_SECRET_SCOPE,
+  realtimekitSettingsAdminDto,
+  testRealtimeKitConnection,
+  type RealtimeKitAccount,
+} from '../../../../../workers/realtimekit'
+import { callsProvider } from '../../../../../workers/env'
+import { authSecret } from '../../../../utils/auth-config'
+import { cf, fail } from '../../../../utils/cf'
+import { getDb } from '../../../../utils/db'
+import { requireMember } from '../../../../utils/guards'
+import { writeAudit } from '../../../../utils/messages'
+import { parseBody } from '../../../../utils/validate'
+
+const bodySchema = z.object({
+  /** Omitted to reconnect with the saved token, for example to provision split presets. */
+  apiToken: z.string().trim().min(1).max(4000).optional(),
+  accountId: z.string().trim().regex(/^[a-f0-9]{32}$/iu).optional(),
+})
+
+/**
+ * Connect Live with one Cloudflare API token. L4 finds the account,
+ * reuses or creates this installation's RealtimeKit app, provisions the host and
+ * participant presets, verifies them, and stores the token encrypted.
+ */
+export default defineEventHandler(async (event): Promise<{ realtimekit: RealtimeKitSettingsAdminDTO } | { accounts: RealtimeKitAccount[] }> => {
+  setHeader(event, 'Cache-Control', 'no-store, max-age=0')
+  const workspaceId = getRouterParam(event, 'id')!
+  const member = await requireMember(event, workspaceId)
+  if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can connect RealtimeKit')
+  const body = parseBody(bodySchema, await readBody(event))
+  const { env } = cf(event)
+  if (!callsProvider(env)) fail(501, 'calls_unavailable', 'Calls use Cloudflare RealtimeKit and are unavailable on this runtime')
+  const current = await loadRealtimeKitConfig(env)
+  if (current.source === 'deployment') fail(400, 'managed_by_deployment', 'RealtimeKit is managed by the deployment')
+
+  const apiToken = body.apiToken || (current.secretReadable ? current.apiToken : '')
+  if (!apiToken) fail(400, 'api_token_required', 'Paste a Cloudflare API token to connect')
+
+  const origin = getRequestURL(event)
+  let connection: Awaited<ReturnType<typeof connectRealtimeKit>>
+  try {
+    connection = await connectRealtimeKit(apiToken, {
+      accountId: body.accountId ?? (body.apiToken ? undefined : current.accountId || undefined),
+      appName: `L4 ${origin.host}`,
+    })
+    if ('accounts' in connection) return connection
+    await testRealtimeKitConnection({ ...current, ...connection, apiToken, source: 'database' })
+  }
+  catch (error) {
+    if (error instanceof RealtimeKitHttpError && (error.status === 401 || error.status === 403)) {
+      fail(400, 'invalid_credentials', 'Cloudflare rejected the token. Give it Realtime Admin access to the account.')
+    }
+    fail(502, 'realtimekit_connection_failed', error instanceof Error ? error.message : 'RealtimeKit connection failed')
+  }
+
+  const encrypted = await encryptSecret(authSecret(env, origin.origin), REALTIMEKIT_SECRET_SCOPE, apiToken)
+  const db = getDb(env.DB)
+  const timestamp = nowIso()
+  const values = {
+    accountId: connection.accountId,
+    appId: connection.appId,
+    apiTokenCiphertext: encrypted.ciphertext,
+    apiTokenIv: encrypted.iv,
+    apiTokenVersion: encrypted.version,
+    hostPreset: connection.hostPreset,
+    participantPreset: connection.participantPreset,
+    updatedAt: timestamp,
+  }
+  await db.insert(realtimekitSettings)
+    .values({ id: 'main', ...values, createdAt: timestamp })
+    .onConflictDoUpdate({ target: realtimekitSettings.id, set: values })
+
+  await writeAudit(env, {
+    workspaceId: WORKSPACE_ID,
+    actorId: member.user.id,
+    action: 'realtimekit.settings.connect',
+    targetType: 'workspace',
+    targetId: WORKSPACE_ID,
+    meta: { appId: connection.appId, token: body.apiToken ? 'replaced' : 'unchanged' },
+  })
+  return { realtimekit: realtimekitSettingsAdminDto(await loadRealtimeKitConfig(env)) }
+})

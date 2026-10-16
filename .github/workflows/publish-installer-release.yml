@@ -1,0 +1,93 @@
+name: Publish Cloudflare installer release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing protected release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release version
+        run: node -e "const p=require('./package.json'); if ('v'+p.version !== process.env.RELEASE_TAG) throw new Error('Release tag must equal v'+p.version)"
+
+      - name: Build release artifacts
+        env:
+          LLLL_RELEASE_VERSION: ${{ env.RELEASE_TAG }}
+          LLLL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}
+        run: pnpm release:installer
+
+      - name: Include the complete installation deployment
+        run: |
+          cp .installer/deployment/llll-deployment.json .installer/release/llll-deployment.json
+          cp .installer/deployment/llll-site.tgz .installer/release/llll-site.tgz
+          cd .installer/release
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/release-notes/${RELEASE_TAG}.md"
+          if [[ ! -f "$notes" ]]; then
+            echo "::error file=${notes}::Release notes must exist before tagging"
+            exit 1
+          fi
+
+          draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [[ "$draft" == "false" ]]; then
+            echo "::error::Release ${RELEASE_TAG} is already published and cannot be changed"
+            exit 1
+          fi
+
+          title="L4 ${RELEASE_TAG#v}"
+          if [[ "$draft" == "true" ]]; then
+            gh release edit "$RELEASE_TAG" --draft --title "$title" --notes-file "$notes"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$title" --notes-file "$notes"
+          fi
+
+      - name: Upload and verify draft artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" .installer/release/* --clobber
+          find .installer/release -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort > "$RUNNER_TEMP/expected-assets"
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort > "$RUNNER_TEMP/release-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/release-assets"
+
+          {
+            echo "### Draft L4 release"
+            echo
+            echo "Built and verified all artifacts for \`${RELEASE_TAG}\`. Review and publish the draft release manually."
+          } >> "$GITHUB_STEP_SUMMARY"
