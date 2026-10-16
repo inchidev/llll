@@ -1,1 +1,1 @@
-<template><InstallationShell /></template>
+<template><div /></template>

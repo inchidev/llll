@@ -53,7 +53,6 @@ export default defineNuxtPlugin(async (nuxt) => {
         return
       }
       switching = true
-      connections.select(location.origin, server.id)
       // A new server gets fresh query caches, sockets and content state.
       const form = document.createElement('form')
       form.method = 'POST'; form.action = '/embed/open'; form.style.display = 'none'
