@@ -486,7 +486,7 @@ async function uploadWorker(
     compatibility_date: manifest.compatibilityDate,
     compatibility_flags: manifest.compatibilityFlags,
     bindings,
-    assets: { jwt: resources.assetsJwt },
+    assets: { jwt: resources.assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
     annotations: {
       'workers/message': `L4 ${manifest.version} via installer`,
@@ -562,7 +562,7 @@ export async function deployL4Update(
     compatibility_date: release.manifest.compatibilityDate,
     compatibility_flags: release.manifest.compatibilityFlags,
     bindings: updateWorkerBindings(existing.bindings, release.manifest, admin, workerName),
-    assets: { jwt: assetsJwt },
+    assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
     annotations: {
       'workers/message': `L4 ${release.manifest.version} via installer update`,

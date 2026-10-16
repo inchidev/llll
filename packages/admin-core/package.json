@@ -1,6 +1,6 @@
 {
   "name": "@llll/admin-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cloudflare provisioning engine shared by the L4 Admin and llll.gg",
   "type": "module",
   "license": "MIT",

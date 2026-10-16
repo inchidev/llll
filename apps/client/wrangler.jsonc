@@ -2,6 +2,6 @@
   "name": "llll-client",
   "main": ".bundle/index.mjs",
   "compatibility_date": "2026-09-26",
-  "assets": { "binding": "ASSETS", "directory": "../../.output/public", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "assets": { "binding": "ASSETS", "directory": "../../.output/public", "html_handling": "none", "not_found_handling": "single-page-application", "run_worker_first": true },
   "observability": { "enabled": true, "redact_query_string": true }
 }

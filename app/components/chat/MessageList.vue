@@ -224,10 +224,21 @@ async function loadOlder() {
   loadingOlder = true
   const previousHeight = el.scrollHeight
   const previousTop = el.scrollTop
+  const top = el.getBoundingClientRect().top
+  const anchor = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find(row => row.getBoundingClientRect().bottom > top)
+  const anchorId = anchor?.dataset.messageId
+  const anchorOffset = anchor ? anchor.getBoundingClientRect().top - top : 0
   try {
     await q.fetchNextPage()
     await nextTick()
     if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight - previousHeight + previousTop
+    // Finish row measurements and removal of the loading indicator before
+    // correcting the visible message's position. Total height alone is estimated.
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (scroller.value && anchorId) {
+      const row = scroller.value.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchorId)}"]`)
+      if (row) virtualizer.value.scrollToOffset(scroller.value.scrollTop + row.getBoundingClientRect().top - scroller.value.getBoundingClientRect().top - anchorOffset)
+    }
   }
   finally {
     loadingOlder = false

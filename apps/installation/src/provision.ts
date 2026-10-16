@@ -18,5 +18,6 @@ export async function provisionServer(env: InstallationEnv, server: ServerRow, o
 
 export async function updateServer(env: InstallationEnv, server: ServerRow, version: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('This server is updated by its self-host operator')
-  return updateL4(env.CLOUDFLARE_API_TOKEN, { accountId: env.CLOUDFLARE_ACCOUNT_ID, workerName: server.worker_name, targetVersion: version }, { manifestUrl: env.RELEASE_MANIFEST })
+  // The provisioning manifest can be pinned; updates resolve their selected immutable release.
+  return updateL4(env.CLOUDFLARE_API_TOKEN, { accountId: env.CLOUDFLARE_ACCOUNT_ID, workerName: server.worker_name, targetVersion: version })
 }

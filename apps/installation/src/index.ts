@@ -177,7 +177,7 @@ async function registerServer(request: Request, env: InstallationEnv) {
   const encrypted = JSON.stringify(await encryptSecret(env.AUTH_SECRET, `server:${input.id}`, input.key))
   const now = Date.now()
   await env.INSTALLATION_DB.batch([
-    env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'0.1.0','ready',?,?)").bind(input.id, input.name, session.user.id, origin.origin, input.workerName || null, encrypted, now, now),
+    env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ready',?,?)").bind(input.id, input.name, session.user.id, origin.origin, input.workerName || null, encrypted, version, now, now),
     env.INSTALLATION_DB.prepare("INSERT INTO memberships (server_id,user_id,role,created_at) VALUES (?,?,'owner',?)").bind(input.id, session.user.id, now),
   ])
   await audit(env, session.user.id, 'server.register', input.id)
@@ -195,7 +195,7 @@ async function createServer(request: Request, env: InstallationEnv) {
   const now = Date.now()
   const workerName = `l4-${env.INSTALLATION_ID.slice(0, 12)}-${input.id}`.slice(0, 63)
   const encrypted = JSON.stringify(await encryptSecret(env.AUTH_SECRET, `server:${input.id}`, key))
-  const reserved = await env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) SELECT ?,?,?,?, ?,?,'0.1.0','provisioning',?,? WHERE (SELECT count(*) FROM servers) < ? RETURNING *").bind(input.id, input.name, session.user.id, `https://pending.invalid/${input.id}`, workerName, encrypted, now, now, max).first<ServerRow>()
+  const reserved = await env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) SELECT ?,?,?,?, ?,?,?,'provisioning',?,? WHERE (SELECT count(*) FROM servers) < ? RETURNING *").bind(input.id, input.name, session.user.id, `https://pending.invalid/${input.id}`, workerName, encrypted, version, now, now, max).first<ServerRow>()
   if (!reserved) failure(409, 'This installation has reached its server limit')
   try {
     const result = await provisionServer(env, reserved, session.user, key)
