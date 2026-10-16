@@ -722,7 +722,7 @@ export async function deployL4(
   if (access && Object.values(access).some(value => !value)) {
     throw createError({ statusCode: 409, statusMessage: 'Existing Cloudflare Access bindings are incomplete' })
   }
-  await progress('access', 'complete', request.authMode === 'access' ? 'Email code sign-in ready' : 'Using L4 accounts')
+  await progress('access', 'complete', request.authMode === 'access' ? 'Email code sign-in ready' : 'Using local accounts')
 
   await progress('worker', 'active')
   const primaryMail = provisionMail
