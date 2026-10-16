@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
-import { advanceDeployment, cloudflare, deploymentParameters } from './deploy'
+import { advanceDeployment, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
 import { portalSession, digest } from './session'
 import type { PortalEnv } from './env'
 
@@ -49,7 +49,18 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
     if (!row) fail(404, 'Server is not in the directory. Connect its installation by address.')
     return json(row)
   }
-  if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID), release: Boolean(env.DEPLOYMENT_RELEASE_URL && env.DEPLOYMENT_RELEASE_SHA256) })
+  if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID) })
+  if (path === '/api/deploy/releases' && request.method === 'GET') {
+    const cacheKey = new Request(env.PUBLIC_ORIGIN + '/api/deploy/releases')
+    try {
+      const cached = await caches.default.match(cacheKey)
+      if (cached) return new Response(cached.body, cached)
+    } catch { /* Cache API unavailable in tests; fetch directly. */ }
+    const releases = await listReleases()
+    const response = new Response(JSON.stringify({ releases }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } })
+    try { await caches.default.put(cacheKey, response.clone()) } catch { /* See above. */ }
+    return response
+  }
   if (path === '/api/deploy/oauth' && request.method === 'GET') {
     if (!env.CLOUDFLARE_OAUTH_CLIENT_ID) fail(503, 'Cloudflare OAuth is not configured yet')
     await rateLimit(request, env)
@@ -79,16 +90,16 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
   if (path === '/api/deploy/session') {
     const session = await portalSession(request, env); const data = session.data
     const accounts = data.grant && !data.worker ? await cloudflare<{ id: string; name: string }[]>(data.grant.accessToken, '/accounts') : []
-    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/connections#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
+    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, version: data.version, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/connections#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
   }
   if (path === '/api/deploy/start' && request.method === 'POST') {
     const session = await portalSession(request, env)
     if (!session.data.grant) fail(401, 'Connect Cloudflare first')
     if (session.data.worker) fail(409, 'Resume the existing deployment')
-    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80) }).parse(await input(request))
+    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
     const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
     if (!accounts.some(a => a.id === value.accountId)) fail(403, 'Choose an account authorized by Cloudflare')
-    Object.assign(session.data, deploymentParameters(value.accountId, value.name)); await session.save()
+    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version)); await session.save()
     return json({ ok: true })
   }
   if (path === '/api/deploy/advance' && request.method === 'POST') {

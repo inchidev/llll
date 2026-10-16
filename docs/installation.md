@@ -20,11 +20,11 @@ The shell stores its bookmarks on the current device. There is no cross-device a
 
 ## Cloudflare deployment
 
-`/deploy` uses a public Cloudflare OAuth client with S256 PKCE. The browser-bound temporary grant is encrypted in the portal's D1, expires after one hour and is removed after successful handoff. Resumable deployment phases create the installation's control D1, a separate backup bucket, assets and controller Worker. Names, encryption secrets and setup claims remain stable across retries. A verified release URL and SHA256 are required.
+`/deploy` uses a public Cloudflare OAuth client with S256 PKCE. The browser-bound temporary grant is encrypted in the portal's D1, expires after one hour and is removed after successful handoff. Resumable deployment phases create the installation's control D1, a separate backup bucket, assets and controller Worker. Names, encryption secrets and setup claims remain stable across retries. The user picks a published GitHub release version; the portal verifies that release's own `SHA256SUMS` plus per-module hashes before deploying it. Published tags and assets are immutable; a repair needs a new version.
 
 The installation receives its encrypted OAuth grant in its own control D1 and refreshes it using a serialized refresh lease. Its owner then creates servers from installation settings. A scoped API token remains an alternative. Source bootstrap instructions remain in deployment.md.
 
-The portal operator configures `AUTH_SECRET`, `PUBLIC_ORIGIN`, `CLOUDFLARE_OAUTH_CLIENT_ID`, `DEPLOYMENT_RELEASE_URL` and `DEPLOYMENT_RELEASE_SHA256`, applies `apps/site/migrations`, then deploys `apps/site`. Register the exact `<PUBLIC_ORIGIN>/api/deploy/callback` redirect with Cloudflare; use a public OAuth client with token authentication method `none`. Required scopes are defined in `shared/cloudflare-oauth.ts`. Public OAuth client registration and a real consent/deployment check are required before enabling the live installer.
+The portal operator configures `AUTH_SECRET`, `PUBLIC_ORIGIN` and `CLOUDFLARE_OAUTH_CLIENT_ID`, applies `apps/site/migrations`, then deploys `apps/site`. No release version is pinned in portal configuration. Register the exact `<PUBLIC_ORIGIN>/api/deploy/callback` redirect with Cloudflare; use a public OAuth client with token authentication method `none`. Required scopes are defined in `shared/cloudflare-oauth.ts`. Public OAuth client registration and a real consent/deployment check are required before enabling the live installer.
 
 ## VPS
 
