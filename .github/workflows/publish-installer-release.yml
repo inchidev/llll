@@ -46,6 +46,13 @@ jobs:
           LLLL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}
         run: pnpm release:installer
 
+      - name: Include the complete installation deployment
+        run: |
+          cp .installer/deployment/llll-deployment.json .installer/release/llll-deployment.json
+          cd .installer/release
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
       - name: Create or update draft release
         env:
           GH_TOKEN: ${{ github.token }}
