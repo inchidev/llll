@@ -1,0 +1,35 @@
+name: Tag release
+
+# No manual tagging: merging a version bump into main creates v<version>,
+# which in turn triggers the installer-release and image publishers.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cur="$(node -p "require('./package.json').version")"
+          prev="$(git show HEAD~1:package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+          if [ "$cur" = "$prev" ]; then echo "Version unchanged ($cur), nothing to tag."; exit 0; fi
+          tag="v$cur"
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then echo "Tag $tag already exists."; exit 0; fi
+          git tag "$tag"
+          git push origin "$tag"
+          echo "Tagged $tag."
