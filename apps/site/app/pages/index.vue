@@ -104,7 +104,7 @@ useHead({
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
-          <ProductPreview class="mx-auto mt-8 max-w-6xl" />
+          <!-- ProductPreview hidden until proper screenshots land (design + server icons refresh in progress). -->
         </UContainer>
       </section>
 
