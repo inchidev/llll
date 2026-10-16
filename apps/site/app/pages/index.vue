@@ -127,7 +127,6 @@ useHead({
             <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI teammates</div>
             <h3 class="display-title mt-4 text-2xl font-semibold text-highlighted sm:text-3xl">Bring an agent into the conversation.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Give an agent a profile, talk to it in a channel or direct message, and ask it to read or create tasks. Your team decides who can use and configure agents.</p>
-            <NuxtLink :to="`${repoUrl}/blob/main/docs/architecture.md`" class="mt-5 inline-flex items-center gap-2 text-sm text-primary hover:underline">Meet the agents <UIcon name="i-ph-arrow-right" class="size-4" /></NuxtLink>
           </div>
         </UContainer>
       </section>
@@ -144,7 +143,6 @@ useHead({
             <h3 class="display-title mt-5 text-2xl font-semibold text-highlighted sm:text-3xl">Your data. Your tools.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Turn workspace records into shared lists, tables, and metrics: a client directory, a sales console, or a project dashboard. Choose what each app can show or change, then publish it to the right roles.</p>
             <p class="mt-4 text-base leading-7 text-muted">Create and publish these tools with the built-in Apps editor.</p>
-            <NuxtLink :to="`${repoUrl}/blob/main/README.md`" class="mt-5 inline-flex items-center gap-2 text-sm text-primary hover:underline">Explore built-in Apps <UIcon name="i-ph-arrow-right" class="size-4" /></NuxtLink>
           </div>
         </UContainer>
       </section>
