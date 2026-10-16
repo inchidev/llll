@@ -29,6 +29,18 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllGlobals(); sqlite.close() })
 
+it('surfaces Cloudflare refusal reason on the deploy page instead of a generic cancellation', async () => {
+  const start = await portal.fetch(req('/api/deploy/oauth'), env)
+  const cookie = start.headers.get('set-cookie')!.split(';')[0]!
+  const auth = new URL(start.headers.get('location')!)
+  const refused = '/api/deploy/callback?error=invalid_scope&error_description='
+    + encodeURIComponent("The OAuth 2.0 Client is not allowed to request scope 'offline_access'.")
+    + '&state=' + auth.searchParams.get('state')
+  expect((await portal.fetch(req(refused, cookie), env)).status).toBe(303)
+  const session = await portal.fetch(req('/api/deploy/session', cookie), env)
+  expect(await session.text()).toContain('offline_access')
+})
+
 it('binds OAuth to the browser, consumes callback state once, and stores credentials encrypted', async () => {
   const start = await portal.fetch(req('/api/deploy/oauth'), env)
   const cookie = start.headers.get('set-cookie')!.split(';')[0]!

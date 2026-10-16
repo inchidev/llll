@@ -78,7 +78,12 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
     if (!session.data.state || url.searchParams.get('state') !== session.data.state || !session.data.verifier) fail(400, 'Authorization could not be verified. Start again.')
     const verifier = session.data.verifier
     delete session.data.state; delete session.data.verifier; await session.save()
-    if (url.searchParams.has('error') || !url.searchParams.get('code')) { session.data.error = 'Cloudflare authorization was cancelled'; await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/deploy', 303) }
+    if (url.searchParams.has('error') || !url.searchParams.get('code')) {
+      // Surface Cloudflare's reason (it names the refused scope) instead of a generic cancellation.
+      const detail = (url.searchParams.get('error_description') || '').slice(0, 300)
+      session.data.error = detail ? `Cloudflare refused the authorization: ${detail}` : 'Cloudflare authorization was cancelled'
+      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/deploy', 303)
+    }
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
     if (session.data.accountId) {
       const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
