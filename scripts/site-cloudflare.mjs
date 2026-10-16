@@ -60,9 +60,11 @@ export async function preview(name) {
   const value = String(name || process.env.PREVIEW_NAME || '').trim()
   if (!/^pr-[1-9][0-9]{0,9}$/.test(value)) throw new Error('Preview name must look like pr-4')
   const result = wrangler(['preview', '--config', 'apps/site/wrangler.jsonc', '--worker-name', 'llll', '--name', value, '--json'])
-  const match = result.stdout.match(/\{[\s\S]*\}/)
-  const parsed = match ? JSON.parse(match[0]) : {}
-  console.log(JSON.stringify({ name: value, url: parsed.url || parsed.preview_url || '' }))
+  const clean = result.stdout.replaceAll(/\u001b\[[0-9;]*m/g, '')
+  const urls = [...clean.matchAll(/https?:\/\/([a-z0-9.-]*pr-\d+[a-z0-9.-]*)/gi)].map(match => match[0])
+  const custom = `https://${value}.dev.llll.gg`
+  const url = urls.find(item => item.includes('.dev.llll.gg')) || urls[0] || custom
+  console.log(JSON.stringify({ name: value, url, custom }))
 }
 
 export async function previewDelete(name) {
