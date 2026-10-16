@@ -8,7 +8,6 @@ import { isPublicAssetURL } from '#nitro-internal-virtual/public-assets'
 import type { L4Env } from '../workers/env'
 import { receivePrimaryMailSend, routeWorkspaceEmail } from '../workers/primary-mail-router'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
-import { sendTelemetryHeartbeat } from './utils/telemetry'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { WorkspaceDurableObject } from '../workers/workspace-do'
@@ -62,11 +61,10 @@ export default {
   async email(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
     await routeWorkspaceEmail(message, env)
   },
-  async scheduled(_controller: ScheduledController, env: L4Env, context: ExecutionContext): Promise<void> {
+  async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
     if (env.BACKUPS && env.FILES) {
       const createdAt = new Date().toISOString()
       await uploadBackupToR2(env.BACKUPS, `servers/${env.LLLL_SERVER_ID || 'main'}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, env.FILES, createdAt, version))
     }
-    context.waitUntil(sendTelemetryHeartbeat(env).catch(error => console.warn('Anonymous telemetry heartbeat failed', error)))
   },
 }

@@ -1,6 +1,6 @@
 import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
-import { disconnectManagedEmailDomain, failInstallationControl } from '../../../../utils/installation-control'
+import { disconnectManagedEmailDomain, failInstallationControl } from '../../../../utils/server-infrastructure'
 
 export default defineEventHandler(async (event) => {
   const member = await requireMember(event, getRouterParam(event, 'id')!)

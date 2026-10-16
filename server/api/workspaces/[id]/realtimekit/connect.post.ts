@@ -39,7 +39,6 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   if (!callsProvider(env)) fail(501, 'calls_unavailable', 'Calls use Cloudflare RealtimeKit and are unavailable on this runtime')
-  if (env.LLLL_ADMIN) fail(400, 'managed_by_admin', 'Live is provided by your L4 Admin')
   const current = await loadRealtimeKitConfig(env)
   if (current.source === 'deployment') fail(400, 'managed_by_deployment', 'RealtimeKit is managed by the deployment')
 

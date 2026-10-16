@@ -26,7 +26,6 @@ async function installUpdate() {
   catch (cause) { updateError.value = errorMessage(cause) }
   finally { busy.value = false }
 }
-const adminUrl = 'https://llll.gg/admin'
 </script>
 
 <template>
@@ -72,7 +71,7 @@ const adminUrl = 'https://llll.gg/admin'
             <p v-if="status.updateAvailable" class="mt-1 text-sm text-warning">{{ status.releasesBehind }} {{ releaseLabel }} behind</p>
             <p v-else class="mt-1 text-sm text-success">Up to date</p>
           </div>
-          <UBadge :label="connected ? 'Installation' : status.installationKind === 'guided' ? 'L4 Admin' : 'Repository deployment'" color="neutral" variant="subtle" />
+          <UBadge :label="status.management === 'installation' ? 'Installation' : 'Operator deployment'" color="neutral" variant="subtle" />
         </div>
 
         <div v-if="status.latestRelease" class="mt-6 border-t border-default pt-5">
@@ -85,14 +84,6 @@ const adminUrl = 'https://llll.gg/admin'
 
         <div class="mt-6 flex flex-wrap gap-2">
           <UButton v-if="connected && status.updateAvailable" label="Back up and update server" :loading="busy" @click="installUpdate" />
-          <UButton
-            v-if="!connected && status.installationKind === 'guided'"
-            :to="status.upgradeUrl || adminUrl"
-            external
-            target="_blank"
-            :label="status.updateAvailable ? 'Open update in Admin' : 'Open L4 Admin'"
-            trailing-icon="i-ph-arrow-up-right"
-          />
           <UButton
             v-if="status.latestRelease"
             :to="status.latestRelease.url"
@@ -107,7 +98,7 @@ const adminUrl = 'https://llll.gg/admin'
       </div>
 
       <UAlert
-        v-if="!connected && status.updateAvailable && status.installationKind === 'manual'"
+        v-if="!connected && status.updateAvailable && status.management === 'operator'"
         class="mt-4"
         color="neutral"
         title="Repository deployment"

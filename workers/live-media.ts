@@ -1,6 +1,5 @@
 import { cloudflareAccountId, cloudflareApiToken } from './cloudflare-rest'
 import { callsProvider, type L4Env } from './env'
-import { llllAdmin } from './llll-admin'
 import {
   addParticipant,
   createMeeting,
@@ -30,8 +29,7 @@ export type LiveMedia = {
 
 /**
  * The media plane for this installation, or null when Live is not connected.
- * A workspace linked to a L4 Admin uses the Admin's RealtimeKit app and
- * holds no credential; otherwise it uses the token pasted in Workspace Settings.
+ * Credentials come from server deployment bindings or encrypted server settings.
  */
 function mediaFor(config: Pick<RealtimeKitRuntimeConfig, 'accountId' | 'appId' | 'apiToken' | 'hostPreset' | 'participantPreset'>): LiveMedia {
   return {
@@ -62,15 +60,6 @@ async function restMedia(env: L4Env): Promise<LiveMedia | null> {
 }
 
 export async function liveMedia(env: L4Env): Promise<LiveMedia | null> {
-  const admin = llllAdmin(env)
-  if (admin) {
-    return {
-      createMeeting: title => admin.liveCreateMeeting(title),
-      addParticipant: (meetingId, seat) => admin.liveAddParticipant(meetingId, seat),
-      removeParticipants: (meetingId, participantIds) => admin.liveRemoveParticipants(meetingId, participantIds),
-      endMeeting: meetingId => admin.liveEndMeeting(meetingId),
-    }
-  }
   const config = await loadRealtimeKitConfig(env)
   if (realtimekitConfigured(config)) return mediaFor(config)
   if (callsProvider(env) !== 'realtimekit-rest') return null

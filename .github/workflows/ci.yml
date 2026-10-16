@@ -66,14 +66,6 @@ jobs:
           pnpm --filter @llll/extension typecheck &&
           pnpm --filter @llll/installation typecheck
 
-      - name: Check the L4 Admin types
-        if: matrix.check == 'typecheck'
-        run: pnpm --filter @llll/admin typecheck
-
-      - name: Build and bundle the L4 Admin
-        if: matrix.check == 'build'
-        run: pnpm --filter @llll/admin bundle
-
       # Keep test output in the log: the GitHub annotations reporter crashes
       # the runner with a Unicode EncoderFallbackException on this suite.
       - name: Run test

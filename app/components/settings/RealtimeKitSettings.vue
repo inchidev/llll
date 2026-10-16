@@ -20,8 +20,7 @@ const realtimekit = ref<RealtimeKitSettingsAdminDTO | null>(null)
 // Account API tokens belong to the account, not to whoever created them.
 const createTokenUrl = 'https://dash.cloudflare.com/?to=/:account/api-tokens&name=L4%20Live'
 
-const byAdmin = computed(() => realtimekit.value?.source === 'admin')
-const managed = computed(() => realtimekit.value?.source === 'deployment' || byAdmin.value)
+const managed = computed(() => realtimekit.value?.source === 'deployment')
 const connected = computed(() => Boolean(realtimekit.value?.configured))
 const unreadable = computed(() => realtimekit.value?.source === 'database' && !realtimekit.value.secretReadable)
 const callsUnavailable = computed(() => session.health?.capabilities.calls === false)
@@ -157,17 +156,7 @@ onMounted(load)
     <LayoutSkeleton v-if="loading" variant="form" class="mt-6" />
     <template v-else-if="realtimekit">
       <UAlert
-        v-if="byAdmin"
-        class="mt-6"
-        color="success"
-        variant="subtle"
-        icon="i-ph-shield-check"
-        title="Provided by your L4 Admin"
-        description="The Admin in this Cloudflare account creates this workspace's RealtimeKit app and presets on the first call. Nothing to configure here."
-        :actions="realtimekit.adminUrl ? [{ label: 'Open L4 Admin', to: realtimekit.adminUrl, target: '_blank', color: 'success', variant: 'solid' }] : []"
-      />
-      <UAlert
-        v-else-if="managed"
+        v-if="managed"
         class="mt-6"
         color="neutral"
         variant="subtle"
@@ -192,7 +181,7 @@ onMounted(load)
         :actions="[{ label: 'Reconnect', color: 'warning', variant: 'solid', loading: connecting, onClick: () => connect(false) }]"
       />
 
-      <dl v-if="connected && !byAdmin" class="mt-6 grid gap-x-6 gap-y-3 rounded-lg border border-default p-4 text-sm sm:grid-cols-2">
+      <dl v-if="connected" class="mt-6 grid gap-x-6 gap-y-3 rounded-lg border border-default p-4 text-sm sm:grid-cols-2">
         <div>
           <dt class="text-xs text-muted">Account</dt>
           <dd class="truncate font-mono text-xs text-highlighted">{{ realtimekit.accountId }}</dd>
@@ -257,7 +246,7 @@ onMounted(load)
         </div>
       </div>
 
-      <div v-if="connected && !byAdmin && !callsUnavailable" class="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div v-if="connected && !callsUnavailable" class="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div v-if="!managed" class="flex items-center gap-2">
           <template v-if="removeConfirm">
             <UButton label="Cancel" color="neutral" variant="ghost" @click="removeConfirm = false" />

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
-import { connectManagedAppDomain, failInstallationControl } from '../../../utils/installation-control'
+import { connectManagedAppDomain, failInstallationControl } from '../../../utils/server-infrastructure'
 import { parseBody } from '../../../utils/validate'
 
 const schema = z.object({

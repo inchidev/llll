@@ -9,8 +9,5 @@ export default defineEventHandler(async (event): Promise<ServerDeletionStatusDTO
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can delete this server')
 
   const { env } = cf(event)
-  const installationKind = env.LLLL_INSTALLATION === 'llll.gg/v1' && !env.LLLL_SERVER_ID ? 'guided' : 'manual'
-  return {
-    installationKind,
-  }
+  return { managedBy: env.LLLL_SERVER_ID ? 'installation' : 'operator' }
 })

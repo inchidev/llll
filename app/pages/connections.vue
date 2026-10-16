@@ -190,13 +190,13 @@ onMounted(async () => {
 
       <section v-if="owner" class="rounded-2xl border border-default p-5">
         <div class="flex items-center justify-between gap-3"><h2 class="font-semibold">Installation settings</h2><UButton label="Back up installation" color="neutral" variant="outline" size="sm" :loading="busy" @click="run(async () => { await connections.request(discovery!.origin, '/api/installation/backup', { method: 'POST', body: {} }); toast.add({ title: 'Installation backup saved' }) })" /></div>
-        <p class="mt-2 text-sm text-muted">Connect providers when you need them. Saved secrets stay encrypted on this installation.</p>
+        <p class="mt-2 text-sm text-muted">Manage accounts and server provisioning for this installation. Saved secrets stay encrypted here.</p>
         <form class="mt-5 grid gap-4 sm:grid-cols-2" @submit.prevent="run(saveSettings)">
           <UFormField label="Telegram bot token" :description="configured?.telegram ? 'Configured' : 'Optional · enable Mini App login'"><UInput v-model="settings.telegramBotToken" type="password" autocomplete="off" class="w-full" /></UFormField>
           <UFormField label="Telegram client ID"><UInput v-model="settings.telegramClientId" autocomplete="off" class="w-full" /></UFormField>
           <UFormField label="Telegram client secret"><UInput v-model="settings.telegramClientSecret" type="password" autocomplete="off" class="w-full" /></UFormField>
           <UFormField label="Cloudflare account ID" :description="configured?.cloudflare ? 'Provisioning configured' : 'Enable automatic server creation'"><UInput v-model="settings.cloudflareAccountId" autocomplete="off" class="w-full" /></UFormField>
-          <UFormField label="Cloudflare API token"><UInput v-model="settings.cloudflareApiToken" type="password" autocomplete="off" class="w-full" /></UFormField>
+          <UFormField label="Cloudflare API token" description="Allows this installation to create and update servers. Saved tokens are never shown again."><UInput v-model="settings.cloudflareApiToken" type="password" autocomplete="off" class="w-full" /></UFormField>
           <div class="flex items-end"><UButton type="submit" label="Save settings" :loading="busy" /></div>
         </form>
         <details class="mt-6 border-t border-default pt-5"><summary class="cursor-pointer text-sm font-medium">Register a deployed server</summary>

@@ -379,10 +379,7 @@ export type AuthSettingsAdminDTO = PublicAuthConfig & {
 
 export type RealtimeKitSettingsAdminDTO = {
   configured: boolean
-  /** `admin`: the account's L4 Admin provides Live; nothing is configured here. */
-  source: 'admin' | 'deployment' | 'database' | 'missing'
-  /** Where the owner manages Live when `source` is `admin`. */
-  adminUrl?: string | null
+  source: 'deployment' | 'database' | 'missing'
   accountId: string | null
   appId: string | null
   apiTokenConfigured: boolean

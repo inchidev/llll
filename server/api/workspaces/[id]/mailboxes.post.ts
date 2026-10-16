@@ -8,7 +8,6 @@ import { requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { ensureWorkspaceMailFromEnv, replaceMailboxAccess } from '../../../utils/workspace-mail'
-import { createManagedMailboxRoute, deleteManagedMailboxRoute } from '../../../utils/installation-control'
 import { parseBody } from '../../../utils/validate'
 import { writeAudit } from '../../../utils/messages'
 
@@ -39,7 +38,6 @@ export default defineEventHandler(async (event) => {
   const grants = new Map<string, MailboxPermission>(body.access.map(row => [row.userId, row.permission]))
   grants.set(actor.ownerId, 'manage')
   grants.set(actor.user.id, actor.isOwner ? 'manage' : (grants.get(actor.user.id) || 'manage'))
-  await createManagedMailboxRoute(env, address)
   try {
     await db.batch([
       db.insert(channels).values({
@@ -62,7 +60,6 @@ export default defineEventHandler(async (event) => {
   }
   catch (error) {
     await env.DB.prepare('DELETE FROM channels WHERE id = ?').bind(channelId).run().catch(() => undefined)
-    await deleteManagedMailboxRoute(env, address).catch(() => undefined)
     throw error
   }
   await writeAudit(env, {

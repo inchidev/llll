@@ -1,7 +1,6 @@
 import { Permission } from '../../../../../shared/permissions'
 import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
-import { deleteManagedMailboxRoute } from '../../../../utils/installation-control'
 import { writeAudit } from '../../../../utils/messages'
 
 export default defineEventHandler(async (event) => {
@@ -15,7 +14,6 @@ export default defineEventHandler(async (event) => {
      WHERE mb.channel_id = ?`,
   ).bind(channelId).first<{ address: string }>()
   if (!mailbox) fail(404, 'not_found', 'Mailbox not found')
-  await deleteManagedMailboxRoute(env, mailbox.address)
   await env.DB.prepare('DELETE FROM channels WHERE id = ?').bind(channelId).run()
   await writeAudit(env, {
     workspaceId,

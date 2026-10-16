@@ -20,7 +20,7 @@
     "preview:sweep": "node scripts/preview-resources.mjs sweep",
     "deploy": "pnpm build && pnpm deploy:built",
     "deploy:built": "pnpm db:migrate && wrangler deploy",
-    "release:installer": "pnpm build:deployment && node scripts/build-installer-release.mjs && pnpm --filter @llll/admin-core pack --pack-destination .installer/release",
+    "release:installer": "pnpm build:deployment && node scripts/build-installer-release.mjs && pnpm --filter @llll/deployment-core pack --pack-destination .installer/release",
     "env:init": "node scripts/init-env.mjs",
     "vapid:generate": "node scripts/generate-vapid.mjs",
     "postinstall": "nuxt prepare",

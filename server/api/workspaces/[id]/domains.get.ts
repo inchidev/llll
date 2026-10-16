@@ -1,6 +1,6 @@
 import { requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
-import { failInstallationControl, readManagedInstallationDomains } from '../../../utils/installation-control'
+import { failInstallationControl, readManagedInstallationDomains } from '../../../utils/server-infrastructure'
 
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Cache-Control', 'no-store')

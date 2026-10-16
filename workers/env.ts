@@ -123,15 +123,6 @@ export type L4Env = {
   LLLL_APP_SUBDOMAIN?: string
   LLLL_VERSION?: string
   LLLL_APP_HOSTNAME?: string
-  LLLL_TELEMETRY_ID?: string
-  LLLL_TELEMETRY_TOKEN?: string
-  LLLL_TELEMETRY_ENDPOINT?: string
-  /** Service binding to the account's L4 Admin (`WorkspaceControl`). See workers/llll-admin.ts. */
-  LLLL_ADMIN?: Fetcher
-  /** Legacy Installation Control Credential from llll.gg, replaced by LLLL_ADMIN. */
-  LLLL_CONTROL_ID?: string
-  LLLL_CONTROL_TOKEN?: string
-  LLLL_CONTROL_ENDPOINT?: string
   /** Cloudflare account id used to call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. */
   CLOUDFLARE_ACCOUNT_ID?: string
   /** Secret. Account API token for `CLOUDFLARE_ACCOUNT_ID`. Not `LLLL_ACCOUNT_ID`. */

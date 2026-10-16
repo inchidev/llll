@@ -1,10 +1,12 @@
 # Deploy an installation
 
+For accounts, server boundaries and where credentials live, read [installation.md](installation.md). Creating an installation and creating a server are separate steps. There is no separate Admin application.
+
 L4 has four independently deployable artifacts: the landing site, common client, installation controller, and per-server runtime. A self-hosted installation serves the same SPA itself; using app.llll.gg is optional. Keep credentials in ignored local files or the provider's secret store.
 
 ## Cloudflare
 
-For a source deployment, put `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a unique `INSTALLATION_ID` in an ignored `.env`, then run `pnpm build:deployment && pnpm deploy:installation`. The installer creates the control database, a separate backup bucket, assets and Worker, and saves private state under `.deployment`. Retain that file when updating. `pnpm deploy:installation -- --dry-run` prints the plan without account operations. Configure a custom domain and its PUBLIC_ORIGIN together before inviting people.
+For a source deployment, put `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a unique `INSTALLATION_ID` in an ignored `.env`, then run `pnpm build:deployment && pnpm deploy:installation`. The installer creates the control database, a separate backup bucket, assets and Worker, and saves private state under `.deployment`. Retain that file when updating. `pnpm deploy:installation -- --dry-run` prints the plan without account operations. Configure a custom domain and its PUBLIC_ORIGIN together before inviting people. The bootstrap token is used by the local installer; configure provisioning credentials separately in the running installation when you want it to create/update servers. Cloudflare OAuth onboarding is not implemented.
 
 The equivalent manual setup is:
 

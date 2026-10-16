@@ -16,7 +16,6 @@ export default defineEventHandler(async (event): Promise<RealtimeKitConnectionTe
   const member = await requireMember(event, workspaceId)
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can test RealtimeKit')
   const { env } = cf(event)
-  if (env.LLLL_ADMIN) fail(400, 'managed_by_admin', 'Live is provided by your L4 Admin')
   const config = await loadRealtimeKitConfig(env)
   if (!realtimekitConfigured(config)) fail(400, 'realtimekit_unconfigured', 'Connect RealtimeKit first')
 

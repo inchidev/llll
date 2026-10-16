@@ -13,7 +13,6 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
   const member = await requireMember(event, workspaceId)
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can manage RealtimeKit')
   const { env } = cf(event)
-  if (env.LLLL_ADMIN) fail(400, 'managed_by_admin', 'Live is provided by your L4 Admin')
   if ((await loadRealtimeKitConfig(env)).source === 'deployment') {
     fail(400, 'managed_by_deployment', 'RealtimeKit is managed by the deployment')
   }

@@ -1,6 +1,6 @@
 # L4 product language
 
-L4 (`llll.gg`, pronounced L4) is free MIT licensed software for independent communities. The product combines chat, rich messages, threads, tasks, mail, apps, structured data, documents, files and optional calls. It is derived from Discoflare, with Anycord's installation model.
+L4 (`llll.gg`, pronounced L4) is free MIT licensed software for independent communities. The product combines chat, rich messages, threads, tasks, mail, apps, structured data, documents, files and optional calls.
 
 ## Installation
 
@@ -32,4 +32,4 @@ The official installation is a limited demo, not a public hosting marketplace. I
 
 Cloudflare and celld run the same server logic. Cloudflare-only managed services, including RealtimeKit, Workers AI and email delivery, use bindings or explicitly configured REST credentials. Server snapshots go to a separate configured backup destination. A backup is not a copy of active sockets, running agents or third-party call state.
 
-The repository is one source of truth with independently deployed site, common client, installation and server artifacts. Releases are immutable. Migration chains start at separate clean `0000` baselines; historical Discoflare migrations only remain in test fixtures.
+The repository is one source of truth with independently deployed site, common client, installation and server artifacts. Releases are immutable. Migration chains start at separate clean `0000` baselines; earlier schema fixtures are retained only for migration tests.

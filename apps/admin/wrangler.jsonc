@@ -1,8 +1,0 @@
-{
-  // Used only to bundle the release; each account's Admin is created by admin-core.
-  "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "llll-admin",
-  "main": ".output/server/index.mjs",
-  "compatibility_date": "2026-09-28",
-  "compatibility_flags": ["nodejs_compat"]
-}

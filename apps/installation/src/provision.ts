@@ -1,4 +1,4 @@
-import { installBaseL4, cloudflareApi, updateL4 } from '../../../packages/admin-core/src/index'
+import { installBaseL4, cloudflareApi, updateL4 } from '../../../packages/deployment-core/src/index'
 import type { InstallationEnv } from './env'
 
 export type ServerRow = { id: string; name: string; owner_id: string; origin: string; worker_name: string | null; secret: string; version: string; status: 'provisioning' | 'ready' | 'failed'; error: string | null }

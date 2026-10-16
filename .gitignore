@@ -52,7 +52,6 @@ wrangler.celld.local.json
 wrangler.celld.local.jsonc
 
 # L4 Admin release bundle
-apps/admin/.bundle
 .dev.vars
 apps/installation/.bundle
 apps/installation/.wrangler

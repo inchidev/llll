@@ -8,7 +8,7 @@ export default defineEventHandler(async (event): Promise<InstallationManagementS
   setHeader(event, 'Cache-Control', 'no-store')
   const workspaceId = getRouterParam(event, 'id')!
   const member = await requireMember(event, workspaceId)
-  if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can manage this installation')
+  if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can view this server deployment')
 
   const { env } = cf(event)
   const accountId = env.LLLL_ACCOUNT_ID?.trim() || ''

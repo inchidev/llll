@@ -82,8 +82,9 @@ try {
   assert.equal(beta.payload.user.id, ownerId)
   for (const id of ['alpha', 'beta']) {
     const deletion = await api(`/s/${id}/api/workspaces/main/deletion`)
-    assert.equal(deletion.payload.installationKind, 'manual')
+    assert.equal(deletion.payload.managedBy, 'installation')
     await api(`/s/${id}/api/workspaces/main/deletion`, { method: 'POST', body: {}, expected: 409 })
+    await api(`/s/${id}/api/workspaces/main/app-domain`, { method: 'PUT', body: { zoneId: 'zone', hostname: 'chat.example.com' }, expected: 409 })
   }
   for (const id of ['alpha', 'beta']) {
     const db = await mf.getD1Database('DB', `server-${id}`)

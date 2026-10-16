@@ -8,11 +8,10 @@ export type PublishedRelease = {
 
 export type UpdateStatusDTO = {
   installedVersion: string
-  installationKind: 'guided' | 'manual'
+  management: 'installation' | 'operator'
   latestRelease: PublishedRelease | null
   releasesBehind: number
   updateAvailable: boolean
-  upgradeUrl: string | null
   checkedAt: string
   checkFailed: boolean
 }
@@ -35,7 +34,7 @@ export type InstallationDomainSettingsDTO = {
   appDomain: null | { hostname: string, zoneId: string, zoneName: string }
   /**
    * `sendingEnabled` is false for a domain that receives mail but cannot send it;
-   * connecting it again repairs it. Older Control Planes leave it out.
+   * connecting it again repairs it.
    */
   emailDomains: Array<{ id: string, domain: string, zoneId: string, zoneName: string, sendingEnabled?: boolean }>
 }

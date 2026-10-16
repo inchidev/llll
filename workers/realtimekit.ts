@@ -6,9 +6,9 @@ import {
   LLLL_PARTICIPANT_PRESET,
   testRealtimeKitApp,
   type RealtimeKitConnectionTestResult,
-} from '../packages/admin-core/src/realtimekit'
+} from '../packages/deployment-core/src/realtimekit'
 
-// The REST client is shared with the L4 Admin.
+// The REST client is shared with the installation deployment library.
 export {
   addParticipant,
   connectRealtimeKit,
@@ -23,7 +23,7 @@ export {
   type RealtimeKitAccount,
   type RealtimeKitConnectionTestResult,
   type RealtimeKitParticipant,
-} from '../packages/admin-core/src/realtimekit'
+} from '../packages/deployment-core/src/realtimekit'
 
 export const REALTIMEKIT_SECRET_SCOPE = 'realtimekit-api-token'
 
@@ -150,8 +150,6 @@ export function realtimekitConfigured(config: RealtimeKitRuntimeConfig): boolean
 
 /** Whether Live rooms can start. Health, installation status, and telemetry all use this one answer. */
 export async function liveAvailable(env: L4Env): Promise<boolean> {
-  // A linked L4 Admin provides Live; it sets up RealtimeKit on first use.
-  if (env.LLLL_ADMIN) return true
   if (realtimekitConfigured(await loadRealtimeKitConfig(env))) return true
   // Off Cloudflare, the shared API token provisions an app on the first call.
   return callsProvider(env) === 'realtimekit-rest'

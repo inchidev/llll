@@ -93,34 +93,34 @@ const featureNav = computed(() => [
   ...(can(Permission.manageWorkspace) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
   ...(isOwner.value ? [{ id: 'mcp' as const, label: 'MCP', icon: 'i-ph-plugs-connected', keywords: ['agent', 'access token', 'api', 'codex'] }] : []),
 ])
+const installationConnections = useInstallations()
 const accessNav = computed(() => [
-  ...(isOwner.value ? [{ id: 'authentication' as const, label: 'Authentication', icon: 'i-ph-key', keywords: ['login', 'signup', 'oauth', 'github', 'sso', 'registration'] }] : []),
+  ...(isOwner.value && installationConnections.activeInstallation.value?.kind !== 'installation' ? [{ id: 'authentication' as const, label: 'Authentication', icon: 'i-ph-key', keywords: ['login', 'signup', 'oauth', 'github', 'sso', 'registration'] }] : []),
   ...(isOwner.value ? [{ id: 'onboarding' as const, label: 'Onboarding', icon: 'i-ph-flag-banner', keywords: ['welcome', 'first run', 'branding'] }] : []),
   ...(can(Permission.manageWorkspace) ? [{ id: 'audit' as const, label: 'Audit Log', icon: 'i-ph-list-magnifying-glass', keywords: ['history', 'activity', 'log'] }] : []),
 ])
-const installationSections = ['cloudflare', 'domains', 'backups', 'updates', 'telemetry', 'danger']
-const installationNav = computed(() => isOwner.value
+const deploymentSections = ['cloudflare', 'domains', 'backups', 'updates', 'danger']
+const deploymentNav = computed(() => isOwner.value
   ? [{
       id: 'cloudflare' as const,
-      label: 'System',
+      label: 'Deployment',
       icon: 'i-ph-hard-drives',
-      aliases: installationSections,
+      aliases: deploymentSections,
       badge: updatesQ.data.value?.updateAvailable ? String(updatesQ.data.value.releasesBehind) : undefined,
       keywords: [
         'cloudflare', 'installation', 'management', 'instance token', 'managed', 'manual', 'deployment',
         'domain', 'app domain', 'custom domain', 'address', 'url', 'dns', 'zone',
         'backup', 'download', 'export', 'restore', 'd1', 'r2',
         'updates', 'release', 'version', 'upgrade', 'github',
-        'telemetry', 'anonymous', 'heartbeat', 'privacy', 'stats',
         'danger', 'delete workspace', 'delete server', 'remove', 'destroy', 'uninstall',
       ],
     }]
   : [])
 const groups = computed(() => [
-  { label: 'Workspace', items: workspaceNav.value },
+  { label: 'Server', items: workspaceNav.value },
   { label: 'Features', items: featureNav.value },
   { label: 'Access', items: accessNav.value },
-  { items: installationNav.value },
+  { items: deploymentNav.value },
 ].filter(group => group.items.length))
 const availableSections = computed(() => groups.value.flatMap(group => group.items.flatMap(item => 'aliases' in item ? item.aliases : [item.id])))
 
@@ -726,8 +726,8 @@ function roleLabel(name: string) {
       <SettingsMcpSettings :workspace-id="workspaceId" />
     </template>
 
-    <template v-else-if="installationSections.includes(section)">
-      <SettingsInstallationSettings
+    <template v-else-if="deploymentSections.includes(section)">
+      <SettingsServerDeploymentSettings
         v-model:section="section"
         :workspace-id="workspaceId"
         :workspace-name="workspaceName"

@@ -181,7 +181,7 @@ onMounted(load)
     <h1 class="text-xl font-semibold text-highlighted">Backups</h1>
     <p class="mt-1 text-sm text-muted">Create a manual workspace archive.</p>
 
-    <UAlert v-if="!filesEnabled" class="mt-5" color="warning" title="Backups are disabled" description="Enable R2 from this workspace’s L4 Admin, then reload the workspace. Files and full workspace backups will become available." />
+    <UAlert v-if="!filesEnabled" class="mt-5" color="warning" title="Backups are disabled" description="Ask the installation operator to configure file storage for this server, then reload." />
     <div class="mt-8 rounded-lg border border-default bg-elevated p-5">
       <div class="flex items-start gap-3">
         <div class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accented text-muted">
