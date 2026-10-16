@@ -11,6 +11,7 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 export type L4Env = {
   /** The installation that may introduce an explicitly admitted member. */
   LLLL_INSTALLATION_INTERNAL_ORIGIN?: string
+  INSTALLATION_SERVICE?: Fetcher
   LLLL_INSTALLATION_ORIGIN?: string
   LLLL_INSTALLATION_KEY?: string
   LLLL_SERVER_ID?: string

@@ -14,7 +14,8 @@ export async function userFromTicket(env: L4Env, token: string): Promise<PublicU
         const identity = await verifyInstallationIdentity(saved.installationToken, env.LLLL_INSTALLATION_KEY, env.LLLL_INSTALLATION_ORIGIN, env.LLLL_SERVER_ID)
         if (identity.sub !== saved.userId) return null
         const proof = await signInstallationIdentity(identity, env.LLLL_INSTALLATION_KEY, env.LLLL_INSTALLATION_ORIGIN, env.LLLL_SERVER_ID)
-        const response = await fetch(`${env.LLLL_INSTALLATION_INTERNAL_ORIGIN || env.LLLL_INSTALLATION_ORIGIN}/api/installation/socket-session/${encodeURIComponent(env.LLLL_SERVER_ID)}`, { method: 'POST', headers: { 'x-llll-identity': proof } })
+        const request = new Request(`${env.LLLL_INSTALLATION_INTERNAL_ORIGIN || env.LLLL_INSTALLATION_ORIGIN}/api/installation/socket-session/${encodeURIComponent(env.LLLL_SERVER_ID)}`, { method: 'POST', headers: { 'x-llll-identity': proof } })
+        const response = env.INSTALLATION_SERVICE ? await env.INSTALLATION_SERVICE.fetch(request) : await fetch(request)
         if (!response.ok) return null
         return loadUser(env, saved.userId)
       }

@@ -324,7 +324,7 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
   if (path === '/api/installation/servers') {
     if (request.method === 'POST') return createServer(request, env)
     const session = await requireSession(request, env)
-    const rows = await env.INSTALLATION_DB.prepare('SELECT s.* FROM servers s JOIN memberships m ON m.server_id = s.id WHERE m.user_id = ? OR s.owner_id = ? ORDER BY s.created_at,s.id').bind(session.user.id, session.user.id).all<ServerRow>()
+    const rows = await env.INSTALLATION_DB.prepare('SELECT s.* FROM servers s WHERE s.owner_id = ? OR EXISTS (SELECT 1 FROM memberships m WHERE m.server_id = s.id AND m.user_id = ?) ORDER BY s.created_at,s.id').bind(session.user.id, session.user.id).all<ServerRow>()
     return json({ servers: await Promise.all(rows.results.map(async server => ({ ...serverSummary(server), assetToken: await assetToken(env, server.id, session.session.id) }))) })
   }
   const inviteRoute = path.match(/^\/api\/installation\/servers\/([a-z0-9-]+)\/invites$/)

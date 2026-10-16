@@ -102,7 +102,8 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
   }
 
   private async authTimeout(ws: WebSocket) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // A cold installation session lookup includes KV and D1 round trips.
+    await new Promise((resolve) => setTimeout(resolve, 10000))
     const attachment = ws.deserializeAttachment() as WorkspaceSocketAttachment | null
     if (!attachment?.userId) {
       try { ws.close(4001, 'unauthorized') }

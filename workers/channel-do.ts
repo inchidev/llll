@@ -813,7 +813,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async authTimeout(ws: WebSocket) {
-    await new Promise((r) => setTimeout(r, 2000))
+    // A cold installation session lookup includes KV and D1 round trips.
+    await new Promise((r) => setTimeout(r, 10000))
     const sock = ws.deserializeAttachment() as Sock | null
     if (!sock?.userId) {
       try { ws.close(4001, 'unauthorized') }

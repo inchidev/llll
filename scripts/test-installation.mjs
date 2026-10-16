@@ -42,6 +42,7 @@ const fixtureOptions = {
       name: `server-${id}`, modules: true, scriptPath: serverBundle, compatibilityDate: '2026-09-26', compatibilityFlags: ['nodejs_compat'],
       d1Databases: { DB: `server-${id}` }, r2Buckets: { FILES: `server-${id}-files`, BACKUPS: 'fixture-backups' }, kvNamespaces: { TICKETS: `server-${id}-tickets` },
       durableObjects: Object.fromEntries(Object.entries(classes).map(([binding, className]) => [binding, { className, useSQLite: true }])),
+      serviceBindings: { INSTALLATION_SERVICE: 'installation' },
       bindings: { PUBLIC_ORIGIN: `http://localhost:${port + 1 + index}`, AUTH_SECRET: `${id}-server-auth-secret-`.repeat(3), ADMIN_EMAIL: 'owner@example.com', ADMIN_SETUP_TOKEN: 'integration-owner-claim-'.repeat(3), APP_NAME: id, ADMIN_WORKSPACE: id, AUTH_REGISTRATION_MODE: 'invite_only', LLLL_INSTALLATION_ORIGIN: origin, LLLL_SERVER_ID: id, LLLL_INSTALLATION_KEY: keys[id] },
     })),
   ],
@@ -200,6 +201,10 @@ try {
   await api('/api/installation/join', { token: strangerToken, method: 'POST', body: { token: invite.payload.invite.token } })
   const admitted = await api('/s/alpha/api/me', { token: strangerToken })
   assert.equal(admitted.payload.user.id, stranger.payload.user.id)
+  const ownerDirectoryAfterJoin = await api('/api/installation/servers')
+  assert.deepEqual(ownerDirectoryAfterJoin.payload.servers.map(server => server.id), ['alpha', 'beta'], 'Each server appears once even when it has several members')
+  const memberDirectory = await api('/api/installation/servers', { token: strangerToken })
+  assert.deepEqual(memberDirectory.payload.servers.map(server => server.id), ['alpha'])
   await api('/s/beta/api/me', { token: strangerToken, expected: 403 })
   await api('/api/auth/sign-out', { token: strangerToken, method: 'POST', body: {} })
   await api('/s/alpha/api/me', { token: strangerToken, expected: 401 })

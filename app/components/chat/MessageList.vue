@@ -185,7 +185,8 @@ function distanceFromBottom() {
 function scrollToBottom(smooth = false) {
   const el = scroller.value
   if (!el) return
-  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  if (messages.value.length) virtualizer.value.scrollToEnd({ behavior: smooth ? 'smooth' : 'auto' })
+  else el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
   pinned.value = true
   unseen.value = 0
 }
@@ -235,19 +236,24 @@ async function loadOlder() {
 
 let resizeObserver: ResizeObserver | undefined
 
+watch(content, (element) => {
+  resizeObserver?.disconnect()
+  if (!element || typeof ResizeObserver === 'undefined') return
+  resizeObserver = new ResizeObserver(() => {
+    measureContentMargin()
+    if (pinned.value && !loadingOlder) scrollToBottom()
+  })
+  resizeObserver.observe(element)
+  measureContentMargin()
+  if (pinned.value) scrollToBottom()
+}, { flush: 'post' })
+
 onMounted(() => {
   nextTick(() => {
     measureContentMargin()
     scrollToBottom()
     markReadIfVisible()
   })
-  if (content.value && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
-      measureContentMargin()
-      if (pinned.value && !loadingOlder) scrollToBottom()
-    })
-    resizeObserver.observe(content.value)
-  }
   window.addEventListener('focus', markReadIfVisible)
   document.addEventListener('visibilitychange', markReadIfVisible)
 })
