@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 const configPath = resolve(root, 'apps/site/wrangler.jsonc')
 
 function wrangler(args, { allowFailure = false } = {}) {
-  const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } })
+  const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', FORCE_COLOR: '0', NO_COLOR: '1', TERM: 'dumb' } })
   if (result.stdout?.trim()) process.stdout.write(result.stdout)
   if (result.stderr?.trim()) process.stderr.write(result.stderr)
   if (result.error) throw result.error
@@ -60,8 +60,7 @@ export async function preview(name) {
   const value = String(name || process.env.PREVIEW_NAME || '').trim()
   if (!/^pr-[1-9][0-9]{0,9}$/.test(value)) throw new Error('Preview name must look like pr-4')
   const result = wrangler(['preview', '--config', 'apps/site/wrangler.jsonc', '--worker-name', 'llll', '--name', value, '--json'])
-  const clean = result.stdout.replaceAll(/\u001b\[[0-9;]*m/g, '')
-  const urls = [...clean.matchAll(/https?:\/\/([a-z0-9.-]*pr-\d+[a-z0-9.-]*)/gi)].map(match => match[0])
+  const urls = [...result.stdout.matchAll(/https?:\/\/([a-z0-9.-]*pr-\d+[a-z0-9.-]*)/gi)].map(match => match[0])
   const custom = `https://${value}.dev.llll.gg`
   const url = urls.find(item => item.includes('.dev.llll.gg')) || urls[0] || custom
   console.log(JSON.stringify({ name: value, url, custom }))
