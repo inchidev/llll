@@ -28,7 +28,7 @@ watch(() => route.fullPath, async () => { if (route.params.serverId) { try { awa
 <template>
   <main class="flex h-dvh overflow-hidden bg-default">
     <nav aria-label="Installations and servers" class="shell-rail flex w-[86px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-default bg-elevated px-2 py-3">
-      <NuxtLink to="/open" aria-label="L4 connections" class="mx-auto flex size-11 items-center justify-center rounded-xl bg-accented text-highlighted"><BrandMark class="size-7" /></NuxtLink>
+      <NuxtLink to="/open" aria-label="L4 connections" class="mx-auto flex size-11 items-center justify-center text-highlighted"><BrandMark class="size-7" /></NuxtLink>
       <section v-for="installation in shell.installations.value" :key="installation.origin" :aria-label="installation.name" class="relative grid min-h-24 grid-cols-[18px_1fr] gap-1">
         <button :aria-label="`Toggle ${installation.name}`" :aria-expanded="!installation.collapsed" class="relative rounded-md bg-accented text-[10px] font-semibold text-muted hover:text-highlighted" @click="installation.collapsed = !installation.collapsed; shell.persist()"><span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 whitespace-nowrap">{{ installation.name.slice(0, 18) }}</span></button>
         <div v-if="!installation.collapsed" class="flex flex-col gap-2">

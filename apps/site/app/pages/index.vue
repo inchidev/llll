@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DropdownMenuItem, NavigationMenuItem } from '@nuxt/ui'
+import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
 const sandboxUrl = '/open?installation=https://sandbox.llll.gg'
@@ -14,7 +14,6 @@ const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Docs', to: `${repoUrl}/tree/main/docs` },
 ])
 
-const compactNavigation = computed<DropdownMenuItem[]>(() => navigation.value.map(({ label, to }) => ({ label, to })))
 const primaryActionLabel = 'Install your own'
 const productGroups = [
   { name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
@@ -87,11 +86,7 @@ useHead({
       <template #title><BrandLogo :linked="false" /></template>
       <UNavigationMenu :items="navigation" class="hidden lg:flex" />
       <template #right>
-              <UButton :to="sandboxUrl" label="Try sandbox" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
-              <UButton to="/open" label="Open L4" color="neutral" variant="outline" />
-        <UDropdownMenu :items="compactNavigation" :content="{ align: 'end', sideOffset: 12 }" :ui="{ content: 'w-56' }">
-          <UButton icon="i-ph-list" aria-label="Open menu" color="neutral" variant="ghost" class="lg:hidden" />
-        </UDropdownMenu>
+        <UButton :to="repoUrl" target="_blank" icon="i-ph-github-logo" aria-label="GitHub repository" color="neutral" variant="ghost" />
       </template>
     </UHeader>
 
@@ -217,15 +212,10 @@ useHead({
       </section>
     </main>
 
-    <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 py-12 sm:py-16">
+    <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 pt-12 sm:pt-16">
       <div class="pointer-events-none absolute inset-0 -z-10 opacity-60" />
       <UContainer>
-        <div class="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
-          <div class="col-span-2 sm:col-span-3 lg:col-span-1">
-            <p class="display-title text-2xl font-semibold text-highlighted">Your workspace, your way.</p>
-            <p class="mt-4 max-w-sm text-base leading-7 text-muted">A place for your team and its agents to talk, plan, and build together.</p>
-            <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" color="neutral" variant="outline" class="mt-5" />
-          </div>
+        <div class="grid grid-cols-2 gap-8 pb-12 sm:grid-cols-3 sm:pb-16">
           <nav aria-label="Footer product">
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
             <ul class="space-y-3 text-sm text-muted">
@@ -253,15 +243,15 @@ useHead({
             </ul>
           </nav>
         </div>
-        <div class="mt-10 flex w-full flex-col gap-5 border-t border-muted pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <BrandLogo />
-          <div class="flex items-center justify-between gap-6 sm:justify-end">
-            <div class="text-xs leading-5 text-dimmed">
-              <p>A project by Inchi</p>
-            </div>
-          </div>
-        </div>
       </UContainer>
+      <div class="border-t border-muted py-8">
+        <UContainer class="flex w-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <BrandLogo />
+          <div class="text-xs leading-5 text-dimmed">
+            <p>A project by Inchi</p>
+          </div>
+        </UContainer>
+      </div>
     </footer>
   </div>
 </template>
