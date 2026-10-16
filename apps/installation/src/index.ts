@@ -271,7 +271,7 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
       const user = token ? await auth.api.getSession({ headers: new Headers({ Authorization: `Bearer ${token}` }) }) : null
       if (user) await admitInvite(env, inviteToken, user.user.id)
     }
-    if (path === '/api/auth/oauth2/authorize' && request.method === 'GET' && (request.headers.get('sec-fetch-mode') === 'navigate' || request.headers.get('accept')?.includes('text/html')) && response.headers.get('content-type')?.includes('application/json')) {
+    if (path === '/api/auth/oauth2/authorize' && request.method === 'GET' && response.ok && (request.headers.get('sec-fetch-mode') === 'navigate' || request.headers.get('accept')?.includes('text/html')) && response.headers.get('content-type')?.includes('application/json')) {
       const result = await response.clone().json() as { redirect?: boolean; url?: string }
       if (result.redirect && result.url) return Response.redirect(new URL(result.url, env.PUBLIC_ORIGIN).toString(), 302)
     }
