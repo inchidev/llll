@@ -23,7 +23,8 @@
     "INSTALLATION_ID": "local",
     "INSTALLATION_NAME": "My L4",
     "REGISTRATION_MODE": "invite_only",
-    "CLIENT_ORIGINS": "https://app.llll.gg",
+    "CLIENT_ORIGINS": "https://llll.gg",
+    "EMBED_ORIGINS": "https://llll.gg",
     "MAX_SERVERS": "20"
   }
 }

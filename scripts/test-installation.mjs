@@ -87,6 +87,7 @@ try {
   assert.equal(embedded.headers.get('cache-control'), 'no-store')
   const embeddedHtml = await embedded.text()
   assert.ok(embeddedHtml.includes('__LLLL_BOOTSTRAP__'))
+  assert.ok(embeddedHtml.includes('/channels/alpha-general?parent='), 'Bootstrap must start on its target route without a second mounted redirect')
   assert.ok(!embeddedHtml.includes('session=' + ownerToken), 'The session must never be placed in a URL')
   const badEmbed = await mf.dispatchFetch(origin + '/embed/open', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: embedBody.toString() })
   assert.equal(badEmbed.status, 403)

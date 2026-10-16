@@ -405,6 +405,7 @@ export default {
     const configured = { ...env }
     for (const row of settings.results) {
       if (!['TELEGRAM_TRUSTED_BOT_ID', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CLIENT_ID', 'TELEGRAM_CLIENT_SECRET', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].includes(row.key)) continue
+      if (env[row.key as keyof InstallationEnv]) continue
       Object.assign(configured, { [row.key]: await decryptSecret(env.AUTH_SECRET, `settings:${row.key}`, JSON.parse(row.value)) })
     }
     env = configured

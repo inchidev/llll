@@ -28,6 +28,7 @@ export default defineNuxtPlugin(async (nuxt) => {
     const server = connections.activeServer.value
     if (server?.publicId && safeEmbedPath(to.fullPath)) post({ type: 'navigate', serverId: server.publicId, path: to.fullPath })
   })
+  let switching = false
   window.addEventListener('message', async event => {
     if (event.source !== window.parent || event.origin !== parentOrigin || event.data?.llll !== EMBED_VERSION) return
     const parsed = embedCommand.safeParse(event.data)
@@ -41,7 +42,7 @@ export default defineNuxtPlugin(async (nuxt) => {
       catch { /* The installation's own login remains available. */ }
       return
     }
-    if (!safeEmbedPath(command.path)) return
+    if (switching || !safeEmbedPath(command.path)) return
     const server = local.value?.servers.find(s => s.publicId === command.serverId)
     if (!server) { await router.replace('/connections'); return }
     if (connections.active.value?.serverId !== server.id) {
@@ -51,6 +52,7 @@ export default defineNuxtPlugin(async (nuxt) => {
         if (current?.publicId) post({ type: 'navigate', serverId: current.publicId, path: router.currentRoute.value.fullPath })
         return
       }
+      switching = true
       connections.select(location.origin, server.id)
       // A new server gets fresh query caches, sockets and content state.
       const form = document.createElement('form')
@@ -63,13 +65,6 @@ export default defineNuxtPlugin(async (nuxt) => {
     else await router.replace(command.path)
   })
   nuxt.hook('app:mounted', async () => {
-  const requested = parameters.get('server')
-  if (requested && local.value?.servers.some(s => s.publicId === requested)) {
-    const server = local.value.servers.find(s => s.publicId === requested)!
-    connections.select(location.origin, server.id)
-    const path = parameters.get('path') || '/'
-    if (safeEmbedPath(path)) await router.replace(path)
-  }
   post({ type: 'ready', version: EMBED_VERSION, name: installation.name })
   publish()
   })

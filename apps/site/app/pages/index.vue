@@ -96,21 +96,21 @@ useHead({
     </UHeader>
 
     <main>
-      <section class="relative isolate border-b border-muted py-16 sm:py-28 lg:py-32">
+      <section class="relative isolate border-b border-muted py-10 sm:py-20 lg:py-20">
         
         
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
 
-            <h1 class="display-title text-5xl font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat and work together. Run it yourself.</h1>
-            <p class="mx-auto mt-7 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Channels, threads, tasks, shared mail and data. One installation, many servers. Free software on infrastructure you control.</p>
-            <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat and work together. Run it yourself.</h1>
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Channels, threads, tasks, shared mail and data. One installation, many servers. Free software on infrastructure you control.</p>
+            <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" target="_blank" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
-          <ProductPreview class="mx-auto mt-12 max-w-6xl" />
+          <ProductPreview class="mx-auto mt-8 max-w-6xl" />
         </UContainer>
       </section>
 
@@ -125,7 +125,7 @@ useHead({
             <article v-for="app in productGroups" :id="`app-${app.name.toLowerCase()}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
               <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
               <h3 class="mt-6 text-xl font-semibold text-highlighted">{{ app.title }}</h3>
-              <p class="mt-3 text-sm leading-6 text-muted">{{ app.description }}</p>
+              <p class="mt-3 text-base leading-7 text-muted">{{ app.description }}</p>
               <p v-if="app.note" class="mt-4 text-xs leading-5 text-dimmed">{{ app.note }}</p>
             </article>
           </div>
@@ -149,7 +149,7 @@ useHead({
             <UBadge label="Built-in Apps · Available now" color="primary" variant="subtle" />
             <h3 class="display-title mt-5 text-2xl font-semibold text-highlighted sm:text-3xl">Your data. Your tools.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Turn workspace records into shared lists, tables, and metrics: a client directory, a sales console, or a project dashboard. Choose what each app can show or change, then publish it to the right roles.</p>
-            <p class="mt-4 text-sm leading-6 text-muted">Create and publish these tools with the built-in Apps editor.</p>
+            <p class="mt-4 text-base leading-7 text-muted">Create and publish these tools with the built-in Apps editor.</p>
             <NuxtLink :to="`${repoUrl}/blob/main/README.md`" class="mt-5 inline-flex items-center gap-2 text-sm text-primary hover:underline">Explore built-in Apps <UIcon name="i-ph-arrow-right" class="size-4" /></NuxtLink>
           </div>
         </UContainer>
@@ -164,7 +164,7 @@ useHead({
           <div class="mt-10 grid gap-8 md:grid-cols-3">
             <article v-for="freedom in freedoms" :key="freedom.title">
               <h3 class="text-xl font-semibold text-highlighted">{{ freedom.title }}</h3>
-              <p class="mt-3 text-sm leading-6 text-muted">{{ freedom.description }}</p>
+              <p class="mt-3 text-base leading-7 text-muted">{{ freedom.description }}</p>
             </article>
           </div>
           <p class="mt-8 text-xs leading-5 text-dimmed">L4 adds no member, history, mailbox, or record tiers. Your infrastructure and connected providers determine capacity and usage costs.</p>
@@ -176,13 +176,13 @@ useHead({
           <div class="mx-auto max-w-3xl text-center">
             <p class="mb-3 text-sm font-medium text-primary">Ways to run</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Choose where to run L4.</h2>
-            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Choose Cloudflare for managed infrastructure, or celld on your VPS. In either case, you operate the installation and own its data.</p>
+            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Run on your Cloudflare account, or use celld on your VPS. In either case, you operate the installation and own its data.</p>
           </div>
           <div class="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Available now" color="primary" variant="subtle" class="self-start" />
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run in your Cloudflare — Free</h3>
-              <p class="mt-4 text-sm leading-6 text-muted">Connect your Cloudflare account, deploy an installation, then create isolated servers. Each server has its own database, files and realtime runtime.</p>
+              <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy an installation, then create isolated servers. Each server has its own database, files and realtime runtime.</p>
               <ul class="my-7 space-y-3 text-sm text-toned">
                 <li>Full MIT product, including all five apps and agents</li>
                 <li>No seats, history tiers, or reduced open-source edition</li>
@@ -193,7 +193,7 @@ useHead({
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Docker Compose · Coolify" color="neutral" variant="outline" class="self-start" />
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on your VPS</h3>
-              <p class="mt-4 text-sm leading-6 text-muted">The same server logic on celld. Keep chat, tasks, documents and files on your own machine. Connect optional calls, AI and mail providers when you need them.</p>
+              <p class="mt-4 text-base leading-7 text-muted">The same server logic on celld. Keep chat, tasks, documents and files on your own machine. Connect optional calls, AI and mail providers when you need them.</p>
               <ul class="my-7 space-y-3 text-sm text-toned"><li>Local accounts and your own domain</li><li>One private runtime and database per server</li><li>Separate backups and operator-controlled updates</li></ul>
               <UButton to="/deploy?method=vps" label="VPS setup" color="neutral" variant="outline" size="lg" class="mt-auto self-start" />
             </UCard>
@@ -219,10 +219,10 @@ useHead({
     <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 py-12 sm:py-16">
       <div class="pointer-events-none absolute inset-0 -z-10 opacity-60" />
       <UContainer>
-        <div class="grid gap-10 sm:grid-cols-3 lg:grid-cols-4">
-          <div class="sm:col-span-3 lg:col-span-1">
+        <div class="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
+          <div class="col-span-2 sm:col-span-3 lg:col-span-1">
             <p class="display-title text-2xl font-semibold text-highlighted">Your workspace, your way.</p>
-            <p class="mt-4 max-w-sm text-sm leading-6 text-muted">A place for your team and its agents to talk, plan, and build together.</p>
+            <p class="mt-4 max-w-sm text-base leading-7 text-muted">A place for your team and its agents to talk, plan, and build together.</p>
             <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" color="neutral" variant="outline" class="mt-5" />
           </div>
           <nav aria-label="Footer product">

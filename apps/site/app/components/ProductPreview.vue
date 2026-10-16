@@ -44,7 +44,7 @@ function onTouchEnd(event: TouchEvent) {
         >
           <img :src="item.src" :alt="item.alt" width="1280" height="720" loading="lazy" decoding="async" class="aspect-video w-full object-contain">
         </div>
-        <figcaption class="mt-4 text-center text-xs leading-5 text-dimmed">{{ item.label }}, inherited from Discoflare, with sample content. <a :href="`#app-${item.value}`" class="text-primary hover:underline">Explore {{ item.label }}</a></figcaption>
+        <figcaption class="mt-4 text-center text-xs leading-5 text-dimmed">{{ item.label }}, inherited from Discoflare, with sample content. <a :href="`#app-${item.value}`" class="whitespace-nowrap text-primary hover:underline">Explore {{ item.label }}</a></figcaption>
       </figure>
     </template>
   </UTabs>

@@ -23,7 +23,7 @@ function runtime(name, env) {
   volumes[`${name}-data`] = {}
   return { ...(name === 'installation' ? { build: { context: relative(destination, root), dockerfile: 'self-host/Dockerfile' } } : { pull_policy: 'never' }), image: 'llll:local', restart: 'unless-stopped', depends_on: { 'bucket-init': { condition: 'service_completed_successfully' } }, environment: { ADMIN_EMAIL: 'owner@example.com', ADMIN_SETUP_TOKEN: setup, AUTH_SECRET: random(), ...env, AWS_ACCESS_KEY_ID: credentials.RUSTFS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY: credentials.RUSTFS_SECRET_KEY, AWS_REGION: 'us-east-1', S3_ENDPOINT: 'http://rustfs:9000', CELLD_BUCKET: `s3://${name}-cells`, CELLD_WATCH: '/var/lib/llll/celld', CELLD_DURABILITY: 'bucket', CELLD_READY_FLEET_GATE_MS: '0' }, volumes: [`${name}-data:/var/lib/llll/celld`] }
 }
-services.installation = runtime('installation', { LLLL_MODE: 'installation', PUBLIC_ORIGIN: origin, INSTALLATION_ID: 'self-host', INSTALLATION_NAME: 'My L4', SETUP_TOKEN: setup, CLIENT_ORIGINS: 'https://app.llll.gg', TRUSTED_SERVER_ORIGINS: ids.map(id => `http://l4-${id}:8080`).join(',') })
+services.installation = runtime('installation', { LLLL_MODE: 'installation', PUBLIC_ORIGIN: origin, INSTALLATION_ID: 'self-host', INSTALLATION_NAME: 'My L4', SETUP_TOKEN: setup, CLIENT_ORIGINS: 'https://llll.gg', EMBED_ORIGINS: 'https://llll.gg', TRUSTED_SERVER_ORIGINS: ids.map(id => `http://l4-${id}:8080`).join(',') })
 services.installation.ports = [`127.0.0.1:${new URL(origin).hostname === 'localhost' ? (new URL(origin).port || 8080) : 8080}:8080`]
 for (const id of ids) {
   const key = random()
@@ -35,4 +35,4 @@ services['bucket-init'] = { image: 'amazon/aws-cli:2.38.0', depends_on: { rustfs
 await writeFile(resolve(destination, 'compose.json'), JSON.stringify({ name: 'llll-installation', services, volumes }, null, 2) + '\n', { mode: 0o600 })
 await writeFile(resolve(destination, 'servers.json'), JSON.stringify(registry, null, 2) + '\n', { mode: 0o600 })
 await writeFile(resolve(destination, 'owner-claim.txt'), `${origin}/connections#claim=${setup}\n`, { mode: 0o600 })
-console.log(`Created ${destination}. Run docker compose -f ${destination}/compose.json up -d --build. Open owner-claim.txt privately, then register the entries in servers.json using Installation settings. Put TLS in front before connecting app.llll.gg.`)
+console.log(`Created ${destination}. Run docker compose -f ${destination}/compose.json up -d --build. Open owner-claim.txt privately, then register the entries in servers.json using Installation settings. Put TLS in front before connecting llll.gg.`)

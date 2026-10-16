@@ -8,3 +8,5 @@ button[role="tab"][data-state="active"] { color: #090909; background: var(--ui-p
 .dark { --ui-primary: #b8ed6a; }
 button[role="tab"][data-state="active"] { color: #fff; }
 .dark button[role="tab"][data-state="active"] { color: #090909; }
+
+@media (forced-colors: active) { button, [role=tab], a[role=button] { border: 1px solid ButtonText; } }

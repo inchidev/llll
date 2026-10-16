@@ -111,7 +111,7 @@ export function useInstallations() {
     const installation = installations.value.find(item => item.origin === origin)
     if (installation?.kind === 'installation') await request(origin, '/api/auth/sign-out', { method: 'POST' })
     tokens.value = Object.fromEntries(Object.entries(tokens.value).filter(([key]) => key !== origin))
-    sessionStorage.removeItem(`${TOKEN}${origin}`)
+    try { sessionStorage.removeItem(`${TOKEN}${origin}`) } catch { /* Embedded storage may be blocked. */ }
     if (installation) { installation.userId = undefined; if (installation.kind === 'installation') installation.servers = [] }
     if (active.value?.origin === origin) active.value = null
     persist()
@@ -120,7 +120,7 @@ export function useInstallations() {
   function remove(origin: string) {
     installations.value = installations.value.filter(item => item.origin !== origin)
     tokens.value = Object.fromEntries(Object.entries(tokens.value).filter(([key]) => key !== origin))
-    sessionStorage.removeItem(`${TOKEN}${origin}`)
+    try { sessionStorage.removeItem(`${TOKEN}${origin}`) } catch { /* Embedded storage may be blocked. */ }
     if (active.value?.origin === origin) active.value = null
     persist()
   }

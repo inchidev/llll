@@ -26,7 +26,9 @@ export async function embedNavigation(request: Request, env: InstallationEnv) {
   if (!htmlReader) return new Response('Client unavailable', { status: 503 })
   while (true) { const { done, value } = await htmlReader.read(); if (done) break; htmlSize += value.length; if (htmlSize > 262144) { await htmlReader.cancel(); return new Response('Client document too large', { status: 503 }) } htmlChunks.push(value) }
   const htmlBytes = new Uint8Array(htmlSize); offset = 0; for (const chunk of htmlChunks) { htmlBytes.set(chunk, offset); offset += chunk.length }
-  const url = '/?' + new URLSearchParams({ parent, server: serverId, path })
+  const target = new URL(path === '/' ? '/channels' : path, env.PUBLIC_ORIGIN)
+  target.searchParams.set('parent', parent)
+  const url = target.pathname + target.search + target.hash
   const bootstrap = JSON.stringify({ token, serverId: server.id }).replaceAll('<', '\\u003c')
   const script = `<script>window.__LLLL_BOOTSTRAP__=${bootstrap};history.replaceState(history.state,'',${JSON.stringify(url).replaceAll('<', '\\u003c')});</script>`
   return new Response(new TextDecoder().decode(htmlBytes).replace('</head>', script + '</head>'), { headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' } })
