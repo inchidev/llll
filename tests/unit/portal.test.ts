@@ -56,6 +56,35 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
   expect((await portal.fetch(foreign, env)).status).toBe(403)
 })
 
+it('lists published releases for the deploy picker and pins the chosen version to the deployment', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).startsWith('https://api.github.com/')) return Response.json([
+      { tag_name: 'v0.3.1', name: 'L4 0.3.1', draft: false, prerelease: false, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })), published_at: '2026-10-16T15:26:10Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.3.1' },
+      { tag_name: 'preview-20261016-b70b163', draft: false },
+      { tag_name: 'v0.3.2', name: 'L4 0.3.2 RC', draft: false, prerelease: true, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })) },
+      { tag_name: 'v0.3.0', name: 'L4 0.3.0', draft: true, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })) },
+      { tag_name: 'v0.2.3', name: 'L4 0.2.3', draft: false, prerelease: false, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })), published_at: '2026-10-16T10:45:52Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.3' },
+    ])
+    if (String(url).endsWith('/oauth2/token')) return Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })
+    return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })
+  }))
+  const listing = await portal.fetch(req('/api/deploy/releases'), env)
+  expect(await listing.json()).toEqual({ releases: [
+    { version: 'v0.3.1', name: 'L4 0.3.1', published_at: '2026-10-16T15:26:10Z', notes_url: 'https://github.com/inchidev/llll/releases/tag/v0.3.1' },
+    { version: 'v0.2.3', name: 'L4 0.2.3', published_at: '2026-10-16T10:45:52Z', notes_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.3' },
+  ] })
+  const start = await portal.fetch(req('/api/deploy/oauth'), env)
+  const cookie = start.headers.get('set-cookie')!.split(';')[0]!
+  const auth = new URL(start.headers.get('location')!)
+  await portal.fetch(req('/api/deploy/callback?code=one&state=' + auth.searchParams.get('state'), cookie), env)
+  const bad = await portal.fetch(req('/api/deploy/start', cookie, { accountId: 'a'.repeat(32), name: 'Community', version: 'latest' }), env)
+  expect(bad.status).toBe(400)
+  const good = await portal.fetch(req('/api/deploy/start', cookie, { accountId: 'a'.repeat(32), name: 'Community', version: 'v0.3.1' }), env)
+  expect(good.status).toBe(200)
+  const session = await portal.fetch(req('/api/deploy/session', cookie), env)
+  expect((await session.json()).version).toBe('v0.3.1')
+})
+
 it('requires an installation proof and prevents directory ownership replacement', async () => {
   const id = crypto.randomUUID()
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json({ id, origin: new URL(url).origin })))

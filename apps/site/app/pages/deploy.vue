@@ -5,8 +5,11 @@ const name = ref('My L4')
 const accountId = ref('')
 const busy = ref(false)
 const error = ref('')
-const config = ref<{ oauth: boolean; release: boolean } | null>(null)
-const session = ref<{ authorized: boolean; accounts: { id: string; name: string }[]; step?: number; error?: string; completed?: boolean; claim?: string; origin?: string } | null>(null)
+const config = ref<{ oauth: boolean } | null>(null)
+const session = ref<{ authorized: boolean; accounts: { id: string; name: string }[]; step?: number; name?: string; version?: string; error?: string; completed?: boolean; claim?: string; origin?: string } | null>(null)
+const versions = ref<{ version: string; name: string; published_at: string; notes_url: string }[]>([])
+const version = ref('')
+const releasesError = ref('')
 const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify installation', 'Ready']
 async function refresh() {
   try { session.value = await $fetch('/api/deploy/session'); accountId.value ||= session.value?.accounts[0]?.id || ''; error.value = session.value?.error || '' }
@@ -15,13 +18,20 @@ async function refresh() {
 async function deploy() {
   busy.value = true; error.value = ''
   try {
-    if (session.value?.step === undefined) await $fetch('/api/deploy/start', { method: 'POST', body: { accountId: accountId.value, name: name.value } })
+    if (session.value?.step === undefined) await $fetch('/api/deploy/start', { method: 'POST', body: { accountId: accountId.value, name: name.value, version: version.value } })
     await refresh()
     while (!session.value?.completed) { await $fetch('/api/deploy/advance', { method: 'POST', timeout: 150000 }); await refresh() }
   } catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same installation.' }
   finally { busy.value = false }
 }
-onMounted(async () => { config.value = await $fetch('/api/deploy/config'); await refresh() })
+onMounted(async () => {
+  config.value = await $fetch('/api/deploy/config'); await refresh()
+  try {
+    const data = await $fetch<{ releases: { version: string; name: string; published_at: string; notes_url: string }[] }>('/api/deploy/releases')
+    versions.value = data.releases
+    version.value = session.value?.version || data.releases[0]?.version || ''
+  } catch { releasesError.value = 'Could not load the release list. Enter a version like v0.3.1.' }
+})
 useSeoMeta({ title: 'Install L4 on your infrastructure' })
 </script>
 <template>
@@ -41,14 +51,20 @@ useSeoMeta({ title: 'Install L4 on your infrastructure' })
         <template v-if="session.step === undefined">
           <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(a => ({label:a.name,value:a.id}))" class="w-full" /></UFormField>
           <UFormField label="Installation name"><UInput v-model="name" class="w-full" maxlength="80" /></UFormField>
+          <UFormField label="Release version" :hint="versions.length ? 'Published GitHub releases, newest first' : undefined">
+            <USelect v-if="versions.length" v-model="version" :items="versions.map(r => ({label: r.published_at ? `${r.version} — ${r.published_at.slice(0, 10)}` : r.version, value: r.version}))" class="w-full" />
+            <UInput v-else v-model="version" placeholder="v0.3.1" class="w-full" />
+          </UFormField>
+          <p v-if="releasesError && !versions.length" class="text-sm text-muted">{{ releasesError }}</p>
         </template>
         <ol v-else class="space-y-4"><li v-for="(phase,index) in phases" :key="phase" class="flex items-center gap-3" :class="index > (session.step || 0) ? 'text-dimmed' : 'text-highlighted'"><UIcon :name="index < (session.step || 0) ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-5" />{{ phase }}</li></ol>
-        <UButton :label="session.step === undefined ? 'Deploy installation' : 'Resume deployment'" :loading="busy" :disabled="!config?.release || !accountId && session.step === undefined" size="lg" @click="deploy" />
+        <p v-if="session.step !== undefined && session.version" class="text-sm text-muted">Release {{ session.version }}</p>
+        <UButton :label="session.step === undefined ? 'Deploy installation' : 'Resume deployment'" :loading="busy" :disabled="session.step === undefined && !version" size="lg" @click="deploy" />
       </template>
       <template v-else>
         <p class="text-muted">Authorize L4 to deploy into your Cloudflare account. Its credentials are handed to your installation after deployment.</p>
-        <UButton to="/api/deploy/oauth" external label="Connect Cloudflare" icon="i-ph-cloud" size="lg" :disabled="!config?.oauth || !config?.release" />
-        <p v-if="config && (!config.oauth || !config.release)" class="text-sm text-muted">The deployment service is awaiting its OAuth configuration and verified release. <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">Manual setup</a> remains available.</p>
+        <UButton to="/api/deploy/oauth" external label="Connect Cloudflare" icon="i-ph-cloud" size="lg" :disabled="!config?.oauth" />
+        <p v-if="config && !config.oauth" class="text-sm text-muted">The deployment service is awaiting its OAuth configuration. <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">Manual setup</a> remains available.</p>
         <p class="text-sm text-muted">Cloudflare bills infrastructure usage directly. Enable R2 before deploying.</p>
       </template>
       <UAlert v-if="error" color="error" :description="error" /><UButton v-if="error && session?.step !== undefined" to="/api/deploy/oauth?resume=1" external label="Reconnect Cloudflare" color="neutral" variant="outline" />

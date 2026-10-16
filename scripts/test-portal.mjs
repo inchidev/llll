@@ -21,7 +21,7 @@ try {
   await db.exec(await readFile(resolve(root, 'apps/site/migrations/0000_portal_baseline.sql'), 'utf8'))
   assert.equal((await mf.dispatchFetch(origin + '/')).status, 200)
   const config = await (await mf.dispatchFetch(origin + '/api/deploy/config')).json()
-  assert.deepEqual(config, { oauth: false, release: false })
+  assert.deepEqual(config, { oauth: false })
   assert.equal((await mf.dispatchFetch(origin + '/api/deploy/oauth')).status, 503)
   const forbidden = await mf.dispatchFetch(origin + '/api/servers/register', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: '{}' })
   assert.equal(forbidden.status, 403)

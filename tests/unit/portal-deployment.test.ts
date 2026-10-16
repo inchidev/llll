@@ -9,14 +9,17 @@ it('resumes an interrupted upload without replacing resources and hands the encr
   const control = new DatabaseSync(':memory:')
   const module = 'export default {fetch(){return new Response("L4")}}'
   const artifact = JSON.stringify({ schemaVersion: 1, version: '0.2.0', modules: { installation: { content: module, sha256: await digest(module) } }, assets: [], migrations: { installation: [{ name: '0000_test.sql', sql: 'CREATE TABLE integration_settings(key TEXT PRIMARY KEY,value TEXT);' }] } })
-  const state: DeploymentState = { ...deploymentParameters('a'.repeat(32), 'Community'), grant: { accessToken: 'private-access', refreshToken: 'private-refresh', clientId: 'public-client', expiresAt: Date.now() + 3600000 } }
+  const artifactHash = await digest(artifact)
+  const sums = `${artifactHash}  llll-deployment.json\n`
+  const state: DeploymentState = { ...deploymentParameters('a'.repeat(32), 'Community', 'v0.2.0'), grant: { accessToken: 'private-access', refreshToken: 'private-refresh', clientId: 'public-client', expiresAt: Date.now() + 3600000 } }
   const originalSecret = state.authSecret!
   const name = state.worker!
   let databaseCreates = 0; let uploadAttempts = 0
   const snapshots: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: string, options?: RequestInit) => {
     const url = new URL(input)
-    if (url.hostname === 'releases.example') return new Response(artifact)
+    if (url.hostname === 'github.com' && url.pathname.endsWith('/SHA256SUMS')) return new Response(sums)
+    if (url.hostname === 'github.com' && url.pathname.endsWith('/llll-deployment.json')) return new Response(artifact)
     if (url.pathname === '/.well-known/llll') return Response.json({ product: 'llll', origin: state.origin, ready: false })
     let result: unknown = {}
     if (url.pathname.endsWith('/workers/subdomain')) result = { subdomain: 'test' }
@@ -40,7 +43,7 @@ it('resumes an interrupted upload without replacing resources and hands the encr
     }
     return Response.json({ success: true, result })
   }))
-  const env = { DEPLOYMENT_RELEASE_URL: 'https://releases.example/v0.2.0/llll-deployment.json', DEPLOYMENT_RELEASE_SHA256: await digest(artifact), PUBLIC_ORIGIN: 'https://portal.example' }
+  const env = { PUBLIC_ORIGIN: 'https://portal.example' }
   const save = async () => { snapshots.push(JSON.stringify(state)) }
   // Only the deployment fields are needed by this engine; it does not access portal storage.
   await advanceDeployment(state, env as Parameters<typeof advanceDeployment>[1], save)
