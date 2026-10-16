@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { useLocalStorage } from '@vueuse/core'
+import { useSafeLocalStorage } from '../composables/useSafeLocalStorage'
 import { ref } from 'vue'
 import type { RightPanelTab } from '~~/shared/types'
 
@@ -55,7 +55,7 @@ export const useUiStore = defineStore('ui', () => {
   const rightPanelOpen = ref(true)
   const rightPanelTab = ref<RightPanelTab>('members')
   const mobilePane = ref<'channels' | 'chat' | 'members'>('chat')
-  const composerStates = import.meta.client ? useLocalStorage<Record<string, ComposerState>>(`llll:drafts:${scope}`, {}) : ref<Record<string, ComposerState>>({})
+  const composerStates = import.meta.client ? useSafeLocalStorage<Record<string, ComposerState>>(`llll:drafts:${scope}`, {}) : ref<Record<string, ComposerState>>({})
   const liveSetupOpen = ref(false)
   const threadId = ref<string | null>(null)
   const threadParentId = ref<string | null>(null)
@@ -65,19 +65,19 @@ export const useUiStore = defineStore('ui', () => {
   const searchOpen = ref(false)
   const memberTab = ref<'all' | 'online'>('all')
   const channelPaneWidth = import.meta.client
-    ? useLocalStorage('df:channel-pane-width', 240)
+    ? useSafeLocalStorage('df:channel-pane-width', 240)
     : ref(240)
   const rightPanelWidth = import.meta.client
-    ? useLocalStorage('df:right-panel-width', 280)
+    ? useSafeLocalStorage('df:right-panel-width', 280)
     : ref(280)
   const mailListWidth = import.meta.client
-    ? useLocalStorage('df:mail-list-width', 320)
+    ? useSafeLocalStorage('df:mail-list-width', 320)
     : ref(320)
   const navCollapsed = import.meta.client
-    ? useLocalStorage<Record<string, boolean>>(`llll:nav-collapsed:${scope}`, {})
+    ? useSafeLocalStorage<Record<string, boolean>>(`llll:nav-collapsed:${scope}`, {})
     : ref<Record<string, boolean>>({})
   const lastChannel = import.meta.client
-    ? useLocalStorage<LastChannel | null>(`llll:last:${scope}`, null, { serializer: lastChannelSerializer })
+    ? useSafeLocalStorage<LastChannel | null>(`llll:last:${scope}`, null, { serializer: lastChannelSerializer })
     : ref<LastChannel | null>(null)
 
   function isCollapsed(key: string) {

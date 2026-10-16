@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { useLocalStorage } from '@vueuse/core'
+import { useSafeLocalStorage } from '../composables/useSafeLocalStorage'
 
 export const usePrefsStore = defineStore('prefs', () => {
-  const compact = import.meta.client ? useLocalStorage('df:compact', false) : ref(false)
-  const messageSounds = import.meta.client ? useLocalStorage('df:sounds', true) : ref(true)
-  const showOnline = import.meta.client ? useLocalStorage('df:showOnline', true) : ref(true)
+  const compact = import.meta.client ? useSafeLocalStorage('df:compact', false) : ref(false)
+  const messageSounds = import.meta.client ? useSafeLocalStorage('df:sounds', true) : ref(true)
+  const showOnline = import.meta.client ? useSafeLocalStorage('df:showOnline', true) : ref(true)
   const recentEmoji = import.meta.client
-    ? useLocalStorage<string[]>('df:recent-emoji', [])
+    ? useSafeLocalStorage<string[]>('df:recent-emoji', [])
     : ref<string[]>([])
 
   function useEmoji(emoji: string) {
