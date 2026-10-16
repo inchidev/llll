@@ -96,8 +96,6 @@ useHead({
         
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
-
-            <p class="mb-6 text-xs font-medium uppercase tracking-[.18em] text-muted">Independent by design</p>
             <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One installation, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
