@@ -1,0 +1,6 @@
+{
+  "name": "@llll/installation",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node ../../scripts/build-installation.mjs", "typecheck": "tsc --noEmit -p tsconfig.json" }
+}

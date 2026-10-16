@@ -1,0 +1,120 @@
+# One celld node and the RustFS bucket it uses.
+# Copy .env.example to .env first. `docker compose up -d` builds and starts this file.
+name: llll
+
+services:
+  rustfs-perms:
+    image: alpine:3.22
+    user: "0:0"
+    restart: "no"
+    volumes:
+      - rustfs-data:/data
+    command:
+      - sh
+      - -c
+      - chown -R 10001:10001 /data
+
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    restart: always
+    depends_on:
+      rustfs-perms:
+        condition: service_completed_successfully
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+      RUSTFS_OBS_LOGGER_LEVEL: error
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  bucket-init:
+    image: amazon/aws-cli:2.38.0
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: "true"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        aws configure set default.s3.addressing_style path
+        bucket="${RUSTFS_BUCKET:-cells}"
+        endpoint="http://rustfs:9000"
+        region="${AWS_REGION:-us-east-1}"
+        i=0
+        while [ "$$i" -lt 30 ]; do
+          if aws s3api head-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" >/dev/null 2>&1; then
+            exit 0
+          fi
+          if aws s3api create-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" --region "$$region"; then
+            exit 0
+          fi
+          i=$$((i + 1))
+          sleep 2
+        done
+        echo "could not create s3://$$bucket" >&2
+        exit 1
+
+  llll:
+    build:
+      context: ..
+      dockerfile: self-host/Dockerfile
+    image: llll:local
+    restart: always
+    stop_grace_period: 50s
+    depends_on:
+      bucket-init:
+        condition: service_completed_successfully
+      rustfs:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      # Coolify can inject these. Plain Compose leaves them empty and uses .env.
+      SERVICE_URL_LLLL_8080: ${SERVICE_URL_LLLL_8080:-}
+      SERVICE_FQDN_LLLL_8080: ${SERVICE_FQDN_LLLL_8080:-}
+      SERVICE_PASSWORD_64_AUTHSECRET: ${SERVICE_PASSWORD_64_AUTHSECRET:-}
+      SERVICE_PASSWORD_64_ADMINSETUP: ${SERVICE_PASSWORD_64_ADMINSETUP:-}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:8080}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL in .env}
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:?set ADMIN_SETUP_TOKEN in .env}
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: "true"
+      S3_ENDPOINT: http://rustfs:9000
+      CELLD_BUCKET: s3://${RUSTFS_BUCKET:-cells}
+      CELLD_WATCH: /var/lib/llll/celld
+      CELLD_DURABILITY: bucket
+      CELLD_READY_FLEET_GATE_MS: "0"
+    ports:
+      - "${LLLL_BIND:-127.0.0.1}:${LLLL_PUBLISH_PORT:-8080}:8080"
+    volumes:
+      - celld-data:/var/lib/llll/celld
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/llll-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 240s
+
+volumes:
+  rustfs-data:
+  celld-data:

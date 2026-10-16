@@ -1,0 +1,26 @@
+{
+  "name": "@llll/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:bridge": "node scripts/build-bridge.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "ios:sync": "cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:run": "cap run ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "8.0.4",
+    "@capacitor/core": "8.5.1",
+    "@capacitor/ios": "8.5.1",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capawesome/capacitor-badge": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.1",
+    "esbuild": "0.25.9",
+    "typescript": "5.9.2"
+  }
+}

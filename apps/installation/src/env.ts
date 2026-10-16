@@ -1,0 +1,25 @@
+export type InstallationEnv = {
+  INSTALLATION_DB: D1Database
+  BACKUPS?: R2Bucket
+  BACKUP_BUCKET_NAME?: string
+  ASSETS?: Fetcher
+  INSTALLATION_ID: string
+  INSTALLATION_NAME: string
+  PUBLIC_ORIGIN: string
+  AUTH_SECRET: string
+  SETUP_TOKEN?: string
+  REGISTRATION_MODE?: string
+  CLIENT_ORIGINS?: string
+  TRUSTED_SERVER_ORIGINS?: string
+  MAX_SERVERS?: string
+  CLOUDFLARE_ACCOUNT_ID?: string
+  CLOUDFLARE_API_TOKEN?: string
+  RELEASE_MANIFEST?: string
+  TELEGRAM_BOT_TOKEN?: string
+  TELEGRAM_CLIENT_ID?: string
+  TELEGRAM_CLIENT_SECRET?: string
+  IDENTITY_PROVIDER?: string
+  IDENTITY_ISSUER?: string
+  IDENTITY_CLIENT_ID?: string
+  IDENTITY_CLIENT_SECRET?: string
+}

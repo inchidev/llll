@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --color-cloudflare-50: #fff6ed;
+  --color-cloudflare-100: #ffe8d1;
+  --color-cloudflare-200: #ffcfa3;
+  --color-cloudflare-300: #ffb06a;
+  --color-cloudflare-400: #ff9140;
+  --color-cloudflare-500: #f6821f;
+  --color-cloudflare-600: #d96b12;
+  --color-cloudflare-700: #b45309;
+  --color-cloudflare-800: #8c410b;
+  --color-cloudflare-900: #71350f;
+  --color-cloudflare-950: #3d1a06;
+}
+
+:root {
+  --ui-radius: 0.5rem;
+}

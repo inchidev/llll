@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "llll-installation",
+  "main": ".bundle/index.mjs",
+  "compatibility_date": "2026-10-16",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "../../.output/public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "INSTALLATION_DB",
+      "database_name": "llll-installation",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true
+  },
+  "vars": {
+    "INSTALLATION_ID": "local",
+    "INSTALLATION_NAME": "My L4",
+    "REGISTRATION_MODE": "invite_only",
+    "CLIENT_ORIGINS": "https://app.llll.gg",
+    "MAX_SERVERS": "20"
+  },
+  "triggers": {
+    "crons": [
+      "23 3 * * *"
+    ]
+  }
+}
