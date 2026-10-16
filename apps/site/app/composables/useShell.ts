@@ -11,6 +11,8 @@ export function useShell() {
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
   const initialized = useState('shell-initialized', () => false)
   const frames = useState<Record<string, HTMLIFrameElement>>('shell-frames', () => ({}))
+  const pending = useState<Record<string, string>>('shell-pending-server', () => ({}))
+  const error = useState('shell-error', () => '')
   const registered = new Set<string>()
   const telegram = useState<string>('shell-telegram', () => '')
   const route = useRoute()
@@ -30,6 +32,7 @@ export function useShell() {
     selected.value = installation.origin
     if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
     if (serverId) {
+      pending.value[installation.origin] = serverId
       void router.push('/' + serverId)
       send(installation.origin, { type: 'open', serverId, path: '/' })
     }
@@ -56,6 +59,7 @@ export function useShell() {
     }
     selected.value = installation.origin
     if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
+    pending.value[installation.origin] = id
     send(installation.origin, { type: 'open', serverId: id, path: requestedPath() })
   }
   function initialize() {
@@ -96,7 +100,16 @@ export function useShell() {
         if (event.origin === selected.value && route.params.serverId && message.servers.some(s => s.id === route.params.serverId)) send(event.origin, { type: 'open', serverId: route.params.serverId, path: requestedPath() })
       }
       if (message.type === 'session' && !message.authenticated) { installation.servers = []; persist() }
-      if (message.type === 'navigate' && event.origin === selected.value && installation.servers.some(s => s.id === message.serverId) && safeEmbedPath(message.path)) void router.replace('/' + message.serverId + (message.path === '/' ? '' : message.path))
+      if (message.type === 'navigate' && event.origin === selected.value && installation.servers.some(s => s.id === message.serverId) && safeEmbedPath(message.path)) {
+        if (pending.value[event.origin] && pending.value[event.origin] !== message.serverId) return
+        Reflect.deleteProperty(pending.value, event.origin)
+        void router.replace('/' + message.serverId + (message.path === '/' ? '' : message.path))
+      }
+      if (message.type === 'open-rejected' && pending.value[event.origin] === message.serverId) {
+        Reflect.deleteProperty(pending.value, event.origin)
+        error.value = message.reason === 'call-active' ? 'End the current call before switching servers.' : 'This server is unavailable on the installation.'
+        if (event.origin === selected.value && message.currentServerId && installation.servers.some(s => s.id === message.currentServerId) && message.path && safeEmbedPath(message.path)) void router.replace('/' + message.currentServerId + message.path)
+      }
       if (message.type === 'call') calls.value[event.origin] = message.active
     })
   }
@@ -108,5 +121,5 @@ export function useShell() {
     if (selected.value === origin) selected.value = ''
     persist()
   }
-  return { installations, selected, loaded, calls, frames, initialize, connect, open, resolveServer, persist, forget }
+  return { error, installations, selected, loaded, calls, frames, initialize, connect, open, resolveServer, persist, forget }
 }

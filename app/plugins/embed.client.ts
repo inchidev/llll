@@ -44,12 +44,12 @@ export default defineNuxtPlugin(async (nuxt) => {
     }
     if (switching || !safeEmbedPath(command.path)) return
     const server = local.value?.servers.find(s => s.publicId === command.serverId)
-    if (!server) { await router.replace('/connections'); return }
+    if (!server) { post({ type: 'open-rejected', serverId: command.serverId, reason: 'unavailable' }); await router.replace('/connections'); return }
     if (connections.active.value?.serverId !== server.id) {
       if (live.connection === 'connected' || live.connection === 'connecting') {
         toast.add({ title: 'End the current call before switching servers', color: 'warning' })
         const current = connections.activeServer.value
-        if (current?.publicId) post({ type: 'navigate', serverId: current.publicId, path: router.currentRoute.value.fullPath })
+        post({ type: 'open-rejected', serverId: command.serverId, currentServerId: current?.publicId, path: router.currentRoute.value.fullPath, reason: 'call-active' })
         return
       }
       switching = true

@@ -3,7 +3,7 @@ const shell = useShell()
 const route = useRoute()
 const ownOrigin = ref('')
 const address = ref('')
-const error = ref('')
+const error = shell.error
 const busy = ref(false)
 async function connect() {
   busy.value = true; error.value = ''
