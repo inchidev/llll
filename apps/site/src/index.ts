@@ -56,7 +56,7 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
       const cached = await caches.default.match(cacheKey)
       if (cached) return new Response(cached.body, cached)
     } catch { /* Cache API unavailable in tests; fetch directly. */ }
-    const releases = await listReleases()
+    const releases = await listReleases(env.GITHUB_TOKEN)
     const response = new Response(JSON.stringify({ releases }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } })
     try { await caches.default.put(cacheKey, response.clone()) } catch { /* See above. */ }
     return response

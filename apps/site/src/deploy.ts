@@ -31,12 +31,16 @@ function releaseBase(version: string) {
   return `https://github.com/${RELEASE_REPO}/releases/download/${version}`
 }
 
-/** Published (non-draft) releases with deployment artifacts, newest first. */
-export async function listReleases(): Promise<ReleaseInfo[]> {
+/** Published (non-draft) releases with deployment artifacts, newest first.
+ * A `GITHUB_TOKEN` (any PAT, no scopes needed for public repos) avoids GitHub
+ * API rate limits on shared Cloudflare egress IPs. Without it the portal uses
+ * the unauthenticated quota.
+ */
+export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
   const response = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases?per_page=30`, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'llll-portal' }, signal: AbortSignal.timeout(20000),
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'llll-portal', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(20000),
   })
-  if (!response.ok) throw new Error('The release list could not be loaded from GitHub')
+  if (!response.ok) throw new Error(`The release list could not be loaded from GitHub (${response.status})`)
   const data = await response.json() as { tag_name?: string; name?: string; draft?: boolean; prerelease?: boolean; published_at?: string; html_url?: string; assets?: { name?: string }[] }[]
   return data
     .filter(release => !release.draft && !release.prerelease && typeof release.tag_name === 'string' && VERSION_PATTERN.test(release.tag_name)
