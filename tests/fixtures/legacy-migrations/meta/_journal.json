@@ -1,0 +1,160 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788430440356,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788432673815,
+      "tag": "0001_channel_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788514846305,
+      "tag": "0002_auth_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788526800000,
+      "tag": "0003_message_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788530400000,
+      "tag": "0004_push_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788534000000,
+      "tag": "0005_message_pins",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788537600000,
+      "tag": "0006_channel_role_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788541200000,
+      "tag": "0007_agents_and_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788544800000,
+      "tag": "0008_agent_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788552000000,
+      "tag": "0009_task_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788555600000,
+      "tag": "0010_realtimekit_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1788559200000,
+      "tag": "0011_admin_task_boundary",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788562800000,
+      "tag": "0012_agent_identity_boundary",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788606000000,
+      "tag": "0013_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788613200000,
+      "tag": "0014_workspace_mail",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788616800000,
+      "tag": "0015_workspace_databases",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1788620400000,
+      "tag": "0016_telemetry_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788706800000,
+      "tag": "0017_backup_destination",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788710400000,
+      "tag": "0018_documents_and_canvases",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1788796800000,
+      "tag": "0019_mcp_access_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788883200000,
+      "tag": "0020_task_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788969600000,
+      "tag": "0021_realtime_v1",
+      "breakpoints": true
+    }
+  ]
+}

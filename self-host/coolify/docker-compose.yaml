@@ -1,0 +1,121 @@
+# documentation: https://github.com/inchidev/llll/blob/main/self-host/README.md
+# slogan: Self-hosted team chat on a single VPS.
+# category: collaboration
+# tags: chat,team,celld,rustfs,self-host,llll
+# logo: svgs/llll.png
+# port: 8080
+
+services:
+  rustfs-perms:
+    image: alpine:3.22
+    user: "0:0"
+    restart: "no"
+    volumes:
+      - rustfs-data:/data
+    command:
+      - sh
+      - -c
+      - chown -R 10001:10001 /data
+
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    depends_on:
+      rustfs-perms:
+        condition: service_completed_successfully
+    environment:
+      - RUSTFS_VOLUMES=/data
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ENABLE=false
+      - RUSTFS_ACCESS_KEY=$SERVICE_USER_RUSTFS
+      - RUSTFS_SECRET_KEY=$SERVICE_PASSWORD_64_RUSTFS
+      - RUSTFS_OBS_LOGGER_LEVEL=error
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  bucket-init:
+    image: amazon/aws-cli:2.38.0
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      - AWS_ACCESS_KEY_ID=$SERVICE_USER_RUSTFS
+      - AWS_SECRET_ACCESS_KEY=$SERVICE_PASSWORD_64_RUSTFS
+      - AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+      - AWS_EC2_METADATA_DISABLED=true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        aws configure set default.s3.addressing_style path
+        i=0
+        while [ "$$i" -lt 30 ]; do
+          if aws s3api head-bucket --bucket cells --endpoint-url http://rustfs:9000 >/dev/null 2>&1; then
+            exit 0
+          fi
+          if aws s3api create-bucket --bucket cells --endpoint-url http://rustfs:9000 --region us-east-1; then
+            exit 0
+          fi
+          i=$$((i + 1))
+          sleep 2
+        done
+        echo "could not create s3://cells" >&2
+        exit 1
+
+  llll:
+    image: ghcr.io/inchidev/llll:${LLLL_VERSION:?published release version}
+    stop_grace_period: 50s
+    depends_on:
+      bucket-init:
+        condition: service_completed_successfully
+      rustfs:
+        condition: service_healthy
+    environment:
+      - SERVICE_URL_LLLL_8080
+      - SERVICE_FQDN_LLLL_8080
+      - PUBLIC_ORIGIN=$SERVICE_URL_LLLL_8080
+      - AUTH_SECRET=$SERVICE_PASSWORD_64_AUTHSECRET
+      - ADMIN_SETUP_TOKEN=$SERVICE_PASSWORD_64_ADMINSETUP
+      - ADMIN_EMAIL=${ADMIN_EMAIL:?}
+      - ADMIN_WORKSPACE=${ADMIN_WORKSPACE:-workspace}
+      - AWS_ACCESS_KEY_ID=$SERVICE_USER_RUSTFS
+      - AWS_SECRET_ACCESS_KEY=$SERVICE_PASSWORD_64_RUSTFS
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_EC2_METADATA_DISABLED=true
+      - S3_ENDPOINT=http://rustfs:9000
+      - CELLD_BUCKET=s3://cells
+      - CELLD_WATCH=/var/lib/llll/celld
+      - CELLD_DURABILITY=bucket
+      - CELLD_READY_FLEET_GATE_MS=0
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+      - AI_BASE_URL=${AI_BASE_URL:-}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - MAIL_GATEWAY_URL=${MAIL_GATEWAY_URL:-}
+      - MAIL_GATEWAY_TOKEN=${MAIL_GATEWAY_TOKEN:-}
+      - SMTP_GATEWAY_URL=${SMTP_GATEWAY_URL:-}
+      - SMTP_GATEWAY_TOKEN=${SMTP_GATEWAY_TOKEN:-}
+      - MAIL_DOMAIN=${MAIL_DOMAIN:-}
+      - MAIL_APP_HOSTNAME=${MAIL_APP_HOSTNAME:-}
+      - MAIL_DEFAULT_LOCAL_PART=${MAIL_DEFAULT_LOCAL_PART:-}
+      - INBOUND_EMAIL_SECRET=${INBOUND_EMAIL_SECRET:-}
+      - BROWSER_CDP_URL=${BROWSER_CDP_URL:-}
+    volumes:
+      - celld-data:/var/lib/llll/celld
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/llll-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 240s
+
+volumes:
+  rustfs-data:
+  celld-data:

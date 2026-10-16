@@ -1,0 +1,16 @@
+{
+  "name": "@llll/extension",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:bridge": "node scripts/build-bridge.mjs && node scripts/verify-package.mjs",
+    "verify": "node scripts/verify-package.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.36",
+    "esbuild": "0.25.9",
+    "typescript": "5.9.2"
+  }
+}

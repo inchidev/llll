@@ -1,0 +1,95 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "llll-server",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-10-16",
+  "preview_urls": true,
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "triggers": {
+    "crons": [
+      "17 4 * * 1"
+    ]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "llll-server",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "llll-server-files"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "TICKETS",
+      "id": "00000000000000000000000000000001"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHANNEL_DO",
+        "class_name": "ChannelDurableObject"
+      },
+      {
+        "name": "WORKSPACE_DO",
+        "class_name": "WorkspaceDurableObject"
+      },
+      {
+        "name": "RATE_LIMIT_DO",
+        "class_name": "RateLimitDurableObject"
+      },
+      {
+        "name": "NOTIFICATION_DO",
+        "class_name": "NotificationDurableObject"
+      },
+      {
+        "name": "AGENT_DO",
+        "class_name": "L4Agent"
+      },
+      {
+        "name": "AGENT_THINK",
+        "class_name": "L4Think"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ChannelDurableObject",
+        "WorkspaceDurableObject",
+        "RateLimitDurableObject",
+        "NotificationDurableObject",
+        "L4Agent",
+        "L4Think"
+      ]
+    }
+  ],
+  "vars": {
+    "PUBLIC_ORIGIN": "http://localhost:3000",
+    "AUTH_REGISTRATION_MODE": "invite_only",
+    "APP_NAME": "My server",
+    "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+  }
+}

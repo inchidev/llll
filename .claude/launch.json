@@ -1,0 +1,42 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "dev-remote",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "run",
+        "dev:remote",
+        "--",
+        "--env-file",
+        ".env.remote"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@llll/admin",
+        "exec",
+        "wrangler",
+        "dev",
+        "-c",
+        "wrangler.dev.jsonc",
+        "--port",
+        "8790"
+      ],
+      "port": 8790
+    }
+  ]
+}
