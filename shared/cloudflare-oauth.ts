@@ -2,7 +2,27 @@ import { z } from 'zod'
 
 export const CLOUDFLARE_AUTH_URL = 'https://dash.cloudflare.com/oauth2/auth'
 export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
-export const CLOUDFLARE_SCOPES = 'offline_access account-settings.read memberships.read workers-scripts.content_read workers-scripts.edit d1.read d1.write workers-kv-storage.read workers-kv-storage.write workers-r2.read workers-r2.write'
+// Every id here is probe-verified against the portal OAuth client: requesting
+// anything outside the client's registered set fails the whole consent with
+// invalid_scope. Groups: provisioning (accounts, Workers, D1, KV, R2),
+// custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
+// and Discoflare-parity headroom the installation grant carries for later
+// use (browser rendering, containers, realtime, queues).
+export const CLOUDFLARE_SCOPES = [
+  'offline_access',
+  'account-settings.read', 'memberships.read',
+  'workers-scripts.content_read', 'workers-scripts.edit',
+  'd1.read', 'd1.write',
+  'workers-kv-storage.read', 'workers-kv-storage.write',
+  'workers-r2.read', 'workers-r2.write',
+  'zone.read', 'dns.read', 'dns.write',
+  'email-routing-rule.read', 'email-routing-rule.write',
+  'email-sending.read', 'email-sending.write',
+  'browser-rendering.read',
+  'containers.read', 'containers.write',
+  'realtime.read', 'realtime.write',
+  'queues.read', 'queues.write',
+].join(' ')
 export const cloudflareGrantSchema = z.object({ accessToken: z.string().min(1), refreshToken: z.string().min(1), expiresAt: z.number(), clientId: z.string().min(1) })
 export type CloudflareGrant = z.infer<typeof cloudflareGrantSchema>
 
