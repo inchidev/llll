@@ -51,6 +51,7 @@
     "build:site": "node scripts/build-site.mjs",
     "site:build": "node scripts/build-site.mjs",
     "site:migrate": "node scripts/site-cloudflare.mjs migrate",
+    "site:migrate-staging": "node scripts/site-cloudflare.mjs migrate-staging",
     "site:deploy": "node scripts/site-cloudflare.mjs deploy",
     "site:preview": "node scripts/site-cloudflare.mjs preview",
     "site:preview-delete": "node scripts/site-cloudflare.mjs preview-delete",

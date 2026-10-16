@@ -62,6 +62,12 @@ jobs:
       # Public URL once the wildcard custom domain is attached in the
       # dashboard (Workers & Pages > llll > Previews > custom domain
       # *.dev.llll.gg): https://pr-<N>.dev.llll.gg
+      # PRs get an isolated Preview named pr-<N> on worker `llll`.
+      # Staging DB binding is patched into the branch config first (never
+      # touches the production DB); PR migrations apply to staging only.
+      - name: Ensure staging DB and migrations
+        if: github.event_name == 'pull_request'
+        run: pnpm site:migrate-staging
       - name: Deploy PR preview
         id: preview
         if: github.event_name == 'pull_request'
