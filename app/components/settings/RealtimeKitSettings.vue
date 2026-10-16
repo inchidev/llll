@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RealtimeKitSettingsAdminDTO } from '~~/shared/types'
+const { api } = useApi()
 
 type Account = { id: string, name: string }
 
@@ -47,7 +48,7 @@ function apply(value: RealtimeKitSettingsAdminDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await $fetch<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`)
+    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`)
     apply(response.realtimekit)
   }
   catch (error) {
@@ -62,7 +63,7 @@ async function load() {
 async function connect(withToken: boolean) {
   connecting.value = true
   try {
-    const response = await $fetch<{ realtimekit: RealtimeKitSettingsAdminDTO } | { accounts: Account[] }>(
+    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO } | { accounts: Account[] }>(
       `/api/workspaces/${props.workspaceId}/realtimekit/connect`,
       {
         method: 'POST',
@@ -95,7 +96,7 @@ async function connect(withToken: boolean) {
 async function testConnection() {
   testing.value = true
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/realtimekit/test`, { method: 'POST' })
+    await api(`/api/workspaces/${props.workspaceId}/realtimekit/test`, { method: 'POST' })
     toast.add({ title: 'RealtimeKit is working', color: 'success' })
   }
   catch (error) {
@@ -109,7 +110,7 @@ async function testConnection() {
 async function remove() {
   removing.value = true
   try {
-    const response = await $fetch<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`, {
+    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`, {
       method: 'DELETE',
     })
     apply(response.realtimekit)

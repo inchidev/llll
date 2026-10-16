@@ -2,12 +2,13 @@
 import { useQuery } from '@tanstack/vue-query'
 import type { UpdateStatusDTO } from '~~/shared/releases'
 import { formatDateTime } from '~~/shared/format'
+const { api } = useApi()
 
 const props = defineProps<{ workspaceId: string }>()
 
 const updateQ = useQuery({
   queryKey: computed(() => ['updates', props.workspaceId]),
-  queryFn: () => $fetch<UpdateStatusDTO>(`/api/workspaces/${props.workspaceId}/updates`),
+  queryFn: () => api<UpdateStatusDTO>(`/api/workspaces/${props.workspaceId}/updates`),
   staleTime: 6 * 60 * 60 * 1000,
 })
 

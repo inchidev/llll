@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import type { ServerDeletionStatusDTO } from '~~/shared/deletion'
+const { api } = useApi()
 const props = defineProps<{ workspaceId: string, workspaceName: string }>()
 defineEmits<{ backups: [] }>()
 const deletionQ = useQuery({
   queryKey: computed(() => ['server-deletion', props.workspaceId]),
-  queryFn: () => $fetch<ServerDeletionStatusDTO>(`/api/workspaces/${props.workspaceId}/deletion`),
+  queryFn: () => api<ServerDeletionStatusDTO>(`/api/workspaces/${props.workspaceId}/deletion`),
 })
 </script>
 <template>

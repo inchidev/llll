@@ -3,6 +3,7 @@ import type { Form, FormSubmitEvent } from '@nuxt/ui'
 import * as z from 'zod'
 import type { BackupDestinationDTO, BucketBackupResultDTO } from '~~/shared/backups'
 import { formatBytes, formatDateTime } from '~~/shared/format'
+const { api } = useApi()
 
 const filesEnabled = computed(() => useSessionStore().health?.bindings.r2 !== false)
 
@@ -77,7 +78,7 @@ function apply(value: BackupDestinationDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await $fetch<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`)
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`)
     apply(response.destination)
   }
   catch (error) {
@@ -91,7 +92,7 @@ async function load() {
 async function save(event: FormSubmitEvent<Schema>) {
   saving.value = true
   try {
-    const response = await $fetch<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
       method: 'PATCH',
       body: event.data,
     })
@@ -120,7 +121,7 @@ async function testConnection() {
   if (!data) return
   testing.value = true
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/backup-destination/test`, {
+    await api(`/api/workspaces/${props.workspaceId}/backup-destination/test`, {
       method: 'POST',
       body: data,
     })
@@ -138,7 +139,7 @@ async function backupToBucket() {
   if (destinationDirty.value || uploading.value || saving.value || testing.value) return
   uploading.value = true
   try {
-    const result = await $fetch<BucketBackupResultDTO>(`/api/workspaces/${props.workspaceId}/backup-to-bucket`, { method: 'POST' })
+    const result = await api<BucketBackupResultDTO>(`/api/workspaces/${props.workspaceId}/backup-to-bucket`, { method: 'POST' })
     await load()
     toast.add({
       title: 'Backup saved to bucket',
@@ -157,7 +158,7 @@ async function backupToBucket() {
 async function remove() {
   saving.value = true
   try {
-    const response = await $fetch<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
       method: 'PATCH',
       body: { remove: true },
     })

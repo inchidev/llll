@@ -60,7 +60,7 @@ watch(open, async (v) => {
     password.confirm = ''
     revealEmail.value = false
     try {
-      accountProviders.value = (await $fetch<{ providers: string[] }>('/api/auth/accounts')).providers
+      accountProviders.value = (await api<{ providers: string[] }>('/api/auth/accounts')).providers
     }
     catch {
       accountProviders.value = []
@@ -127,7 +127,7 @@ const themes = [
 async function onSaveName(event: FormSubmitEvent<Schema>) {
   savingName.value = true
   try {
-    const res = await $fetch<{ user: { displayName: string } }>('/api/me', { method: 'PATCH', body: event.data })
+    const res = await api<{ user: { displayName: string } }>('/api/me', { method: 'PATCH', body: event.data })
     if (session.user) session.user.displayName = res.user.displayName
     toast.add({ title: 'Display name updated', color: 'success' })
   }
@@ -190,7 +190,7 @@ async function onPassword() {
   }
   savingPassword.value = true
   try {
-    await $fetch('/api/auth/change-password', {
+    await api('/api/auth/change-password', {
       method: 'POST',
       body: { currentPassword: password.current, newPassword: password.next },
     })

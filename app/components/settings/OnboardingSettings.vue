@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { EditorToolbarItem } from '@nuxt/ui'
 import type { PublicOnboardingConfig, RichTextDocument } from '~~/shared/types'
+const { api } = useApi()
 
 type DocumentKind = 'terms' | 'privacy' | 'rules'
 
@@ -68,7 +69,7 @@ function apply(value: PublicOnboardingConfig) {
 async function load() {
   loading.value = true
   try {
-    const response = await $fetch<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`)
+    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`)
     apply(response.onboarding)
   }
   catch (error) {
@@ -82,7 +83,7 @@ async function load() {
 async function publish() {
   saving.value = true
   try {
-    const response = await $fetch<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`, {
+    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`, {
       method: 'PUT',
       body: documents,
     })

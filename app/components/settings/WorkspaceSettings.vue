@@ -11,7 +11,7 @@ import { useClipboard } from '@vueuse/core'
 
 
 const props = defineProps<{ workspaceId: string }>()
-const { serverUrl } = useApi()
+const { api, serverUrl } = useApi()
 const open = defineModel<boolean>('open', { default: false })
 
 const toast = useToast()
@@ -36,44 +36,44 @@ const permissionSaving = ref(false)
 
 const workspaceQ = useQuery({
   queryKey: computed(() => ['workspace', props.workspaceId]),
-  queryFn: () => $fetch<{ workspace: WorkspaceDTO }>(`/api/workspaces/${props.workspaceId}`),
+  queryFn: () => api<{ workspace: WorkspaceDTO }>(`/api/workspaces/${props.workspaceId}`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value),
 })
 const membersQ = useQuery({
   queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => $fetch<{ members: MemberDTO[] }>(`/api/workspaces/${props.workspaceId}/members`),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${props.workspaceId}/members`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value),
 })
 const { can, mine } = usePermissions(computed(() => membersQ.data.value?.members))
 const rolesQ = useQuery({
   queryKey: computed(() => ['roles', props.workspaceId]),
-  queryFn: () => $fetch<{ roles: RoleDTO[] }>(`/api/workspaces/${props.workspaceId}/roles`),
+  queryFn: () => api<{ roles: RoleDTO[] }>(`/api/workspaces/${props.workspaceId}/roles`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value && (can(Permission.manageRoles) || can(Permission.manageChannels))),
 })
 const channelsQ = useQuery({
   queryKey: computed(() => ['channels', props.workspaceId]),
-  queryFn: () => $fetch<{ categories: ChannelCategoryDTO[]; channels: ChannelDTO[] }>(`/api/workspaces/${props.workspaceId}/channels`),
+  queryFn: () => api<{ categories: ChannelCategoryDTO[]; channels: ChannelDTO[] }>(`/api/workspaces/${props.workspaceId}/channels`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value),
 })
 const channelOverridesQ = useQuery({
   queryKey: computed(() => ['channel-role-overrides', permissionChannelId.value]),
-  queryFn: () => $fetch<{ overrides: ChannelRoleOverrideDTO[] }>(`/api/channels/${permissionChannelId.value}/role-overrides`),
+  queryFn: () => api<{ overrides: ChannelRoleOverrideDTO[] }>(`/api/channels/${permissionChannelId.value}/role-overrides`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value && section.value === 'channels' && Boolean(permissionChannelId.value)),
 })
 const invitesQ = useQuery({
   queryKey: computed(() => ['invites', props.workspaceId]),
-  queryFn: () => $fetch<{ invites: Array<{ code: string; url: string; maxUses: number; uses: number; expiresAt: string | null; createdAt: string }> }>(`/api/workspaces/${props.workspaceId}/invites`),
+  queryFn: () => api<{ invites: Array<{ code: string; url: string; maxUses: number; uses: number; expiresAt: string | null; createdAt: string }> }>(`/api/workspaces/${props.workspaceId}/invites`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value && section.value === 'invites'),
 })
 const auditQ = useQuery({
   queryKey: computed(() => ['audit', props.workspaceId]),
-  queryFn: () => $fetch<{ entries: AuditEntryDTO[] }>(`/api/workspaces/${props.workspaceId}/audit`),
+  queryFn: () => api<{ entries: AuditEntryDTO[] }>(`/api/workspaces/${props.workspaceId}/audit`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value && section.value === 'audit'),
 })
 const isOwner = computed(() => mine.value?.role.key === 'owner')
 const updatesQ = useQuery({
   queryKey: computed(() => ['updates', props.workspaceId]),
-  queryFn: () => $fetch<UpdateStatusDTO>(`/api/workspaces/${props.workspaceId}/updates`),
+  queryFn: () => api<UpdateStatusDTO>(`/api/workspaces/${props.workspaceId}/updates`),
   enabled: computed(() => Boolean(props.workspaceId) && open.value && isOwner.value),
   staleTime: 6 * 60 * 60 * 1000,
 })
@@ -219,7 +219,7 @@ const workspaceIconUrl = computed(() => {
 async function onSave(event: FormSubmitEvent<Schema>) {
   saving.value = true
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}`, { method: 'PATCH', body: event.data })
+    await api(`/api/workspaces/${props.workspaceId}`, { method: 'PATCH', body: event.data })
     await qc.invalidateQueries({ queryKey: ['workspace', props.workspaceId] })
     toast.add({ title: 'Workspace updated', color: 'success' })
   }
@@ -240,7 +240,7 @@ async function uploadWorkspaceIcon(event: Event) {
   try {
     const body = new FormData()
     body.append('file', file)
-    await $fetch(`/api/workspaces/${props.workspaceId}/icon`, { method: 'PUT', body })
+    await api(`/api/workspaces/${props.workspaceId}/icon`, { method: 'PUT', body })
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['workspace', props.workspaceId] }),
       qc.invalidateQueries({ queryKey: ['workspaces'] }),
@@ -259,7 +259,7 @@ async function uploadWorkspaceIcon(event: Event) {
 async function removeWorkspaceIcon() {
   workspaceIconBusy.value = true
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/icon`, { method: 'DELETE' })
+    await api(`/api/workspaces/${props.workspaceId}/icon`, { method: 'DELETE' })
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['workspace', props.workspaceId] }),
       qc.invalidateQueries({ queryKey: ['workspaces'] }),
@@ -279,7 +279,7 @@ async function createCategory() {
   if (!name) return
   categoryCreating.value = true
   try {
-    const result = await $fetch<{ category: ChannelCategoryDTO }>(`/api/workspaces/${props.workspaceId}/categories`, {
+    const result = await api<{ category: ChannelCategoryDTO }>(`/api/workspaces/${props.workspaceId}/categories`, {
       method: 'POST',
       body: { name },
     })
@@ -303,7 +303,7 @@ async function saveCategory() {
   if (!category || !name) return
   categorySaving.value = true
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/categories/${category.id}`, {
+    await api(`/api/workspaces/${props.workspaceId}/categories/${category.id}`, {
       method: 'PATCH',
       body: { name },
     })
@@ -322,7 +322,7 @@ async function confirmDeleteCategory() {
   const categoryId = categoryDeleteId.value
   if (!categoryId) return
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/categories/${categoryId}`, { method: 'DELETE' })
+    await api(`/api/workspaces/${props.workspaceId}/categories/${categoryId}`, { method: 'DELETE' })
     categoryDeleteId.value = null
     selectedCategoryId.value = null
     await qc.invalidateQueries({ queryKey: ['channels', props.workspaceId] })
@@ -336,7 +336,7 @@ async function confirmDeleteCategory() {
 async function assignChannelCategory(channelId: string, categoryId: string) {
   channelAssigningId.value = channelId
   try {
-    await $fetch(`/api/channels/${channelId}`, {
+    await api(`/api/channels/${channelId}`, {
       method: 'PATCH',
       body: { categoryId: categoryId === 'uncategorized' ? null : categoryId },
     })
@@ -359,7 +359,7 @@ async function saveChannelPermissions() {
   permissionSaving.value = true
   try {
     const masks = channelPermissionMasks(permissionModes)
-    await $fetch(`/api/channels/${permissionChannelId.value}/role-overrides/${permissionRoleId.value}`, {
+    await api(`/api/channels/${permissionChannelId.value}/role-overrides/${permissionRoleId.value}`, {
       method: 'PUT',
       body: masks,
     })
@@ -381,7 +381,7 @@ async function resetChannelPermissions() {
   if (!permissionChannelId.value || !permissionRoleId.value) return
   permissionSaving.value = true
   try {
-    await $fetch(`/api/channels/${permissionChannelId.value}/role-overrides/${permissionRoleId.value}`, { method: 'DELETE' })
+    await api(`/api/channels/${permissionChannelId.value}/role-overrides/${permissionRoleId.value}`, { method: 'DELETE' })
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['channel-role-overrides', permissionChannelId.value] }),
       qc.invalidateQueries({ queryKey: ['channel', permissionChannelId.value] }),
@@ -399,7 +399,7 @@ async function resetChannelPermissions() {
 async function makeInvite() {
   inviting.value = true
   try {
-    const res = await $fetch<{ invite: { url: string } }>(`/api/workspaces/${props.workspaceId}/invites`, { method: 'POST', body: {} })
+    const res = await api<{ invite: { url: string } }>(`/api/workspaces/${props.workspaceId}/invites`, { method: 'POST', body: {} })
     inviteUrl.value = serverUrl(res.invite.url)
     await qc.invalidateQueries({ queryKey: ['invites', props.workspaceId] })
   }
@@ -420,7 +420,7 @@ async function copyInvite(url?: string) {
 
 async function confirmKick() {
   if (!kickId.value) return
-  await $fetch(`/api/workspaces/${props.workspaceId}/members/${kickId.value}`, { method: 'DELETE' })
+  await api(`/api/workspaces/${props.workspaceId}/members/${kickId.value}`, { method: 'DELETE' })
   await qc.invalidateQueries({ queryKey: ['members', props.workspaceId] })
   kickId.value = null
   toast.add({ title: 'Member kicked', color: 'success' })
@@ -429,7 +429,7 @@ async function confirmKick() {
 async function assignRole(userId: string, roleId: string) {
   assigningId.value = userId
   try {
-    await $fetch(`/api/workspaces/${props.workspaceId}/members/${userId}`, { method: 'PATCH', body: { roleId } })
+    await api(`/api/workspaces/${props.workspaceId}/members/${userId}`, { method: 'PATCH', body: { roleId } })
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['members', props.workspaceId] }),
       qc.invalidateQueries({ queryKey: ['roles', props.workspaceId] }),

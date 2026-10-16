@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AuthCredentialProvider, AuthSettingsAdminDTO, RegistrationMode } from '~~/shared/types'
+const { api } = useApi()
 
 const props = defineProps<{ workspaceId: string }>()
 const toast = useToast()
@@ -42,7 +43,7 @@ function apply(value: AuthSettingsAdminDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await $fetch<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`)
+    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`)
     apply(response.auth)
   }
   catch (error) {
@@ -56,7 +57,7 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const response = await $fetch<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`, {
+    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`, {
       method: 'PATCH',
       body: {
         registrationMode: registrationMode.value,
