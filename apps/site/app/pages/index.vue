@@ -44,12 +44,12 @@ useSeoMeta({
   ogImage: 'https://llll.gg/og-image.png',
   ogImageWidth: 1200,
   ogImageHeight: 630,
-  ogImageAlt: 'L4 — one workspace for humans and agents',
+  ogImageAlt: 'L4 — Chat. Work. On your terms.',
   twitterCard: 'summary_large_image',
   twitterTitle: pageTitle,
   twitterDescription: pageDescription,
   twitterImage: 'https://llll.gg/og-image.png',
-  twitterImageAlt: 'L4 — one workspace for humans and agents',
+  twitterImageAlt: 'L4 — Chat. Work. On your terms.',
 })
 
 useHead({
@@ -68,7 +68,7 @@ useHead({
       operatingSystem: 'Web',
       license: 'https://opensource.org/license/mit',
       sameAs: repoUrl,
-      offers: { '@type': 'Offer', name: 'Run in your Cloudflare — Free', price: '0', priceCurrency: 'USD' },
+      offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account', price: '0', priceCurrency: 'USD' },
       featureList: [
         'Five built-in apps: Chat, Tasks, Mail, Data, Apps',
         'AI agents in chat who can read and create Tasks',
@@ -82,7 +82,7 @@ useHead({
 </script>
 
 <template>
-  <div class="min-h-screen overflow-x-clip bg-default text-default">
+  <div class="landing min-h-screen overflow-x-clip bg-default text-default">
     <UHeader to="/" title="L4" :toggle="false" class="border-b border-muted/70 bg-default/80 backdrop-blur-xl">
       <template #title><BrandLogo :linked="false" /></template>
       <UNavigationMenu :items="navigation" class="hidden lg:flex" />
@@ -96,14 +96,15 @@ useHead({
     </UHeader>
 
     <main>
-      <section class="relative isolate border-b border-muted py-10 sm:py-20 lg:py-20">
+      <section class="hero relative isolate border-b border-muted py-12 sm:py-20 lg:py-16">
         
         
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
 
-            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat and work together. Run it yourself.</h1>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Channels, threads, tasks, shared mail and data. One installation, many servers. Free software on infrastructure you control.</p>
+            <p class="mb-6 text-xs font-medium uppercase tracking-[.18em] text-muted">Independent by design</p>
+            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One installation, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" target="_blank" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
@@ -121,7 +122,7 @@ useHead({
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
             <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Chat, Tasks, Mail, and Data bring the everyday work together, with the same people and permissions.</p>
           </div>
-          <div class="mt-12 grid gap-px overflow-hidden rounded-2xl border border-muted bg-muted sm:grid-cols-2">
+          <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted sm:grid-cols-2">
             <article v-for="app in productGroups" :id="`app-${app.name.toLowerCase()}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
               <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
               <h3 class="mt-6 text-xl font-semibold text-highlighted">{{ app.title }}</h3>
@@ -129,7 +130,7 @@ useHead({
               <p v-if="app.note" class="mt-4 text-xs leading-5 text-dimmed">{{ app.note }}</p>
             </article>
           </div>
-          <div class="mt-8 rounded-2xl border border-primary/20 bg-primary/5 p-7 sm:p-9">
+          <div class="mt-8 rounded-md border border-default bg-elevated p-7 sm:p-9">
             <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI teammates</div>
             <h3 class="display-title mt-4 text-2xl font-semibold text-highlighted sm:text-3xl">Bring an agent into the conversation.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Give an agent a profile, talk to it in a channel or direct message, and ask it to read or create tasks. Your team decides who can use and configure agents.</p>
@@ -145,7 +146,7 @@ useHead({
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Want more?</h2>
             <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Build tools around the way your team works. Use shared records to build the internal tools your community needs.</p>
           </div>
-          <div class="mt-10 rounded-2xl border border-primary/20 bg-primary/5 p-7 sm:p-9">
+          <div class="mt-10 rounded-md border border-default bg-elevated p-7 sm:p-9">
             <UBadge label="Built-in Apps · Available now" color="primary" variant="subtle" />
             <h3 class="display-title mt-5 text-2xl font-semibold text-highlighted sm:text-3xl">Your data. Your tools.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Turn workspace records into shared lists, tables, and metrics: a client directory, a sales console, or a project dashboard. Choose what each app can show or change, then publish it to the right roles.</p>
@@ -180,8 +181,8 @@ useHead({
           </div>
           <div class="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
-              <UBadge label="Available now" color="primary" variant="subtle" class="self-start" />
-              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run in your Cloudflare — Free</h3>
+              <UBadge label="Your account" color="primary" variant="subtle" class="self-start" />
+              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on Cloudflare</h3>
               <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy an installation, then create isolated servers. Each server has its own database, files and realtime runtime.</p>
               <ul class="my-7 space-y-3 text-sm text-toned">
                 <li>Full MIT product, including all five apps and agents</li>
@@ -203,7 +204,7 @@ useHead({
 
       <section class="py-14 sm:py-24">
         <UContainer>
-          <div class="relative isolate overflow-hidden rounded-3xl border border-primary/20 bg-primary/6 px-6 py-14 text-center sm:px-12 sm:py-16">
+          <div class="relative isolate overflow-hidden rounded-md border border-default bg-elevated px-6 py-14 text-center sm:px-12 sm:py-16">
             <div class="pointer-events-none absolute inset-0 -z-10" />
             <img src="/brand/logo-128.png" alt="" class="mx-auto size-16" width="64" height="64">
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>

@@ -37,14 +37,14 @@ function onTouchEnd(event: TouchEvent) {
     <template #content="{ item }">
       <figure>
         <div
-          class="touch-[pan-y_pinch-zoom] overflow-hidden rounded-[8px] border border-muted bg-elevated shadow-xl"
+          class="touch-[pan-y_pinch-zoom] overflow-hidden rounded-md border border-muted bg-elevated"
           @touchstart.passive="onTouchStart"
           @touchend.passive="onTouchEnd"
           @touchcancel="touchStart = null"
         >
-          <img :src="item.src" :alt="item.alt" width="1280" height="720" loading="lazy" decoding="async" class="aspect-video w-full object-contain">
+          <img :src="item.src" :alt="item.alt" width="1280" height="720" loading="lazy" decoding="async" class="product-image aspect-video w-full object-contain grayscale">
         </div>
-        <figcaption class="mt-4 text-center text-xs leading-5 text-dimmed">{{ item.label }}, inherited from Discoflare, with sample content. <a :href="`#app-${item.value}`" class="whitespace-nowrap text-primary hover:underline">Explore {{ item.label }}</a></figcaption>
+        <figcaption class="mt-4 text-center text-xs leading-5 text-dimmed">{{ item.label }}, inherited from Discoflare, with sample content, shown in monochrome. <a :href="`#app-${item.value}`" class="whitespace-nowrap text-primary hover:underline">Explore {{ item.label }}</a></figcaption>
       </figure>
     </template>
   </UTabs>
