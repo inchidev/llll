@@ -27,16 +27,6 @@ body { background: var(--ui-bg); }
 .display-title { text-wrap: balance; letter-spacing: -.055em; }
 ::selection { background: #d4d4d4; color: #000; }
 .landing { max-width: 1440px; margin-inline: auto; border-inline: 1px solid var(--ui-border); }
-.landing .hero::before, .landing .hero::after {
-  content: "+";
-  position: absolute;
-  bottom: -.55em;
-  z-index: 1;
-  color: var(--ui-text-muted);
-  font: 20px/1 monospace;
-}
-.landing .hero::before { left: -7px; }
-.landing .hero::after { right: -7px; }
 button[role="tab"][data-state="active"] { color: var(--ui-text-inverted); background: var(--ui-primary); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
