@@ -611,7 +611,7 @@ defineExpose({ focusMessage })
       <UContextMenu v-if="messages.length" :items="contextItems" :modal="false">
         <div
           ref="content"
-          class="relative pb-2"
+          class="relative shrink-0 pb-2"
           :style="{ height: `${virtualizer.getTotalSize()}px` }"
           @contextmenu.capture="onContextMenu"
           @pointerover="onPointerOver"

@@ -13,6 +13,9 @@ export default defineEventHandler(async (event): Promise<ServerDeletionStartDTO>
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can delete this server')
 
   const { env } = cf(event)
+  if (env.LLLL_SERVER_ID) {
+    fail(409, 'installation_managed_server', 'Back up this server, then ask the installation operator to remove its resources')
+  }
   if (env.LLLL_INSTALLATION !== 'llll.gg/v1') {
     fail(409, 'manual_installation', 'This installation must be removed manually in Cloudflare')
   }

@@ -81,6 +81,11 @@ try {
   assert.equal(alpha.payload.user.id, ownerId)
   assert.equal(beta.payload.user.id, ownerId)
   for (const id of ['alpha', 'beta']) {
+    const deletion = await api(`/s/${id}/api/workspaces/main/deletion`)
+    assert.equal(deletion.payload.installationKind, 'manual')
+    await api(`/s/${id}/api/workspaces/main/deletion`, { method: 'POST', body: {}, expected: 409 })
+  }
+  for (const id of ['alpha', 'beta']) {
     const db = await mf.getD1Database('DB', `server-${id}`)
     await db.prepare('UPDATE channels SET id = ? WHERE name = ?').bind(`${id}-general`, 'general').run()
   }
