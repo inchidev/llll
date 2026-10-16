@@ -43,7 +43,7 @@ const fixtureOptions = {
       d1Databases: { DB: `server-${id}` }, r2Buckets: { FILES: `server-${id}-files`, BACKUPS: 'fixture-backups' }, kvNamespaces: { TICKETS: `server-${id}-tickets` },
       durableObjects: Object.fromEntries(Object.entries(classes).map(([binding, className]) => [binding, { className, useSQLite: true }])),
       serviceBindings: { INSTALLATION_SERVICE: 'installation' },
-      bindings: { PUBLIC_ORIGIN: `http://localhost:${port + 1 + index}`, AUTH_SECRET: `${id}-server-auth-secret-`.repeat(3), ADMIN_EMAIL: 'owner@example.com', ADMIN_SETUP_TOKEN: 'integration-owner-claim-'.repeat(3), APP_NAME: id, ADMIN_WORKSPACE: id, AUTH_REGISTRATION_MODE: 'invite_only', LLLL_INSTALLATION_ORIGIN: origin, LLLL_SERVER_ID: id, LLLL_INSTALLATION_KEY: keys[id] },
+      bindings: { PUBLIC_ORIGIN: `http://localhost:${port + 1 + index}`, AUTH_SECRET: `${id}-server-auth-secret-`.repeat(3), ADMIN_EMAIL: 'owner@example.com', SETUP_TOKEN: 'integration-owner-claim-'.repeat(3), APP_NAME: id, AUTH_REGISTRATION_MODE: 'invite_only', LLLL_INSTALLATION_ORIGIN: origin, LLLL_SERVER_ID: id, LLLL_INSTALLATION_KEY: keys[id] },
     })),
   ],
 }

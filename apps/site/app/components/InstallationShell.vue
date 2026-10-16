@@ -47,7 +47,7 @@ watch(() => route.fullPath, async () => { if (route.params.serverId) { try { awa
           <UFormField label="Address"><UInput v-model="address" placeholder="chat.example.com" class="w-full" size="xl" autocomplete="url" required /></UFormField>
           <UAlert v-if="error" color="error" :description="error" />
           <UButton type="submit" label="Open" :loading="busy" size="lg" block />
-          <div class="flex justify-between text-sm text-muted"><NuxtLink to="/deploy">Install your own</NuxtLink><a href="https://sandbox.llll.gg">Try the sandbox</a></div>
+          <div class="flex justify-between text-sm text-muted"><NuxtLink to="/deploy">Install your own</NuxtLink><NuxtLink to="/servers">Try the sandbox</NuxtLink></div>
         </form>
       </div>
       <UAlert v-else-if="error" class="absolute bottom-4 left-4 right-4" color="error" :description="error" closable @update:open="error = ''" />

@@ -15,9 +15,7 @@
     "dev:remote": "node scripts/dev-remote.mjs --",
     "dev:full": "pnpm db:migrate:local && pnpm build && wrangler dev .output/server/index.mjs --assets .output/public -c wrangler.dev.jsonc --port 3000",
     "preview": "nuxt build && wrangler dev",
-    "preview:prepare": "node scripts/preview-resources.mjs prepare",
-    "preview:cleanup": "node scripts/preview-resources.mjs cleanup",
-    "preview:sweep": "node scripts/preview-resources.mjs sweep",
+    "staging:setup": "node scripts/preview-staging.mjs setup",
     "deploy": "pnpm build && pnpm deploy:built",
     "deploy:built": "pnpm db:migrate && wrangler deploy",
     "release:installer": "pnpm build:site && pnpm build:deployment && node scripts/build-installer-release.mjs && pnpm --filter @llll/deployment-core pack --pack-destination .installer/release",
@@ -51,7 +49,13 @@
     "test:installation": "node scripts/test-installation.mjs",
     "deploy:installation": "node --env-file-if-exists=.env scripts/deploy-installation.mjs",
     "build:site": "node scripts/build-site.mjs",
-    "typecheck:site": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit"
+    "site:build": "node scripts/build-site.mjs",
+    "site:migrate": "node scripts/site-cloudflare.mjs migrate",
+    "site:deploy": "node scripts/site-cloudflare.mjs deploy",
+    "site:preview": "node scripts/site-cloudflare.mjs preview",
+    "site:preview-delete": "node scripts/site-cloudflare.mjs preview-delete",
+    "typecheck:site": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit",
+    "site:typecheck": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit"
   },
   "cloudflare": {
     "bindings": {
@@ -130,7 +134,7 @@
       "ADMIN_EMAIL": {
         "description": "Email for the first owner account."
       },
-      "ADMIN_SETUP_TOKEN": {
+      "SETUP_TOKEN": {
         "description": "Optional private 32+ character claim used to create the first owner on the workspace domain."
       },
       "AGENT_MODEL": {

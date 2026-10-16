@@ -3,7 +3,6 @@
   "name": "llll-server",
   "main": ".output/server/index.mjs",
   "compatibility_date": "2026-10-16",
-  "preview_urls": true,
   "assets": {
     "binding": "ASSETS",
     "html_handling": "none",
@@ -90,7 +89,32 @@
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",
     "AUTH_REGISTRATION_MODE": "invite_only",
-    "APP_NAME": "My server",
+    "APP_NAME": "L4",
     "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+  },
+  "previews": {
+    "vars": { "APP_NAME": "L4 staging" },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "llll-staging",
+        "database_id": "00000000-0000-4000-8000-000000000002",
+        "migrations_dir": "drizzle/migrations"
+      }
+    ],
+    "r2_buckets": [{ "binding": "FILES", "bucket_name": "llll-staging-files" }],
+    "kv_namespaces": [{ "binding": "TICKETS", "id": "00000000000000000000000000000002" }],
+    "durable_objects": {
+      "bindings": [
+        { "name": "CHANNEL_DO", "class_name": "ChannelDurableObject" },
+        { "name": "WORKSPACE_DO", "class_name": "WorkspaceDurableObject" },
+        { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
+        { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
+        { "name": "AGENT_DO", "class_name": "L4Agent" },
+        { "name": "AGENT_THINK", "class_name": "L4Think" }
+      ]
+    },
+    "ai": { "binding": "AI" },
+    "browser": { "binding": "BROWSER" }
   }
 }

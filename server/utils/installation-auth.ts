@@ -22,7 +22,7 @@ export async function installationUser(event: H3Event) {
   if (!(await db.select({ id: workspace.id }).from(workspace).limit(1))[0]) {
     if ((identity.sub !== env.LLLL_SERVER_OWNER_ID && env.LLLL_ALLOW_INSTALLATION_BOOTSTRAP !== 'true') || identity.role !== 'owner') fail(409, 'owner_setup', 'The server owner must open this server first')
     try {
-      await provisionWorkspace(event, { userId: identity.sub, email: identity.email, displayName: identity.name, handle: `owner-${identity.sub.slice(0, 8)}`, workspaceName: env.ADMIN_WORKSPACE || env.APP_NAME || 'My server' })
+      await provisionWorkspace(event, { userId: identity.sub, email: identity.email, displayName: identity.name, handle: `owner-${identity.sub.slice(0, 8)}`, workspaceName: env.ADMIN_WORKSPACE || env.APP_NAME || 'L4' })
     }
     catch (error) {
       if (!(await db.select({ id: workspace.id }).from(workspace).limit(1))[0]) throw error

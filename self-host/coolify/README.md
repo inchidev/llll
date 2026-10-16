@@ -9,7 +9,7 @@ Coolify generates the values below when it finds those names in the file:
 | `SERVICE_URL_LLLL_8080` | Public origin, including the scheme. Proxied to port 8080. Copied to `PUBLIC_ORIGIN`. |
 | `SERVICE_FQDN_LLLL_8080` | Hostname only. |
 | `SERVICE_PASSWORD_64_AUTHSECRET` | `AUTH_SECRET` (64 characters). |
-| `SERVICE_PASSWORD_64_ADMINSETUP` | `ADMIN_SETUP_TOKEN` (64 characters). |
+| `SERVICE_PASSWORD_64_SETUPTOKEN` | `SETUP_TOKEN` (64 characters). |
 | `SERVICE_USER_RUSTFS` | RustFS access key, shared with the L4 container. |
 | `SERVICE_PASSWORD_64_RUSTFS` | RustFS secret key, shared with the L4 container. |
 

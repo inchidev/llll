@@ -197,7 +197,7 @@ async function createServer(request: Request, env: InstallationEnv) {
   if ((count?.n || 0) >= max) failure(409, 'This installation has reached its server limit')
   const key = randomToken()
   const now = Date.now()
-  const workerName = `l4-${env.INSTALLATION_ID.slice(0, 12)}-${input.id}`.slice(0, 63)
+  const workerName = `llll-${env.INSTALLATION_ID.slice(0, 12)}-${input.id}`.slice(0, 63)
   const encrypted = JSON.stringify(await encryptSecret(env.AUTH_SECRET, `server:${input.id}`, key))
   const reserved = await env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at,public_id) SELECT ?,?,?,?, ?,?,?,'provisioning',?,?,? WHERE (SELECT count(*) FROM servers) < ? RETURNING *").bind(input.id, input.name, session.user.id, `https://pending.invalid/${input.id}`, workerName, encrypted, version, now, now, input.id, max).first<ServerRow>()
   if (!reserved) failure(409, 'This installation has reached its server limit')
@@ -230,7 +230,7 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
   if (path === '/api/installation/recovery-key' && request.method === 'POST') {
     const session = await requireSession(request, env)
     if (Date.now() - new Date(session.session.createdAt).getTime() > 600000) failure(403, 'Sign in again before replacing your recovery key')
-    const code = `l4-r-${randomToken()}`
+    const code = `llll-r-${randomToken()}`
     await env.INSTALLATION_DB.prepare('INSERT INTO account_recovery (user_id,code_hash,created_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET code_hash = excluded.code_hash,created_at = excluded.created_at').bind(session.user.id, await digest(code), Date.now()).run()
     await audit(env, session.user.id, 'account.recovery-key.replace', session.user.id)
     return json({ code })

@@ -76,7 +76,7 @@ export async function advanceDeployment(state: DeploymentState, env: PortalEnv, 
       completion = (await cloudflare<{ jwt: string }>(session.jwt, account + '/workers/assets/upload?base64=true', 'POST', form)).jwt || completion
     }
     if (!completion) throw new Error('Asset upload did not finish')
-    const variables = { PUBLIC_ORIGIN: state.origin!, INSTALLATION_ID: state.worker.slice(3), INSTALLATION_NAME: state.name!, REGISTRATION_MODE: 'invite_only', EMBED_ORIGINS: env.PUBLIC_ORIGIN, CLIENT_ORIGINS: env.PUBLIC_ORIGIN, BACKUP_BUCKET_NAME: state.bucket!, RELEASE_MANIFEST: env.DEPLOYMENT_RELEASE_URL!.replace('llll-deployment.json', 'llll-cloudflare-manifest.json') }
+    const variables = { PUBLIC_ORIGIN: state.origin!, INSTALLATION_ID: state.installationId!, INSTALLATION_NAME: state.name!, REGISTRATION_MODE: 'invite_only', EMBED_ORIGINS: env.PUBLIC_ORIGIN, CLIENT_ORIGINS: env.PUBLIC_ORIGIN, BACKUP_BUCKET_NAME: state.bucket!, RELEASE_MANIFEST: env.DEPLOYMENT_RELEASE_URL!.replace('llll-deployment.json', 'llll-cloudflare-manifest.json') }
     const bindings = [{ name: 'INSTALLATION_DB', type: 'd1', id: state.databaseId }, { name: 'BACKUPS', type: 'r2_bucket', bucket_name: state.bucket }, { name: 'ASSETS', type: 'assets' }, ...Object.entries(variables).map(([name, text]) => ({ name, type: 'plain_text', text })), ...Object.entries({ AUTH_SECRET: state.authSecret, SETUP_TOKEN: state.setupToken }).map(([name, text]) => ({ name, type: 'secret_text', text }))]
     const metadata = { main_module: 'installation.mjs', compatibility_date: '2026-10-16', compatibility_flags: ['nodejs_compat'], bindings, assets: { jwt: completion, config: { html_handling: 'none', not_found_handling: 'single-page-application', run_worker_first: true } }, observability: { enabled: true, redact_query_string: true } }
     const form = new FormData(); form.append('metadata', JSON.stringify(metadata)); form.append('installation.mjs', new Blob([artifact.modules.installation!.content], { type: 'application/javascript+module' }), 'installation.mjs')
@@ -96,5 +96,6 @@ export async function advanceDeployment(state: DeploymentState, env: PortalEnv, 
 }
 
 export function deploymentParameters(accountId: string, name: string) {
-  return { accountId, name, worker: 'l4-' + crypto.randomUUID(), authSecret: randomCode(), setupToken: randomCode(), step: 0 }
+  const installationId = crypto.randomUUID()
+  return { accountId, name, worker: 'llll-' + installationId, installationId, authSecret: randomCode(), setupToken: randomCode(), step: 0 }
 }

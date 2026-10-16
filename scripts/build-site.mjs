@@ -17,10 +17,10 @@ async function paths(directory, prefix = '') {
 }
 const assets = (await paths(output)).filter(path => path.startsWith('/_nuxt/') || ['/200.html', '/favicon.svg', '/site.webmanifest'].includes(path))
 const hash = createHash('sha256'); for (const path of assets) hash.update(await readFile(output + path))
-const cache = 'l4-shell-' + hash.digest('hex').slice(0, 16)
+const cache = 'llll-shell-' + hash.digest('hex').slice(0, 16)
 await writeFile(output + '/sw.js', `const CACHE=${JSON.stringify(cache)},ASSETS=${JSON.stringify(assets)};
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('l4-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>(k.startsWith('llll-shell-')||k.startsWith('l4-shell-'))&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET'||u.origin!==self.location.origin||u.pathname.startsWith('/api/')||u.pathname.startsWith('/deploy'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('/200.html')));return;}if(ASSETS.includes(u.pathname))e.respondWith(caches.match(u.pathname).then(r=>r||fetch(e.request)));});`)
 await build({ entryPoints: [resolve(root, 'apps/site/src/index.ts')], outfile: resolve(root, 'apps/site/.bundle/index.mjs'), bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', minify: true })
 console.log(`Built independent L4 site, iframe shell and PWA (${assets.length} public assets)`)

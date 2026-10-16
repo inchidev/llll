@@ -46,7 +46,7 @@ describe('celld secret placeholders', () => {
     expect(authSecret({ AUTH_SECRET: 'x'.repeat(32) } as never)).toHaveLength(32)
     expect(readOwnerSetupEnv({
       ADMIN_EMAIL: 'owner@example.com',
-      ADMIN_SETUP_TOKEN: 'invalid',
+      SETUP_TOKEN: 'invalid',
     })).toBeNull()
   })
 })

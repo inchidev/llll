@@ -12,16 +12,16 @@ From this directory:
 
 ```bash
 cp .env.example .env
-openssl rand -hex 32   # use one value for AUTH_SECRET and another for ADMIN_SETUP_TOKEN
-# edit .env: PUBLIC_ORIGIN, AUTH_SECRET, ADMIN_EMAIL, ADMIN_SETUP_TOKEN, RustFS keys
+openssl rand -hex 32   # use one value for AUTH_SECRET and another for SETUP_TOKEN
+# edit .env: PUBLIC_ORIGIN, AUTH_SECRET, ADMIN_EMAIL, SETUP_TOKEN, RustFS keys
 docker compose up -d
 ```
 
 The app listens on `127.0.0.1:8080`. The container stays unhealthy until `celld d1 migrations apply` finishes, then `http://127.0.0.1:8080/api/setup/health` returns HTTP 200. On celld the app does not create tables itself. A request that applied the bundled schema would leave those tables out of `d1_migrations`, and the next apply would stop on `table already exists`.
 
-Then open `/setup#claim=<ADMIN_SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser.
+Then open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser.
 
-`AUTH_SECRET` and `ADMIN_SETUP_TOKEN` must each be at least 32 characters. The tracked `wrangler.celld.json` keeps the placeholder `invalid` on purpose. The container replaces it at startup and does not commit the result.
+`AUTH_SECRET` and `SETUP_TOKEN` must each be at least 32 characters. The tracked `wrangler.celld.json` keeps the placeholder `invalid` on purpose. The container replaces it at startup and does not commit the result.
 
 A celld node that misses its own lease renews by fencing itself and exiting. Compose sets `restart: always`, so Docker starts the container again. The entrypoint waits 15 seconds on that restart (`CELLD_RESTART_DELAY`) so the old lease can expire before the new process binds the node. `rustfs-perms` and `bucket-init` are one-shot and use `restart: "no"`.
 

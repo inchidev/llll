@@ -46,7 +46,7 @@ describe('self-host docker stack', () => {
       'PUBLIC_ORIGIN',
       'AUTH_SECRET',
       'ADMIN_EMAIL',
-      'ADMIN_SETUP_TOKEN',
+      'SETUP_TOKEN',
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_API_TOKEN',
       'AI_BASE_URL',
@@ -68,7 +68,7 @@ describe('self-host docker stack', () => {
     expect(template).toContain('SERVICE_URL_LLLL_8080')
     expect(template).toContain('SERVICE_FQDN_LLLL_8080')
     expect(template).toContain('SERVICE_PASSWORD_64_AUTHSECRET')
-    expect(template).toContain('SERVICE_PASSWORD_64_ADMINSETUP')
+    expect(template).toContain('SERVICE_PASSWORD_64_SETUPTOKEN')
     expect(template).toContain('SERVICE_USER_RUSTFS')
     expect(template).toContain('SERVICE_PASSWORD_64_RUSTFS')
     expect(template).toContain('# logo: svgs/llll.png')

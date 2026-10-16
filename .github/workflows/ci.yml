@@ -93,8 +93,8 @@ jobs:
           PUBLIC_ORIGIN=http://127.0.0.1:8080
           AUTH_SECRET=${auth}
           ADMIN_EMAIL=owner@example.com
-          ADMIN_SETUP_TOKEN=${token}
-          ADMIN_WORKSPACE=workspace
+          SETUP_TOKEN=${token}
+           APP_NAME=L4
           RUSTFS_ACCESS_KEY=llll
           RUSTFS_SECRET_KEY=${secret}
           RUSTFS_BUCKET=cells

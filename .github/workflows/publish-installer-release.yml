@@ -49,7 +49,7 @@ jobs:
       - name: Include the complete installation deployment
         run: |
           cp .installer/deployment/llll-deployment.json .installer/release/llll-deployment.json
-          cp .installer/deployment/llll-site.tgz .installer/release/llll-site.tgz
+          cp .installer/deployment/llll.tgz .installer/release/llll.tgz
           cd .installer/release
           find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
           sha256sum --check SHA256SUMS

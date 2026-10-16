@@ -5,7 +5,7 @@ import { randomBytes, createHash } from 'node:crypto'
 const root = resolve(import.meta.dirname, '..')
 const id = process.env.INSTALLATION_ID || 'community'
 if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error('INSTALLATION_ID must be a lowercase name of up to 32 characters')
-const worker = `l4-${id}`
+const worker = `llll-${id}`
 const account = process.env.CLOUDFLARE_ACCOUNT_ID
 const token = process.env.CLOUDFLARE_API_TOKEN
 const file = resolve(root, '.deployment', `${id}.json`)

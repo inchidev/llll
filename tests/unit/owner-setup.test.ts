@@ -4,10 +4,10 @@ import { maskedOwnerEmail, ownerSetupTokenMatches, readOwnerSetupEnv, verifiedOw
 describe('owner setup', () => {
   it('requires an intended owner and a strong installer claim', () => {
     expect(readOwnerSetupEnv({ ADMIN_EMAIL: 'owner@example.com' })).toBeNull()
-    expect(readOwnerSetupEnv({ ADMIN_EMAIL: 'bad', ADMIN_SETUP_TOKEN: 'x'.repeat(32) })).toBeNull()
+    expect(readOwnerSetupEnv({ ADMIN_EMAIL: 'bad', SETUP_TOKEN: 'x'.repeat(32) })).toBeNull()
     expect(readOwnerSetupEnv({
       ADMIN_EMAIL: ' Owner@Example.com ',
-      ADMIN_SETUP_TOKEN: 'x'.repeat(32),
+      SETUP_TOKEN: 'x'.repeat(32),
       APP_NAME: 'Example Workspace',
     })).toEqual({
       email: 'owner@example.com',
@@ -30,7 +30,7 @@ describe('owner setup', () => {
   it('reveals the owner email only to the private setup claim', () => {
     const setup = readOwnerSetupEnv({
       ADMIN_EMAIL: 'owner@example.com',
-      ADMIN_SETUP_TOKEN: 'x'.repeat(32),
+      SETUP_TOKEN: 'x'.repeat(32),
     })
 
     expect(verifiedOwnerSetupEmail(setup, 'x'.repeat(32))).toBe('owner@example.com')

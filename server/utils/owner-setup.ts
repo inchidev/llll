@@ -6,9 +6,9 @@ export type OwnerSetup = {
   workspaceName: string
 }
 
-export function readOwnerSetupEnv(env: Pick<L4Env, 'ADMIN_EMAIL' | 'ADMIN_SETUP_TOKEN' | 'ADMIN_WORKSPACE' | 'APP_NAME'>): OwnerSetup | null {
+export function readOwnerSetupEnv(env: Pick<L4Env, 'ADMIN_EMAIL' | 'SETUP_TOKEN' | 'ADMIN_WORKSPACE' | 'APP_NAME'>): OwnerSetup | null {
   const email = env.ADMIN_EMAIL?.trim().toLowerCase() || ''
-  const token = env.ADMIN_SETUP_TOKEN?.trim() || ''
+  const token = env.SETUP_TOKEN?.trim() || ''
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || token.length < 32) return null
   return {
     email,

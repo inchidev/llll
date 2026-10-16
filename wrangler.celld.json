@@ -80,7 +80,6 @@
     "LLLL_RUNTIME": "celld",
     "AUTH_SECRET": "invalid",
     "ADMIN_EMAIL": "owner@example.com",
-    "ADMIN_SETUP_TOKEN": "invalid",
-    "ADMIN_WORKSPACE": "workspace"
+    "SETUP_TOKEN": "invalid"
   }
 }

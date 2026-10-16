@@ -107,7 +107,7 @@ export async function rotateOwnerSetupToken(
   }
   const client = cloudflareClient(accessToken)
   await editBindings(accessToken, client, accountId, workerName, [
-    { type: 'secret_text', name: 'ADMIN_SETUP_TOKEN', text: token },
+    { type: 'secret_text', name: 'SETUP_TOKEN', text: token },
   ])
 }
 

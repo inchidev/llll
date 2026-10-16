@@ -33,9 +33,9 @@ await writeFile(resolve(dir, 'llll-deployment.json'), bytes)
 let sums = `${digest(bytes)}  llll-deployment.json\n`
 try {
  await readFile(resolve(root, 'apps/site/.output/public/index.html'))
- const site = resolve(dir, 'llll-site.tgz')
- execFileSync('tar', ['-czf', site, '-C', resolve(root, 'apps/site'), '.bundle/index.mjs', '.output/public', 'migrations', 'wrangler.jsonc'])
- sums += `${digest(await readFile(site))}  llll-site.tgz\n`
+  const site = resolve(dir, 'llll.tgz')
+  execFileSync('tar', ['-czf', site, '-C', resolve(root, 'apps/site'), '.bundle/index.mjs', '.output/public', 'migrations', 'wrangler.jsonc'])
+  sums += `${digest(await readFile(site))}  llll.tgz\n`
 } catch (error) { if (error.code !== 'ENOENT') throw error }
 await writeFile(resolve(dir, 'SHA256SUMS'), sums)
 console.log(`Deployment artifact: ${assets.length} assets, ${bytes.length} bytes, SHA256 ${digest(bytes)}`)

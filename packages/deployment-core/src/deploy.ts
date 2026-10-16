@@ -405,7 +405,6 @@ async function uploadWorker(
     { type: 'assets', name: 'ASSETS' },
     { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: resources.origin },
     { type: 'plain_text', name: 'APP_NAME', text: request.appName },
-    { type: 'plain_text', name: 'ADMIN_WORKSPACE', text: request.appName },
     { type: 'plain_text', name: 'APP_TITLE', text: 'One workspace for humans and agents.' },
     { type: 'plain_text', name: 'APP_SUBTITLE', text: 'Built on your Cloudflare stack.' },
     { type: 'plain_text', name: 'AUTH_REGISTRATION_MODE', text: request.registrationMode },
@@ -453,7 +452,7 @@ async function uploadWorker(
       { type: 'secret_text', name: 'AUTH_SECRET', text: randomBase64Url(48) },
       { type: 'secret_text', name: 'ADMIN_EMAIL', text: request.adminEmail },
     )
-    if (ownerSetupToken) bindings.push({ type: 'secret_text', name: 'ADMIN_SETUP_TOKEN', text: ownerSetupToken })
+    if (ownerSetupToken) bindings.push({ type: 'secret_text', name: 'SETUP_TOKEN', text: ownerSetupToken })
   }
 
   const definedBindings = new Set(bindings.map(binding => String(binding.name)))

@@ -66,10 +66,10 @@ Edit `wrangler.celld.json`:
 
 - `PUBLIC_ORIGIN` is the origin members open, such as `http://127.0.0.1:8080` before you add TLS.
 - `ADMIN_EMAIL` is the first owner's email.
-- `ADMIN_WORKSPACE` is the workspace name shown during setup.
+- `APP_NAME` is the workspace name shown during setup.
 - `database_name` is the D1 name you will pass to migrations. The example uses `llll`. `database_id` and the KV `id` only need to be stable for this installation.
 
-`AUTH_SECRET` and `ADMIN_SETUP_TOKEN` in that file are the placeholders `invalid`. Both are shorter than 32 characters, so they do not pass validation: owner setup ignores the token, and session signing rejects the secret. Leave those placeholders in the tracked `wrangler.celld.json`. Each real value must be a random string of at least 32 characters.
+`AUTH_SECRET` and `SETUP_TOKEN` in that file are the placeholders `invalid`. Both are shorter than 32 characters, so they do not pass validation: owner setup ignores the token, and session signing rejects the secret. Leave those placeholders in the tracked `wrangler.celld.json`. Each real value must be a random string of at least 32 characters.
 
 celld 0.6.2 has no secrets store. Setting `CELLD_VARS_FILE` or any `CELLD_VAR_*` variable makes the process exit:
 
@@ -90,7 +90,7 @@ In `vars` of `wrangler.celld.local.json`:
 
 ```json
 "AUTH_SECRET": "<random 32+ characters>",
-"ADMIN_SETUP_TOKEN": "<random 32+ characters>"
+"SETUP_TOKEN": "<random 32+ characters>"
 ```
 
 `CLOUDFLARE_API_TOKEN`, `AI_API_KEY`, and the inbound mail secrets belong in that same `vars` object. Changing `vars` takes effect on the next deploy.
@@ -176,7 +176,7 @@ WantedBy=multi-user.target
 
 `WorkingDirectory` only needs to exist; the node reads the deployed Worker from the bucket. Enable it with `systemctl enable --now llll`.
 
-Open `/setup#claim=<ADMIN_SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser. The claim works only after the deployed `ADMIN_SETUP_TOKEN` is a random string of at least 32 characters.
+Open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser. The claim works only after the deployed `SETUP_TOKEN` is a random string of at least 32 characters.
 
 ## Reverse proxy
 

@@ -20,6 +20,12 @@ The equivalent manual setup is:
 
 The connected Cloudflare API tool is the account-operation path for this repository's agents. Local Wrangler is used for types, development and bundle dry runs.
 
+## llll.gg site (worker `llll`)
+
+Push to `main` deploys it: `pnpm site:build`, then `pnpm site:deploy` (ensures D1 `llll-portal` + staging `llll-portal-staging`, applies `apps/site/migrations` to both, deploys). PRs get a Preview named `pr-<N>` via `pnpm site:preview pr-<N>` → `https://pr-<N>.dev.llll.gg` once the `*.dev.llll.gg` custom domain is attached (Workers & Pages > `llll` > Previews).
+
+Preview isolation, per Cloudflare: Durable Objects and Containers are automatic per Preview. D1/R2/KV are isolated only by binding to a separate resource — all previews share the staging resources from the `previews` block in `wrangler.jsonc` by default; a branch that needs its own data overrides `previews.d1_databases` (plus the migration config) on itself and migrates before previewing. Server worker staging is a one-time `pnpm staging:setup` (D1 `llll-staging`, R2 `llll-staging-files`, KV, migrate). No per-PR buckets.
+
 ## VPS, Docker Compose and Coolify
 
 Generate a private Compose installation:

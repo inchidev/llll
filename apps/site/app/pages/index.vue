@@ -2,7 +2,7 @@
 import type { DropdownMenuItem, NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const sandboxUrl = 'https://sandbox.llll.gg'
+const sandboxUrl = '/open?installation=https://sandbox.llll.gg'
 const siteUrl = 'https://llll.gg/'
 const pageTitle = 'L4 — Chat and work together. Run it yourself.'
 const pageDescription = 'Bring team chat, tasks, shared email, knowledge, and internal tools together. AI teammates, custom internal apps, and no seat fees. Run on your Cloudflare account or VPS.'
@@ -87,8 +87,8 @@ useHead({
       <template #title><BrandLogo :linked="false" /></template>
       <UNavigationMenu :items="navigation" class="hidden lg:flex" />
       <template #right>
-        <UButton :to="sandboxUrl" target="_blank" label="Try sandbox" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
-        <UButton to="/open" label="Open L4" color="neutral" variant="outline" />
+              <UButton :to="sandboxUrl" label="Try sandbox" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
+              <UButton to="/open" label="Open L4" color="neutral" variant="outline" />
         <UDropdownMenu :items="compactNavigation" :content="{ align: 'end', sideOffset: 12 }" :ui="{ content: 'w-56' }">
           <UButton icon="i-ph-list" aria-label="Open menu" color="neutral" variant="ghost" class="lg:hidden" />
         </UDropdownMenu>
@@ -107,7 +107,7 @@ useHead({
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One installation, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="sandboxUrl" target="_blank" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
@@ -210,7 +210,7 @@ useHead({
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="sandboxUrl" target="_blank" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
         </UContainer>
@@ -239,7 +239,7 @@ useHead({
             <ul class="space-y-3 text-sm text-muted">
               <li><NuxtLink :to="`${repoUrl}/tree/main/docs`" class="hover:text-highlighted">Documentation</NuxtLink></li>
               <li><NuxtLink to="/deploy" class="hover:text-highlighted">Setup guide</NuxtLink></li>
-              <li><ULink :to="sandboxUrl" target="_blank" class="hover:text-highlighted">Try the sandbox</ULink></li>
+              <li><ULink :to="sandboxUrl" class="hover:text-highlighted">Try the sandbox</ULink></li>
               <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
             </ul>
           </nav>
@@ -258,7 +258,6 @@ useHead({
           <div class="flex items-center justify-between gap-6 sm:justify-end">
             <div class="text-xs leading-5 text-dimmed">
               <p>A project by Inchi</p>
-              <p>Independent project · MIT licensed</p>
             </div>
             <UColorModeButton color="neutral" variant="outline" />
           </div>
