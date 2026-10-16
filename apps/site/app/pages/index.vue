@@ -106,7 +106,7 @@ useHead({
             <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One installation, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
@@ -189,7 +189,7 @@ useHead({
                 <li>No seats, history tiers, or reduced open-source edition</li>
                 <li>You pay Cloudflare directly for infrastructure usage</li>
               </ul>
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
             </UCard>
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Docker Compose · Coolify" color="neutral" variant="outline" class="self-start" />
@@ -209,7 +209,7 @@ useHead({
             <img src="/brand/logo-128.png" alt="" class="mx-auto size-16" width="64" height="64">
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
@@ -224,7 +224,7 @@ useHead({
           <div class="col-span-2 sm:col-span-3 lg:col-span-1">
             <p class="display-title text-2xl font-semibold text-highlighted">Your workspace, your way.</p>
             <p class="mt-4 max-w-sm text-base leading-7 text-muted">A place for your team and its agents to talk, plan, and build together.</p>
-            <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" color="neutral" variant="outline" class="mt-5" />
+            <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" color="neutral" variant="outline" class="mt-5" />
           </div>
           <nav aria-label="Footer product">
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
@@ -259,7 +259,6 @@ useHead({
             <div class="text-xs leading-5 text-dimmed">
               <p>A project by Inchi</p>
             </div>
-            <UColorModeButton color="neutral" variant="outline" />
           </div>
         </div>
       </UContainer>

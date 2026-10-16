@@ -1,5 +1,9 @@
 <script setup lang="ts">
 const sandboxInstallation = 'https://sandbox.llll.gg'
+
+useSeoMeta({ title: 'Try a server · L4', description: 'Open an L4 server in the shell: the shared sandbox installation or any server ID.', ogTitle: 'Try a server · L4', ogUrl: 'https://llll.gg/servers' })
+useHead({ link: [{ rel: 'canonical', href: 'https://llll.gg/servers' }] })
+
 const serverId = ref('')
 const error = ref('')
 function openServer() {
