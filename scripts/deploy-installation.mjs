@@ -68,7 +68,7 @@ const vars = { PUBLIC_ORIGIN: origin, INSTALLATION_ID: id, INSTALLATION_NAME: pr
 const bindings = [{ name: 'INSTALLATION_DB', type: 'd1', database_id: database.uuid }, { name: 'BACKUPS', type: 'r2_bucket', bucket_name: bucket }, { name: 'ASSETS', type: 'assets' }, ...Object.entries(vars).map(([name, text]) => ({ name, text, type: 'plain_text' })), { name: 'AUTH_SECRET', text: saved.authSecret, type: 'secret_text' }, { name: 'SETUP_TOKEN', text: saved.setupToken, type: 'secret_text' }]
 const replaced = new Set(bindings.map(binding => binding.name))
 bindings.push(...existing.filter(binding => !replaced.has(binding.name)).map(binding => ({ name: binding.name, type: 'inherit' })))
-const metadata = { main_module: 'installation.mjs', compatibility_date: '2026-09-26', compatibility_flags: ['nodejs_compat'], bindings, assets: { jwt: completion, config: { not_found_handling: 'single-page-application', run_worker_first: true } }, observability: { enabled: true, redact_query_string: true } }
+const metadata = { main_module: 'installation.mjs', compatibility_date: '2026-09-26', compatibility_flags: ['nodejs_compat'], bindings, assets: { jwt: completion, config: { html_handling: 'none', not_found_handling: 'single-page-application', run_worker_first: true } }, observability: { enabled: true, redact_query_string: true } }
 const form = new FormData()
 form.append('metadata', JSON.stringify(metadata))
 form.append('installation.mjs', new Blob([artifact.modules.installation.content], { type: 'application/javascript+module' }), 'installation.mjs')

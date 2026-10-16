@@ -6,6 +6,7 @@
   "preview_urls": true,
   "assets": {
     "binding": "ASSETS",
+    "html_handling": "none",
     "directory": ".output/public"
   },
   "observability": {
