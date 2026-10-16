@@ -48,8 +48,8 @@ useSeoMeta({ title: 'Install L4 on your infrastructure' })
     <BrandLogo />
     <h1 class="mt-12 text-4xl font-semibold tracking-tight">Install your own L4</h1>
     <p class="mt-4 text-muted">Your accounts, servers and data. Free MIT software.</p>
-    <UTabs v-if="session == null || (session.step === undefined && !session.completed)" v-model="method" class="mt-8" :items="[{ label: 'Cloudflare', value: 'cloudflare' }, { label: 'VPS / Coolify', value: 'vps' }]" />
-    <section v-if="method === 'cloudflare'" class="mt-8 space-y-6">
+    <UTabs v-if="!session?.authorized && session?.step === undefined && !session?.completed" v-model="method" class="mt-8" :items="[{ label: 'Cloudflare', value: 'cloudflare' }, { label: 'VPS / Coolify', value: 'vps' }]" />
+    <section v-if="method === 'cloudflare' || session?.authorized" class="mt-8 space-y-6">
       <p v-if="grantLeft" class="text-sm text-muted">{{ grantLeft }}</p>
       <template v-if="session?.completed">
         <h2 class="text-2xl font-semibold">Your installation is ready</h2>
