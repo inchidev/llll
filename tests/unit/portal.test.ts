@@ -34,6 +34,11 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
   const cookie = start.headers.get('set-cookie')!.split(';')[0]!
   const auth = new URL(start.headers.get('location')!)
   expect(auth.searchParams.get('code_challenge_method')).toBe('S256')
+  // These are the Workers scopes offered by Cloudflare's current client form.
+  const scopes = auth.searchParams.get('scope')!.split(' ')
+  expect(scopes).toEqual(expect.arrayContaining(['workers-scripts.content_read', 'workers-scripts.edit', 'offline_access']))
+  expect(scopes).not.toContain('workers-scripts.read')
+  expect(scopes).not.toContain('workers-scripts.write')
   expect((await portal.fetch(req('/api/deploy/callback?code=one&state=wrong', cookie), env)).status).toBe(400)
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/oauth2/token')) return Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })

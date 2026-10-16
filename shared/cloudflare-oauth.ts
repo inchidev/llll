@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const CLOUDFLARE_AUTH_URL = 'https://dash.cloudflare.com/oauth2/auth'
 export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
-export const CLOUDFLARE_SCOPES = 'offline_access account-settings.read memberships.read workers-scripts.read workers-scripts.write d1.read d1.write workers-kv-storage.read workers-kv-storage.write workers-r2.read workers-r2.write'
+export const CLOUDFLARE_SCOPES = 'offline_access account-settings.read memberships.read workers-scripts.content_read workers-scripts.edit d1.read d1.write workers-kv-storage.read workers-kv-storage.write workers-r2.read workers-r2.write'
 export const cloudflareGrantSchema = z.object({ accessToken: z.string().min(1), refreshToken: z.string().min(1), expiresAt: z.number(), clientId: z.string().min(1) })
 export type CloudflareGrant = z.infer<typeof cloudflareGrantSchema>
 
