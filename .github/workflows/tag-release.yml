@@ -1,7 +1,8 @@
 name: Tag release
 
-# No manual tagging: merging a version bump into main creates v<version>,
-# which in turn triggers the installer-release and image publishers.
+# No manual tagging, no PAT: merging a version bump into main creates
+# v<version>, then dispatches the publishers through the API (a tag pushed
+# with GITHUB_TOKEN would not cascade into new runs on its own).
 on:
   push:
     branches: [main]
@@ -10,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -33,3 +35,6 @@ jobs:
           git tag "$tag"
           git push origin "$tag"
           echo "Tagged $tag."
+          gh workflow run publish-installer-release.yml --ref main -f tag="$tag"
+          gh workflow run publish-image.yml --ref main -f tag="$tag"
+          echo "Dispatched publishers for $tag."
