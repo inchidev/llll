@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+:root{--ui-radius:.5rem}html{scroll-behavior:smooth}body{background:var(--ui-bg)}.display-title{text-wrap:balance;letter-spacing:-.055em}::selection{background:#b8ed6a;color:#080808}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+/* Small captions remain readable on neutral dark surfaces. */
+.dark { --ui-text-dimmed: #a3a3a3; }
+button[role="tab"][data-state="active"] { color: #090909; background: var(--ui-primary); }
+:root { --ui-primary: #365314; }
+.dark { --ui-primary: #b8ed6a; }
+button[role="tab"][data-state="active"] { color: #fff; }
+.dark button[role="tab"][data-state="active"] { color: #090909; }

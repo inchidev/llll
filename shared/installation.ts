@@ -12,9 +12,11 @@ export type InstallationDiscovery = {
   telegram: boolean
   telegramOidc?: boolean
   identity?: boolean
+  embedOrigins?: string[]
 }
 
 export type InstallationServer = {
+  publicId?: string
   id: string
   name: string
   ownerId: string

@@ -1,6 +1,6 @@
 # Deployment artifacts
 
-One immutable L4 release contains matching installation/server modules, client assets and migration chains. The site and common client deploy independently from the same repository. The public site does not hold Cloudflare credentials or manage customer installations.
+One immutable L4 release contains matching installation/server modules, client assets and migration chains. The site and common client deploy independently from the same repository. The portal holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
 
 | Asset | Purpose |
 | --- | --- |
@@ -9,6 +9,7 @@ One immutable L4 release contains matching installation/server modules, client a
 | `llll-worker.mjs` | Bundled server Worker. |
 | `llll-assets.json` | Server client assets and ordered server migrations. |
 | `llll-deployment-core-<version>.tgz` | Provisioning library for installation controllers and operator tooling. |
+| `llll-site.tgz` | Independently deployable portal Worker, public site/PWA assets and portal migrations. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
 Releases through 0.1.1 named the library package `llll-admin-core`; those published artifacts remain immutable. Current source uses `@llll/deployment-core`. This package is a library, not a separately deployed Admin.

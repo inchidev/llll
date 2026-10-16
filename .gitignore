@@ -29,6 +29,7 @@ logs
 .env.*
 !.env.example
 !.env.installation.example
+!.env.portal.example
 
 # Wrangler local state
 .wrangler
@@ -52,7 +53,7 @@ wrangler.stage.local.jsonc
 wrangler.celld.local.json
 wrangler.celld.local.jsonc
 
-# L4 Admin release bundle
+# L4 deployment bundles
 .dev.vars
 apps/installation/.bundle
 apps/installation/.wrangler

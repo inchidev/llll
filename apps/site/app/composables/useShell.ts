@@ -1,0 +1,112 @@
+import { normalizeServerOrigin } from '../../../../shared/client-router'
+import { embedEvent, EMBED_VERSION, safeEmbedPath } from '../../../../shared/embed'
+
+export type ShellServer = { id: string; name: string; unread: number }
+export type ShellInstallation = { origin: string; name: string; collapsed: boolean; servers: ShellServer[] }
+
+export function useShell() {
+  const installations = useState<ShellInstallation[]>('shell-installations', () => [])
+  const selected = useState('shell-selected', () => '')
+  const loaded = useState<string[]>('shell-loaded', () => [])
+  const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
+  const initialized = useState('shell-initialized', () => false)
+  const frames = useState<Record<string, HTMLIFrameElement>>('shell-frames', () => ({}))
+  const registered = new Set<string>()
+  const telegram = useState<string>('shell-telegram', () => '')
+  const route = useRoute()
+  const router = useRouter()
+
+  function persist() {
+    try { localStorage.setItem('llll.shell.v1', JSON.stringify(installations.value)) } catch { /* Bookmarks remain usable in memory. */ }
+  }
+  function send(origin: string, data: object) {
+    frames.value[origin]?.contentWindow?.postMessage({ llll: EMBED_VERSION, ...data }, origin)
+  }
+  function requestedPath() {
+    const path = route.params.serverId ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/' : '/'
+    return safeEmbedPath(path) ? path : '/'
+  }
+  function open(installation: ShellInstallation, serverId?: string) {
+    selected.value = installation.origin
+    if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
+    if (serverId) {
+      void router.push('/' + serverId)
+      send(installation.origin, { type: 'open', serverId, path: '/' })
+    }
+  }
+  async function connect(address: string) {
+    const url = new URL(/^https?:\/\//.test(address) ? address : 'https://' + address)
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS installation address')
+    const response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error' })
+    const data = await response.json()
+    if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 installation')
+    if (!data.embedOrigins?.includes(location.origin)) throw new Error('This installation has not allowed embedding here. Open its own address or ask its operator.')
+    let installation = installations.value.find(item => item.origin === url.origin)
+    if (!installation) { installation = { origin: url.origin, name: String(data.name).slice(0, 100), collapsed: false, servers: [] }; installations.value.push(installation) }
+    persist(); open(installation)
+    return installation
+  }
+  async function resolveServer() {
+    const id = String(route.params.serverId || '')
+    if (!id) return
+    let installation = installations.value.find(i => i.servers.some(s => s.id === id))
+    if (!installation) {
+      const resolved = await $fetch<{ origin: string }>('/api/servers/' + encodeURIComponent(id))
+      installation = await connect(resolved.origin)
+    }
+    selected.value = installation.origin
+    if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
+    send(installation.origin, { type: 'open', serverId: id, path: requestedPath() })
+  }
+  function initialize() {
+    if (initialized.value) return
+    initialized.value = true
+    try {
+      const saved = JSON.parse(localStorage.getItem('llll.shell.v1') || '[]')
+      if (Array.isArray(saved)) installations.value = saved.slice(0, 50).flatMap(i => {
+        try {
+          const origin = normalizeServerOrigin(i.origin)
+          const parsed = embedEvent.parse({ type: 'servers', servers: i.servers })
+          if (parsed.type !== 'servers') return []
+          return [{ origin, name: String(i.name).slice(0, 100), collapsed: Boolean(i.collapsed), servers: parsed.servers }]
+        } catch { return [] }
+      })
+    } catch { /* Start with an empty rail. */ }
+    window.addEventListener('message', event => {
+      const installation = installations.value.find(i => i.origin === event.origin)
+      if (!installation || event.source !== frames.value[event.origin]?.contentWindow || event.data?.llll !== EMBED_VERSION) return
+      const parsed = embedEvent.safeParse(event.data)
+      if (!parsed.success) return
+      const message = parsed.data
+      if (message.type === 'ready') {
+        send(event.origin, { type: 'theme', theme: 'dark' })
+        if (event.origin === selected.value && route.params.serverId) send(event.origin, { type: 'open', serverId: route.params.serverId, path: requestedPath() })
+        const initData = telegram.value || window.Telegram?.WebApp?.initData
+        if (event.origin === selected.value && initData) send(event.origin, { type: 'telegram', initData })
+      }
+      if (message.type === 'servers') {
+        installation.servers = message.servers
+        persist()
+        for (const server of message.servers) {
+          const key = event.origin + '/' + server.id
+          if (registered.has(key)) continue
+          registered.add(key)
+          void $fetch('/api/servers/register', { method: 'POST', body: { origin: event.origin, id: server.id } }).catch(() => { registered.delete(key) })
+        }
+        if (event.origin === selected.value && route.params.serverId && message.servers.some(s => s.id === route.params.serverId)) send(event.origin, { type: 'open', serverId: route.params.serverId, path: requestedPath() })
+      }
+      if (message.type === 'session' && !message.authenticated) { installation.servers = []; persist() }
+      if (message.type === 'navigate' && event.origin === selected.value && installation.servers.some(s => s.id === message.serverId) && safeEmbedPath(message.path)) void router.replace('/' + message.serverId + (message.path === '/' ? '' : message.path))
+      if (message.type === 'call') calls.value[event.origin] = message.active
+    })
+  }
+  function forget(origin: string) {
+    if (calls.value[origin]) throw new Error('End the active call before removing this installation')
+    installations.value = installations.value.filter(i => i.origin !== origin)
+    loaded.value = loaded.value.filter(i => i !== origin)
+    Reflect.deleteProperty(frames.value, origin)
+    if (selected.value === origin) selected.value = ''
+    persist()
+  }
+  return { installations, selected, loaded, calls, frames, initialize, connect, open, resolveServer, persist, forget }
+}

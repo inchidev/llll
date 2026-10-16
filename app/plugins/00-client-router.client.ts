@@ -2,6 +2,13 @@ export default defineNuxtPlugin(async () => {
   const connections = useInstallations()
   const clientMode = useRuntimeConfig().public.clientMode as string
   connections.initialize()
+  const bootstrap = (window as Window & { __LLLL_BOOTSTRAP__?: { token: string; serverId: string } }).__LLLL_BOOTSTRAP__
+  Reflect.deleteProperty(window, '__LLLL_BOOTSTRAP__')
+  if (bootstrap?.token) connections.tokens.value[location.origin] = bootstrap.token
+  if (clientMode === 'web') {
+    connections.installations.value = connections.installations.value.filter(item => item.origin === location.origin)
+    if (connections.active.value?.origin !== location.origin) connections.active.value = null
+  }
   if (['http:', 'https:'].includes(location.protocol)) {
     try {
       const discovery = await connections.discover(location.origin)
@@ -19,6 +26,7 @@ export default defineNuxtPlugin(async () => {
     try { await connections.refresh(installation.origin) }
     catch { /* Keep unavailable connections visible for account recovery. */ }
   }))
+  if (bootstrap?.serverId && connections.installations.value.find(i => i.origin === location.origin)?.servers.some(s => s.id === bootstrap.serverId)) connections.select(location.origin, bootstrap.serverId)
   const original = globalThis.$fetch
   globalThis.$fetch = original.create({
     onRequest({ request, options }) {

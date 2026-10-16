@@ -9,10 +9,11 @@ import { oauthProvider } from '@better-auth/oauth-provider'
 import { installationConnection } from './connection'
 import type { InstallationEnv } from './env'
 import { installationTelegram } from './telegram'
+import { embedOrigins } from '../../../shared/embed'
 import { decodeJwt } from 'jose'
 
 export function clientOrigins(env: InstallationEnv) {
-  return [new URL(env.PUBLIC_ORIGIN).origin, 'capacitor://localhost', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost', ...(env.CLIENT_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)]
+  return [new URL(env.PUBLIC_ORIGIN).origin, 'capacitor://localhost', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost', ...embedOrigins(env.EMBED_ORIGINS), ...(env.CLIENT_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)]
 }
 
 export function installationAuth(env: InstallationEnv, setup = false) {

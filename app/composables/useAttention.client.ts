@@ -15,6 +15,7 @@ const delivered = new Set<string>()
 export function useAttention() {
   const nuxt = useNuxtApp()
   const prefs = usePrefsStore()
+  const unread = useState('llll-embed-unread', () => 0)
 
   function queryClient(): QueryClient | undefined {
     return nuxt.$queryClient as QueryClient | undefined
@@ -29,6 +30,7 @@ export function useAttention() {
       ...qc.getQueriesData<ChannelList>({ queryKey: ['dms'] }).map(([, data]) => data),
     ]
     const count = unreadChannelCount(lists)
+    unread.value = count
     document.title = count ? `(${count}) ${originalTitle}` : originalTitle
     const badges = navigator as BadgeNavigator
     const update = count ? badges.setAppBadge?.(count) : badges.clearAppBadge?.()

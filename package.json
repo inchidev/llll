@@ -1,6 +1,6 @@
 {
   "name": "llll",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "private": true,
   "packageManager": "pnpm@10.30.3",
@@ -20,7 +20,7 @@
     "preview:sweep": "node scripts/preview-resources.mjs sweep",
     "deploy": "pnpm build && pnpm deploy:built",
     "deploy:built": "pnpm db:migrate && wrangler deploy",
-    "release:installer": "pnpm build:deployment && node scripts/build-installer-release.mjs && pnpm --filter @llll/deployment-core pack --pack-destination .installer/release",
+    "release:installer": "pnpm build:site && pnpm build:deployment && node scripts/build-installer-release.mjs && pnpm --filter @llll/deployment-core pack --pack-destination .installer/release",
     "env:init": "node scripts/init-env.mjs",
     "vapid:generate": "node scripts/generate-vapid.mjs",
     "postinstall": "nuxt prepare",
@@ -49,7 +49,9 @@
     "postbuild": "node scripts/build-pwa.mjs",
     "build:deployment": "pnpm build && pnpm exec wrangler deploy --dry-run --config wrangler.installer.jsonc --outdir .installer/bundle && pnpm build:installation && node scripts/build-deployment-release.mjs",
     "test:installation": "node scripts/test-installation.mjs",
-    "deploy:installation": "node --env-file-if-exists=.env scripts/deploy-installation.mjs"
+    "deploy:installation": "node --env-file-if-exists=.env scripts/deploy-installation.mjs",
+    "build:site": "node scripts/build-site.mjs",
+    "typecheck:site": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit"
   },
   "cloudflare": {
     "bindings": {

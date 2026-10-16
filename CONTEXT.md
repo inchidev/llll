@@ -14,11 +14,11 @@ Server roles, removal, onboarding and resource permissions are authoritative loc
 
 ## Account and identity
 
-An installation account has a stable opaque ID. Password login works independently of the official identity service. Optional L4 OIDC and Telegram providers link to that account explicitly. Never merge accounts by email alone. The shared L4 account is an optional OIDC identity provider; each independent installation still owns its own local account and session.
+Each installation owns local accounts and sessions. Email/password and optional Telegram login work at its direct address and inside its own iframe. No shared L4 account is required. Explicit account linking never merges accounts by email alone.
 
 ## Client
 
-One Nuxt SPA connects installations over HTTPS and WebSocket. Web, PWA, Capacitor iOS and Telegram use the same UI. A left rail groups servers by installation. Switching servers reloads the client so realtime state and query caches cannot leak between connections. Standard chat is rendered directly, without iframes. Embedded third-party apps keep their separate sandboxed integration boundary.
+The official web/PWA/Telegram shell embeds the installation's own client and groups its servers in a narrow left rail. Installation names are rotated -90 degrees beside their servers. Different installations can run different UI and content API versions. The only shared client contract is a small validated postMessage bridge for navigation, metadata, theme and lifecycle. Chat is rendered inside the installation's origin. iOS/macOS delivery is frozen.
 
 ## Direct messages and threads
 

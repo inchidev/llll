@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
 import assert from 'node:assert/strict'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from 'miniflare'
 
@@ -10,7 +10,7 @@ const output = resolve(root, '.output/public')
 const serverBundle = resolve(root, '.installer/bundle/index.js')
 const installationBundle = resolve(root, 'apps/installation/.bundle/index.mjs')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
-const origin = `http://localhost:${port}`
+const origin = `http://${process.env.LLLL_TEST_HOST || 'localhost'}:${port}`
 const setupToken = 'local-integration-setup-claim-'.repeat(3)
 const ownerPassword = 'LocalIntegrationPassword123!'
 const keys = { alpha: 'alpha-integration-key-'.repeat(4), beta: 'beta-integration-key-'.repeat(4) }
@@ -35,7 +35,7 @@ const fixtureOptions = {
     {
       name: 'installation', modules: true, scriptPath: installationBundle, compatibilityDate: '2026-09-26', compatibilityFlags: ['nodejs_compat'],
       d1Databases: { INSTALLATION_DB: 'installation-control' }, r2Buckets: { BACKUPS: 'fixture-backups' },
-      bindings: { IDENTITY_PROVIDER: 'true', INSTALLATION_ID: 'integration', INSTALLATION_NAME: 'Integration', PUBLIC_ORIGIN: origin, AUTH_SECRET: 'integration-installation-secret-'.repeat(3), SETUP_TOKEN: setupToken, REGISTRATION_MODE: 'open', CLIENT_ORIGINS: origin },
+      bindings: { IDENTITY_PROVIDER: 'true', INSTALLATION_ID: 'integration', INSTALLATION_NAME: process.env.LLLL_TEST_INSTALLATION_NAME || 'Integration', PUBLIC_ORIGIN: origin, AUTH_SECRET: 'integration-installation-secret-'.repeat(3), SETUP_TOKEN: setupToken, REGISTRATION_MODE: 'open', TRUSTED_SERVER_ORIGINS: `http://localhost:${port + 1},http://localhost:${port + 2}`, CLIENT_ORIGINS: origin, EMBED_ORIGINS: process.env.LLLL_TEST_EMBED_ORIGIN || origin },
       serviceBindings: { SERVER_ALPHA: 'server-alpha', SERVER_BETA: 'server-beta', ASSETS: assets },
     },
     ...['alpha', 'beta'].map((id, index) => ({
@@ -63,7 +63,7 @@ async function api(path, { method = 'GET', body, token = ownerToken, expected = 
 
 try {
   const control = await mf.getD1Database('INSTALLATION_DB', 'installation')
-  await control.exec(execSql(await readFile(resolve(root, 'apps/installation/migrations/0000_installation_baseline.sql'), 'utf8')))
+  for (const name of (await readdir(resolve(root, 'apps/installation/migrations'))).filter(n => n.endsWith('.sql')).sort()) await control.exec(execSql(await readFile(resolve(root, 'apps/installation/migrations', name), 'utf8')))
   const baseline = execSql(await readFile(resolve(root, 'drizzle/migrations/0000_server_baseline.sql'), 'utf8'))
   for (const id of ['alpha', 'beta']) await (await mf.getD1Database('DB', `server-${id}`)).exec(baseline)
   const setup = await api('/api/installation/setup', { method: 'POST', body: { token: setupToken, name: 'Owner', email: 'owner@example.com', password: ownerPassword } })
@@ -77,6 +77,20 @@ try {
   }
   const directory = await api('/api/installation/servers')
   assert.deepEqual(directory.payload.servers.map(server => server.id), ['alpha', 'beta'])
+  const alphaPublicId = directory.payload.servers.find(server => server.id === 'alpha').publicId
+  const betaPublicId = directory.payload.servers.find(server => server.id === 'beta').publicId
+  assert.match(alphaPublicId, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
+  assert.notEqual(alphaPublicId, betaPublicId)
+  const embedBody = new URLSearchParams({ parent: process.env.LLLL_TEST_EMBED_ORIGIN || origin, server: alphaPublicId, path: '/channels/alpha-general', session: ownerToken })
+  const embedded = await mf.dispatchFetch(origin + '/embed/open', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: embedBody.toString() })
+  assert.equal(embedded.status, 200)
+  assert.equal(embedded.headers.get('cache-control'), 'no-store')
+  const embeddedHtml = await embedded.text()
+  assert.ok(embeddedHtml.includes('__LLLL_BOOTSTRAP__'))
+  assert.ok(!embeddedHtml.includes('session=' + ownerToken), 'The session must never be placed in a URL')
+  const badEmbed = await mf.dispatchFetch(origin + '/embed/open', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: embedBody.toString() })
+  assert.equal(badEmbed.status, 403)
+
   const [alpha, beta] = await Promise.all([api('/s/alpha/api/me'), api('/s/beta/api/me')])
   assert.equal(alpha.payload.user.id, ownerId)
   assert.equal(beta.payload.user.id, ownerId)

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { APIError, createAuthEndpoint, getSessionFromCtx } from 'better-auth/api'
 import { setSessionCookie } from 'better-auth/cookies'
-import { verifyMiniAppData } from '../../../shared/telegram'
+import { verifyMiniAppData, verifyTelegramPublicData } from '../../../shared/telegram'
 import type { InstallationEnv } from './env'
 
 export function installationTelegram(env: InstallationEnv) {
@@ -11,9 +11,9 @@ export function installationTelegram(env: InstallationEnv) {
       telegramMiniApp: createAuthEndpoint('/telegram/miniapp', {
         method: 'POST', body: z.object({ initData: z.string().min(1).max(16000), link: z.boolean().default(false) }), requireHeaders: true,
       }, async ctx => {
-        if (!env.TELEGRAM_BOT_TOKEN) throw new APIError('FORBIDDEN', { message: 'Telegram Mini App login is not configured' })
+        if (!env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_TRUSTED_BOT_ID) throw new APIError('FORBIDDEN', { message: 'Telegram Mini App login is not configured' })
         let telegram
-        try { telegram = await verifyMiniAppData(ctx.body.initData, env.TELEGRAM_BOT_TOKEN) }
+        try { telegram = env.TELEGRAM_TRUSTED_BOT_ID ? await verifyTelegramPublicData(ctx.body.initData, env.TELEGRAM_TRUSTED_BOT_ID) : await verifyMiniAppData(ctx.body.initData, env.TELEGRAM_BOT_TOKEN!) }
         catch { throw new APIError('UNAUTHORIZED', { message: 'Reopen the Telegram Mini App to sign in' }) }
         const current = await getSessionFromCtx(ctx)
         const adapter = ctx.context.internalAdapter

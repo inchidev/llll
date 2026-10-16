@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { useAttention as AttentionFactory } from '../../app/composables/useAttention.client'
 
+const embeddedUnread = { value: 0 }
 const setBadge = vi.fn(async () => undefined)
 const notify = vi.fn(async () => undefined)
 const start = vi.fn()
@@ -35,6 +36,7 @@ beforeAll(async () => {
     __LLLL_NATIVE_NOTIFICATIONS__: { setBadge, notify },
   })
   vi.stubGlobal('useNuxtApp', () => ({ $queryClient: queryClient }))
+  vi.stubGlobal('useState', () => embeddedUnread)
   vi.stubGlobal('usePrefsStore', () => ({ messageSounds: true }))
   ;({ useAttention } = await import('../../app/composables/useAttention.client'))
 })
@@ -48,6 +50,7 @@ describe('native attention bridge', () => {
   it('reconciles the native badge with unread conversations', () => {
     expect(useAttention().sync()).toBe(1)
     expect(setBadge).toHaveBeenCalledWith(1)
+    expect(embeddedUnread.value).toBe(1)
   })
 
   it('passes message context and a Channel route to the native notification', () => {

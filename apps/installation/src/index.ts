@@ -12,11 +12,15 @@ import { clientOrigins, installationAuth } from './auth'
 import type { InstallationEnv } from './env'
 import { provisionServer, updateServer, type ServerRow } from './provision'
 
+import { embedNavigation } from './embed-navigation'
+import { cloudflareCredentials } from './cloudflare-credentials'
+import { embedOrigins } from '../../../shared/embed'
+
 const encoder = new TextEncoder()
 const idPattern = /^[a-z0-9][a-z0-9-]{0,47}$/
 const setupSchema = z.object({ token: z.string().min(32).max(200), name: z.string().min(1).max(100), email: z.string().email().max(200), password: z.string().min(10).max(128) })
-const createServerSchema = z.object({ id: z.string().regex(idPattern), name: z.string().trim().min(1).max(80) })
-const registerServerSchema = createServerSchema.extend({ origin: z.string().url(), key: z.string().min(32).max(200), workerName: z.string().regex(idPattern).optional() })
+const createServerSchema = z.object({ name: z.string().trim().min(1).max(80) })
+const registerServerSchema = createServerSchema.extend({ id: z.string().regex(idPattern), origin: z.string().url(), key: z.string().min(32).max(200), workerName: z.string().regex(idPattern).optional() })
 
 function failure(status: number, message: string): never { throw Object.assign(new Error(message), { status }) }
 function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } }) }
@@ -74,7 +78,7 @@ async function membership(env: InstallationEnv, serverId: string, userId: string
 }
 
 function serverSummary(server: ServerRow) {
-  return { id: server.id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status }
+  return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status }
 }
 
 async function assetToken(env: InstallationEnv, serverId: string, sessionId: string) {
@@ -177,7 +181,7 @@ async function registerServer(request: Request, env: InstallationEnv) {
   const encrypted = JSON.stringify(await encryptSecret(env.AUTH_SECRET, `server:${input.id}`, input.key))
   const now = Date.now()
   await env.INSTALLATION_DB.batch([
-    env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ready',?,?)").bind(input.id, input.name, session.user.id, origin.origin, input.workerName || null, encrypted, version, now, now),
+    env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at,public_id) VALUES (?,?,?,?,?,?,?,'ready',?,?,?)").bind(input.id, input.name, session.user.id, origin.origin, input.workerName || null, encrypted, version, now, now, crypto.randomUUID()),
     env.INSTALLATION_DB.prepare("INSERT INTO memberships (server_id,user_id,role,created_at) VALUES (?,?,'owner',?)").bind(input.id, session.user.id, now),
   ])
   await audit(env, session.user.id, 'server.register', input.id)
@@ -186,7 +190,7 @@ async function registerServer(request: Request, env: InstallationEnv) {
 
 async function createServer(request: Request, env: InstallationEnv) {
   const session = await requireOwner(request, env)
-  const input = createServerSchema.parse(await body(request))
+  const input = { ...createServerSchema.parse(await body(request)), id: crypto.randomUUID() }
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) failure(409, 'Connect Cloudflare provisioning or deploy and register a self-hosted server')
   const max = Math.max(1, Math.min(500, Number(env.MAX_SERVERS) || 20))
   const count = await env.INSTALLATION_DB.prepare('SELECT count(*) n FROM servers').first<{ n: number }>()
@@ -195,7 +199,7 @@ async function createServer(request: Request, env: InstallationEnv) {
   const now = Date.now()
   const workerName = `l4-${env.INSTALLATION_ID.slice(0, 12)}-${input.id}`.slice(0, 63)
   const encrypted = JSON.stringify(await encryptSecret(env.AUTH_SECRET, `server:${input.id}`, key))
-  const reserved = await env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at) SELECT ?,?,?,?, ?,?,?,'provisioning',?,? WHERE (SELECT count(*) FROM servers) < ? RETURNING *").bind(input.id, input.name, session.user.id, `https://pending.invalid/${input.id}`, workerName, encrypted, version, now, now, max).first<ServerRow>()
+  const reserved = await env.INSTALLATION_DB.prepare("INSERT INTO servers (id,name,owner_id,origin,worker_name,secret,version,status,created_at,updated_at,public_id) SELECT ?,?,?,?, ?,?,?,'provisioning',?,?,? WHERE (SELECT count(*) FROM servers) < ? RETURNING *").bind(input.id, input.name, session.user.id, `https://pending.invalid/${input.id}`, workerName, encrypted, version, now, now, input.id, max).first<ServerRow>()
   if (!reserved) failure(409, 'This installation has reached its server limit')
   try {
     const result = await provisionServer(env, reserved, session.user, key)
@@ -215,7 +219,14 @@ async function createServer(request: Request, env: InstallationEnv) {
 async function handle(request: Request, env: InstallationEnv): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
-  if (path === '/.well-known/llll') return json({ product: 'llll', kind: 'installation', id: env.INSTALLATION_ID, name: env.INSTALLATION_NAME, apiVersion: INSTALLATION_API_VERSION, version, origin: env.PUBLIC_ORIGIN, registration: env.REGISTRATION_MODE === 'open', telegram: Boolean(env.TELEGRAM_BOT_TOKEN), telegramOidc: Boolean(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET), identity: Boolean(env.IDENTITY_ISSUER && env.IDENTITY_CLIENT_ID), ready: Boolean(await ownerId(env)) })
+  if (path === '/embed/open' && request.method === 'POST') return embedNavigation(request, env)
+  const lookup = path.match(/^\/\.well-known\/llll\/servers\/([a-f0-9-]{36})$/)
+  if (lookup) {
+    const server = await env.INSTALLATION_DB.prepare("SELECT public_id FROM servers WHERE public_id = ? AND status = 'ready'").bind(lookup[1]).first()
+    if (!server) failure(404, 'Server not found')
+    return json({ id: lookup[1], origin: env.PUBLIC_ORIGIN })
+  }
+  if (path === '/.well-known/llll') return json({ product: 'llll', kind: 'installation', id: env.INSTALLATION_ID, name: env.INSTALLATION_NAME, apiVersion: INSTALLATION_API_VERSION, version, origin: env.PUBLIC_ORIGIN, registration: env.REGISTRATION_MODE === 'open', telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID), telegramOidc: Boolean(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET), identity: false, embedOrigins: embedOrigins(env.EMBED_ORIGINS), ready: Boolean(await ownerId(env)) })
   if (path === '/api/installation/recovery-key' && request.method === 'POST') {
     const session = await requireSession(request, env)
     if (Date.now() - new Date(session.session.createdAt).getTime() > 600000) failure(403, 'Sign in again before replacing your recovery key')
@@ -303,13 +314,13 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
   if (path === '/api/installation/settings') {
     await requireOwner(request, env)
     if (request.method === 'PUT') {
-      const input = z.object({ telegramBotToken: z.string().max(300).optional(), telegramClientId: z.string().max(200).optional(), telegramClientSecret: z.string().max(300).optional(), cloudflareAccountId: z.string().regex(/^[a-f0-9]{32}$/).optional(), cloudflareApiToken: z.string().min(32).max(300).optional() }).parse(await body(request))
+      const input = z.object({ telegramBotToken: z.string().max(300).optional(), telegramTrustedBotId: z.string().regex(/^[1-9]\d{0,15}$/).optional(), telegramClientId: z.string().max(200).optional(), telegramClientSecret: z.string().max(300).optional(), cloudflareAccountId: z.string().regex(/^[a-f0-9]{32}$/).optional(), cloudflareApiToken: z.string().min(32).max(300).optional() }).parse(await body(request))
       if (input.telegramBotToken) {
         const check = await fetch(`https://api.telegram.org/bot${input.telegramBotToken}/getMe`)
         const data = await check.json() as { ok?: boolean }
         if (!check.ok || !data.ok) failure(400, 'Telegram rejected this bot token')
       }
-      const keys = { telegramBotToken: 'TELEGRAM_BOT_TOKEN', telegramClientId: 'TELEGRAM_CLIENT_ID', telegramClientSecret: 'TELEGRAM_CLIENT_SECRET', cloudflareAccountId: 'CLOUDFLARE_ACCOUNT_ID', cloudflareApiToken: 'CLOUDFLARE_API_TOKEN' }
+      const keys = { telegramBotToken: 'TELEGRAM_BOT_TOKEN', telegramTrustedBotId: 'TELEGRAM_TRUSTED_BOT_ID', telegramClientId: 'TELEGRAM_CLIENT_ID', telegramClientSecret: 'TELEGRAM_CLIENT_SECRET', cloudflareAccountId: 'CLOUDFLARE_ACCOUNT_ID', cloudflareApiToken: 'CLOUDFLARE_API_TOKEN' }
       for (const [field, key] of Object.entries(keys)) {
         const value = input[field as keyof typeof input]
         if (!value) continue
@@ -318,9 +329,10 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
       }
       return json({ ok: true })
     }
-    return json({ telegram: Boolean(env.TELEGRAM_BOT_TOKEN), telegramOidc: Boolean(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET), cloudflare: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) })
+    return json({ telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID), telegramOidc: Boolean(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET), cloudflare: Boolean(env.CLOUDFLARE_ACCOUNT_ID && (env.CLOUDFLARE_API_TOKEN || await env.INSTALLATION_DB.prepare("SELECT key FROM integration_settings WHERE key='CLOUDFLARE_OAUTH_GRANT'").first())) })
   }
   if (path === '/api/installation/servers/register' && request.method === 'POST') return registerServer(request, env)
+  if (request.method === 'POST' && /^\/api\/installation\/servers(?:$|\/[^/]+\/(?:retry|update)$)/.test(path)) env = await cloudflareCredentials(env)
   if (path === '/api/installation/servers') {
     if (request.method === 'POST') return createServer(request, env)
     const session = await requireSession(request, env)
@@ -392,7 +404,7 @@ export default {
     const settings = await env.INSTALLATION_DB.prepare('SELECT key,value FROM integration_settings').all<{ key: string; value: string }>()
     const configured = { ...env }
     for (const row of settings.results) {
-      if (!['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CLIENT_ID', 'TELEGRAM_CLIENT_SECRET', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].includes(row.key)) continue
+      if (!['TELEGRAM_TRUSTED_BOT_ID', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CLIENT_ID', 'TELEGRAM_CLIENT_SECRET', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].includes(row.key)) continue
       Object.assign(configured, { [row.key]: await decryptSecret(env.AUTH_SECRET, `settings:${row.key}`, JSON.parse(row.value)) })
     }
     env = configured
@@ -410,7 +422,9 @@ export default {
     if (response.status === 101) return response
     const result = new Response(response.body, response)
     result.headers.set('X-Content-Type-Options', 'nosniff')
-    result.headers.set('Referrer-Policy', 'no-referrer')
+    result.headers.set('Referrer-Policy', 'strict-origin')
+    result.headers.set('Content-Security-Policy', "frame-ancestors 'self' " + embedOrigins(env.EMBED_ORIGINS).join(' '))
+    result.headers.delete('X-Frame-Options')
     if (origin) {
       result.headers.set('Access-Control-Allow-Origin', origin)
       result.headers.set('Access-Control-Allow-Credentials', 'true')

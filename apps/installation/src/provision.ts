@@ -1,7 +1,7 @@
 import { installBaseL4, cloudflareApi, updateL4 } from '../../../packages/deployment-core/src/index'
 import type { InstallationEnv } from './env'
 
-export type ServerRow = { id: string; name: string; owner_id: string; origin: string; worker_name: string | null; secret: string; version: string; status: 'provisioning' | 'ready' | 'failed'; error: string | null }
+export type ServerRow = { public_id: string; id: string; name: string; owner_id: string; origin: string; worker_name: string | null; secret: string; version: string; status: 'provisioning' | 'ready' | 'failed'; error: string | null }
 
 export async function provisionServer(env: InstallationEnv, server: ServerRow, owner: { email: string }, secret: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('Configure Cloudflare provisioning or use the self-host deployment command')

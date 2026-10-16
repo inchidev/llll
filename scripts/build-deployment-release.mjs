@@ -1,5 +1,6 @@
 import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises'
 import { resolve, relative, extname } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 const root = resolve(import.meta.dirname, '..')
 const dir = resolve(root, '.installer/deployment')
@@ -29,5 +30,12 @@ for (const [kind, path] of Object.entries({ installation: 'apps/installation/mig
 }
 const bytes = Buffer.from(JSON.stringify({ schemaVersion: 1, version: JSON.parse(await readFile(resolve(root, 'package.json'))).version, modules, assets, migrations }))
 await writeFile(resolve(dir, 'llll-deployment.json'), bytes)
-await writeFile(resolve(dir, 'SHA256SUMS'), `${digest(bytes)}  llll-deployment.json\n`)
+let sums = `${digest(bytes)}  llll-deployment.json\n`
+try {
+ await readFile(resolve(root, 'apps/site/.output/public/index.html'))
+ const site = resolve(dir, 'llll-site.tgz')
+ execFileSync('tar', ['-czf', site, '-C', resolve(root, 'apps/site'), '.bundle/index.mjs', '.output/public', 'migrations', 'wrangler.jsonc'])
+ sums += `${digest(await readFile(site))}  llll-site.tgz\n`
+} catch (error) { if (error.code !== 'ENOENT') throw error }
+await writeFile(resolve(dir, 'SHA256SUMS'), sums)
 console.log(`Deployment artifact: ${assets.length} assets, ${bytes.length} bytes, SHA256 ${digest(bytes)}`)

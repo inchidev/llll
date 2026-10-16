@@ -2,6 +2,7 @@
 const url = useRequestURL()
 const image = `${url.origin}/og-image.png`
 const { native } = useClientServers()
+const embedded = useState('llll-embed', () => ({ parent: '', enabled: import.meta.client && window.parent !== window }))
 
 useSeoMeta({
   ogTitle: 'L4',
@@ -18,7 +19,7 @@ useSeoMeta({
   <UApp>
     <NuxtRouteAnnouncer />
     <div v-if="native" class="flex h-dvh min-w-0 overflow-hidden bg-default">
-      <ClientServerRail />
+      <ClientServerRail v-if="!embedded.enabled" />
       <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <ClientUpdateBanner />
         <div class="min-h-0 flex-1 overflow-hidden"><NuxtLayout><NuxtPage /></NuxtLayout></div>

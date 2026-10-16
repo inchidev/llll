@@ -69,7 +69,7 @@ function git(args) {
 }
 
 function isMigrationPath(filePath) {
-  return /^(?:drizzle\/migrations|apps\/installation\/migrations)\/[^/]+\.sql$/u.test(filePath)
+  return /^(?:drizzle\/migrations|apps\/installation\/migrations|apps\/site\/migrations)\/[^/]+\.sql$/u.test(filePath)
 }
 
 function migrationFilesAt(revision, directory = 'drizzle/migrations') {
@@ -124,10 +124,14 @@ export async function checkMigrations({ baseRevision = '' } = {}) {
 
   const installationFiles = (await readdir(join(root, 'apps/installation/migrations'))).filter(name => name.endsWith('.sql'))
   const installation = validateMigrationFileNames(installationFiles)
+  const portalFiles = (await readdir(join(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql'))
+  const portal = validateMigrationFileNames(portalFiles)
   if (baseRevision) {
+    verifyImmutableHistory(baseRevision, portal, 'apps/site/migrations')
     verifyImmutableHistory(baseRevision, migrations)
     verifyImmutableHistory(baseRevision, installation, 'apps/installation/migrations')
   }
+  console.log(`Validated ${portal.length} portal migrations`)
   console.log(`Validated ${installation.length} installation migrations`)
 
   const first = migrations.at(0)?.fileName.slice(0, 4) || 'none'

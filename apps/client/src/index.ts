@@ -1,9 +1,9 @@
-import { version } from '../../../package.json'
 export default {
-  fetch(request: Request, env: { ASSETS: Fetcher }): Promise<Response> | Response {
+  fetch(request: Request, env: { SHELL_ORIGIN?: string }): Response {
     const url = new URL(request.url)
-    if (url.pathname === '/.well-known/llll') return Response.json({ product: 'llll', kind: 'client', apiVersion: 1, version, origin: url.origin, name: 'L4', id: 'client', registration: false, telegram: false }, { headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache' } })
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/s/')) return Response.json({ error: { message: 'Connect an installation to use L4' } }, { status: 404 })
-    return env.ASSETS.fetch(request)
+    const path = /^\/[a-f0-9-]{36}(?:\/|$)/.test(url.pathname) ? url.pathname : '/open'
+    const target = new URL(path, env.SHELL_ORIGIN || 'https://llll.gg')
+    if (url.searchParams.has('installation')) target.searchParams.set('installation', url.searchParams.get('installation')!)
+    return Response.redirect(target.toString(), 302)
   },
-} satisfies ExportedHandler<{ ASSETS: Fetcher }>
+} satisfies ExportedHandler<{ SHELL_ORIGIN?: string }>

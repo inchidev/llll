@@ -2,11 +2,11 @@
 
 For accounts, server boundaries and where credentials live, read [installation.md](installation.md). Creating an installation and creating a server are separate steps. There is no separate Admin application.
 
-L4 has four independently deployable artifacts: the landing site, common client, installation controller, and per-server runtime. A self-hosted installation serves the same SPA itself; using app.llll.gg is optional. Keep credentials in ignored local files or the provider's secret store.
+L4 has independently deployable site/shell/installer, installation controller and per-server runtime artifacts. The official shell embeds the installation’s own client; using llll.gg is optional. Keep credentials in ignored local files or the provider's secret store.
 
 ## Cloudflare
 
-For a source deployment, use `.env.installation.example` as the template for an ignored `.env` (preserve any existing configuration). Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a unique `INSTALLATION_ID`, then run `pnpm build:deployment && pnpm deploy:installation`. The installer creates the control database, a separate backup bucket, assets and Worker, and saves private state under `.deployment`. Retain that file when updating. `pnpm deploy:installation -- --dry-run` prints the plan without account operations. Configure a custom domain and its PUBLIC_ORIGIN together before inviting people. The bootstrap token is used by the local installer; configure provisioning credentials separately in the running installation when you want it to create/update servers. Cloudflare OAuth onboarding is not implemented.
+For a source deployment, use `.env.installation.example` as the template for an ignored `.env` (preserve any existing configuration). Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a unique `INSTALLATION_ID`, then run `pnpm build:deployment && pnpm deploy:installation`. The installer creates the control database, a separate backup bucket, assets and Worker, and saves private state under `.deployment`. Retain that file when updating. `pnpm deploy:installation -- --dry-run` prints the plan without account operations. Configure a custom domain and its PUBLIC_ORIGIN together before inviting people. The bootstrap token is used by the local installer; configure provisioning credentials separately in the running installation when you want it to create/update servers. The browser OAuth installer at `/deploy` is an alternative; its portal operator must configure a public PKCE client and verified release as described in [installation.md](installation.md).
 
 The equivalent manual setup is:
 
@@ -42,7 +42,9 @@ Cloudflare-only features use explicit provider credentials over REST on celld. C
 
 Telegram is optional. Set the bot token in Installation settings to enable signed Mini App login; configure BotFather's Mini App URL to the installation's `/connections`. Browser Telegram login additionally needs its OIDC client ID/secret and exact callback `/api/auth/callback/telegram`. Accounts link explicitly; verified Telegram numeric IDs converge across browser and Mini App flows.
 
-An installation can use the optional shared L4 OIDC provider through `IDENTITY_ISSUER`, `IDENTITY_CLIENT_ID`, and `IDENTITY_CLIENT_SECRET`. The issuer is an installation running `IDENTITY_PROVIDER=true`. Its owner registers a confidential OAuth client with exact callback `<installation-origin>/api/auth/callback/llll`. Local password login remains available. The official web client connects to the installation using a one-use S256 PKCE handoff; session credentials never appear in callback URLs.
+There is no required shared L4 account. The installation handles direct and embedded login itself. A same-origin popup can return a one-use S256-bound login code to its opening iframe. A bounded POST navigation carries the session within the installation when switching servers; it never puts it in a URL or passes it to the parent shell.
+
+Set `TELEGRAM_TRUSTED_BOT_ID` to opt into a shared Mini App bot without giving the installation its token. The installation verifies Telegram's Ed25519 signature and timestamp itself. Telegram and browser accounts still link explicitly.
 
 ## Backups
 

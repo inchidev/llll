@@ -10,6 +10,8 @@ export type InstallationEnv = {
   SETUP_TOKEN?: string
   REGISTRATION_MODE?: string
   CLIENT_ORIGINS?: string
+  EMBED_ORIGINS?: string
+  TELEGRAM_TRUSTED_BOT_ID?: string
   TRUSTED_SERVER_ORIGINS?: string
   MAX_SERVERS?: string
   CLOUDFLARE_ACCOUNT_ID?: string

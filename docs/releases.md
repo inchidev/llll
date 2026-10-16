@@ -20,4 +20,4 @@ See [installer-releases.md](installer-releases.md) for the artifact contract. Th
 
 Back up control D1 and encryption/deployment secrets. Back up each server to a separate destination. Deploy matching modules and assets, apply only pending migrations, preserve existing resource bindings and verify owner login, directory, local server roles, files and realtime. The installation's configured Cloudflare token can update its servers; VPS deployments update through the operator's Compose configuration.
 
-PWA updates wait for the visible update action; API/authentication/server requests are never cached by the service worker. Native distribution and physical-device acceptance remain separate release work.
+PWA updates wait for the visible update action; API/authentication/server requests are never cached by the service worker. iOS/macOS distribution is frozen. Real Safari/Telegram-device acceptance must be reported separately from browser emulation.

@@ -1,58 +1,41 @@
-# How an L4 installation works
+# Installations, servers and embedding
 
-An installation is your independently deployed L4 service at one address. It owns accounts, login methods, sessions, invitations and a directory of servers. A server is one community with its own data and runtime. There is no separate Admin application to deploy.
+An installation is an independent L4 deployment at one origin. It owns its accounts, login, sessions, invitations and server directory. Each server owns a separate Worker/celld process, database, live files bucket and Durable Objects. Backup destinations remain separate. There is no separate Admin app or required shared L4 account.
 
-```text
-Your installation — controller Worker + control D1 + its own client
-  ├─ Server A — Worker + D1 + private files R2 + KV + Durable Objects
-  └─ Server B — Worker + D1 + private files R2 + KV + Durable Objects
-Separate backup destination
-```
+## Web, PWA and Telegram
 
-One person has one account per installation and can join several servers. A server stores its own member profile, roles, permissions and removal status. Joining one server grants no access to another. An optional shared L4 OIDC account can be explicitly linked to an installation account; local password login remains available. Matching email addresses never silently merge identities.
+The official site provides a landing page, `/deploy`, and a small shell. `/open` connects an installation by address. `/<public-server-uuid>/...` resolves an installation and opens its own client in an iframe. The installation also works at its direct address. iOS and macOS packaging are frozen.
 
-## Create an installation
+The shell does not render chat or call server content APIs. The installation sends bounded server metadata, unread state, navigation and call lifecycle events. The shell sends navigation, theme and, when enabled by the installation, Telegram launch proof. Messages are validated and pinned to the exact origin and iframe window. Passwords, Cloudflare credentials, session tokens and chat content are never part of the shell bridge.
 
-On Cloudflare, an operator runs the source installer with a Cloudflare account ID and API token in an ignored environment file. It creates the controller Worker, control D1, separate backup bucket and client assets. Open the private setup link to create the first installation owner. See [deployment.md](deployment.md#cloudflare) for commands.
+An installation's `EMBED_ORIGINS` sets the additional permitted embedders; `https://llll.gg` is allowed by default. CSP `frame-ancestors` restricts embedding. An iframe hides the installation's outer rail. AfterPrompt/OpenRivers can use the same mode after their origins are allowed by the installation operator.
 
-On a VPS, generate the private celld Compose configuration and start it through Docker Compose or Coolify. Open the generated owner claim link, create the installation owner and register its deployed servers. See [deployment.md](deployment.md#vps-docker-compose-and-coolify).
+Iframe login can use the installation's own form. An optional sign-in window authenticates directly with the installation and returns a one-use S256-bound code to the opening iframe. The iframe exchanges it with the installation; the parent shell receives no session credential. A standalone session is not assumed to share cookies with an embedded session.
 
-Creating an installation is an operator deployment action. The public L4 site and shared client do not create installations for visitors, and the shared identity service does not provision infrastructure.
+## Public IDs
 
-## Create servers inside it
+Every server has a cryptographic UUIDv4 public ID. New provisioned servers also use UUIDs internally. Migration `0001_server_public_ids.sql` assigns UUIDs to existing servers without changing their local IDs or pairing keys. The official directory stores only UUID-to-origin mappings, verifies each mapping against the installation's well-known endpoint and refuses ownership replacement. It is not an account or content database.
 
-Open the installation's `/connections` page as its owner. Configure the Cloudflare account ID and API token under **Installation settings**, then use **Create a server**. The controller provisions separate server resources and pairs the server with this installation. The same page can register a server that its operator deployed separately.
+The shell stores its bookmarks on the current device. There is no cross-device account sync. A direct installation does not depend on the directory being available.
 
-On VPS, add the server service through your private Compose/operator configuration, deploy it and register it with the installation. The web client has no Docker socket or host-level deployment access.
+## Cloudflare deployment
 
-## Where credentials live
+`/deploy` uses a public Cloudflare OAuth client with S256 PKCE. The browser-bound temporary grant is encrypted in the portal's D1, expires after one hour and is removed after successful handoff. Resumable deployment phases create the installation's control D1, a separate backup bucket, assets and controller Worker. Names, encryption secrets and setup claims remain stable across retries. A verified release URL and SHA256 are required.
 
-| Credential | Holder and purpose |
-| --- | --- |
-| Bootstrap Cloudflare API token | Operator environment; used by the source installer to create the installation. The installer does not automatically save it into the running installation. |
-| Installation provisioning API token | Optional installation deployment secret or encrypted `integration_settings` record in control D1. Used by the controller to create/update servers. |
-| Pairing key | A distinct key shared by the controller and one server; signs short-lived identities for that server only. It is not a Cloudflare API token. |
-| Server provider credentials | Server deployment secrets or encrypted server settings for optional mail, calls and other integrations. |
-| Account passwords and recovery keys | Password/recovery hashes live in the installation's control D1. Save owner recovery information privately. |
+The installation receives its encrypted OAuth grant in its own control D1 and refreshes it using a serialized refresh lease. Its owner then creates servers from installation settings. A scoped API token remains an alternative. Source bootstrap instructions remain in deployment.md.
 
-The owner UI returns credential configuration status, never saved token plaintext. Deployment-provided credentials override settings stored in D1. Keep the installation `AUTH_SECRET` backed up with control D1 so encrypted credentials remain readable.
+The portal operator configures `AUTH_SECRET`, `PUBLIC_ORIGIN`, `CLOUDFLARE_OAUTH_CLIENT_ID`, `DEPLOYMENT_RELEASE_URL` and `DEPLOYMENT_RELEASE_SHA256`, applies `apps/site/migrations`, then deploys `apps/site`. Register the exact `<PUBLIC_ORIGIN>/api/deploy/callback` redirect with Cloudflare; use a public OAuth client with token authentication method `none`. Required scopes are defined in `shared/cloudflare-oauth.ts`. Public OAuth client registration and a real consent/deployment check are required before enabling the live installer.
 
-Cloudflare OAuth onboarding is not implemented in L4. There is no working `llll.gg/admin` installer or central OAuth callback. Telegram/L4-account OIDC login authenticates people; it does not authorize Cloudflare provisioning.
+## VPS
 
-## Clients and sites
+The private Compose generator deploys the installation and separate celld services. Create the owner using its claim link and register the generated servers. The client cannot control Docker or SSH. Updates and domains are operated through the private Compose/TLS configuration. Automatic SSH deployment is deferred.
 
-The common client connects directly to independent installations over HTTPS/WebSocket. Each installation also serves the same client, so the common client is optional. Chat is rendered directly, without iframes. The left rail groups servers by installation; a server switch reloads the client and clears connection-specific runtime state.
+## Telegram
 
-| Source | Role | Deploy cycle |
-| --- | --- | --- |
-| `apps/site` | Public L4 landing | Independent static-site Worker |
-| `apps/client` | Common client | Independent client Worker |
-| `apps/installation` | Accounts, sessions, invitations, directory and server provisioning | Per installation |
-| Root Nuxt/Nitro app | Server content, authorization and realtime | Per server |
-| `packages/deployment-core` | Cloudflare server provisioning/update library | Built into the installation; not another service |
+An installation may use its own bot token, or explicitly trust a Mini App bot ID using `TELEGRAM_TRUSTED_BOT_ID`. Third-party proof uses Telegram's Ed25519 public key, validates the bot ID and a five-minute timestamp, and creates a local installation session. It does not require the bot token or a shared L4 identity service. Account linking remains explicit; invitations and local server permissions still apply. Direct browser Telegram login additionally needs that installation's OIDC configuration.
 
-The previous `discoflare-com` repository and deployment belong to the previous product. L4 has no runtime dependency on them. Existing old deployments and callbacks are not migrated or redirected by an L4 update.
+## Credentials and recovery
 
-## Current operational boundaries
+Cloudflare provisioning credentials belong to the installation. Optional call/mail/AI credentials belong to the server. A separate pairing key introduces identities to each server, and local roles/removals remain authoritative. The infrastructure operator controls the deployment and is a trust authority.
 
-Cloudflare server updates can run through the installation after its owner configures provisioning credentials; the normal update flow backs up server data and installation metadata first. VPS updates, domain routing and resource removal belong to the operator. Server calls/mail require their own configured providers. Keep backups outside live file buckets and preserve both the installation and server layers.
+Back up control D1, every server's data/files and the original encryption secrets. Content exports do not include active sockets, running agents or third-party call state. Published migration SQL remains immutable even when Git history is reset.

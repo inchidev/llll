@@ -5,7 +5,8 @@ definePageMeta({ layout: 'default' })
 const connections = useInstallations()
 const route = useRoute()
 const toast = useToast()
-const address = ref('')
+const embedded = import.meta.client && window.parent !== window
+const popup = useInstallationPopup()
 const discovery = ref<(InstallationDiscovery & { ready?: boolean }) | null>(null)
 const ownOrigin = import.meta.client ? location.origin : ''
 const owner = ref(false)
@@ -16,9 +17,9 @@ const recoveryCode = ref('')
 const recovering = ref(false)
 const form = reactive({ name: '', email: '', password: '', token: '' })
 const serverName = ref('')
-const serverId = computed(() => serverName.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48))
+const serverId = computed(() => serverName.value.trim())
 const selected = computed(() => connections.installations.value.find(item => item.origin === discovery.value?.origin))
-const settings = reactive({ telegramBotToken: '', telegramClientId: '', telegramClientSecret: '', cloudflareAccountId: '', cloudflareApiToken: '' })
+const settings = reactive({ telegramBotToken: '', telegramTrustedBotId: '', telegramClientId: '', telegramClientSecret: '', cloudflareAccountId: '', cloudflareApiToken: '' })
 const registration = reactive({ id: '', name: '', origin: '', key: '' })
 const configured = ref<{ telegram: boolean; telegramOidc: boolean; cloudflare: boolean } | null>(null)
 const invite = ref(typeof route.query.invite === 'string' ? route.query.invite : '')
@@ -31,14 +32,13 @@ async function run(action: () => Promise<void>) {
   finally { busy.value = false }
 }
 
-async function inspect(addressValue = address.value) {
+async function inspect(addressValue = ownOrigin) {
   recoveryCode.value = ''
   configured.value = null
   for (const key of Object.keys(settings) as (keyof typeof settings)[]) settings[key] = ''
   const result = await connections.discover(addressValue)
   if (result.kind === 'client') throw new Error('Enter your installation address, such as sandbox.llll.gg')
   discovery.value = result
-  address.value = result.origin
   owner.value = false
   mode.value = result.ready === false ? 'setup' : 'login'
   if (result.kind === 'server') return
@@ -74,7 +74,7 @@ function open(origin: string, id: string) {
 
 async function createServer() {
   if (!discovery.value) return
-  await connections.request(discovery.value.origin, '/api/installation/servers', { method: 'POST', body: { id: serverId.value, name: serverName.value } })
+  await connections.request(discovery.value.origin, '/api/installation/servers', { method: 'POST', body: { name: serverName.value } })
   await connections.refresh(discovery.value.origin)
   serverName.value = ''
 }
@@ -129,6 +129,12 @@ async function signOut() {
 }
 
 onMounted(async () => {
+  const callback = new URLSearchParams(location.hash.slice(1))
+  if (window.opener && callback.has('llll_connection') && callback.get('installation') === location.origin) {
+    window.opener.postMessage({ type: 'llll-local-login', code: callback.get('llll_connection'), state: callback.get('state') }, location.origin)
+    history.replaceState(history.state, '', '/connections')
+    window.close(); return
+  }
   const connected = await connections.acceptBrowserConnection().catch(cause => { error.value = errorMessage(cause); return false })
   form.token = new URLSearchParams(location.hash.slice(1)).get('claim') || ''
   if (form.token) history.replaceState(null, '', `${location.pathname}${location.search}`)
@@ -143,38 +149,25 @@ onMounted(async () => {
 
 <template>
   <main class="h-full overflow-y-auto bg-default px-5 py-10 sm:px-10">
-    <div class="mx-auto max-w-3xl space-y-8">
-      <header class="flex items-start justify-between gap-5">
-        <div><p class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">L4 · llll.gg</p><h1 class="text-3xl font-semibold tracking-tight">Your places, together.</h1><p class="mt-3 max-w-xl text-muted">Connect installations you trust. Every server keeps its own conversations, files and permissions.</p></div>
-        <UButton to="/deploy" label="Deploy your own" icon="i-ph-cloud-arrow-up" color="neutral" variant="outline" />
-      </header>
-
-      <section class="rounded-2xl border border-default bg-elevated/40 p-5">
-        <h2 class="font-semibold">Connect an installation</h2>
-        <form class="mt-4 flex gap-2" @submit.prevent="run(() => inspect())">
-          <UInput v-model="address" type="url" placeholder="https://chat.example.com" aria-label="Installation address" class="min-w-0 flex-1" autocomplete="url" />
-          <UButton type="submit" label="Connect" :loading="busy" :disabled="!address.trim()" />
-        </form>
-        <UAlert v-if="error" class="mt-4" color="error" :title="error" />
-      </section>
-
-      <section v-if="discovery" class="rounded-2xl border border-default p-5">
-        <div class="flex items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">{{ discovery.name }}</h2><p class="mt-1 text-sm text-muted">{{ discovery.origin }}</p></div><UBadge color="neutral" variant="subtle">{{ discovery.kind === 'server' ? 'Independent server' : 'Installation' }}</UBadge></div>
+    <div class="mx-auto max-w-2xl space-y-8">
+      <UAlert v-if="error" color="error" :title="error" />
+      <section v-if="discovery" class="py-3">
+        <div class="flex items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">{{ discovery.name }}</h2><p class="mt-1 text-sm text-muted">{{ discovery.origin }}</p></div></div>
         <template v-if="discovery.kind === 'installation'">
           <form v-if="!selected?.userId" class="mt-6 grid max-w-md gap-4" @submit.prevent="run(authenticate)">
             <h3 class="font-medium">{{ mode === 'setup' ? 'Claim your installation' : mode === 'signup' ? 'Create an account here' : 'Sign in to this installation' }}</h3>
             <UButton v-if="discovery.origin !== ownOrigin && mode !== 'setup'" label="Continue on installation" icon="i-ph-arrow-square-out" color="neutral" variant="outline" @click="connections.connectInBrowser(discovery.origin)" />
-            <UButton v-if="discovery.identity && discovery.origin === ownOrigin" label="Continue with L4 account" @click="run(() => providerLogin('llll'))" />
+            <UButton v-if="embedded" label="Sign in in a separate window" icon="i-ph-arrow-square-out" color="neutral" variant="outline" @click="run(async () => { await popup.signIn(); await inspect(ownOrigin) })" />
             <UButton v-if="discovery.telegramOidc && discovery.origin === ownOrigin" label="Continue with Telegram" color="neutral" variant="outline" @click="run(() => providerLogin('telegram'))" />
             <UFormField v-if="mode === 'setup' || recovering" :label="recovering ? 'Recovery key' : 'Private setup claim'"><UInput v-model="form.token" type="password" autocomplete="off" class="w-full" /></UFormField>
             <UFormField v-if="mode !== 'login'" label="Display name"><UInput v-model="form.name" autocomplete="name" class="w-full" /></UFormField>
             <UFormField label="Email"><UInput v-model="form.email" type="email" autocomplete="email" class="w-full" /></UFormField>
             <UFormField label="Password" :description="mode === 'login' ? undefined : 'Use at least 10 characters.'"><UInput v-model="form.password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" class="w-full" /></UFormField>
-            <div class="flex items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create installation' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="busy" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
+            <div class="flex items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create owner' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="busy" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
             <UButton v-if="mode === 'login'" :label="recovering ? 'Back to sign in' : 'Use a recovery key'" color="neutral" variant="link" @click="recovering = !recovering" />
           </form>
           <template v-else>
-            <div v-if="discovery.origin === ownOrigin && (discovery.identity || discovery.telegramOidc)" class="mt-5 flex flex-wrap gap-2"><UButton v-if="discovery.identity" label="Link L4 account" color="neutral" variant="outline" @click="run(() => providerLogin('llll', true))" /><UButton v-if="discovery.telegramOidc" label="Link Telegram" color="neutral" variant="outline" @click="run(() => providerLogin('telegram', true))" /></div>
+            <div v-if="discovery.origin === ownOrigin && (discovery.identity || discovery.telegramOidc)" class="mt-5 flex flex-wrap gap-2"><UButton v-if="discovery.telegramOidc" label="Link Telegram" color="neutral" variant="outline" @click="run(() => providerLogin('telegram', true))" /></div>
             <div class="mt-5"><UButton label="Replace recovery key" color="neutral" variant="outline" size="sm" @click="run(async () => { recoveryCode = (await connections.request<{ code: string }>(discovery!.origin, '/api/installation/recovery-key', { method: 'POST', body: {} })).code })" /><UAlert v-if="recoveryCode" class="mt-3" color="warning" title="Save this private key now. It replaces your previous key and can only be used once." :description="recoveryCode" /></div>
             <div class="mt-6 flex items-center justify-between"><h3 class="text-sm font-medium text-muted">Your servers</h3><UButton label="Sign out here" color="neutral" variant="link" size="xs" @click="run(signOut)" /></div>
             <div class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -193,6 +186,7 @@ onMounted(async () => {
         <p class="mt-2 text-sm text-muted">Manage accounts and server provisioning for this installation. Saved secrets stay encrypted here.</p>
         <form class="mt-5 grid gap-4 sm:grid-cols-2" @submit.prevent="run(saveSettings)">
           <UFormField label="Telegram bot token" :description="configured?.telegram ? 'Configured' : 'Optional · enable Mini App login'"><UInput v-model="settings.telegramBotToken" type="password" autocomplete="off" class="w-full" /></UFormField>
+          <UFormField label="Trusted Mini App bot ID" description="Optional: accept Telegram-signed login from this bot without its token."><UInput v-model="settings.telegramTrustedBotId" class="w-full" /></UFormField>
           <UFormField label="Telegram client ID"><UInput v-model="settings.telegramClientId" autocomplete="off" class="w-full" /></UFormField>
           <UFormField label="Telegram client secret"><UInput v-model="settings.telegramClientSecret" type="password" autocomplete="off" class="w-full" /></UFormField>
           <UFormField label="Cloudflare account ID" :description="configured?.cloudflare ? 'Provisioning configured' : 'Enable automatic server creation'"><UInput v-model="settings.cloudflareAccountId" autocomplete="off" class="w-full" /></UFormField>
@@ -209,8 +203,6 @@ onMounted(async () => {
           </form>
         </details>
       </section>
-      <section v-if="connections.installations.value.length" class="space-y-3"><h2 class="text-sm font-medium text-muted">Connected installations</h2><div v-for="installation in connections.installations.value" :key="installation.origin" class="flex items-center gap-3 rounded-xl border border-default p-4"><button class="min-w-0 flex-1 text-start" @click="run(() => inspect(installation.origin))"><span class="block font-medium">{{ installation.name }}</span><span class="block truncate text-xs text-muted">{{ installation.origin }}</span></button><UButton icon="i-ph-trash" color="neutral" variant="ghost" :aria-label="`Forget ${installation.name}`" @click="connections.remove(installation.origin)" /></div></section>
-      <p class="text-xs text-muted">L4 is free, MIT licensed software. Your installation runs on your Cloudflare account or VPS.</p>
     </div>
   </main>
 </template>

@@ -1,0 +1,6 @@
+{
+  "name": "llll-site", "main": ".bundle/index.mjs", "compatibility_date": "2026-10-16",
+  "assets": { "binding": "ASSETS", "directory": ".output/public", "html_handling": "none", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "d1_databases": [{ "binding": "PORTAL_DB", "database_name": "llll-portal", "database_id": "00000000-0000-4000-8000-000000000000", "migrations_dir": "migrations" }],
+  "vars": { "PUBLIC_ORIGIN": "https://llll.gg" }, "observability": { "enabled": true, "redact_query_string": true }, "triggers": { "crons": ["31 * * * *"] }
+}

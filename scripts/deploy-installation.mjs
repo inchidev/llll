@@ -64,7 +64,7 @@ for (const batch of session.buckets || []) {
   completion = uploaded.jwt || completion
 }
 if (!completion) throw new Error('Asset upload did not complete')
-const vars = { PUBLIC_ORIGIN: origin, INSTALLATION_ID: id, INSTALLATION_NAME: process.env.INSTALLATION_NAME || 'My L4', REGISTRATION_MODE: 'invite_only', CLIENT_ORIGINS: process.env.CLIENT_ORIGINS || 'https://app.llll.gg', BACKUP_BUCKET_NAME: bucket, RELEASE_MANIFEST: `https://github.com/inchidev/llll/releases/download/v${artifact.version}/llll-cloudflare-manifest.json` }
+const vars = { PUBLIC_ORIGIN: origin, INSTALLATION_ID: id, INSTALLATION_NAME: process.env.INSTALLATION_NAME || 'My L4', REGISTRATION_MODE: 'invite_only', CLIENT_ORIGINS: process.env.CLIENT_ORIGINS || 'https://llll.gg', EMBED_ORIGINS: process.env.EMBED_ORIGINS || 'https://llll.gg', BACKUP_BUCKET_NAME: bucket, RELEASE_MANIFEST: `https://github.com/inchidev/llll/releases/download/v${artifact.version}/llll-cloudflare-manifest.json` }
 const bindings = [{ name: 'INSTALLATION_DB', type: 'd1', database_id: database.uuid }, { name: 'BACKUPS', type: 'r2_bucket', bucket_name: bucket }, { name: 'ASSETS', type: 'assets' }, ...Object.entries(vars).map(([name, text]) => ({ name, text, type: 'plain_text' })), { name: 'AUTH_SECRET', text: saved.authSecret, type: 'secret_text' }, { name: 'SETUP_TOKEN', text: saved.setupToken, type: 'secret_text' }]
 const replaced = new Set(bindings.map(binding => binding.name))
 bindings.push(...existing.filter(binding => !replaced.has(binding.name)).map(binding => ({ name: binding.name, type: 'inherit' })))
