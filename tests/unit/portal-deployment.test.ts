@@ -5,6 +5,21 @@ import { digest, type DeploymentState } from '../../apps/site/src/session'
 import { decryptSecret } from '../../shared/encrypted-secret'
 
 afterEach(() => vi.unstubAllGlobals())
+it('names the missing Workers edit rights when the assets upload is refused', async () => {
+  const module = 'export default {fetch(){return new Response("L4")}}'
+  const artifact = JSON.stringify({ schemaVersion: 1, version: '0.2.0', modules: { installation: { content: module, sha256: await digest(module) } }, assets: [], migrations: { installation: [] } })
+  const sums = `${await digest(artifact)}  llll-deployment.json\n`
+  const state: DeploymentState = { ...deploymentParameters('a'.repeat(32), 'Community', 'v0.2.0'), grant: { accessToken: 'private-access', refreshToken: 'private-refresh', clientId: 'public-client', expiresAt: Date.now() + 3600000 }, databaseId: 'database', bucket: 'bucket', origin: 'https://installation.test', step: 1 }
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = new URL(input)
+    if (url.hostname === 'github.com' && url.pathname.endsWith('/SHA256SUMS')) return new Response(sums)
+    if (url.hostname === 'github.com' && url.pathname.endsWith('/llll-deployment.json')) return new Response(artifact)
+    if (url.pathname.endsWith('/assets-upload-session')) return Response.json({ success: false, errors: [{ message: 'No access to the specified resource' }] }, { status: 403 })
+    return Response.json({ success: true, result: [{ results: [] }] })
+  }))
+  const env = { PUBLIC_ORIGIN: 'https://portal.example' }
+  await expect(advanceDeployment(state, env as Parameters<typeof advanceDeployment>[1], async () => {})).rejects.toThrow('missing Workers edit rights')
+})
 it('resumes an interrupted upload without replacing resources and hands the encrypted grant to the installation', async () => {
   const control = new DatabaseSync(':memory:')
   const module = 'export default {fetch(){return new Response("L4")}}'

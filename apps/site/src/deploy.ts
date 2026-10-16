@@ -22,10 +22,10 @@ export async function cloudflare<T>(token: string, path: string, method = 'GET',
   })
   let data: { success: boolean; result: T; errors?: { code?: number | string; message?: string }[] }
   try { data = await response.json() as typeof data }
-  catch { throw new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status}): unreadable response. Check account permissions and service activation.`) }
+  catch { throw Object.assign(new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status}): unreadable response. Check account permissions and service activation.`), { status: response.status }) }
   if (!response.ok || !data.success) {
     const detail = (data.errors || []).map(e => [e.code, e.message].filter(Boolean).join(' ')).filter(Boolean).join('; ')
-    throw new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status})${detail ? `: ${detail}` : '. Check account permissions and service activation.'}`)
+    throw Object.assign(new Error(`Cloudflare could not complete ${method} ${path.split('?')[0]} (${response.status})${detail ? `: ${detail}` : '. Check account permissions and service activation.'}`), { status: response.status })
   }
   return data.result
 }
@@ -113,7 +113,15 @@ export async function advanceDeployment(state: DeploymentState, env: PortalEnv, 
   }
   if (state.step === 1) {
     const manifest = Object.fromEntries(artifact.assets.map(a => [a.path, { hash: a.hash, size: a.size }]))
-    const session = await api<{ jwt: string; buckets?: string[][] }>(`/workers/scripts/${state.worker}/assets-upload-session`, 'POST', { manifest })
+    let session: { jwt: string; buckets?: string[][] }
+    try {
+      session = await api<{ jwt: string; buckets?: string[][] }>(`/workers/scripts/${state.worker}/assets-upload-session`, 'POST', { manifest })
+    } catch (error) {
+      // A hand-made API token passes here while an OAuth grant can be missing
+      // Workers edit rights (partial consent). Name the fix, keep the cause.
+      if (error instanceof Error && (error as { status?: number }).status === 403) throw new Error(`Cloudflare denied the Workers assets upload (403): ${error.message}. The grant is missing Workers edit rights: reconnect Cloudflare and approve every requested permission, or check the account role.`, { cause: error })
+      throw error
+    }
     let completion = session.buckets?.length ? '' : session.jwt
     const byHash = new Map(artifact.assets.map(a => [a.hash, a]))
     for (const batch of session.buckets || []) {
@@ -124,7 +132,7 @@ export async function advanceDeployment(state: DeploymentState, env: PortalEnv, 
     if (!completion) throw new Error('Asset upload did not finish')
     const variables = { PUBLIC_ORIGIN: state.origin!, INSTALLATION_ID: state.installationId!, INSTALLATION_NAME: state.name!, REGISTRATION_MODE: 'invite_only', EMBED_ORIGINS: env.PUBLIC_ORIGIN, CLIENT_ORIGINS: env.PUBLIC_ORIGIN, BACKUP_BUCKET_NAME: state.bucket!, RELEASE_MANIFEST: manifestUrl }
     const bindings = [{ name: 'INSTALLATION_DB', type: 'd1', id: state.databaseId }, { name: 'BACKUPS', type: 'r2_bucket', bucket_name: state.bucket }, { name: 'ASSETS', type: 'assets' }, ...Object.entries(variables).map(([name, text]) => ({ name, type: 'plain_text', text })), ...Object.entries({ AUTH_SECRET: state.authSecret, SETUP_TOKEN: state.setupToken }).map(([name, text]) => ({ name, type: 'secret_text', text }))]
-    const metadata = { main_module: 'installation.mjs', compatibility_date: '2026-10-16', compatibility_flags: ['nodejs_compat'], bindings, assets: { jwt: completion, config: { html_handling: 'none', not_found_handling: 'single-page-application', run_worker_first: true } }, observability: { enabled: true, redact_query_string: true } }
+    const metadata = { main_module: 'installation.mjs', compatibility_date: '2026-10-16', compatibility_flags: ['nodejs_compat'], bindings, assets: { jwt: completion, config: { html_handling: 'auto-trailing-slash', not_found_handling: 'single-page-application', run_worker_first: true } }, observability: { enabled: true, redact_query_string: true } }
     const form = new FormData(); form.append('metadata', JSON.stringify(metadata)); form.append('installation.mjs', new Blob([artifact.modules.installation!.content], { type: 'application/javascript+module' }), 'installation.mjs')
     await api(`/workers/scripts/${state.worker}`, 'PUT', form)
     await api(`/workers/scripts/${state.worker}/subdomain`, 'POST', { enabled: true, previews_enabled: false })
