@@ -95,7 +95,7 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
   if (path === '/api/deploy/session') {
     const session = await portalSession(request, env); const data = session.data
     const accounts = data.grant && !data.worker ? await cloudflare<{ id: string; name: string }[]>(data.grant.accessToken, '/accounts') : []
-    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, version: data.version, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/connections#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
+    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/connections#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
   }
   if (path === '/api/deploy/start' && request.method === 'POST') {
     const session = await portalSession(request, env)
