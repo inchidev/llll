@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 const configPath = resolve(root, 'apps/site/wrangler.jsonc')
 
 function wrangler(args, { allowFailure = false } = {}) {
-  const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } })
+  const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', FORCE_COLOR: '0', NO_COLOR: '1', TERM: 'dumb' } })
   if (result.stdout?.trim()) process.stdout.write(result.stdout)
   if (result.stderr?.trim()) process.stderr.write(result.stderr)
   if (result.error) throw result.error
@@ -19,19 +19,19 @@ function listJson(args) {
   return JSON.parse(result.stdout)
 }
 
-/** Ensure the portal D1 exists and the config points at it, then apply migrations. */
-export async function migrate() {
+async function ensureDatabase(name) {
+  wrangler(['d1', 'create', name], { allowFailure: true })
+  const database = listJson(['d1', 'list']).find(candidate => candidate.name === name)
+  const id = database?.uuid || database?.id
+  if (!id) throw new Error(`D1 database ${name} was not returned after creation`)
+  return id
+}
+
+/** Staging only: safe on PR branches, never touches the production DB. */
+export async function migrateStaging() {
   const config = JSON.parse(await readFile(configPath, 'utf8'))
-  for (const [name, key] of [['llll-portal', 'prod'], ['llll-portal-staging', 'staging']]) {
-    wrangler(['d1', 'create', name], { allowFailure: true })
-    const database = listJson(['d1', 'list']).find(candidate => candidate.name === name)
-    const id = database?.uuid || database?.id
-    if (!id) throw new Error(`D1 database ${name} was not returned after creation`)
-    if (key === 'prod') config.d1_databases[0].database_id = id
-    else config.previews.d1_databases[0].database_id = id
-  }
+  config.previews.d1_databases[0].database_id = await ensureDatabase('llll-portal-staging')
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`)
-  wrangler(['d1', 'migrations', 'apply', 'PORTAL_DB', '--remote', '-c', 'apps/site/wrangler.jsonc'])
   const stagingConfig = {
     $schema: '../../node_modules/wrangler/config-schema.json',
     name: 'llll-staging-migrations',
@@ -40,6 +40,15 @@ export async function migrate() {
   }
   await writeFile(resolve(root, 'apps/site/.wrangler.preview-migrations.generated.jsonc'), `${JSON.stringify(stagingConfig, null, 2)}\n`)
   wrangler(['d1', 'migrations', 'apply', 'PORTAL_DB', '--remote', '-c', 'apps/site/.wrangler.preview-migrations.generated.jsonc'])
+}
+
+/** Production + staging. Runs on push to main only. */
+export async function migrate() {
+  const config = JSON.parse(await readFile(configPath, 'utf8'))
+  config.d1_databases[0].database_id = await ensureDatabase('llll-portal')
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`)
+  wrangler(['d1', 'migrations', 'apply', 'PORTAL_DB', '--remote', '-c', 'apps/site/wrangler.jsonc'])
+  await migrateStaging()
 }
 
 export async function deploy() {
@@ -51,9 +60,10 @@ export async function preview(name) {
   const value = String(name || process.env.PREVIEW_NAME || '').trim()
   if (!/^pr-[1-9][0-9]{0,9}$/.test(value)) throw new Error('Preview name must look like pr-4')
   const result = wrangler(['preview', '--config', 'apps/site/wrangler.jsonc', '--worker-name', 'llll', '--name', value, '--json'])
-  const match = result.stdout.match(/\{[\s\S]*\}/)
-  const parsed = match ? JSON.parse(match[0]) : {}
-  console.log(JSON.stringify({ name: value, url: parsed.url || parsed.preview_url || '' }))
+  const urls = [...result.stdout.matchAll(/https?:\/\/([a-z0-9.-]*pr-\d+[a-z0-9.-]*)/gi)].map(match => match[0])
+  const custom = `https://${value}.dev.llll.gg`
+  const url = urls.find(item => item.includes('.dev.llll.gg')) || urls[0] || custom
+  console.log(JSON.stringify({ name: value, url, custom }))
 }
 
 export async function previewDelete(name) {
@@ -65,10 +75,11 @@ export async function previewDelete(name) {
 async function main() {
   const [command, argument] = process.argv.slice(2)
   if (command === 'migrate') return migrate()
+  if (command === 'migrate-staging') return migrateStaging()
   if (command === 'deploy') return deploy()
   if (command === 'preview') return preview(argument)
   if (command === 'preview-delete') return previewDelete(argument)
-  throw new Error('Usage: site-cloudflare.mjs <migrate|deploy|preview pr-N|preview-delete pr-N>')
+  throw new Error('Usage: site-cloudflare.mjs <migrate|migrate-staging|deploy|preview pr-N|preview-delete pr-N>')
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

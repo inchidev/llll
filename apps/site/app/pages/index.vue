@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DropdownMenuItem, NavigationMenuItem } from '@nuxt/ui'
+import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
 const sandboxUrl = '/open?installation=https://sandbox.llll.gg'
@@ -14,7 +14,6 @@ const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Docs', to: `${repoUrl}/tree/main/docs` },
 ])
 
-const compactNavigation = computed<DropdownMenuItem[]>(() => navigation.value.map(({ label, to }) => ({ label, to })))
 const primaryActionLabel = 'Install your own'
 const productGroups = [
   { name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
@@ -87,11 +86,7 @@ useHead({
       <template #title><BrandLogo :linked="false" /></template>
       <UNavigationMenu :items="navigation" class="hidden lg:flex" />
       <template #right>
-              <UButton :to="sandboxUrl" label="Try sandbox" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
-              <UButton to="/open" label="Open L4" color="neutral" variant="outline" />
-        <UDropdownMenu :items="compactNavigation" :content="{ align: 'end', sideOffset: 12 }" :ui="{ content: 'w-56' }">
-          <UButton icon="i-ph-list" aria-label="Open menu" color="neutral" variant="ghost" class="lg:hidden" />
-        </UDropdownMenu>
+        <UButton :to="repoUrl" target="_blank" icon="i-ph-github-logo" aria-label="GitHub repository" color="neutral" variant="ghost" />
       </template>
     </UHeader>
 
@@ -101,17 +96,15 @@ useHead({
         
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
-
-            <p class="mb-6 text-xs font-medium uppercase tracking-[.18em] text-muted">Independent by design</p>
             <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One installation, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
-          <ProductPreview class="mx-auto mt-8 max-w-6xl" />
+          <!-- ProductPreview hidden until proper screenshots land (design + server icons refresh in progress). -->
         </UContainer>
       </section>
 
@@ -134,7 +127,6 @@ useHead({
             <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI teammates</div>
             <h3 class="display-title mt-4 text-2xl font-semibold text-highlighted sm:text-3xl">Bring an agent into the conversation.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Give an agent a profile, talk to it in a channel or direct message, and ask it to read or create tasks. Your team decides who can use and configure agents.</p>
-            <NuxtLink :to="`${repoUrl}/blob/main/docs/architecture.md`" class="mt-5 inline-flex items-center gap-2 text-sm text-primary hover:underline">Meet the agents <UIcon name="i-ph-arrow-right" class="size-4" /></NuxtLink>
           </div>
         </UContainer>
       </section>
@@ -151,7 +143,6 @@ useHead({
             <h3 class="display-title mt-5 text-2xl font-semibold text-highlighted sm:text-3xl">Your data. Your tools.</h3>
             <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Turn workspace records into shared lists, tables, and metrics: a client directory, a sales console, or a project dashboard. Choose what each app can show or change, then publish it to the right roles.</p>
             <p class="mt-4 text-base leading-7 text-muted">Create and publish these tools with the built-in Apps editor.</p>
-            <NuxtLink :to="`${repoUrl}/blob/main/README.md`" class="mt-5 inline-flex items-center gap-2 text-sm text-primary hover:underline">Explore built-in Apps <UIcon name="i-ph-arrow-right" class="size-4" /></NuxtLink>
           </div>
         </UContainer>
       </section>
@@ -168,7 +159,6 @@ useHead({
               <p class="mt-3 text-base leading-7 text-muted">{{ freedom.description }}</p>
             </article>
           </div>
-          <p class="mt-8 text-xs leading-5 text-dimmed">L4 adds no member, history, mailbox, or record tiers. Your infrastructure and connected providers determine capacity and usage costs.</p>
         </UContainer>
       </section>
 
@@ -189,7 +179,7 @@ useHead({
                 <li>No seats, history tiers, or reduced open-source edition</li>
                 <li>You pay Cloudflare directly for infrastructure usage</li>
               </ul>
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
             </UCard>
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Docker Compose · Coolify" color="neutral" variant="outline" class="self-start" />
@@ -209,7 +199,7 @@ useHead({
             <img src="/brand/logo-128.png" alt="" class="mx-auto size-16" width="64" height="64">
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
@@ -217,15 +207,10 @@ useHead({
       </section>
     </main>
 
-    <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 py-12 sm:py-16">
+    <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 pt-12 sm:pt-16">
       <div class="pointer-events-none absolute inset-0 -z-10 opacity-60" />
       <UContainer>
-        <div class="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
-          <div class="col-span-2 sm:col-span-3 lg:col-span-1">
-            <p class="display-title text-2xl font-semibold text-highlighted">Your workspace, your way.</p>
-            <p class="mt-4 max-w-sm text-base leading-7 text-muted">A place for your team and its agents to talk, plan, and build together.</p>
-            <UButton to="/deploy" external :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" color="neutral" variant="outline" class="mt-5" />
-          </div>
+        <div class="grid grid-cols-2 gap-8 pb-12 sm:grid-cols-3 sm:pb-16">
           <nav aria-label="Footer product">
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
             <ul class="space-y-3 text-sm text-muted">
@@ -253,16 +238,15 @@ useHead({
             </ul>
           </nav>
         </div>
-        <div class="mt-10 flex w-full flex-col gap-5 border-t border-muted pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <BrandLogo />
-          <div class="flex items-center justify-between gap-6 sm:justify-end">
-            <div class="text-xs leading-5 text-dimmed">
-              <p>A project by Inchi</p>
-            </div>
-            <UColorModeButton color="neutral" variant="outline" />
-          </div>
-        </div>
       </UContainer>
+      <div class="border-t border-muted py-8">
+        <UContainer class="flex w-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <BrandLogo />
+          <div class="text-xs leading-5 text-dimmed">
+            <p>inchi</p>
+          </div>
+        </UContainer>
+      </div>
     </footer>
   </div>
 </template>
