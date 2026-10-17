@@ -4,6 +4,10 @@ import { embedEvent, EMBED_VERSION, safeEmbedPath } from '../../../../shared/emb
 export type ShellServer = { id: string; name: string; unread: number }
 export type ShellInstallation = { origin: string; name: string; collapsed: boolean; servers: ShellServer[] }
 
+/** The well-known check failing at the network level names itself: navigation to
+ * the shell must say what stalled instead of silently showing an empty form. */
+export const INSTALLATION_UNREACHABLE = 'The installation is unreachable. Check the address or try again in a moment.'
+
 export function useShell() {
   const installations = useState<ShellInstallation[]>('shell-installations', () => [])
   const selected = useState('shell-selected', () => '')
@@ -43,7 +47,9 @@ export function useShell() {
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS installation address')
     const validClaim = /^[A-Za-z0-9_-]{20,300}$/.test(claim || '') ? claim : undefined
     if (validClaim) pendingClaims[url.origin] = validClaim
-    const response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error' })
+    let response: Response
+    try { response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000) }) }
+    catch { throw new Error(INSTALLATION_UNREACHABLE) }
     const data = await response.json()
     if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 installation')
     if (!data.embedOrigins?.includes(location.origin)) throw new Error('This installation has not allowed embedding here. Open its own address or ask its operator.')
