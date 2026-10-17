@@ -8,7 +8,8 @@ import type { DeployProgressReporter, DeployProgressStep, DeployResponse } from 
 export type InstallL4Options = {
   manifestUrl?: string
   report?: DeployProgressReporter
-
+  /** Skip the in-worker health verification after upload (Cloudflare blocks worker-to-worker fetches to *.workers.dev on the same account). The caller verifies instead. */
+  verify?: boolean
 }
 
 /** Complete install/update operation. Credential acquisition and UI stay in the caller. */
@@ -52,6 +53,7 @@ export async function installL4(
     request,
     release,
     options.report,
+    { verify: options.verify },
   )
   return deployed
 }
@@ -77,7 +79,7 @@ export async function installBaseL4(
 export async function updateL4(
   accessToken: string,
   value: { accountId?: unknown, workerName?: unknown, targetVersion?: unknown },
-  options: { manifestUrl?: string } = {},
+  options: { manifestUrl?: string, verify?: boolean } = {},
 ): Promise<DeployResponse> {
   if (!accessToken.trim()) throw createError({ statusCode: 401, statusMessage: 'Cloudflare API token is missing' })
   const accountId = String(value?.accountId || '').trim()
@@ -90,5 +92,5 @@ export async function updateL4(
   if (release.manifest.version !== targetVersion.replace(/^v/u, '')) {
     throw createError({ statusCode: 502, statusMessage: 'L4 release manifest version does not match the requested update' })
   }
-  return deployL4Update(accessToken, accountId, workerName, release)
+  return deployL4Update(accessToken, accountId, workerName, release, { verify: options.verify })
 }

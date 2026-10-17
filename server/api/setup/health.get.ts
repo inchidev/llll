@@ -12,6 +12,7 @@ import { installationAiModel, installationCapabilities, UNAVAILABLE_CAPABILITIES
 
 export default defineEventHandler(async (event): Promise<SetupHealth> => {
   setHeader(event, 'Cache-Control', 'no-store')
+  setHeader(event, 'Access-Control-Allow-Origin', '*')
   let env
   try {
     env = cf(event).env

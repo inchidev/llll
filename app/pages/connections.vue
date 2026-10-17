@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { InstallationDiscovery } from '~~/shared/installation'
+import type { InstallationDiscovery, InstallationServer } from '~~/shared/installation'
 
 definePageMeta({ layout: 'default' })
 const connections = useInstallations()
@@ -103,6 +103,46 @@ async function createServer() {
   serverName.value = ''
 }
 
+const probes = new Set<string>()
+async function probeServerList() {
+  const servers = selected.value?.servers || []
+  for (const server of servers) if (server.status === 'provisioning' && !probes.has(server.id)) probeServer(server)
+}
+
+// The installation Worker cannot fetch same-account workers.dev origins (Cloudflare error 1042), so the browser verifies a freshly deployed server and reports back.
+async function probeServer(server: InstallationServer) {
+  if (!discovery.value || !import.meta.client) return
+  probes.add(server.id)
+  try {
+    let lastFailure = 'Workspace health check could not complete from this browser'
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      const row = selected.value?.servers.find(item => item.id === server.id)
+      if (!row || row.status !== 'provisioning' || !row.origin) return
+      try {
+        const response = await fetch(`${new URL(row.origin).origin}/api/setup/health`, { headers: { Accept: 'application/json' }, redirect: 'manual', cache: 'no-store' })
+        const health = response.ok ? await response.json() as { ok?: boolean; migrated?: boolean; version?: string } : null
+        if (!response.ok) lastFailure = `HTTP ${response.status}`
+        else if (health?.ok && health.migrated && health.version === row.version) {
+          await connections.request(discovery.value.origin, `/api/installation/servers/${server.id}/confirm`, { method: 'POST', body: { ok: true } })
+          toast.add({ title: `${row.name} is ready` })
+          return
+        }
+        else if (health?.ok === false) lastFailure = `Workspace is unhealthy (${health.migrated ? 'bindings' : 'migrations'})`
+      }
+      catch (cause) { lastFailure = errorMessage(cause) }
+      await new Promise(resolve => setTimeout(resolve, 4000))
+    }
+    await connections.request(discovery.value.origin, `/api/installation/servers/${server.id}/confirm`, { method: 'POST', body: { ok: false, error: lastFailure } })
+  }
+  catch (cause) { error.value = errorMessage(cause) }
+  finally {
+    probes.delete(server.id)
+    if (discovery.value) await connections.refresh(discovery.value.origin).catch(() => {})
+  }
+}
+
+watch(() => selected.value?.servers.map(server => [server.id, server.status].join(':')).join(','), () => probeServerList(), { immediate: true })
+
 async function join() {
   if (!discovery.value || !invite.value) return
   await connections.request(discovery.value.origin, '/api/installation/join', { method: 'POST', body: { token: invite.value } })
@@ -199,7 +239,7 @@ onMounted(async () => {
             <UTabs :key="owner ? 'owner' : 'member'" v-model="activeTab" :items="tabItems" class="mt-2" />
             <div v-if="activeTab === 'servers'" class="mt-5">
               <div class="grid gap-3 sm:grid-cols-2">
-                <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><p v-if="server.status === 'failed' && server.error" class="mt-2 text-xs leading-5 break-words text-toned">{{ server.error }}</p><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" :color="server.status === 'ready' ? 'primary' : 'neutral'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="runServer(async () => { await connections.request(discovery!.origin, `/api/installation/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="runServer(() => makeInvite(server.id))" /></div></article>
+                <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><p v-if="server.status === 'provisioning'" class="mt-2 text-xs leading-5 text-toned">Deployed. Verifying workspace health…</p><p v-if="server.status === 'failed' && server.error" class="mt-2 text-xs leading-5 break-words text-toned">{{ server.error }}</p><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" :color="server.status === 'ready' ? 'primary' : 'neutral'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="runServer(async () => { await connections.request(discovery!.origin, `/api/installation/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="runServer(() => makeInvite(server.id))" /></div></article>
               </div>
               <p v-if="!selected.servers.length" class="mt-4 text-sm text-muted">Join a server using an invitation, or ask the installation owner to add you.</p>
               <form v-if="owner" class="mt-6 flex items-end gap-2" @submit.prevent="runServer(createServer)"><UFormField label="Create a server" class="min-w-0 flex-1"><UInput v-model="serverName" placeholder="My community" class="w-full" /></UFormField><UButton type="submit" label="Create" :loading="serverBusy" :disabled="!serverId" /></form>
