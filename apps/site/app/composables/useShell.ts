@@ -17,8 +17,11 @@ export function useShell() {
   const frames = useState<Record<string, HTMLIFrameElement>>('shell-frames', () => ({}))
   const pending = useState<Record<string, string>>('shell-pending-server', () => ({}))
   const error = useState('shell-error', () => '')
+  /** One-time owner claims per origin, set only before that installation's iframe mounts. */
+  const claims = useState<Record<string, string>>('shell-claims', () => ({}))
+  const address = useState('shell-address', () => '')
+  const busy = useState('shell-busy', () => false)
   const registered = new Set<string>()
-  const pendingClaims: Record<string, string> = {}
   const telegram = useState<string>('shell-telegram', () => '')
   const route = useRoute()
   const router = useRouter()
@@ -46,7 +49,10 @@ export function useShell() {
     const url = new URL(/^https?:\/\//.test(address) ? address : 'https://' + address)
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS installation address')
     const validClaim = /^[A-Za-z0-9_-]{20,300}$/.test(claim || '') ? claim : undefined
-    if (validClaim) pendingClaims[url.origin] = validClaim
+    if (!loaded.value.includes(url.origin)) {
+      if (validClaim) claims.value[url.origin] = validClaim
+      else await adoptDeployClaim(url.origin)
+    }
     let response: Response
     try { response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000) }) }
     catch { throw new Error(INSTALLATION_UNREACHABLE) }
@@ -58,9 +64,32 @@ export function useShell() {
     persist(); open(installation)
     return installation
   }
+  /** A deployment this browser finished keeps its unused owner claim in the portal session:
+   * connecting its installation again (address bar, tile, remembered link) still claims. */
+  async function adoptDeployClaim(origin: string) {
+    if (claims.value[origin]) return
+    try {
+      const session = await $fetch<{ completed?: boolean; origin?: string; claim?: string }>('/api/deploy/session')
+      if (!session.completed || !session.claim || session.origin !== origin) return
+      const token = session.claim.split('#claim=')[1]
+      if (token && /^[A-Za-z0-9_-]{20,300}$/.test(token)) claims.value[origin] = token
+    }
+    catch { /* Session ended or offline: the claim field stays manual. */ }
+  }
+  /** The rail's sign-in tile: fresh iframe, so adopt the deploy session's claim before it mounts. */
+  async function openOwner(installation: ShellInstallation) {
+    if (!loaded.value.includes(installation.origin)) await adoptDeployClaim(installation.origin)
+    open(installation)
+  }
   function frameSrc(origin: string, parentOrigin: string) {
-    const claim = pendingClaims[origin]
+    const claim = claims.value[origin]
     return `${origin}/connections?parent=${encodeURIComponent(parentOrigin)}${claim ? `#claim=${claim}` : ''}`
+  }
+  async function submitAddress() {
+    error.value = ''; busy.value = true
+    try { await connect(address.value) }
+    catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not connect' }
+    finally { busy.value = false }
   }
   async function resolveServer() {
     const id = String(route.params.serverId || '')
@@ -134,5 +163,5 @@ export function useShell() {
     if (selected.value === origin) selected.value = ''
     persist()
   }
-  return { error, installations, selected, loaded, calls, frames, frameSrc, initialize, connect, open, resolveServer, persist, forget }
+  return { error, installations, selected, loaded, calls, frames, frameSrc, initialize, connect, open, openOwner, resolveServer, persist, forget, address, busy, submitAddress }
 }

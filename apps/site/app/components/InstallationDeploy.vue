@@ -2,6 +2,7 @@
 import { readDeployedInstallations, recordDeployedInstallation, type DeployedInstallation } from '../../../../shared/deploy-recall'
 
 const route = useRoute()
+const { address, busy: addressBusy, submitAddress, error: addressError } = useShell()
 const method = ref(route.query.method === 'vps' ? 'vps' : 'cloudflare')
 const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify installation', 'Ready']
 const name = ref('My L4')
@@ -74,9 +75,20 @@ async function copyOrigin() {
 </script>
 <template>
   <UContainer class="max-w-3xl py-8 sm:py-16">
-    <BrandLogo />
-    <h1 class="mt-12 text-4xl font-semibold tracking-tight">Install your own L4</h1>
+    <h1 class="text-4xl font-semibold tracking-tight">Install your own L4</h1>
     <p class="mt-4 text-muted">Your accounts, servers and data. Free MIT software.</p>
+
+    <!-- Combined entry: connecting an existing installation and creating a new one live on one screen.
+         The address form previously sat in the shell's bare pane; the deploy flow follows below. -->
+    <section class="mt-10 max-w-md">
+      <h2 class="text-xl font-semibold tracking-tight">Open an installation</h2>
+      <form class="mt-4 space-y-4" @submit.prevent="submitAddress">
+        <UFormField label="Address"><UInput v-model="address" placeholder="chat.example.com" class="w-full" size="xl" autocomplete="url" required /></UFormField>
+        <UButton type="submit" label="Open" :loading="addressBusy" size="lg" block />
+      </form>
+      <UAlert v-if="addressError" class="mt-4" color="error" :description="addressError" />
+      <p class="mt-3 text-sm text-muted"><NuxtLink to="/servers">Try the sandbox</NuxtLink></p>
+    </section>
 
     <UAlert v-if="sessionEnded" class="mt-8" color="warning" title="Your deploy session ended" description="Cloudflare authorization lasts about an hour. Reconnect Cloudflare below — your existing installations are remembered on this device." />
 
