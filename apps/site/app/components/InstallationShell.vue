@@ -18,7 +18,10 @@ onMounted(async () => {
   ownOrigin.value = location.origin
   shell.initialize()
   try {
-    if (typeof route.query.installation === 'string') await shell.connect(route.query.installation)
+    if (typeof route.query.installation === 'string') {
+      await shell.connect(route.query.installation, typeof route.query.claim === 'string' ? route.query.claim : undefined)
+      if (route.query.claim) history.replaceState(history.state, '', '/open')
+    }
     else if (route.params.serverId) await shell.resolveServer()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Server unavailable' }
 })
@@ -40,7 +43,7 @@ watch(() => route.fullPath, async () => { if (route.params.serverId) { try { awa
       <NuxtLink to="/deploy" aria-label="Deploy L4" class="mx-auto mt-auto flex size-11 items-center justify-center text-muted"><UIcon name="i-ph-cloud-arrow-up" class="size-5" /></NuxtLink>
     </nav>
     <section class="relative min-w-0 flex-1">
-      <iframe v-for="origin in shell.loaded.value" v-show="shell.selected.value === origin" :key="origin" :ref="element => selectFrame(element, origin)" :src="`${origin}/connections?parent=${encodeURIComponent(ownOrigin)}`" :title="`${shell.installations.value.find(i => i.origin === origin)?.name || 'L4'} installation`" class="absolute inset-0 h-full w-full border-0" allow="camera; microphone; display-capture; fullscreen; clipboard-write" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer" />
+      <iframe v-for="origin in shell.loaded.value" v-show="shell.selected.value === origin" :key="origin" :ref="element => selectFrame(element, origin)" :src="shell.frameSrc(origin, ownOrigin)" :title="`${shell.installations.value.find(i => i.origin === origin)?.name || 'L4'} installation`" class="absolute inset-0 h-full w-full border-0" allow="camera; microphone; display-capture; fullscreen; clipboard-write" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer" />
       <div v-if="!shell.selected.value" class="flex h-full items-center justify-center p-5">
         <form class="w-full max-w-md space-y-5" @submit.prevent="connect">
           <h1 class="text-2xl font-semibold tracking-tight">Open an installation</h1>
