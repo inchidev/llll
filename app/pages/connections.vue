@@ -232,7 +232,7 @@ onMounted(async () => {
             <UFormField v-if="mode !== 'login'" label="Display name"><UInput v-model="form.name" autocomplete="name" class="w-full" /></UFormField>
             <UFormField label="Email"><UInput v-model="form.email" type="email" autocomplete="email" class="w-full" /></UFormField>
             <UFormField label="Password" :description="mode === 'login' ? undefined : 'Use at least 10 characters.'"><UInput v-model="form.password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" class="w-full" /></UFormField>
-            <div class="flex items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create owner' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="authBusy" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
+            <div class="flex flex-wrap items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create owner' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="authBusy" class="w-full justify-center sm:w-auto" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
             <UButton v-if="mode === 'login'" :label="recovering ? 'Back to sign in' : 'Use a recovery key'" color="neutral" variant="link" @click="recovering = !recovering" />
           </form>
           <template v-else>
