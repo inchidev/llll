@@ -42,6 +42,14 @@ onMounted(async () => {
   } catch { releasesError.value = 'Could not load the release list. Enter a version like v0.3.1.' }
 })
 useSeoMeta({ title: 'Install L4 on your infrastructure' })
+
+const copied = ref(false)
+async function copyOrigin() {
+  if (!session.value?.origin) return
+  try { await navigator.clipboard.writeText(session.value.origin) } catch { /* Clipboard access can be denied; the address stays selectable on the page. */ return }
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
 </script>
 <template>
   <UContainer class="max-w-3xl py-8 sm:py-16">
@@ -56,6 +64,11 @@ useSeoMeta({ title: 'Install L4 on your infrastructure' })
         <p class="text-muted">Create its owner, save the recovery key, then create your first server.</p>
         <UButton :to="session.claim" external label="Create installation owner" size="lg" />
         <p class="break-all text-sm text-muted">{{ session.origin }}</p>
+        <div class="flex flex-wrap gap-2">
+          <UButton :to="`/open?installation=${encodeURIComponent(session.origin)}`" label="Open in the shell" icon="i-ph-arrow-square-out" color="neutral" variant="outline" />
+          <UButton :label="copied ? 'Copied' : 'Copy installation URL'" :disabled="!session.origin" color="neutral" variant="outline" @click="copyOrigin" />
+        </div>
+        <p class="text-sm text-muted">The address above is the only identifier of your installation — copy it somewhere safe. This browser will remember it in Connections; other devices need it again.</p>
       </template>
       <template v-else-if="session && (session.authorized || session.step !== undefined)">
         <template v-if="session.step === undefined">
