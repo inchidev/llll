@@ -52,7 +52,7 @@ async function accept() {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Review workspace documents</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Review workspace documents</h2>
     <p class="mt-1.5 text-sm text-muted">Accept the current version before joining this workspace.</p>
     <UAlert v-if="error" class="mt-6" color="error" variant="subtle" :title="error" />
     <template v-if="onboarding?.acceptanceRequired">

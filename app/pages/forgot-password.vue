@@ -34,7 +34,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Reset password</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Reset password</h2>
     <p class="mt-1.5 text-sm text-muted">Enter your account email to receive a reset link.</p>
 
     <UAlert

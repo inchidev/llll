@@ -4,7 +4,7 @@ export default defineAppConfig({
   version,
   ui: {
     colors: {
-      primary: 'lime',
+      primary: 'neutral',
       neutral: 'neutral',
     },
     // Solid alerts read as alarms; the tinted style is the house default.
