@@ -117,7 +117,7 @@ const canCreateAccount = computed(() => Boolean(
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Sign in</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Sign in</h2>
     <p class="mt-1.5 text-sm text-muted">
       Welcome back. Sign in to continue to {{ appName }}.
     </p>

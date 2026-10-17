@@ -39,7 +39,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Choose a new password</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Choose a new password</h2>
     <p class="mt-1.5 text-sm text-muted">Use at least eight characters.</p>
 
     <UAlert

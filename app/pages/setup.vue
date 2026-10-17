@@ -90,7 +90,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Create workspace owner</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Create workspace owner</h2>
     <p class="mt-1.5 text-sm text-muted">Set the password here so your browser saves it for this workspace.</p>
 
     <div v-if="!health" class="mt-6 flex items-center gap-3 text-muted">

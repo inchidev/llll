@@ -125,7 +125,7 @@ async function signUpWith(provider: Exclude<AuthLoginMethod, 'email'>) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-highlighted">Create account</h1>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Create account</h2>
 
     <UAlert
       v-if="sent"
