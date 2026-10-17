@@ -10,8 +10,13 @@ const popup = useInstallationPopup()
 const discovery = ref<(InstallationDiscovery & { ready?: boolean }) | null>(null)
 const ownOrigin = import.meta.client ? location.origin : ''
 const owner = ref(false)
-const busy = ref(false)
+const authBusy = ref(false)
+const serverBusy = ref(false)
+const inviteBusy = ref(false)
+const settingsBusy = ref(false)
+const backupBusy = ref(false)
 const error = ref('')
+const activeTab = ref<'servers' | 'settings' | 'account'>('account')
 const mode = ref<'login' | 'signup' | 'setup'>('login')
 const recoveryCode = ref('')
 const recovering = ref(false)
@@ -24,12 +29,25 @@ const registration = reactive({ id: '', name: '', origin: '', key: '' })
 const configured = ref<{ telegram: boolean; telegramOidc: boolean; cloudflare: boolean } | null>(null)
 const invite = ref(typeof route.query.invite === 'string' ? route.query.invite : '')
 
-async function run(action: () => Promise<void>) {
-  busy.value = true
+async function withBusy(busyRef: { value: boolean }, action: () => Promise<void>) {
+  busyRef.value = true
   error.value = ''
   try { await action() }
   catch (cause) { error.value = errorMessage(cause) }
-  finally { busy.value = false }
+  finally { busyRef.value = false }
+}
+const runAuth = (action: () => Promise<void>) => withBusy(authBusy, action)
+const runServer = (action: () => Promise<void>) => withBusy(serverBusy, action)
+const runInvite = (action: () => Promise<void>) => withBusy(inviteBusy, action)
+const runSettings = (action: () => Promise<void>) => withBusy(settingsBusy, action)
+const runBackup = (action: () => Promise<void>) => withBusy(backupBusy, action)
+async function run(action: () => Promise<void>) {
+  error.value = ''
+  try { await action() }
+  catch (cause) { error.value = errorMessage(cause) }
+}
+function afterAuthState() {
+  activeTab.value = owner.value && selected.value ? 'servers' : 'account'
 }
 
 async function inspect(addressValue = ownOrigin) {
@@ -41,30 +59,36 @@ async function inspect(addressValue = ownOrigin) {
   discovery.value = result
   owner.value = false
   mode.value = result.ready === false ? 'setup' : 'login'
+  activeTab.value = 'account'
   if (result.kind === 'server') return
-  try { owner.value = (await connections.refresh(result.origin))?.owner ?? false }
+  try { owner.value = (await connections.refresh(result.origin))?.owner ?? false; afterAuthState() }
   catch { /* Sign-in is shown for an unconnected account. */ }
 }
 
 async function authenticate() {
-  if (!discovery.value) return
-  if (recovering.value) {
-    await connections.request(discovery.value.origin, '/api/installation/recover', { method: 'POST', body: { email: form.email, code: form.token, password: form.password } })
-    recovering.value = false
-    form.password = ''; form.token = ''
-    toast.add({ title: 'Password replaced. Sign in and save a new recovery key.' })
-    return
+  const target = discovery.value
+  if (!target) return
+  const finish = async () => {
+    if (recovering.value) {
+      await connections.request(target.origin, '/api/installation/recover', { method: 'POST', body: { email: form.email, code: form.token, password: form.password } })
+      recovering.value = false
+      form.password = ''; form.token = ''
+      toast.add({ title: 'Password replaced. Sign in and save a new recovery key.' })
+      return
+    }
+    const path = mode.value === 'setup' ? '/api/installation/setup' : mode.value === 'signup' ? '/api/auth/sign-up/email' : '/api/auth/sign-in/email'
+    const result = await connections.request<{ redirect?: boolean; url?: string }>(target.origin, path, { method: 'POST', body: { ...form, inviteToken: invite.value || undefined, ...(route.query.sig ? { oauth_query: location.search.slice(1) } : {}) } })
+    if (result.redirect && result.url) { location.assign(result.url); return }
+    form.password = ''
+    form.token = ''
+    target.ready = true
+    owner.value = (await connections.refresh(target.origin))?.owner ?? false
+    if (invite.value) await join()
+    resumeConnection()
+    if (owner.value) configured.value = await connections.request(target.origin, '/api/installation/settings')
+    activeTab.value = owner.value ? 'servers' : 'account'
   }
-  const path = mode.value === 'setup' ? '/api/installation/setup' : mode.value === 'signup' ? '/api/auth/sign-up/email' : '/api/auth/sign-in/email'
-  const result = await connections.request<{ redirect?: boolean; url?: string }>(discovery.value.origin, path, { method: 'POST', body: { ...form, inviteToken: invite.value || undefined, ...(route.query.sig ? { oauth_query: location.search.slice(1) } : {}) } })
-  if (result.redirect && result.url) { location.assign(result.url); return }
-  form.password = ''
-  form.token = ''
-  discovery.value.ready = true
-  owner.value = (await connections.refresh(discovery.value.origin))?.owner ?? false
-  if (invite.value) await join()
-  resumeConnection()
-  if (owner.value) configured.value = await connections.request(discovery.value.origin, '/api/installation/settings')
+  await runAuth(finish)
 }
 
 function open(origin: string, id: string) {
@@ -85,9 +109,7 @@ async function join() {
   invite.value = ''
   await connections.refresh(discovery.value.origin)
   toast.add({ title: 'Server joined' })
-}
-
-async function makeInvite(serverIdValue: string) {
+}async function makeInvite(serverIdValue: string) {
   if (!discovery.value) return
   const response = await connections.request<{ invite: { url: string } }>(discovery.value.origin, `/api/installation/servers/${serverIdValue}/invites`, { method: 'POST', body: {} })
   await navigator.clipboard.writeText(response.invite.url)
@@ -122,11 +144,18 @@ async function saveSettings() {
   toast.add({ title: 'Installation settings saved' })
 }
 
-async function signOut() {
-  if (!discovery.value) return
-  await connections.logout(discovery.value.origin)
+function signOut(): Promise<void> {
+  if (!discovery.value) return Promise.resolve()
+  connections.logout(discovery.value.origin)
   window.location.assign('/connections')
+  return Promise.resolve()
 }
+
+const tabItems = computed(() => [
+  { label: 'Servers', value: 'servers' },
+  ...(owner.value ? [{ label: 'Settings', value: 'settings' }] : []),
+  { label: 'Account', value: 'account' },
+] as { label: string; value: string }[])
 
 onMounted(async () => {
   const callback = new URLSearchParams(location.hash.slice(1))
@@ -154,54 +183,59 @@ onMounted(async () => {
       <section v-if="discovery" class="py-3">
         <div class="flex items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">{{ discovery.name }}</h2><p class="mt-1 text-sm text-muted">{{ discovery.origin }}</p></div></div>
         <template v-if="discovery.kind === 'installation'">
-          <form v-if="!selected?.userId" class="mt-6 grid max-w-md gap-4" @submit.prevent="run(authenticate)">
+          <form v-if="!selected?.userId" class="mt-6 grid max-w-md gap-4" @submit.prevent="runAuth(authenticate)">
             <h3 class="font-medium">{{ mode === 'setup' ? 'Claim your installation' : mode === 'signup' ? 'Create an account here' : 'Sign in to this installation' }}</h3>
             <UButton v-if="discovery.origin !== ownOrigin && mode !== 'setup'" label="Continue on installation" icon="i-ph-arrow-square-out" color="neutral" variant="outline" @click="connections.connectInBrowser(discovery.origin)" />
-            <UButton v-if="embedded" label="Sign in in a separate window" icon="i-ph-arrow-square-out" color="neutral" variant="outline" @click="run(async () => { await popup.signIn(); await inspect(ownOrigin) })" />
-            <UButton v-if="discovery.telegramOidc && discovery.origin === ownOrigin" label="Continue with Telegram" color="neutral" variant="outline" @click="run(() => providerLogin('telegram'))" />
+            <UButton v-if="embedded" label="Sign in in a separate window" icon="i-ph-arrow-square-out" color="neutral" variant="outline" @click="runAuth(async () => { await popup.signIn(); await inspect(ownOrigin) })" />
+            <UButton v-if="discovery.telegramOidc && discovery.origin === ownOrigin" label="Continue with Telegram" color="neutral" variant="outline" @click="runAuth(() => providerLogin('telegram'))" />
             <UFormField v-if="mode === 'setup' || recovering" :label="recovering ? 'Recovery key' : 'Private setup claim'"><UInput v-model="form.token" type="password" autocomplete="off" class="w-full" /></UFormField>
             <UFormField v-if="mode !== 'login'" label="Display name"><UInput v-model="form.name" autocomplete="name" class="w-full" /></UFormField>
             <UFormField label="Email"><UInput v-model="form.email" type="email" autocomplete="email" class="w-full" /></UFormField>
             <UFormField label="Password" :description="mode === 'login' ? undefined : 'Use at least 10 characters.'"><UInput v-model="form.password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" class="w-full" /></UFormField>
-            <div class="flex items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create owner' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="busy" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
+            <div class="flex items-center gap-3"><UButton type="submit" :label="recovering ? 'Recover account' : mode === 'setup' ? 'Create owner' : mode === 'signup' ? 'Create account' : 'Sign in'" :loading="authBusy" /><UButton v-if="(discovery.registration || invite) && mode !== 'setup'" color="neutral" variant="link" :label="mode === 'login' ? 'Create account' : 'Sign in instead'" @click="mode = mode === 'login' ? 'signup' : 'login'" /></div>
             <UButton v-if="mode === 'login'" :label="recovering ? 'Back to sign in' : 'Use a recovery key'" color="neutral" variant="link" @click="recovering = !recovering" />
           </form>
           <template v-else>
-            <div v-if="discovery.origin === ownOrigin && (discovery.identity || discovery.telegramOidc)" class="mt-5 flex flex-wrap gap-2"><UButton v-if="discovery.telegramOidc" label="Link Telegram" color="neutral" variant="outline" @click="run(() => providerLogin('telegram', true))" /></div>
-            <div class="mt-5"><UButton label="Replace recovery key" color="neutral" variant="outline" size="sm" @click="run(async () => { recoveryCode = (await connections.request<{ code: string }>(discovery!.origin, '/api/installation/recovery-key', { method: 'POST', body: {} })).code })" /><UAlert v-if="recoveryCode" class="mt-3" color="warning" title="Save this private key now. It replaces your previous key and can only be used once." :description="recoveryCode" /></div>
-            <div class="mt-6 flex items-center justify-between"><h3 class="text-sm font-medium text-muted">Your servers</h3><UButton label="Sign out here" color="neutral" variant="link" size="xs" @click="run(signOut)" /></div>
-            <div class="mt-3 grid gap-3 sm:grid-cols-2">
-              <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="run(async () => { await connections.request(discovery!.origin, `/api/installation/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="run(() => makeInvite(server.id))" /></div></article>
+            <UTabs :key="owner ? 'owner' : 'member'" v-model="activeTab" :items="tabItems" class="mt-2" />
+            <div v-if="activeTab === 'servers'" class="mt-5">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="runServer(async () => { await connections.request(discovery!.origin, `/api/installation/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="runServer(() => makeInvite(server.id))" /></div></article>
+              </div>
+              <p v-if="!selected.servers.length" class="mt-4 text-sm text-muted">Join a server using an invitation, or ask the installation owner to add you.</p>
+              <form v-if="owner" class="mt-6 flex items-end gap-2" @submit.prevent="runServer(createServer)"><UFormField label="Create a server" class="min-w-0 flex-1"><UInput v-model="serverName" placeholder="My community" class="w-full" /></UFormField><UButton type="submit" label="Create" :loading="serverBusy" :disabled="!serverId" /></form>
+              <form class="mt-6 flex items-end gap-2" @submit.prevent="runInvite(join)"><UFormField label="Invitation code" class="min-w-0 flex-1"><UInput v-model="invite" placeholder="Paste an invitation code" class="w-full" /></UFormField><UButton type="submit" label="Join" color="neutral" variant="outline" :loading="inviteBusy" :disabled="!invite" /></form>
             </div>
-            <p v-if="!selected.servers.length" class="mt-4 text-sm text-muted">Join a server using an invitation, or ask the installation owner to add you.</p>
-            <form v-if="owner" class="mt-6 flex items-end gap-2" @submit.prevent="run(createServer)"><UFormField label="Create a server" class="min-w-0 flex-1"><UInput v-model="serverName" placeholder="My community" class="w-full" /></UFormField><UButton type="submit" label="Create" :loading="busy" :disabled="!serverId" /></form>
-            <form class="mt-6 flex items-end gap-2" @submit.prevent="run(join)"><UFormField label="Invitation code" class="min-w-0 flex-1"><UInput v-model="invite" placeholder="Paste an invitation code" class="w-full" /></UFormField><UButton type="submit" label="Join" color="neutral" variant="outline" :loading="busy" :disabled="!invite" /></form>
+            <div v-else-if="activeTab === 'settings' && owner" class="mt-5">
+              <UButton label="Back up installation" color="neutral" variant="outline" size="sm" :loading="backupBusy" @click="runBackup(async () => { await connections.request(discovery!.origin, '/api/installation/backup', { method: 'POST', body: {} }); toast.add({ title: 'Installation backup saved' }) })" />
+              <p class="mt-2 text-sm text-muted">Manage accounts and server provisioning for this installation. Saved secrets stay encrypted here.</p>
+              <form class="mt-5 grid gap-4 sm:grid-cols-2" @submit.prevent="runSettings(saveSettings)">
+                <UFormField label="Telegram bot token" :description="configured?.telegram ? 'Configured' : 'Optional · enable Mini App login'"><UInput v-model="settings.telegramBotToken" type="password" autocomplete="off" class="w-full" /></UFormField>
+                <UFormField label="Trusted Mini App bot ID" description="Optional: accept Telegram-signed login from this bot without its token."><UInput v-model="settings.telegramTrustedBotId" class="w-full" /></UFormField>
+                <UFormField label="Telegram client ID"><UInput v-model="settings.telegramClientId" autocomplete="off" class="w-full" /></UFormField>
+                <UFormField label="Telegram client secret"><UInput v-model="settings.telegramClientSecret" type="password" autocomplete="off" class="w-full" /></UFormField>
+                <UFormField label="Cloudflare account ID" :description="configured?.cloudflare ? 'Provisioning configured' : 'Enable automatic server creation'"><UInput v-model="settings.cloudflareAccountId" autocomplete="off" class="w-full" /></UFormField>
+                <UFormField label="Cloudflare API token" description="Allows this installation to create and update servers. Saved tokens are never shown again."><UInput v-model="settings.cloudflareApiToken" type="password" autocomplete="off" class="w-full" /></UFormField>
+                <div class="flex items-end"><UButton type="submit" label="Save settings" :loading="settingsBusy" /></div>
+              </form>
+              <details class="mt-6 border-t border-default pt-5"><summary class="cursor-pointer text-sm font-medium">Register a deployed server</summary>
+                <form class="mt-4 grid gap-4 sm:grid-cols-2" @submit.prevent="runSettings(registerServer)">
+                  <UFormField label="Server ID"><UInput v-model="registration.id" placeholder="main" class="w-full" /></UFormField>
+                  <UFormField label="Server name"><UInput v-model="registration.name" placeholder="My community" class="w-full" /></UFormField>
+                  <UFormField label="Server origin"><UInput v-model="registration.origin" placeholder="https://server.example.com" class="w-full" /></UFormField>
+                  <UFormField label="Pairing key"><UInput v-model="registration.key" type="password" autocomplete="off" class="w-full" /></UFormField>
+                  <UButton type="submit" label="Register server" :loading="settingsBusy" />
+                </form>
+              </details>
+            </div>
+            <div v-else-if="activeTab === 'account'" class="mt-5 space-y-3">
+              <div v-if="discovery.origin === ownOrigin && (discovery.identity || discovery.telegramOidc)"><UButton v-if="discovery.telegramOidc" label="Link Telegram" color="neutral" variant="outline" @click="runAuth(() => providerLogin('telegram', true))" /></div>
+              <UButton label="Replace recovery key" color="neutral" variant="outline" size="sm" @click="runAuth(async () => { recoveryCode = (await connections.request<{ code: string }>(discovery!.origin, '/api/installation/recovery-key', { method: 'POST', body: {} })).code })" />
+              <UAlert v-if="recoveryCode" color="warning" title="Save this private key now. It replaces your previous key and can only be used once." :description="recoveryCode" />
+              <div class="pt-3"><UButton label="Sign out here" color="neutral" variant="link" size="sm" @click="runAuth(async () => signOut())" /></div>
+            </div>
           </template>
         </template>
         <UButton v-else class="mt-6" label="Open server" @click="open(discovery.origin, discovery.id)" />
-      </section>
-
-      <section v-if="owner" class="rounded-2xl border border-default p-5">
-        <div class="flex items-center justify-between gap-3"><h2 class="font-semibold">Installation settings</h2><UButton label="Back up installation" color="neutral" variant="outline" size="sm" :loading="busy" @click="run(async () => { await connections.request(discovery!.origin, '/api/installation/backup', { method: 'POST', body: {} }); toast.add({ title: 'Installation backup saved' }) })" /></div>
-        <p class="mt-2 text-sm text-muted">Manage accounts and server provisioning for this installation. Saved secrets stay encrypted here.</p>
-        <form class="mt-5 grid gap-4 sm:grid-cols-2" @submit.prevent="run(saveSettings)">
-          <UFormField label="Telegram bot token" :description="configured?.telegram ? 'Configured' : 'Optional · enable Mini App login'"><UInput v-model="settings.telegramBotToken" type="password" autocomplete="off" class="w-full" /></UFormField>
-          <UFormField label="Trusted Mini App bot ID" description="Optional: accept Telegram-signed login from this bot without its token."><UInput v-model="settings.telegramTrustedBotId" class="w-full" /></UFormField>
-          <UFormField label="Telegram client ID"><UInput v-model="settings.telegramClientId" autocomplete="off" class="w-full" /></UFormField>
-          <UFormField label="Telegram client secret"><UInput v-model="settings.telegramClientSecret" type="password" autocomplete="off" class="w-full" /></UFormField>
-          <UFormField label="Cloudflare account ID" :description="configured?.cloudflare ? 'Provisioning configured' : 'Enable automatic server creation'"><UInput v-model="settings.cloudflareAccountId" autocomplete="off" class="w-full" /></UFormField>
-          <UFormField label="Cloudflare API token" description="Allows this installation to create and update servers. Saved tokens are never shown again."><UInput v-model="settings.cloudflareApiToken" type="password" autocomplete="off" class="w-full" /></UFormField>
-          <div class="flex items-end"><UButton type="submit" label="Save settings" :loading="busy" /></div>
-        </form>
-        <details class="mt-6 border-t border-default pt-5"><summary class="cursor-pointer text-sm font-medium">Register a deployed server</summary>
-          <form class="mt-4 grid gap-4 sm:grid-cols-2" @submit.prevent="run(registerServer)">
-            <UFormField label="Server ID"><UInput v-model="registration.id" placeholder="main" class="w-full" /></UFormField>
-            <UFormField label="Server name"><UInput v-model="registration.name" placeholder="My community" class="w-full" /></UFormField>
-            <UFormField label="Server origin"><UInput v-model="registration.origin" placeholder="https://server.example.com" class="w-full" /></UFormField>
-            <UFormField label="Pairing key"><UInput v-model="registration.key" type="password" autocomplete="off" class="w-full" /></UFormField>
-            <UButton type="submit" label="Register server" :loading="busy" />
-          </form>
-        </details>
       </section>
     </div>
   </main>
