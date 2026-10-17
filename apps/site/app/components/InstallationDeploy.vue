@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { readDeployedInstallations, recordDeployedInstallation, type DeployedInstallation } from '../utils/deploy-recall'
+import { readDeployedInstallations, recordDeployedInstallation, type DeployedInstallation } from '../../../../shared/deploy-recall'
 
 const route = useRoute()
 const method = ref(route.query.method === 'vps' ? 'vps' : 'cloudflare')

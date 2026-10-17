@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { readDeployedInstallations, recordDeployedInstallation } from '../../apps/site/app/utils/deploy-recall'
+import { readDeployedInstallations, recordDeployedInstallation } from '../../shared/deploy-recall'
 
 function fakeStorage(initial: string | null = null) {
   let value = initial
