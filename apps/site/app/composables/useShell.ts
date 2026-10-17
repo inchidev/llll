@@ -14,6 +14,7 @@ export function useShell() {
   const pending = useState<Record<string, string>>('shell-pending-server', () => ({}))
   const error = useState('shell-error', () => '')
   const registered = new Set<string>()
+  const pendingClaims: Record<string, string> = {}
   const telegram = useState<string>('shell-telegram', () => '')
   const route = useRoute()
   const router = useRouter()
@@ -37,9 +38,11 @@ export function useShell() {
       send(installation.origin, { type: 'open', serverId, path: '/' })
     }
   }
-  async function connect(address: string) {
+  async function connect(address: string, claim?: string) {
     const url = new URL(/^https?:\/\//.test(address) ? address : 'https://' + address)
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS installation address')
+    const validClaim = /^[A-Za-z0-9_-]{20,300}$/.test(claim || '') ? claim : undefined
+    if (validClaim) pendingClaims[url.origin] = validClaim
     const response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error' })
     const data = await response.json()
     if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 installation')
@@ -48,6 +51,10 @@ export function useShell() {
     if (!installation) { installation = { origin: url.origin, name: String(data.name).slice(0, 100), collapsed: false, servers: [] }; installations.value.push(installation) }
     persist(); open(installation)
     return installation
+  }
+  function frameSrc(origin: string, parentOrigin: string) {
+    const claim = pendingClaims[origin]
+    return `${origin}/connections?parent=${encodeURIComponent(parentOrigin)}${claim ? `#claim=${claim}` : ''}`
   }
   async function resolveServer() {
     const id = String(route.params.serverId || '')
@@ -121,5 +128,5 @@ export function useShell() {
     if (selected.value === origin) selected.value = ''
     persist()
   }
-  return { error, installations, selected, loaded, calls, frames, initialize, connect, open, resolveServer, persist, forget }
+  return { error, installations, selected, loaded, calls, frames, frameSrc, initialize, connect, open, resolveServer, persist, forget }
 }

@@ -11,6 +11,10 @@ const versions = ref<{ version: string; name: string; published_at: string; note
 const version = ref('')
 const releasesError = ref('')
 const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify installation', 'Ready']
+const openRoute = computed(() => {
+  const claim = session.value?.claim?.split('#claim=')[1]
+  return `/open?installation=${encodeURIComponent(session.value?.origin || '')}${claim ? `&claim=${claim}` : ''}`
+})
 const now = ref(Date.now())
 const grantExpiresAt = ref(0)
 const grantLeft = computed(() => {
@@ -65,7 +69,7 @@ async function copyOrigin() {
         <UButton :to="session.claim" external label="Create installation owner" size="lg" />
         <p class="break-all text-sm text-muted">{{ session.origin }}</p>
         <div class="flex flex-wrap gap-2">
-          <UButton :to="`/open?installation=${encodeURIComponent(session.origin!)}`" label="Open in the shell" icon="i-ph-arrow-square-out" color="neutral" variant="outline" />
+          <UButton :to="openRoute" label="Open in the shell" icon="i-ph-arrow-square-out" color="neutral" variant="outline" />
           <UButton :label="copied ? 'Copied' : 'Copy installation URL'" :disabled="!session.origin" color="neutral" variant="outline" @click="copyOrigin" />
         </div>
         <p class="text-sm text-muted">The address above is the only identifier of your installation — copy it somewhere safe. This browser will remember it in Connections; other devices need it again.</p>
