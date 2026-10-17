@@ -22,6 +22,7 @@ export type InstallationServer = {
   ownerId: string
   version: string
   status: 'provisioning' | 'ready' | 'failed'
+  error?: string
   assetToken?: string
 }
 

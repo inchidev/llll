@@ -78,7 +78,7 @@ async function membership(env: InstallationEnv, serverId: string, userId: string
 }
 
 function serverSummary(server: ServerRow) {
-  return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status }
+  return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status, error: server.error || undefined }
 }
 
 async function assetToken(env: InstallationEnv, serverId: string, sessionId: string) {
