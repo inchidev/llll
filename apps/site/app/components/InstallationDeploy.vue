@@ -39,8 +39,11 @@ async function refresh() {
     sessionEnded.value = false
     if (session.value?.completed && session.value.origin) remembered.value = recordDeployedInstallation({ origin: session.value.origin, name: session.value.name || '', completedAt: Date.now() })
   } catch (cause) {
-    if ((cause as { status?: number }).status === 401) sessionEnded.value = remembered.value.length > 0
-    else error.value = 'Could not load deployment state'
+    const status = (cause as { status?: number }).status
+    // 401: no session (anonymous first visit) — the connect CTA is enough. 503: the deployment
+    // service is not configured here (previews, minimal self-host): keep the screen quiet.
+    if (status === 401) sessionEnded.value = remembered.value.length > 0
+    else if (status !== 503) error.value = 'Could not load deployment state'
   }
   if (session.value?.grantExpiresIn !== undefined) grantExpiresAt.value = Date.now() + session.value.grantExpiresIn * 1000
 }

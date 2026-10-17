@@ -10,7 +10,7 @@ export type DeploymentState = {
 }
 export async function digest(value: string) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(b => b.toString(16).padStart(2, '0')).join('') }
 export async function portalSession(request: Request, env: PortalEnv, create = false) {
-  if (env.AUTH_SECRET.length < 32) throw new Error('Configure the deployment service secret')
+  if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) throw Object.assign(new Error('Configure the deployment service secret (AUTH_SECRET)'), { status: 503 })
   let token = /(?:^|;\s*)llll_deploy=([a-zA-Z0-9_-]{64})(?:;|$)/.exec(request.headers.get('cookie') || '')?.[1]
   if (!token && !create) throw Object.assign(new Error('Start the deployment again'), { status: 401 })
   let fresh = false
