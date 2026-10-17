@@ -23,6 +23,8 @@ export type InstallationServer = {
   version: string
   status: 'provisioning' | 'ready' | 'failed'
   error?: string
+  /** The server's own origin while provisioning; the browser verifies its health from there because the installation Worker cannot fetch same-account workers.dev URLs. */
+  origin?: string
   assetToken?: string
 }
 

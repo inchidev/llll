@@ -515,11 +515,17 @@ export function updateWorkerBindings(
   return bindings
 }
 
+export type InstallVerifyOptions = {
+  /** Cloudflare error 1042 blocks fetches from a Worker to any *.workers.dev hostname on the same account, so in-worker provisioning cannot verify its own deployment. Callers outside Cloudflare keep the default. */
+  verify?: boolean
+}
+
 export async function deployL4Update(
   accessToken: string,
   accountId: string,
   workerName: string,
   release: { manifest: InstallerReleaseManifest, worker: ArrayBuffer, assets: InstallerAssetsPayload },
+  options: InstallVerifyOptions = {},
 ) {
   const client = cloudflareClient(accessToken)
   const account = await client.accounts.get({ account_id: accountId })
@@ -553,13 +559,15 @@ export async function deployL4Update(
     `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`,
     { method: 'PUT', body: form },
   )
-  await verifyDeployment(`https://${existing.appHostname}`, release.manifest.version, true)
+  if (options.verify !== false) {
+    await verifyDeployment(`https://${existing.appHostname}`, release.manifest.version, true)
+  }
   return {
     url: `https://${existing.appHostname}`,
     version: release.manifest.version,
     updated: true,
     appliedMigrations,
-    verified: true,
+    verified: options.verify !== false,
   }
 }
 
@@ -627,6 +635,7 @@ export async function deployL4(
   request: DeployRequest,
   release: { manifest: InstallerReleaseManifest, worker: ArrayBuffer, assets: InstallerAssetsPayload },
   report?: DeployProgressReporter,
+  options: InstallVerifyOptions = {},
 ) {
   const progress = async (step: DeployProgressStep, state: 'active' | 'complete', detail?: string) => {
     await report?.({ type: 'progress', step, state, detail })
@@ -768,20 +777,22 @@ export async function deployL4(
   })
   await progress('schedule', 'complete')
 
-  await progress('verify', 'active')
-  await verifyDeployment(
-    origin,
-    release.manifest.version,
-    requiresReadyVerification(existing.exists, request.authMode, previousHealth),
-    report,
-  )
-  await progress('verify', 'complete', 'Workspace health verified')
+  if (options.verify !== false) {
+    await progress('verify', 'active')
+    await verifyDeployment(
+      origin,
+      release.manifest.version,
+      requiresReadyVerification(existing.exists, request.authMode, previousHealth),
+      report,
+    )
+    await progress('verify', 'complete', 'Workspace health verified')
+  }
   return {
     url: origin,
     setupUrl: ownerSetupToken ? `${origin}/setup#claim=${encodeURIComponent(ownerSetupToken)}` : undefined,
     version: release.manifest.version,
     updated: existing.exists,
     appliedMigrations,
-    verified: true,
+    verified: options.verify !== false,
   }
 }

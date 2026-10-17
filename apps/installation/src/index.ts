@@ -67,10 +67,20 @@ async function secretFor(env: InstallationEnv, server: ServerRow) {
 }
 
 async function serverRow(env: InstallationEnv, id: string) {
-  if (!idPattern.test(id)) failure(404, 'Server not found')
-  const server = await env.INSTALLATION_DB.prepare('SELECT * FROM servers WHERE id = ?').bind(id).first<ServerRow>()
+  const server = await findServerRow(env, id)
   if (!server || server.status !== 'ready') failure(404, 'Server not found or not ready')
   return server
+}
+
+async function serverRowProvisioning(env: InstallationEnv, id: string) {
+  const server = await findServerRow(env, id)
+  if (!server) failure(404, 'Server not found')
+  return server
+}
+
+async function findServerRow(env: InstallationEnv, id: string) {
+  if (!idPattern.test(id)) failure(404, 'Server not found')
+  return env.INSTALLATION_DB.prepare('SELECT * FROM servers WHERE id = ?').bind(id).first<ServerRow>()
 }
 
 async function membership(env: InstallationEnv, serverId: string, userId: string) {
@@ -78,7 +88,7 @@ async function membership(env: InstallationEnv, serverId: string, userId: string
 }
 
 function serverSummary(server: ServerRow) {
-  return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status, error: server.error || undefined }
+  return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status, error: server.error || undefined, origin: server.origin }
 }
 
 async function assetToken(env: InstallationEnv, serverId: string, sessionId: string) {
@@ -203,12 +213,10 @@ async function createServer(request: Request, env: InstallationEnv) {
   if (!reserved) failure(409, 'This installation has reached its server limit')
   try {
     const result = await provisionServer(env, reserved, session.user, key)
-    await env.INSTALLATION_DB.batch([
-      env.INSTALLATION_DB.prepare("UPDATE servers SET origin = ?,version = ?,status = 'ready',updated_at = ? WHERE id = ?").bind(new URL(result.url).origin, result.version, Date.now(), input.id),
-      env.INSTALLATION_DB.prepare("INSERT INTO memberships (server_id,user_id,role,created_at) VALUES (?,?,'owner',?)").bind(input.id, session.user.id, now),
-    ])
+    // Deployed, but not verified: the browser checks the server's health and reports back to `servers/:id/confirm`.
+    await env.INSTALLATION_DB.prepare("UPDATE servers SET origin = ?,version = ?,status = 'provisioning',error = NULL,updated_at = ? WHERE id = ?").bind(new URL(result.url).origin, result.version, Date.now(), input.id).run()
     await audit(env, session.user.id, 'server.create', input.id)
-    return json({ server: serverSummary(await serverRow(env, input.id)) }, 201)
+    return json({ server: serverSummary(await serverRowProvisioning(env, input.id)), setupUrl: result.setupUrl }, 201)
   }
   catch (error) {
     await env.INSTALLATION_DB.prepare("UPDATE servers SET status = 'failed',error = ?,updated_at = ? WHERE id = ?").bind(error instanceof Error ? error.message.slice(0, 300) : 'Provisioning failed', Date.now(), input.id).run()
@@ -336,6 +344,8 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
   if (path === '/api/installation/servers') {
     if (request.method === 'POST') return createServer(request, env)
     const session = await requireSession(request, env)
+    // A provisioning server whose browser never confirmed (tab closed, worker unreachable) would hang forever; expire it after ten minutes.
+    await env.INSTALLATION_DB.prepare("UPDATE servers SET status = 'failed',error = 'Provisioning did not finish',updated_at = ? WHERE status = 'provisioning' AND updated_at < ?").bind(Date.now(), Date.now() - 600000).run()
     const rows = await env.INSTALLATION_DB.prepare('SELECT s.* FROM servers s WHERE s.owner_id = ? OR EXISTS (SELECT 1 FROM memberships m WHERE m.server_id = s.id AND m.user_id = ?) ORDER BY s.created_at,s.id').bind(session.user.id, session.user.id).all<ServerRow>()
     return json({ servers: await Promise.all(rows.results.map(async server => ({ ...serverSummary(server), assetToken: await assetToken(env, server.id, session.session.id) }))) })
   }
@@ -360,17 +370,29 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
     if (!reserved) failure(409, 'Only a failed server can be retried')
     try {
       const result = await provisionServer(env, reserved, session.user, await secretFor(env, reserved))
-      await env.INSTALLATION_DB.batch([
-        env.INSTALLATION_DB.prepare("UPDATE servers SET origin = ?,version = ?,status = 'ready',updated_at = ? WHERE id = ?").bind(new URL(result.url).origin, result.version, Date.now(), reserved.id),
-        env.INSTALLATION_DB.prepare("INSERT INTO memberships (server_id,user_id,role,created_at) VALUES (?,?,'owner',?) ON CONFLICT DO NOTHING").bind(reserved.id, reserved.owner_id, Date.now()),
-      ])
+      await env.INSTALLATION_DB.prepare("UPDATE servers SET origin = ?,version = ?,status = 'provisioning',error = NULL,updated_at = ? WHERE id = ?").bind(new URL(result.url).origin, result.version, Date.now(), reserved.id).run()
       await audit(env, session.user.id, 'server.retry', reserved.id)
-      return json({ server: serverSummary(await serverRow(env, reserved.id)) })
+      return json({ server: serverSummary(await serverRowProvisioning(env, reserved.id)), setupUrl: result.setupUrl })
     }
     catch (error) {
       await env.INSTALLATION_DB.prepare("UPDATE servers SET status = 'failed',error = ?,updated_at = ? WHERE id = ?").bind(error instanceof Error ? error.message.slice(0, 300) : 'Provisioning failed', Date.now(), reserved.id).run()
       throw error
     }
+  }
+  const confirmRoute = path.match(/^\/api\/installation\/servers\/([a-z0-9-]+)\/confirm$/)
+  if (confirmRoute && request.method === 'POST') {
+    await requireOwner(request, env)
+    const server = await env.INSTALLATION_DB.prepare("SELECT * FROM servers WHERE id = ? AND status = 'provisioning'").bind(confirmRoute[1]).first<ServerRow>()
+    if (!server) failure(409, 'Only a provisioning server can be confirmed')
+    const input = z.object({ ok: z.boolean(), error: z.string().max(300).optional() }).parse(await body(request))
+    if (input.ok) {
+      await env.INSTALLATION_DB.prepare("UPDATE servers SET status = 'ready',updated_at = ? WHERE id = ?").bind(Date.now(), server.id).run()
+      await env.INSTALLATION_DB.prepare("INSERT INTO memberships (server_id,user_id,role,created_at) VALUES (?,?,'owner',?) ON CONFLICT DO NOTHING").bind(server.id, server.owner_id, Date.now()).run()
+    }
+    else {
+      await env.INSTALLATION_DB.prepare("UPDATE servers SET status = 'failed',error = ?,updated_at = ? WHERE id = ?").bind((input.error || 'Workspace health verification did not complete').slice(0, 300), Date.now(), server.id).run()
+    }
+    return json({ server: serverSummary(await serverRowProvisioning(env, server.id)) })
   }
   const updateRoute = path.match(/^\/api\/installation\/servers\/([a-z0-9-]+)\/update$/)
   if (updateRoute && request.method === 'POST') {

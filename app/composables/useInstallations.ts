@@ -34,7 +34,7 @@ export function useInstallations() {
           const token = sessionStorage.getItem(`${TOKEN}${origin}`)
           if (token) tokens.value[origin] = token
           return [{ origin, id: String(value.id || origin), name: value.name.slice(0, 100), kind: value.kind === 'server' ? 'server' as const : 'installation' as const, userId: typeof value.userId === 'string' ? value.userId : undefined, collapsed: value.collapsed === true,
-            servers: value.servers.filter((server: InstallationServer) => server && typeof server.id === 'string' && /^[a-z0-9][a-z0-9-]{0,47}$/.test(server.id) && typeof server.name === 'string').map((server: InstallationServer) => ({ id: server.id, publicId: server.publicId, name: server.name, ownerId: String(server.ownerId || ''), version: String(server.version || ''), status: server.status === 'ready' ? 'ready' as const : 'failed' as const, error: typeof server.error === 'string' ? server.error : undefined })) }]
+            servers: value.servers.filter((server: InstallationServer) => server && typeof server.id === 'string' && /^[a-z0-9][a-z0-9-]{0,47}$/.test(server.id) && typeof server.name === 'string').map((server: InstallationServer) => ({ id: server.id, publicId: server.publicId, name: server.name, ownerId: String(server.ownerId || ''), version: String(server.version || ''), status: ['ready', 'provisioning'].includes(server.status) ? server.status as 'ready' | 'provisioning' : 'failed' as const, error: typeof server.error === 'string' ? server.error : undefined, origin: typeof server.origin === 'string' ? normalizeServerOrigin(server.origin) : undefined })) }]
         }
         catch { return [] }
       })
