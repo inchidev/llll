@@ -64,7 +64,7 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
   // These are the Workers scopes offered by Cloudflare's current client form.
   // Every id below is probe-verified against the portal OAuth client.
   const scopes = auth.searchParams.get('scope')!.split(' ')
-  expect(scopes).toEqual(expect.arrayContaining(['workers-scripts.content_read', 'workers-scripts.edit', 'offline_access', 'zone.read', 'dns.read', 'dns.write', 'email-routing-rule.read', 'email-routing-rule.write', 'email-sending.read', 'email-sending.write', 'browser-rendering.read', 'containers.read', 'containers.write', 'realtime.read', 'realtime.write', 'queues.read', 'queues.write']))
+  expect(scopes).toEqual(expect.arrayContaining(['workers-scripts.content_read', 'workers-scripts.admin', 'offline_access', 'zone.read', 'dns.read', 'dns.write', 'email-routing-rule.read', 'email-routing-rule.write', 'email-sending.read', 'email-sending.write', 'browser-rendering.read', 'containers.read', 'containers.write', 'realtime.read', 'realtime.write', 'queues.read', 'queues.write']))
   expect(scopes).not.toContain('workers-scripts.read')
   expect(scopes).not.toContain('workers-scripts.write')
   expect((await portal.fetch(req('/api/deploy/callback?code=one&state=wrong', cookie), env)).status).toBe(400)
