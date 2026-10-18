@@ -92,8 +92,11 @@ const output = wrangler(mode === 'preview'
 process.stdout.write(output)
 if (mode === 'preview') {
   const data = JSON.parse(output.slice(output.indexOf('{')))
-  const url = data.preview?.urls?.[0]
-  if (!url) throw new Error('Cloudflare did not return a Worker Preview URL')
+  const url = data.preview?.urls?.find(value => {
+    const candidate = new URL(value)
+    return candidate.protocol === 'https:' && /^[a-z0-9-]+\.dev\.llll\.gg$/.test(candidate.hostname)
+  })
+  if (!url) throw new Error('Cloudflare did not return a Preview URL under *.dev.llll.gg')
   let verified = false
   for (let attempt = 0; attempt < 12; attempt++) {
     const response = await fetch(`${url}/api/health`).catch(() => null)

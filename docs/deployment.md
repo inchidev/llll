@@ -16,7 +16,7 @@ The operator owns provisioning credentials, local Accounts and backups. Shell bo
 
 ## Official web: Landing, Shell and Docs
 
-The single official Worker is `llll`. It serves `/` (Landing), `/open` (Shell), `/docs` (Docs index) and `/deploy` (Instance installer). `apps/instance` and the root Server runtime are built as separate installation artifacts, not deployed as public demo accounts.
+The single official Worker is `llll`. Production uses `https://llll.gg`; native PR Previews use `https://<preview-slug>.dev.llll.gg` (for example, branch `codex/preview-domains` becomes `codex-preview-domains.dev.llll.gg`). The `dev.llll.gg` domain is Preview-only: its base hostname does not serve production. Production and Preview `workers.dev` URLs are disabled. These custom-domain bindings are maintained through the connected Cloudflare API, separately from application releases. It serves `/` (Landing), `/open` (Shell), `/docs` (Docs index) and `/deploy` (Instance installer). `apps/instance` and the root Server runtime are built as separate installation artifacts, not deployed as public demo accounts.
 
 Cloudflare Workers Builds is connected to the `inchidev/llll` repository and protected `main`. Its root directory is `apps/site`, Preview commands are `pnpm build` and `pnpm deploy:preview`. Production commands are `pnpm build:production` and `pnpm deploy:production`: they verify and deploy a newer immutable release, or exit without deployment. These commands reject execution outside an identified Workers Build.
 
