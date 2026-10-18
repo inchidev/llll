@@ -26,6 +26,7 @@ async function rateLimit(request: Request, env: PortalEnv) {
   if ((row?.count || 0) > 60) fail(429, 'Too many requests. Try again shortly.')
 }
 async function handle(request: Request, env: PortalEnv): Promise<Response> {
+  if (new URL(request.url).pathname === '/api/health') return json({ ok: true, component: 'web', commit: env.BUILD_COMMIT || 'development' })
   const url = new URL(request.url); const path = url.pathname
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')
@@ -139,6 +140,7 @@ async function handle(request: Request, env: PortalEnv): Promise<Response> {
 }
 export default {
   async fetch(request: Request, env: PortalEnv) {
+    if (env.ENVIRONMENT === 'preview') env = { ...env, PUBLIC_ORIGIN: new URL(request.url).origin, CLOUDFLARE_OAUTH_CLIENT_ID: undefined }
     let response: Response
     try { response = await handle(request, env) }
     catch (error) {

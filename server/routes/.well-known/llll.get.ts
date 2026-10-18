@@ -1,6 +1,6 @@
 import { cf } from '../../utils/cf'
 import { version } from '../../../package.json'
-import { INSTALLATION_API_VERSION } from '../../../shared/installation'
+import { INSTALLATION_API_VERSION } from '../../../shared/instance'
 
 export default defineEventHandler((event) => {
   const { env } = cf(event)

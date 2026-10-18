@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { APIError, createAuthEndpoint, getSessionFromCtx } from 'better-auth/api'
 import { setSessionCookie } from 'better-auth/cookies'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 
 const encoder = new TextEncoder()
 async function hash(value: string) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value)))].map(b => b.toString(16).padStart(2, '0')).join('') }
@@ -9,7 +9,7 @@ async function challenge(value: string) { return btoa(String.fromCharCode(...new
 const codePattern = /^[a-zA-Z0-9_-]{43,128}$/
 
 /** One-use S256 handoff: browser sessions never appear in a callback URL. */
-export function installationConnection(env: InstallationEnv, allowedOrigins: string[]) {
+export function installationConnection(env: InstanceEnv, allowedOrigins: string[]) {
   function redirectUri(value: string) {
     if (value === 'llll://connections' && allowedOrigins.includes('capacitor://localhost')) return value
     const url = new URL(value)

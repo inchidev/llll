@@ -42,7 +42,7 @@ export const lastChannelSerializer = {
 }
 
 export const useUiStore = defineStore('ui', () => {
-  const connection = useInstallations()
+  const connection = useInstances()
   const scope = `${connection.scope.value}/${useSessionStore().user?.id || 'anonymous'}`
   type ComposerState = {
     draft: string

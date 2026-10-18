@@ -24,7 +24,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:site
       - run: pnpm build:deployment
-      - run: pnpm test:installation
+      - run: pnpm test:instance
       - run: node scripts/test-portal.mjs
       - uses: actions/upload-artifact@v4
         with:

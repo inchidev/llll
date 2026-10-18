@@ -7,7 +7,7 @@ let useSessionStore: typeof SessionStoreFactory
 
 beforeAll(async () => {
   vi.stubGlobal('ref', ref)
-  vi.stubGlobal('useInstallations', () => ({ activeInstallation: ref(null) }))
+  vi.stubGlobal('useInstances', () => ({ activeInstallation: ref(null) }))
   ;({ useSessionStore } = await import('../../app/stores/session'))
 })
 

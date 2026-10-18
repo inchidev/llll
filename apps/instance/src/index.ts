@@ -5,11 +5,11 @@ import { verifyOAuthQueryParams } from '@better-auth/oauth-provider'
 import { SignJWT, jwtVerify } from 'jose'
 import { z } from 'zod'
 import { version } from '../../../package.json'
-import { INSTALLATION_API_VERSION } from '../../../shared/installation'
-import { signInstallationIdentity, verifyInstallationIdentity } from '../../../shared/installation-identity'
+import { INSTALLATION_API_VERSION } from '../../../shared/instance'
+import { signInstallationIdentity, verifyInstallationIdentity } from '../../../shared/instance-identity'
 import { decryptSecret, encryptSecret } from '../../../shared/encrypted-secret'
 import { clientOrigins, installationAuth } from './auth'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 import { provisionServer, updateServer, type ServerRow } from './provision'
 
 import { embedNavigation } from './embed-navigation'
@@ -46,44 +46,44 @@ async function body(request: Request): Promise<unknown> {
   catch { failure(400, 'Invalid JSON') }
 }
 
-async function ownerId(env: InstallationEnv) {
+async function ownerId(env: InstanceEnv) {
   return (await env.INSTALLATION_DB.prepare('SELECT owner_id FROM installation_meta WHERE id = 1').first<{ owner_id: string | null }>())?.owner_id || null
 }
 
-async function requireSession(request: Request, env: InstallationEnv) {
+async function requireSession(request: Request, env: InstanceEnv) {
   const session = await installationAuth(env).api.getSession({ headers: request.headers })
   if (!session) failure(401, 'Sign in to this installation')
   return session
 }
 
-async function requireOwner(request: Request, env: InstallationEnv) {
+async function requireOwner(request: Request, env: InstanceEnv) {
   const session = await requireSession(request, env)
   if (session.user.id !== await ownerId(env)) failure(403, 'Installation owner access is required')
   return session
 }
 
-async function secretFor(env: InstallationEnv, server: ServerRow) {
+async function secretFor(env: InstanceEnv, server: ServerRow) {
   return decryptSecret(env.AUTH_SECRET, `server:${server.id}`, JSON.parse(server.secret))
 }
 
-async function serverRow(env: InstallationEnv, id: string) {
+async function serverRow(env: InstanceEnv, id: string) {
   const server = await findServerRow(env, id)
   if (!server || server.status !== 'ready') failure(404, 'Server not found or not ready')
   return server
 }
 
-async function serverRowProvisioning(env: InstallationEnv, id: string) {
+async function serverRowProvisioning(env: InstanceEnv, id: string) {
   const server = await findServerRow(env, id)
   if (!server) failure(404, 'Server not found')
   return server
 }
 
-async function findServerRow(env: InstallationEnv, id: string) {
+async function findServerRow(env: InstanceEnv, id: string) {
   if (!idPattern.test(id)) failure(404, 'Server not found')
   return env.INSTALLATION_DB.prepare('SELECT * FROM servers WHERE id = ?').bind(id).first<ServerRow>()
 }
 
-async function membership(env: InstallationEnv, serverId: string, userId: string) {
+async function membership(env: InstanceEnv, serverId: string, userId: string) {
   return env.INSTALLATION_DB.prepare('SELECT role FROM memberships WHERE server_id = ? AND user_id = ?').bind(serverId, userId).first<{ role: 'owner' | 'member' }>()
 }
 
@@ -91,7 +91,7 @@ function serverSummary(server: ServerRow) {
   return { id: server.id, publicId: server.public_id, name: server.name, ownerId: server.owner_id, version: server.version, status: server.status, error: server.error || undefined, origin: server.origin }
 }
 
-async function assetToken(env: InstallationEnv, serverId: string, sessionId: string) {
+async function assetToken(env: InstanceEnv, serverId: string, sessionId: string) {
   return new SignJWT({ sessionId, purpose: 'asset' }).setProtectedHeader({ alg: 'HS256' }).setIssuer(env.PUBLIC_ORIGIN).setAudience(serverId).setIssuedAt().setExpirationTime('5m').sign(encoder.encode(env.AUTH_SECRET))
 }
 
@@ -99,7 +99,7 @@ function isAssetRequest(request: Request, path: string) {
   return ['GET', 'HEAD'].includes(request.method) && /^\/api\/(?:(?:files|attachments)\/[^/]+(?:\/download)?|users\/[^/]+\/avatar|workspaces\/main\/(?:icon|agents\/[^/]+\/avatar)|task-files\/[^/]+)(?:\?|$)/.test(path)
 }
 
-async function proxyServer(request: Request, env: InstallationEnv, serverId: string, path: string) {
+async function proxyServer(request: Request, env: InstanceEnv, serverId: string, path: string) {
   const server = await serverRow(env, serverId)
   const url = new URL(request.url)
   const headers = new Headers(request.headers)
@@ -130,7 +130,7 @@ async function proxyServer(request: Request, env: InstallationEnv, serverId: str
   headers.set('host', target.host)
   headers.set('origin', target.origin)
   const forwarded = new Request(target, { method: request.method, headers, body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body, redirect: 'manual' })
-  const binding = (env as InstallationEnv & Record<string, unknown>)[`SERVER_${server.id.toUpperCase().replaceAll('-', '_')}`]
+  const binding = (env as InstanceEnv & Record<string, unknown>)[`SERVER_${server.id.toUpperCase().replaceAll('-', '_')}`]
   const response = binding && typeof binding === 'object' && 'fetch' in binding && typeof binding.fetch === 'function'
     ? await (binding as Fetcher).fetch(forwarded)
     : await fetch(forwarded)
@@ -141,15 +141,15 @@ async function proxyServer(request: Request, env: InstallationEnv, serverId: str
   return output
 }
 
-async function audit(env: InstallationEnv, actor: string, action: string, target: string) {
+async function audit(env: InstanceEnv, actor: string, action: string, target: string) {
   await env.INSTALLATION_DB.prepare('INSERT INTO audit (id, actor_id, action, target_id, created_at) VALUES (?, ?, ?, ?, ?)').bind(crypto.randomUUID(), actor, action, target, Date.now()).run()
 }
 
-async function validInvite(env: InstallationEnv, token: string) {
+async function validInvite(env: InstanceEnv, token: string) {
   return env.INSTALLATION_DB.prepare('SELECT server_id FROM invites WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ? AND uses < max_uses').bind(await digest(token), Date.now()).first<{ server_id: string }>()
 }
 
-async function admitInvite(env: InstallationEnv, token: string, userId: string) {
+async function admitInvite(env: InstanceEnv, token: string, userId: string) {
   const hash = await digest(token)
   const joined = await env.INSTALLATION_DB.prepare('SELECT m.server_id FROM memberships m JOIN invites i ON i.server_id = m.server_id WHERE i.token_hash = ? AND m.user_id = ?').bind(hash, userId).first<{ server_id: string }>()
   if (joined) return joined.server_id
@@ -166,7 +166,7 @@ async function admitInvite(env: InstallationEnv, token: string, userId: string) 
   return existing.server_id
 }
 
-async function setup(request: Request, env: InstallationEnv) {
+async function setup(request: Request, env: InstanceEnv) {
   const input = setupSchema.parse(await body(request))
   if (!env.SETUP_TOKEN || await digest(input.token) !== await digest(env.SETUP_TOKEN)) failure(403, 'Invalid owner setup claim')
   const userId = crypto.randomUUID()
@@ -183,7 +183,7 @@ async function setup(request: Request, env: InstallationEnv) {
   return installationAuth(env).api.signInEmail({ body: { email, password: input.password }, headers: request.headers, asResponse: true })
 }
 
-async function registerServer(request: Request, env: InstallationEnv) {
+async function registerServer(request: Request, env: InstanceEnv) {
   const session = await requireOwner(request, env)
   const input = registerServerSchema.parse(await body(request))
   const origin = new URL(input.origin)
@@ -198,7 +198,7 @@ async function registerServer(request: Request, env: InstallationEnv) {
   return json({ server: serverSummary(await serverRow(env, input.id)) }, 201)
 }
 
-async function createServer(request: Request, env: InstallationEnv) {
+async function createServer(request: Request, env: InstanceEnv) {
   const session = await requireOwner(request, env)
   const input = { ...createServerSchema.parse(await body(request)), id: crypto.randomUUID() }
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) failure(409, 'Connect Cloudflare provisioning or deploy and register a self-hosted server')
@@ -224,9 +224,10 @@ async function createServer(request: Request, env: InstallationEnv) {
   }
 }
 
-async function handle(request: Request, env: InstallationEnv): Promise<Response> {
+async function handle(request: Request, env: InstanceEnv): Promise<Response> {
   const url = new URL(request.url)
-  const path = url.pathname
+  // Published alpha.1 clients keep the legacy path; new clients use Instance.
+  const path = url.pathname.replace(/^\/api\/instance(?=\/|$)/, '/api/installation')
   if (path === '/embed/open' && request.method === 'POST') return embedNavigation(request, env)
   const lookup = path.match(/^\/\.well-known\/llll\/servers\/([a-f0-9-]{36})$/)
   if (lookup) {
@@ -422,12 +423,12 @@ async function handle(request: Request, env: InstallationEnv): Promise<Response>
 }
 
 export default {
-  async fetch(request: Request, env: InstallationEnv): Promise<Response> {
+  async fetch(request: Request, env: InstanceEnv): Promise<Response> {
     const settings = await env.INSTALLATION_DB.prepare('SELECT key,value FROM integration_settings').all<{ key: string; value: string }>()
     const configured = { ...env }
     for (const row of settings.results) {
       if (!['TELEGRAM_TRUSTED_BOT_ID', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CLIENT_ID', 'TELEGRAM_CLIENT_SECRET', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].includes(row.key)) continue
-      if (env[row.key as keyof InstallationEnv]) continue
+      if (env[row.key as keyof InstanceEnv]) continue
       Object.assign(configured, { [row.key]: await decryptSecret(env.AUTH_SECRET, `settings:${row.key}`, JSON.parse(row.value)) })
     }
     env = configured
@@ -456,10 +457,10 @@ export default {
     }
     return result
   },
-  async scheduled(_event: ScheduledController, env: InstallationEnv) {
+  async scheduled(_event: ScheduledController, env: InstanceEnv) {
     if (!env.BACKUPS) return
     const createdAt = new Date().toISOString()
     const key = `installations/${env.INSTALLATION_ID}/${createdAt.replaceAll(':', '-')}.tar`
     await uploadBackupToR2(env.BACKUPS, key, createStorageBackup(env.INSTALLATION_DB, undefined, createdAt, version))
   },
-} satisfies ExportedHandler<InstallationEnv>
+} satisfies ExportedHandler<InstanceEnv>

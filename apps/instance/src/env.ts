@@ -1,4 +1,4 @@
-export type InstallationEnv = {
+export type InstanceEnv = {
   INSTALLATION_DB: D1Database
   BACKUPS?: R2Bucket
   BACKUP_BUCKET_NAME?: string

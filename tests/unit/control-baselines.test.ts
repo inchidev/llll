@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
-const installationSql = readFileSync(new URL('../../apps/installation/migrations/0000_installation_baseline.sql', import.meta.url), 'utf8')
+const installationSql = readFileSync(new URL('../../apps/instance/migrations/0000_installation_baseline.sql', import.meta.url), 'utf8')
 const portalSql = readFileSync(new URL('../../apps/site/migrations/0000_portal_baseline.sql', import.meta.url), 'utf8')
 
 describe('fresh control schemas', () => {

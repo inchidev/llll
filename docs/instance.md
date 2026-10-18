@@ -1,6 +1,6 @@
-# Installations, servers and embedding
+# Instances, Servers and Shell
 
-An installation is an independent L4 deployment at one origin. It owns its accounts, login, sessions, invitations and server directory. Each server owns a separate Worker/celld process, database, live files bucket and Durable Objects. Backup destinations remain separate. There is no separate Admin app or required shared L4 account.
+An Instance is an independent L4 deployment at one origin. It owns its accounts, login, sessions, invitations and server directory. Each server owns a separate Worker/celld process, database, live files bucket and Durable Objects. Backup destinations remain separate. There is no separate Admin app or required shared L4 account.
 
 ## Web, PWA and Telegram
 
@@ -14,7 +14,7 @@ Iframe login can use the installation's own form. An optional sign-in window aut
 
 ## Public IDs
 
-Every server has a cryptographic UUIDv4 public ID. New provisioned servers also use UUIDs internally. Migration `0001_server_public_ids.sql` assigns UUIDs to existing servers without changing their local IDs or pairing keys. The official directory stores only UUID-to-origin mappings, verifies each mapping against the installation's well-known endpoint and refuses ownership replacement. It is not an account or content database.
+Every server has a cryptographic UUIDv4 public ID. New provisioned servers also use UUIDs internally. The fresh `0000` baseline stores UUIDs from the start. The official directory stores only UUID-to-origin mappings, verifies each mapping against the installation's well-known endpoint and refuses ownership replacement. It is not an account or content database.
 
 The shell stores its bookmarks on the current device. There is no cross-device account sync. A direct installation does not depend on the directory being available.
 

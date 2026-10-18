@@ -1,8 +1,8 @@
 import { pkceChallenge, randomCode } from '~~/shared/cloudflare-oauth'
 
 /** The iframe owns the verifier and receives its session directly from its installation. */
-export function useInstallationPopup() {
-  const connections = useInstallations()
+export function useInstancePopup() {
+  const connections = useInstances()
   async function signIn() {
     const popup = window.open('about:blank', 'llll-installation-login', 'popup,width=520,height=720')
     if (!popup) throw new Error('Allow a sign-in window, or open this installation directly')

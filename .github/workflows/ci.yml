@@ -64,7 +64,7 @@ jobs:
           pnpm --filter @llll/mobile typecheck &&
           pnpm --filter @llll/desktop typecheck &&
           pnpm --filter @llll/extension typecheck &&
-          pnpm --filter @llll/installation typecheck
+          pnpm --filter @llll/instance typecheck
 
       # Keep test output in the log: the GitHub annotations reporter crashes
       # the runner with a Unicode EncoderFallbackException on this suite.
@@ -77,7 +77,7 @@ jobs:
         run: |
           pnpm build:site
           pnpm build:deployment
-          pnpm test:installation
+          pnpm test:instance
           node scripts/test-portal.mjs
 
   self-host:

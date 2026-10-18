@@ -1,6 +1,6 @@
 export const INSTALLATION_API_VERSION = 1
 
-export type InstallationDiscovery = {
+export type InstanceDiscovery = {
   product: 'llll'
   kind: 'installation' | 'server' | 'client'
   id: string
@@ -15,7 +15,7 @@ export type InstallationDiscovery = {
   embedOrigins?: string[]
 }
 
-export type InstallationServer = {
+export type InstanceServer = {
   publicId?: string
   id: string
   name: string
@@ -28,17 +28,17 @@ export type InstallationServer = {
   assetToken?: string
 }
 
-export type ConnectedInstallation = {
+export type ConnectedInstance = {
   origin: string
   id: string
   name: string
-  kind: InstallationDiscovery['kind']
-  servers: InstallationServer[]
+  kind: InstanceDiscovery['kind']
+  servers: InstanceServer[]
   userId?: string
   collapsed?: boolean
 }
 
-export function serverBase(origin: string, serverId: string, kind: InstallationDiscovery['kind'] = 'installation') {
+export function serverBase(origin: string, serverId: string, kind: InstanceDiscovery['kind'] = 'installation') {
   return kind === 'server' ? origin : `${origin}/s/${encodeURIComponent(serverId)}`
 }
 

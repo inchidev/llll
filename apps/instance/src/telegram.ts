@@ -2,9 +2,9 @@ import { z } from 'zod'
 import { APIError, createAuthEndpoint, getSessionFromCtx } from 'better-auth/api'
 import { setSessionCookie } from 'better-auth/cookies'
 import { verifyMiniAppData, verifyTelegramPublicData } from '../../../shared/telegram'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 
-export function installationTelegram(env: InstallationEnv) {
+export function installationTelegram(env: InstanceEnv) {
   return {
     id: 'llll-telegram',
     endpoints: {

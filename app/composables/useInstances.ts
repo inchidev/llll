@@ -1,13 +1,13 @@
-import type { ConnectedInstallation, InstallationDiscovery, InstallationServer } from '~~/shared/installation'
-import { INSTALLATION_API_VERSION, serverBase } from '~~/shared/installation'
+import type { ConnectedInstance, InstanceDiscovery, InstanceServer } from '~~/shared/instance'
+import { INSTALLATION_API_VERSION, serverBase } from '~~/shared/instance'
 import { normalizeServerOrigin } from '~~/shared/client-router'
 
 const STORAGE = 'llll.installations.v1'
 const ACTIVE = 'llll.active-server.v1'
 const TOKEN = 'llll.installation-session:'
 
-export function useInstallations() {
-  const installations = useState<ConnectedInstallation[]>('llll-installations', () => [])
+export function useInstances() {
+  const installations = useState<ConnectedInstance[]>('llll-installations', () => [])
   const active = useState<{ origin: string; serverId: string } | null>('llll-active-server', () => null)
   const tokens = useState<Record<string, string>>('llll-installation-tokens', () => ({}))
   const initialized = useState('llll-installations-initialized', () => false)
@@ -34,7 +34,7 @@ export function useInstallations() {
           const token = sessionStorage.getItem(`${TOKEN}${origin}`)
           if (token) tokens.value[origin] = token
           return [{ origin, id: String(value.id || origin), name: value.name.slice(0, 100), kind: value.kind === 'server' ? 'server' as const : 'installation' as const, userId: typeof value.userId === 'string' ? value.userId : undefined, collapsed: value.collapsed === true,
-            servers: value.servers.filter((server: InstallationServer) => server && typeof server.id === 'string' && /^[a-z0-9][a-z0-9-]{0,47}$/.test(server.id) && typeof server.name === 'string').map((server: InstallationServer) => ({ id: server.id, publicId: server.publicId, name: server.name, ownerId: String(server.ownerId || ''), version: String(server.version || ''), status: ['ready', 'provisioning'].includes(server.status) ? server.status as 'ready' | 'provisioning' : 'failed' as const, error: typeof server.error === 'string' ? server.error : undefined, origin: typeof server.origin === 'string' ? normalizeServerOrigin(server.origin) : undefined })) }]
+            servers: value.servers.filter((server: InstanceServer) => server && typeof server.id === 'string' && /^[a-z0-9][a-z0-9-]{0,47}$/.test(server.id) && typeof server.name === 'string').map((server: InstanceServer) => ({ id: server.id, publicId: server.publicId, name: server.name, ownerId: String(server.ownerId || ''), version: String(server.version || ''), status: ['ready', 'provisioning'].includes(server.status) ? server.status as 'ready' | 'provisioning' : 'failed' as const, error: typeof server.error === 'string' ? server.error : undefined, origin: typeof server.origin === 'string' ? normalizeServerOrigin(server.origin) : undefined })) }]
         }
         catch { return [] }
       })
@@ -61,7 +61,7 @@ export function useInstallations() {
 
   async function discover(address: string) {
     const origin = normalizeServerOrigin(address)
-    const discovery = await request<InstallationDiscovery & { ready?: boolean }>(origin, '/.well-known/llll')
+    const discovery = await request<InstanceDiscovery & { ready?: boolean }>(origin, '/.well-known/llll')
     if (discovery.origin !== origin || typeof discovery.name !== 'string' || typeof discovery.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,47}$/.test(discovery.id)) throw new Error('Installation discovery returned an invalid identity')
     if (discovery.product !== 'llll' || discovery.apiVersion !== INSTALLATION_API_VERSION || !['installation', 'server', 'client'].includes(discovery.kind)) throw new Error('This installation uses an incompatible L4 API. Open its own client or update it.')
     if (discovery.kind === 'client') return discovery
@@ -76,8 +76,8 @@ export function useInstallations() {
     const installation = installations.value.find(item => item.origin === origin)
     if (!installation || installation.kind === 'server') return
     const [session, directory] = await Promise.all([
-      request<{ user: { id: string }; owner: boolean }>(origin, '/api/installation/session'),
-      request<{ servers: InstallationServer[] }>(origin, '/api/installation/servers'),
+      request<{ user: { id: string }; owner: boolean }>(origin, '/api/instance/session'),
+      request<{ servers: InstanceServer[] }>(origin, '/api/instance/servers'),
     ]).catch((error: unknown) => {
       if (typeof error === 'object' && error && 'status' in error && error.status === 401) {
         installation.userId = undefined

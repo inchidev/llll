@@ -1,5 +1,5 @@
 export default defineNuxtPlugin(async () => {
-  const connections = useInstallations()
+  const connections = useInstances()
   const clientMode = useRuntimeConfig().public.clientMode as string
   connections.initialize()
   const bootstrap = (window as Window & { __LLLL_BOOTSTRAP__?: { token: string; serverId: string } }).__LLLL_BOOTSTRAP__

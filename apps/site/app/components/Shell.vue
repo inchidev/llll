@@ -81,7 +81,7 @@ async function mountServer() {
         <p class="text-sm">Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…</p>
       </div>
       <div v-else-if="showDeploy || !shell.selected.value" class="absolute inset-0 overflow-y-auto bg-default">
-        <InstallationDeploy v-if="showDeploy" />
+        <InstanceDeploy v-if="showDeploy" />
         <UContainer v-else class="max-w-2xl py-10 sm:py-16">
           <h1 class="text-2xl font-semibold">Connect an instance</h1>
           <p class="mt-3 text-muted">Enter the address of the L4 you want to join. You’ll sign in there.</p>

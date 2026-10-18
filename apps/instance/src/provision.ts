@@ -1,9 +1,9 @@
 import { installBaseL4, cloudflareApi, updateL4 } from '../../../packages/deployment-core/src/index'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 
 export type ServerRow = { public_id: string; id: string; name: string; owner_id: string; origin: string; worker_name: string | null; secret: string; version: string; status: 'provisioning' | 'ready' | 'failed'; error: string | null }
 
-export async function provisionServer(env: InstallationEnv, server: ServerRow, owner: { email: string }, secret: string) {
+export async function provisionServer(env: InstanceEnv, server: ServerRow, owner: { email: string }, secret: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('Configure Cloudflare provisioning or use the self-host deployment command')
   const token = env.CLOUDFLARE_API_TOKEN
   // The browser verifies the public endpoint before admitting the new Server.
@@ -17,7 +17,7 @@ export async function provisionServer(env: InstallationEnv, server: ServerRow, o
   return result
 }
 
-export async function updateServer(env: InstallationEnv, server: ServerRow, version: string) {
+export async function updateServer(env: InstanceEnv, server: ServerRow, version: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('This server is updated by its self-host operator')
   // The provisioning manifest can be pinned; updates resolve their selected immutable release.
   // The browser confirms public reachability, as it does for a new Server.

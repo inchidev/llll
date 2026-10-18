@@ -227,7 +227,7 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  apps/installation: {}
+  apps/instance: {}
 
   apps/mobile:
     dependencies:
@@ -259,6 +259,8 @@ importers:
       typescript:
         specifier: 5.9.2
         version: 5.9.2
+
+  apps/site: {}
 
   packages/deployment-core:
     dependencies:

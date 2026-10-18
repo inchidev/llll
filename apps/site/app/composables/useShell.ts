@@ -2,14 +2,14 @@ import { normalizeServerOrigin } from '../../../../shared/client-router'
 import { embedEvent, EMBED_VERSION, safeEmbedPath } from '../../../../shared/embed'
 
 export type ShellServer = { id: string; name: string; unread: number }
-export type ShellInstallation = { origin: string; name: string; collapsed: boolean; servers: ShellServer[] }
+export type ShellInstance = { origin: string; name: string; collapsed: boolean; servers: ShellServer[] }
 
 /** The well-known check failing at the network level names itself: navigation to
  * the shell must say what stalled instead of silently showing an empty form. */
 export const INSTALLATION_UNREACHABLE = 'The installation is unreachable. Check the address or try again in a moment.'
 
 export function useShell() {
-  const installations = useState<ShellInstallation[]>('shell-installations', () => [])
+  const installations = useState<ShellInstance[]>('shell-installations', () => [])
   const selected = useState('shell-selected', () => '')
   const loaded = useState<string[]>('shell-loaded', () => [])
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
@@ -36,7 +36,7 @@ export function useShell() {
     const path = route.params.serverId ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/' : '/'
     return safeEmbedPath(path) ? path : '/'
   }
-  function open(installation: ShellInstallation, serverId?: string) {
+  function open(installation: ShellInstance, serverId?: string) {
     selected.value = installation.origin
     if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
     if (serverId) {
@@ -77,7 +77,7 @@ export function useShell() {
     catch { /* Session ended or offline: the claim field stays manual. */ }
   }
   /** The rail's sign-in tile: fresh iframe, so adopt the deploy session's claim before it mounts. */
-  async function openOwner(installation: ShellInstallation) {
+  async function openOwner(installation: ShellInstance) {
     if (!loaded.value.includes(installation.origin)) await adoptDeployClaim(installation.origin)
     open(installation)
   }

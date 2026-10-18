@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CommunityRail from '../../../packages/client-ui/CommunityRail.vue'
 
-const { installations, active, select, toggle } = useInstallations()
+const { installations, active, select, toggle } = useInstances()
 const groups = computed(() => installations.value.map(installation => ({
   ...installation,
   servers: installation.servers.filter(server => server.status === 'ready'),

@@ -16,7 +16,7 @@ The following source and verification entry points exist at the audited baseline
 
 | Capability | Source / automated verification entry point | Remaining runtime acceptance |
 | --- | --- | --- |
-| Instance identity and server isolation | [Controller](../apps/installation/src/index.ts), [identity tests](../tests/unit/installation-identity.test.ts), [integration fixture](../scripts/test-installation.mjs) | Fresh owner/member, two Servers, removal, direct/Shell sessions |
+| Instance identity and server isolation | [Controller](../apps/instance/src/index.ts), [identity tests](../tests/unit/installation-identity.test.ts), [integration fixture](../scripts/test-instance.mjs) | Fresh owner/member, two Servers, removal, direct/Shell sessions |
 | Chat, realtime and search | [Channels](../app/pages/channels.vue), [socket tests](../tests/unit/channel-socket.test.ts), [search tests](../tests/unit/message-search.test.ts) | Two browser clients, proxy WebSocket handshake, reload/reconnect, denied content |
 | Tasks | [Tasks](../app/pages/tasks.vue), [assignee tests](../tests/unit/task-assignee.test.ts) | Task workflow with a non-owner and denied operations |
 | Data | [Databases](../app/pages/databases.vue), [View tests](../tests/unit/database-views.test.ts) | Resource permissions and concurrent editing across Views/Documents/Canvases |

@@ -1,11 +1,11 @@
 import { safeEmbedPath, embedOrigins, uuidSchema } from '../../../shared/embed'
 import { installationAuth } from './auth'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 
 /** A same-origin POST carries the installation session across an iframe reload.
  * No credential enters the parent shell, a URL, or a shared browser cookie jar.
  */
-export async function embedNavigation(request: Request, env: InstallationEnv) {
+export async function embedNavigation(request: Request, env: InstanceEnv) {
   if (request.headers.get('origin') !== new URL(env.PUBLIC_ORIGIN).origin) return new Response('Origin mismatch', { status: 403 })
   const length = Number(request.headers.get('content-length') || 0)
   if (length > 8192) return new Response('Request too large', { status: 413 })

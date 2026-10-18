@@ -320,7 +320,7 @@ async function logout() {
         </div>
       </div>
 
-      <UButton v-if="useInstallations().activeInstallation.value?.kind === 'installation'" class="mt-8" label="Manage instance account" to="/connections" color="neutral" variant="outline" @click="open = false" />
+      <UButton v-if="useInstances().activeInstallation.value?.kind === 'installation'" class="mt-8" label="Manage instance account" to="/connections" color="neutral" variant="outline" @click="open = false" />
       <h2 v-if="hasPassword" class="mt-10 text-xs font-bold uppercase tracking-wide text-muted">Password and Authentication</h2>
       <div v-if="hasPassword" class="mt-3 max-w-sm space-y-3">
         <UFormField label="Current password">

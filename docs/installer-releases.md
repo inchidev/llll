@@ -17,6 +17,6 @@ The provisioning library is `@llll/deployment-core`, not a separately deployed A
 
 Build with `pnpm release:installer`. `pnpm build:deployment` builds all four modules, static assets and migration arrays. The release workflow includes the full bundle and generates checksums before publication. Verify module SHA256, asset hashes/sizes and ordered migration names before deploying. Never modify a published tag or asset.
 
-`packages/deployment-core` creates or updates one server Worker and its resources. `apps/installation` owns the account/session boundary and calls the library after checking installation owner authority. The operator bootstraps the installation itself with `scripts/deploy-installation.mjs` or the private celld Compose generator.
+`packages/deployment-core` creates or updates one server Worker and its resources. `apps/instance` owns the account/session boundary and calls the library after checking installation owner authority. The operator bootstraps the installation itself with `scripts/deploy-instance.mjs` or the private celld Compose generator.
 
 No release deploys a separate account-wide Admin or a public control-plane callback. Domain routing and resource removal remain operator-managed. A server update preserves its data bindings, auth/provider secrets and DO namespaces, and applies only pending ordered migrations. Initial migration baselines are immutable; append schema changes instead of rewriting published SQL.

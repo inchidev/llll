@@ -1,0 +1,6 @@
+{
+  "name": "@llll/instance",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node ../../scripts/build-instance.mjs", "typecheck": "tsc --noEmit -p tsconfig.json" }
+}

@@ -10,7 +10,7 @@ Free MIT licensed software for independent communities. A community gathers in a
 
 An independently operated deployment that owns local Accounts, login, sessions and a directory of Servers. An Instance may contain multiple Servers. Its owner operates the deployment and manages server provisioning.
 
-**Instance** is the interface term. **Installation** is the same concept in code, API paths and operator documentation; it is not another product entity.
+**Instance** is the product, source-directory and canonical API term (`apps/instance`, `/api/instance`). Legacy manifest fields, environment bindings, discovery values and immutable SQL keep their published spellings for compatibility; they are not another entity.
 
 ## Server
 

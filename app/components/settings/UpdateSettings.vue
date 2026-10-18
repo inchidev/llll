@@ -14,7 +14,7 @@ const updateQ = useQuery({
 
 const status = computed(() => updateQ.data.value)
 const releaseLabel = computed(() => status.value?.releasesBehind === 1 ? 'release' : 'releases')
-const connections = useInstallations()
+const connections = useInstances()
 const connected = computed(() => connections.activeInstallation.value?.kind === 'installation')
 const busy = ref(false)
 const updateError = ref('')
@@ -23,7 +23,7 @@ async function installUpdate() {
   if (!active || !status.value?.latestRelease) return
   busy.value = true
   updateError.value = ''
-  try { await connections.request(active.origin, `/api/installation/servers/${active.serverId}/update`, { method: 'POST', body: { version: status.value.latestRelease.tagName } }); location.reload() }
+  try { await connections.request(active.origin, `/api/instance/servers/${active.serverId}/update`, { method: 'POST', body: { version: status.value.latestRelease.tagName } }); location.reload() }
   catch (cause) { updateError.value = errorMessage(cause) }
   finally { busy.value = false }
 }

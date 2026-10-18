@@ -1,9 +1,9 @@
 import { decryptSecret, encryptSecret } from '../../../shared/encrypted-secret'
 import { cloudflareGrantSchema, refreshCloudflareGrant } from '../../../shared/cloudflare-oauth'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 
 const key = 'CLOUDFLARE_OAUTH_GRANT'
-export async function cloudflareCredentials(env: InstallationEnv): Promise<InstallationEnv> {
+export async function cloudflareCredentials(env: InstanceEnv): Promise<InstanceEnv> {
   if (env.CLOUDFLARE_API_TOKEN) return env
   const row = await env.INSTALLATION_DB.prepare('SELECT value FROM integration_settings WHERE key = ?').bind(key).first<{ value: string }>()
   if (!row) return env

@@ -31,7 +31,7 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   async function logout(fetcher: SessionFetcher = asSessionFetcher($fetch)) {
-    const connections = useInstallations()
+    const connections = useInstances()
     if (connections.activeInstallation.value?.kind === 'installation') {
       await connections.logout(connections.activeInstallation.value.origin)
       user.value = null

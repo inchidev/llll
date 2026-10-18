@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { signInstallationIdentity, verifyInstallationIdentity } from '../../shared/installation-identity'
+import { signInstallationIdentity, verifyInstallationIdentity } from '../../shared/instance-identity'
 
 const identity = { sub: 'user-a', name: 'Alice', email: 'alice@example.com', role: 'member' as const, sessionId: 'session-a' }
 const key = 'a'.repeat(64)

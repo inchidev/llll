@@ -28,7 +28,7 @@ Agents have the Server's local permission boundary. Their current scope is conve
 
 ## Deployment boundary
 
-The normal topology is an Instance with one or more isolated Servers. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; `apps/installation` owns Instance identity and routing. See [the architecture decision](adr/0001-installation-and-server-boundaries.md).
+The normal topology is an Instance with one or more isolated Servers. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; `apps/instance` owns Instance identity and routing. See [the architecture decision](adr/0001-installation-and-server-boundaries.md).
 
 The two deployment targets are Cloudflare and VPS using Docker Compose/celld. Stabilization verifies Cloudflare first. The multi-server VPS path needs separate transport and browser acceptance before it can be described as equally ready. A standalone Server is an advanced topology and a useful development target; testing it does not certify the Instance proxy or Shell.
 

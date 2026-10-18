@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { InstallationDiscovery, InstallationServer } from '~~/shared/installation'
+import type { InstanceDiscovery, InstanceServer } from '~~/shared/instance'
 
 definePageMeta({ layout: 'default' })
-const connections = useInstallations()
+const connections = useInstances()
 const route = useRoute()
 const router = useRouter()
 const address = ref('')
@@ -13,8 +13,8 @@ async function connectAddress() {
 }
 const toast = useToast()
 const embedded = import.meta.client && window.parent !== window
-const popup = useInstallationPopup()
-const discovery = ref<(InstallationDiscovery & { ready?: boolean }) | null>(null)
+const popup = useInstancePopup()
+const discovery = ref<(InstanceDiscovery & { ready?: boolean }) | null>(null)
 const ownOrigin = import.meta.client ? location.origin : ''
 const owner = ref(false)
 const authBusy = ref(false)
@@ -77,13 +77,13 @@ async function authenticate() {
   if (!target) return
   const finish = async () => {
     if (recovering.value) {
-      await connections.request(target.origin, '/api/installation/recover', { method: 'POST', body: { email: form.email, code: form.token, password: form.password } })
+      await connections.request(target.origin, '/api/instance/recover', { method: 'POST', body: { email: form.email, code: form.token, password: form.password } })
       recovering.value = false
       form.password = ''; form.token = ''
       toast.add({ title: 'Password replaced. Sign in and save a new recovery key.' })
       return
     }
-    const path = mode.value === 'setup' ? '/api/installation/setup' : mode.value === 'signup' ? '/api/auth/sign-up/email' : '/api/auth/sign-in/email'
+    const path = mode.value === 'setup' ? '/api/instance/setup' : mode.value === 'signup' ? '/api/auth/sign-up/email' : '/api/auth/sign-in/email'
     const result = await connections.request<{ redirect?: boolean; url?: string }>(target.origin, path, { method: 'POST', body: { ...form, inviteToken: invite.value || undefined, ...(route.query.sig ? { oauth_query: location.search.slice(1) } : {}) } })
     if (result.redirect && result.url) { location.assign(result.url); return }
     form.password = ''
@@ -92,7 +92,7 @@ async function authenticate() {
     owner.value = (await connections.refresh(target.origin))?.owner ?? false
     if (invite.value) await join()
     resumeConnection()
-    if (owner.value) configured.value = await connections.request(target.origin, '/api/installation/settings')
+    if (owner.value) configured.value = await connections.request(target.origin, '/api/instance/settings')
     activeTab.value = owner.value ? 'servers' : 'account'
   }
   await runAuth(finish)
@@ -105,7 +105,7 @@ function open(origin: string, id: string) {
 
 async function createServer() {
   if (!discovery.value) return
-  await connections.request(discovery.value.origin, '/api/installation/servers', { method: 'POST', body: { name: serverName.value } })
+  await connections.request(discovery.value.origin, '/api/instance/servers', { method: 'POST', body: { name: serverName.value } })
   await connections.refresh(discovery.value.origin)
   serverName.value = ''
 }
@@ -117,7 +117,7 @@ async function probeServerList() {
 }
 
 // Verify that a freshly deployed Server is reachable from the user's browser.
-async function probeServer(server: InstallationServer) {
+async function probeServer(server: InstanceServer) {
   if (!discovery.value || !import.meta.client) return
   probes.add(server.id)
   try {
@@ -130,7 +130,7 @@ async function probeServer(server: InstallationServer) {
         const health = response.ok ? await response.json() as { ok?: boolean; migrated?: boolean; version?: string } : null
         if (!response.ok) lastFailure = `HTTP ${response.status}`
         else if (health?.ok && health.migrated && health.version === row.version) {
-          await connections.request(discovery.value.origin, `/api/installation/servers/${server.id}/confirm`, { method: 'POST', body: { ok: true } })
+          await connections.request(discovery.value.origin, `/api/instance/servers/${server.id}/confirm`, { method: 'POST', body: { ok: true } })
           toast.add({ title: `${row.name} is ready` })
           return
         }
@@ -139,7 +139,7 @@ async function probeServer(server: InstallationServer) {
       catch (cause) { lastFailure = errorMessage(cause) }
       await new Promise(resolve => setTimeout(resolve, 4000))
     }
-    await connections.request(discovery.value.origin, `/api/installation/servers/${server.id}/confirm`, { method: 'POST', body: { ok: false, error: lastFailure } })
+    await connections.request(discovery.value.origin, `/api/instance/servers/${server.id}/confirm`, { method: 'POST', body: { ok: false, error: lastFailure } })
   }
   catch (cause) { error.value = errorMessage(cause) }
   finally {
@@ -152,13 +152,13 @@ watch(() => selected.value?.servers.map(server => [server.id, server.status].joi
 
 async function join() {
   if (!discovery.value || !invite.value) return
-  await connections.request(discovery.value.origin, '/api/installation/join', { method: 'POST', body: { token: invite.value } })
+  await connections.request(discovery.value.origin, '/api/instance/join', { method: 'POST', body: { token: invite.value } })
   invite.value = ''
   await connections.refresh(discovery.value.origin)
   toast.add({ title: 'Server joined' })
 }async function makeInvite(serverIdValue: string) {
   if (!discovery.value) return
-  const response = await connections.request<{ invite: { url: string } }>(discovery.value.origin, `/api/installation/servers/${serverIdValue}/invites`, { method: 'POST', body: {} })
+  const response = await connections.request<{ invite: { url: string } }>(discovery.value.origin, `/api/instance/servers/${serverIdValue}/invites`, { method: 'POST', body: {} })
   await navigator.clipboard.writeText(response.invite.url)
   toast.add({ title: 'Invitation copied', description: 'The invitation expires in 24 hours.' })
 }
@@ -177,7 +177,7 @@ async function providerLogin(providerId: string, link = false) {
 
 async function registerServer() {
   if (!discovery.value) return
-  await connections.request(discovery.value.origin, '/api/installation/servers/register', { method: 'POST', body: { ...registration } })
+  await connections.request(discovery.value.origin, '/api/instance/servers/register', { method: 'POST', body: { ...registration } })
   registration.key = ''
   await connections.refresh(discovery.value.origin)
   toast.add({ title: 'Server connected' })
@@ -185,9 +185,9 @@ async function registerServer() {
 
 async function saveSettings() {
   if (!discovery.value) return
-  await connections.request(discovery.value.origin, '/api/installation/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(settings).filter(([, value]) => value.trim())) })
+  await connections.request(discovery.value.origin, '/api/instance/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(settings).filter(([, value]) => value.trim())) })
   for (const key of Object.keys(settings) as (keyof typeof settings)[]) settings[key] = ''
-  configured.value = await connections.request(discovery.value.origin, '/api/installation/settings')
+  configured.value = await connections.request(discovery.value.origin, '/api/instance/settings')
   toast.add({ title: 'Installation settings saved' })
 }
 
@@ -219,7 +219,7 @@ onMounted(async () => {
   const first = requested || (connected ? connections.installations.value.find(item => item.origin === connected) : undefined) || local || connections.installations.value[0]
   if (first) await run(() => inspect(first.origin))
   if (local?.userId) resumeConnection()
-  if (owner.value && discovery.value) configured.value = await connections.request(discovery.value.origin, '/api/installation/settings')
+  if (owner.value && discovery.value) configured.value = await connections.request(discovery.value.origin, '/api/instance/settings')
 })
 </script>
 
@@ -254,7 +254,7 @@ onMounted(async () => {
             <UTabs :key="owner ? 'owner' : 'member'" v-model="activeTab" :items="tabItems" class="mt-2" />
             <div v-if="activeTab === 'servers'" class="mt-5">
               <div class="grid gap-3 sm:grid-cols-2">
-                <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><p v-if="server.status === 'provisioning'" class="mt-2 text-xs leading-5 text-toned">Deployed. Verifying server health…</p><p v-if="server.status === 'failed' && server.error" class="mt-2 text-xs leading-5 break-words text-toned">{{ server.error }}</p><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" :color="server.status === 'ready' ? 'primary' : 'neutral'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="runServer(async () => { await connections.request(discovery!.origin, `/api/installation/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="runServer(() => makeInvite(server.id))" /></div></article>
+                <article v-for="server in selected.servers" :key="server.id" class="rounded-xl border border-default bg-elevated/40 p-4"><div class="flex items-center justify-between"><h4 class="font-medium">{{ server.name }}</h4><UBadge v-if="server.status !== 'ready'" color="warning" variant="subtle">{{ server.status }}</UBadge></div><p v-if="server.status === 'provisioning'" class="mt-2 text-xs leading-5 text-toned">Deployed. Verifying server health…</p><p v-if="server.status === 'failed' && server.error" class="mt-2 text-xs leading-5 break-words text-toned">{{ server.error }}</p><div class="mt-4 flex gap-2"><UButton label="Open server" :disabled="server.status !== 'ready'" :color="server.status === 'ready' ? 'primary' : 'neutral'" size="sm" @click="open(discovery!.origin, server.id)" /><UButton v-if="owner && server.status === 'failed'" label="Retry" size="sm" color="neutral" variant="outline" @click="runServer(async () => { await connections.request(discovery!.origin, `/api/instance/servers/${server.id}/retry`, { method: 'POST', body: {} }); await connections.refresh(discovery!.origin) })" /><UButton v-if="server.ownerId === selected.userId && server.status === 'ready'" label="Invite" size="sm" color="neutral" variant="outline" @click="runServer(() => makeInvite(server.id))" /></div></article>
               </div>
               <p v-if="!selected.servers.length && !owner" class="mt-4 text-sm text-muted">Join a server using an invitation, or ask the instance owner to add you.</p>
               <div v-if="owner" class="mt-6">
@@ -267,7 +267,7 @@ onMounted(async () => {
               <form class="mt-6 flex items-end gap-2" @submit.prevent="runInvite(join)"><UFormField label="Invitation code" class="min-w-0 flex-1"><UInput v-model="invite" placeholder="Paste an invitation code" class="w-full" /></UFormField><UButton type="submit" label="Join" color="neutral" variant="outline" :loading="inviteBusy" :disabled="!invite" /></form>
             </div>
             <div v-else-if="activeTab === 'settings' && owner" class="mt-5">
-              <UButton label="Back up instance" color="neutral" variant="outline" size="sm" :loading="backupBusy" @click="runBackup(async () => { await connections.request(discovery!.origin, '/api/installation/backup', { method: 'POST', body: {} }); toast.add({ title: 'Instance backup saved' }) })" />
+              <UButton label="Back up instance" color="neutral" variant="outline" size="sm" :loading="backupBusy" @click="runBackup(async () => { await connections.request(discovery!.origin, '/api/instance/backup', { method: 'POST', body: {} }); toast.add({ title: 'Instance backup saved' }) })" />
               <p class="mt-2 text-sm text-muted">Manage accounts and server provisioning for this instance. Saved secrets stay encrypted here.</p>
               <form class="mt-5 grid gap-4 sm:grid-cols-2" @submit.prevent="runSettings(saveSettings)">
                 <UFormField label="Telegram bot token" :description="configured?.telegram ? 'Configured' : 'Optional · enable Mini App login'"><UInput v-model="settings.telegramBotToken" type="password" autocomplete="off" class="w-full" /></UFormField>
@@ -290,7 +290,7 @@ onMounted(async () => {
             </div>
             <div v-else-if="activeTab === 'account'" class="mt-5 space-y-3">
               <div v-if="discovery.origin === ownOrigin && (discovery.identity || discovery.telegramOidc)"><UButton v-if="discovery.telegramOidc" label="Link Telegram" color="neutral" variant="outline" @click="runAuth(() => providerLogin('telegram', true))" /></div>
-              <UButton label="Replace recovery key" color="neutral" variant="outline" size="sm" @click="runAuth(async () => { recoveryCode = (await connections.request<{ code: string }>(discovery!.origin, '/api/installation/recovery-key', { method: 'POST', body: {} })).code })" />
+              <UButton label="Replace recovery key" color="neutral" variant="outline" size="sm" @click="runAuth(async () => { recoveryCode = (await connections.request<{ code: string }>(discovery!.origin, '/api/instance/recovery-key', { method: 'POST', body: {} })).code })" />
               <UAlert v-if="recoveryCode" color="warning" title="Save this private key now. It replaces your previous key and can only be used once." :description="recoveryCode" />
               <div class="pt-3"><UButton label="Sign out here" color="neutral" variant="link" size="sm" @click="runAuth(async () => signOut())" /></div>
             </div>

@@ -1,34 +1,30 @@
-# Deploy an installation
+# Deploy an Instance
 
 The initial `0.1.0-alpha.1` release is for fresh databases. Do not apply its baselines to archived prototype databases. Cloudflare is the first acceptance target; VPS/celld is experimental pending the transport/browser checks in [self-host findings](self-host-findings.md).
 
-For accounts, server boundaries and where credentials live, read [installation.md](installation.md). Creating an installation and creating a server are separate steps. There is no separate Admin application.
+For accounts, server boundaries and where credentials live, read [Instances](instance.md). Creating an installation and creating a server are separate steps. There is no separate Admin application.
 
 L4 has independently deployable site/shell/installer, installation controller and per-server runtime artifacts. The official shell embeds the installation’s own client; using llll.gg is optional. Keep credentials in ignored local files or the provider's secret store.
 
-## Cloudflare
+## Cloudflare Instances and Servers
 
-For a source deployment, use `.env.installation.example` as the template for an ignored `.env` (preserve any existing configuration). Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a unique `INSTALLATION_ID`, then run `pnpm build:deployment && pnpm deploy:installation`. The installer creates the control database, a separate backup bucket, assets and Worker, and saves private state under `.deployment`. Retain that file when updating. `pnpm deploy:installation -- --dry-run` prints the plan without account operations. Configure a custom domain and its PUBLIC_ORIGIN together before inviting people. The bootstrap token is used by the local installer; configure provisioning credentials separately in the running installation when you want it to create/update servers. The browser OAuth installer at `/deploy` is an alternative; its portal operator must configure a public PKCE client as described in [installation.md](installation.md). The user picks a published release version there; the portal verifies it before deploying.
+Use the Instance installer at `/deploy` with a published release. It creates the Instance, its account database and a separate backup bucket in the operator's account. The owner then provisions or registers Servers inside the Instance. Each Server receives its own Worker, database, private files bucket and Durable Objects.
 
-The equivalent manual setup is:
+Team source deployments from developer machines are forbidden. The source deployment scripts enforce Workers Builds as their runner; local Wrangler is limited to isolated development, types and dry runs. Cloudflare resource administration uses the connected API. Published runtime artifacts are immutable and the fresh alpha has no upgrade path from archived prototype databases.
 
-1. Build with Node 24 and pnpm 10: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm build:installation`.
-2. Create an installation D1 and apply `apps/installation/migrations` in order. Deploy `apps/installation/.bundle/index.mjs` with the assets from `.output/public`, `INSTALLATION_DB`, a random `AUTH_SECRET`, a different random `SETUP_TOKEN`, `PUBLIC_ORIGIN`, `INSTALLATION_ID`, and `INSTALLATION_NAME`. Use the template at `apps/installation/wrangler.jsonc`.
-3. Open `/connections#claim=<SETUP_TOKEN>` on that origin, create the owner account and retain the private recovery information outside Git. The setup claim can only create the first owner.
-4. In Installation settings, configure a Cloudflare account ID and a scoped API token. The deployment helper needs Workers Scripts, D1, R2 and KV edit access in that account. Domain/mail/call capabilities need their own permissions only when enabled. Create a server; it gets a unique Worker, D1, files bucket, ticket KV and DO namespaces. The installation pairs its identity with that server using a distinct secret.
-5. Add other common-client origins to `CLIENT_ORIGINS` explicitly. The default official client is allowed. The installation's own client is always allowed.
+The operator owns provisioning credentials, local Accounts and backups. Shell bookmarks do not grant Server membership. Configure optional Telegram, mail, calls and inference providers on the relevant Instance or Server.
 
-`RELEASE_MANIFEST` pins the immutable server release manifest used for provisioning. Updating a server uses `POST /api/installation/servers/:id/update` with `{ "version": "0.1.0" }`, owner authentication and configured provider credentials. Back up first. Never replace an immutable tag or edit a migration already released.
+## Official web: Landing, Shell and Docs
 
-The connected Cloudflare API tool is the account-operation path for this repository's agents. Local Wrangler is used for types, development and bundle dry runs.
+The single official Worker is `llll`. It serves `/` (Landing), `/open` (Shell), `/docs` (Docs index) and `/deploy` (Instance installer). `apps/instance` and the root Server runtime are built as separate installation artifacts, not deployed as public demo accounts.
 
-## llll.gg site (worker `llll`)
+Cloudflare Workers Builds is connected to the `inchidev/llll` repository and protected `main`. Its root directory is `apps/site`, build command is `pnpm build`, production command is `pnpm deploy:production`, and Preview command is `pnpm deploy:preview`. These commands reject execution outside an identified Workers Build.
 
-The repository's site workflow is disabled by default. Configure its credentials and set `LLLL_SITE_DEPLOY_ENABLED=true` only after selecting the intended databases and reviewing the deployment. Bootstrap does not migrate or update an existing production site.
+Every open same-repository PR to main gets a native Worker Preview, named `pr-N`. The deploy runner verifies the PR head SHA, allocates a separate `llll-portal-pr-N` D1 and applies the portal baseline. Previews use their own origin and disable production Cloudflare OAuth. Production uses a separate `llll-portal-production` database. No KV asset adapters or source uploads from developer machines participate.
 
-Once enabled, push to `main` deploys it: `pnpm site:build`, then `pnpm site:deploy` (ensures D1 `llll-portal` + staging `llll-portal-staging`, applies `apps/site/migrations` to both, deploys). PRs get a Preview named `pr-<N>` via `pnpm site:preview pr-<N>` → `https://pr-<N>.dev.llll.gg` once the `*.dev.llll.gg` custom domain is attached (Workers & Pages > `llll` > Previews).
+Merge requires CI and the deployed Cloudflare Preview check. Main pushes deploy the web app through Workers Builds. A release is a later, explicit invocation of the existing tag workflow after main CI passes; published tags and assets remain immutable. Runtime installation consumes a pinned published release.
 
-Preview isolation, per Cloudflare: Durable Objects and Containers are automatic per Preview. D1/R2/KV are isolated only by binding to a separate resource — all previews share the staging resources from the `previews` block in `wrangler.jsonc` by default; a branch that needs its own data overrides `previews.d1_databases` (plus the migration config) on itself and migrates before previewing. Server worker staging is a one-time `pnpm staging:setup` (D1 `llll-staging`, R2 `llll-staging-files`, KV, migrate). No per-PR buckets.
+Build credentials remain in Cloudflare's token store. The production portal secret is a production-only encrypted build variable. A Preview does not receive that secret. Administrative provisioning, domain configuration and cleanup use the connected Cloudflare API.
 
 ## VPS, Docker Compose and Coolify
 
@@ -48,7 +44,7 @@ docker compose -f .deployment/my-installation/compose.json up -d
 
 The generated directory contains private credentials. Keep it out of Git. The prebuilt path has no application build and requires no registry account. For other architectures or source development, omit `LLLL_IMAGE` and run Compose with `up -d --build` instead.
 
-Put a TLS reverse proxy in front of `127.0.0.1:8080`. Open the URL in `owner-claim.txt`, create the installation owner, then register each entry from `servers.json` under Installation settings. Each server is a private celld service with its own fleet bucket, D1, logical FILES bucket and DO state. Only the installation port is published. Server origins are pinned in `TRUSTED_SERVER_ORIGINS` by the generator; arbitrary HTTP origins are rejected.
+Put a TLS reverse proxy in front of `127.0.0.1:8080`. Open the URL in `owner-claim.txt`, create the installation owner, then register each entry from `servers.json` under Instance settings. Each server is a private celld service with its own fleet bucket, D1, logical FILES bucket and DO state. Only the installation port is published. Server origins are pinned in `TRUSTED_SERVER_ORIGINS` by the generator; arbitrary HTTP origins are rejected.
 
 The generated Compose file can be used as a Git-repository Compose resource in Coolify. Generate it privately and supply its secrets through Coolify rather than committing it to a public template. `self-host/docker-compose.yml` and `self-host/coolify/docker-compose.yaml` are the simpler standalone-server templates; the installation generator is the multi-server entry point.
 
@@ -58,7 +54,7 @@ Cloudflare-only features use explicit provider credentials over REST on celld. C
 
 ## Telegram and shared identity
 
-Telegram is optional. Set the bot token in Installation settings to enable signed Mini App login; configure BotFather's Mini App URL to the installation's `/connections`. Browser Telegram login additionally needs its OIDC client ID/secret and exact callback `/api/auth/callback/telegram`. Accounts link explicitly; verified Telegram numeric IDs converge across browser and Mini App flows.
+Telegram is optional. Set the bot token in Instance settings to enable signed Mini App login; configure BotFather's Mini App URL to the installation's `/connections`. Browser Telegram login additionally needs its OIDC client ID/secret and exact callback `/api/auth/callback/telegram`. Accounts link explicitly; verified Telegram numeric IDs converge across browser and Mini App flows.
 
 There is no required shared L4 account. The installation handles direct and embedded login itself. A same-origin popup can return a one-use S256-bound login code to its opening iframe. A bounded POST navigation carries the session within the installation when switching servers; it never puts it in a URL or passes it to the parent shell.
 

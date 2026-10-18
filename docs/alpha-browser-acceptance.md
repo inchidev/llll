@@ -1,4 +1,6 @@
-# Current alpha browser acceptance
+# Historical alpha browser acceptance
+
+This fixture was removed during the Git deployment reset on 2026-10-18. Its URLs are no longer active. New web deployments come only from Cloudflare Workers Builds; the evidence below records the earlier test.
 
 2026-10-18. Target: the published `v0.1.0-alpha.1`, followed by unreleased fixes on an isolated Cloudflare fixture. No release tag, published asset or production deployment was changed.
 

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { readFile, readdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -69,7 +70,7 @@ function git(args) {
 }
 
 function isMigrationPath(filePath) {
-  return /^(?:drizzle\/migrations|apps\/installation\/migrations|apps\/site\/migrations)\/[^/]+\.sql$/u.test(filePath)
+  return /^(?:drizzle\/migrations|apps\/(?:instance|installation)\/migrations|apps\/site\/migrations)\/[^/]+\.sql$/u.test(filePath)
 }
 
 function migrationFilesAt(revision, directory = 'drizzle/migrations') {
@@ -85,14 +86,23 @@ function verifyImmutableHistory(baseRevision, currentMigrations, directory = 'dr
     throw new Error(`Migration base ${baseRevision} is not an ancestor of HEAD; update the branch from current main`)
   }
 
-  const baseMigrations = validateMigrationFileNames(migrationFilesAt(baseRevision, directory))
+  const baseDirectory = directory === 'apps/instance/migrations' && !migrationFilesAt(baseRevision, directory).length
+    ? 'apps/installation/migrations' : directory
+  const baseMigrations = validateMigrationFileNames(migrationFilesAt(baseRevision, baseDirectory))
+  if (baseDirectory !== directory) {
+    for (const migration of baseMigrations) {
+      const previous = execFileSync('git', ['show', `${baseRevision}:${baseDirectory}/${migration.fileName}`], { cwd: root })
+      const current = readFileSync(join(root, directory, migration.fileName))
+      if (!previous.equals(current)) throw new Error(`Merged migration SQL is immutable: ${migration.fileName}`)
+    }
+  }
   const changes = git([
     'diff', '--name-status', '--find-renames', `${baseRevision}...HEAD`, '--', directory,
   ])
 
   for (const line of changes.split('\n').filter(Boolean)) {
     const [status, ...paths] = line.split('\t')
-    if (status !== 'A' && paths.some(isMigrationPath)) {
+    if (baseDirectory === directory && status !== 'A' && paths.some(isMigrationPath)) {
       throw new Error(`Merged migration SQL is immutable; ${status} ${paths.join(' -> ')}`)
     }
   }
@@ -122,14 +132,14 @@ export async function checkMigrations({ baseRevision = '' } = {}) {
   const migrations = validateMigrationFileNames(fileNames)
   validateBootstrapRegistry(await readFile(bootstrapPath, 'utf8'), migrations)
 
-  const installationFiles = (await readdir(join(root, 'apps/installation/migrations'))).filter(name => name.endsWith('.sql'))
+  const installationFiles = (await readdir(join(root, 'apps/instance/migrations'))).filter(name => name.endsWith('.sql'))
   const installation = validateMigrationFileNames(installationFiles)
   const portalFiles = (await readdir(join(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql'))
   const portal = validateMigrationFileNames(portalFiles)
   if (baseRevision) {
     verifyImmutableHistory(baseRevision, portal, 'apps/site/migrations')
     verifyImmutableHistory(baseRevision, migrations)
-    verifyImmutableHistory(baseRevision, installation, 'apps/installation/migrations')
+    verifyImmutableHistory(baseRevision, installation, 'apps/instance/migrations')
   }
   console.log(`Validated ${portal.length} portal migrations`)
   console.log(`Validated ${installation.length} installation migrations`)

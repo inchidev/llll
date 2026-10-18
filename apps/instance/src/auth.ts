@@ -7,16 +7,16 @@ import * as schema from './schema'
 import * as identitySchema from './identity-schema'
 import { oauthProvider } from '@better-auth/oauth-provider'
 import { installationConnection } from './connection'
-import type { InstallationEnv } from './env'
+import type { InstanceEnv } from './env'
 import { installationTelegram } from './telegram'
 import { embedOrigins } from '../../../shared/embed'
 import { decodeJwt } from 'jose'
 
-export function clientOrigins(env: InstallationEnv) {
+export function clientOrigins(env: InstanceEnv) {
   return [new URL(env.PUBLIC_ORIGIN).origin, 'capacitor://localhost', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost', ...embedOrigins(env.EMBED_ORIGINS), ...(env.CLIENT_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)]
 }
 
-export function installationAuth(env: InstallationEnv, setup = false) {
+export function installationAuth(env: InstanceEnv, setup = false) {
   return betterAuth({
     appName: 'L4', baseURL: env.PUBLIC_ORIGIN, secret: env.AUTH_SECRET,
     database: drizzleAdapter(drizzle(env.INSTALLATION_DB), { provider: 'sqlite', schema: { ...schema, ...identitySchema } }),

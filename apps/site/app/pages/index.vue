@@ -2,7 +2,7 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const sandboxUrl = '/open?instance=https://sandbox.llll.gg'
+const shellUrl = '/open'
 const siteUrl = 'https://llll.gg/'
 const pageTitle = 'L4 — Chat and work together. Run it yourself.'
 const pageDescription = 'Bring team chat, tasks, shared email, knowledge, and internal tools together. AI teammates, custom internal apps, and no seat fees. Run on your Cloudflare account or VPS.'
@@ -11,7 +11,7 @@ const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Product', to: '#product' },
   { label: 'Apps', to: '#app-apps' },
   { label: 'Ways to run', to: '#run' },
-  { label: 'Docs', to: `${repoUrl}/tree/main/docs` },
+  { label: 'Docs', to: '/docs' },
 ])
 
 const primaryActionLabel = 'Install your own'
@@ -25,7 +25,7 @@ const productGroups = [
 const freedoms = [
   { title: 'Invite everyone.', description: 'No seat fees. Your team can grow without buying access for each person.' },
   { title: 'Keep your history.', description: 'No retention tier. Conversations stay searchable until you choose to delete them.' },
-  { title: 'Own your workspace.', description: 'MIT software. Run independent installations with isolated servers on Cloudflare or your VPS.' },
+  { title: 'Own your workspace.', description: 'MIT software. Run independent instances with isolated servers on Cloudflare or your VPS.' },
 ]
 
 useSeoMeta({
@@ -73,7 +73,7 @@ useHead({
         'AI agents in chat who can read and create Tasks',
         'Optional voice, video, and screen sharing through RealtimeKit',
         'Unlimited customer-owned workspaces, members, and message history',
-        'Independent installations with local accounts',
+        'Independent instances with local accounts',
       ],
     }),
   }],
@@ -100,7 +100,7 @@ useHead({
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One instance, many servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
@@ -202,7 +202,7 @@ useHead({
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="sandboxUrl" label="Try the sandbox" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
         </UContainer>
@@ -224,9 +224,9 @@ useHead({
           <nav aria-label="Footer resources">
             <p class="mb-4 text-sm font-semibold text-highlighted">Resources</p>
             <ul class="space-y-3 text-sm text-muted">
-              <li><NuxtLink :to="`${repoUrl}/tree/main/docs`" class="hover:text-highlighted">Documentation</NuxtLink></li>
+              <li><NuxtLink to="/docs" class="hover:text-highlighted">Documentation</NuxtLink></li>
               <li><NuxtLink to="/deploy" class="hover:text-highlighted">Setup guide</NuxtLink></li>
-              <li><ULink :to="sandboxUrl" class="hover:text-highlighted">Try the sandbox</ULink></li>
+              <li><ULink :to="shellUrl" class="hover:text-highlighted">Open L4</ULink></li>
               <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
             </ul>
           </nav>

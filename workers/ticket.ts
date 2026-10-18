@@ -1,4 +1,4 @@
-import { verifyInstallationIdentity, signInstallationIdentity } from '../shared/installation-identity'
+import { verifyInstallationIdentity, signInstallationIdentity } from '../shared/instance-identity'
 import type { PublicUser } from '../shared/types'
 import type { L4Env } from './env'
 

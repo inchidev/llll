@@ -5,7 +5,7 @@ description: Create or verify an L4 installation and its isolated servers on Clo
 
 # Deploy L4
 
-Read the current `docs/installation.md` and `docs/deployment.md`. An installation owns accounts and a server directory; every server has separate resources. There is no separate Admin application. The optional site provides a Cloudflare OAuth installer with a temporary credential handoff.
+Read the current `docs/instance.md` and `docs/deployment.md`. An installation owns accounts and a server directory; every server has separate resources. There is no separate Admin application. The optional site provides a Cloudflare OAuth installer with a temporary credential handoff.
 
 1. Establish the target installation, provider and existing state. Use ignored deployment configuration and private credentials; do not ask for tokens in chat or print claims/secrets.
 2. For Cloudflare, bootstrap the installation through the documented source installer. Its owner can then configure a scoped API token in Instance settings to provision servers, or register separately deployed servers. Agent account operations use the connected Cloudflare API tool; local Wrangler is for validation unless the user explicitly authorizes an exception.

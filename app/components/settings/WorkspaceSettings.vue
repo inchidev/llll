@@ -93,7 +93,7 @@ const featureNav = computed(() => [
   ...(can(Permission.manageWorkspace) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
   ...(isOwner.value ? [{ id: 'mcp' as const, label: 'MCP', icon: 'i-ph-plugs-connected', keywords: ['agent', 'access token', 'api', 'codex'] }] : []),
 ])
-const installationConnections = useInstallations()
+const installationConnections = useInstances()
 const accessNav = computed(() => [
   ...(isOwner.value && installationConnections.activeInstallation.value?.kind !== 'installation' ? [{ id: 'authentication' as const, label: 'Authentication', icon: 'i-ph-key', keywords: ['login', 'signup', 'oauth', 'github', 'sso', 'registration'] }] : []),
   ...(isOwner.value ? [{ id: 'onboarding' as const, label: 'Onboarding', icon: 'i-ph-flag-banner', keywords: ['welcome', 'first run', 'branding'] }] : []),

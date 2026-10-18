@@ -1,6 +1,6 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'default' })
-const connections = useInstallations()
+const connections = useInstances()
 const info = ref<{ client: { client_name?: string; client_id?: string }; scope: string; claims?: string } | null>(null)
 const error = ref('')
 const busy = ref(false)
@@ -15,7 +15,7 @@ async function decide(accept: boolean) {
   finally { busy.value = false }
 }
 onMounted(async () => {
-  try { info.value = await connections.request(location.origin, `/api/installation/consent?query=${encodeURIComponent(location.search.slice(1))}`) }
+  try { info.value = await connections.request(location.origin, `/api/instance/consent?query=${encodeURIComponent(location.search.slice(1))}`) }
   catch (cause) { error.value = errorMessage(cause) }
 })
 </script>

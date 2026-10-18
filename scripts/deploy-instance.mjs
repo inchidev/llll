@@ -1,7 +1,9 @@
+import { requireWorkersBuild } from './ci-only.mjs'
 // User-operated Cloudflare installer. Agents deploy through the connected API tool.
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { randomBytes, createHash } from 'node:crypto'
+requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
 const id = process.env.INSTALLATION_ID || 'community'
 if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error('INSTALLATION_ID must be a lowercase name of up to 32 characters')

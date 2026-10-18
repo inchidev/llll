@@ -1,7 +1,7 @@
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { authUsers, roles, users, workspace } from '../../drizzle/schema'
-import { verifyInstallationIdentity } from '../../shared/installation-identity'
+import { verifyInstallationIdentity } from '../../shared/instance-identity'
 import { nowIso } from '../../shared/ids'
 import { cf, fail } from './cf'
 import { ensureMigrated, getDb } from './db'
