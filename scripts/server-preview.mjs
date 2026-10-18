@@ -26,7 +26,7 @@ const candidate = pullRequestCandidate(
     'refs/pull/*',
   ]),
   branch,
-  process.env.WORKERS_CI_COMMIT_SHA,
+  process.env.WORKERS_CI_COMMIT_SHA || git(['rev-parse', 'HEAD']).trim(),
 )
 if (!candidate)
   throw new Error(
@@ -154,7 +154,7 @@ if (process.env.LLLL_PREVIEW_ZONE_ID) {
   })
 }
 let verified = false
-for (let attempt = 0; attempt < 30; attempt++) {
+for (let attempt = 0; attempt < 150; attempt++) {
   const check = await fetch(origin + '/.well-known/llll', {
     signal: AbortSignal.timeout(10000),
   }).catch(() => null)

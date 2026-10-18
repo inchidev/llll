@@ -35,6 +35,9 @@ function git(args) {
   if (result.status !== 0) throw new Error('Cannot verify the PR Git refs')
   return result.stdout
 }
+// Manual Builds can omit the webhook SHA. Still require the checked-out Git
+// commit to equal the current PR head and verify both merge parents below.
+const sourceCommit = process.env.WORKERS_CI_COMMIT_SHA || git(['rev-parse', 'HEAD']).trim()
 let pr
 if (mode === 'preview') {
   // Git refs avoid the shared unauthenticated REST API quota in Builds.
@@ -42,7 +45,7 @@ if (mode === 'preview') {
   const repository = 'https://github.com/inchidev/llll.git'
   for (let attempt = 0; attempt < 6; attempt++) {
     const refs = git(['ls-remote', repository, 'refs/heads/main', `refs/heads/${branch}`, 'refs/pull/*'])
-    const candidate = pullRequestCandidate(refs, branch, process.env.WORKERS_CI_COMMIT_SHA)
+    const candidate = pullRequestCandidate(refs, branch, sourceCommit)
     if (candidate) {
       git(['fetch', '--no-tags', '--depth=1', repository, `refs/pull/${candidate.number}/merge`])
       if (verifyMergeParents(git(['cat-file', '-p', 'FETCH_HEAD']), candidate)) { pr = candidate; break }
@@ -67,7 +70,7 @@ config.main = resolve(site, '.bundle/index.mjs')
 config.assets.directory = resolve(site, '.output/public')
 config.d1_databases = [{ binding: 'DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(site, 'migrations') }]
 config.vars.ENVIRONMENT = mode
-config.vars.BUILD_COMMIT = production?.commit || process.env.WORKERS_CI_COMMIT_SHA
+config.vars.BUILD_COMMIT = production?.commit || sourceCommit
 config.vars.BUILD_VERSION = production?.version || JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
 if (mode === 'preview') delete config.vars.CLOUDFLARE_OAUTH_CLIENT_ID
 // Each Preview has its own D1. Do not inherit a shared base-config database.
@@ -100,7 +103,7 @@ if (mode === 'preview') {
   let verified = false
   for (let attempt = 0; attempt < 12; attempt++) {
     const response = await fetch(`${url}/api/health`).catch(() => null)
-    if (response?.ok && (await response.json()).commit === process.env.WORKERS_CI_COMMIT_SHA) { verified = true; break }
+    if (response?.ok && (await response.json()).commit === sourceCommit) { verified = true; break }
     await new Promise(resolveWait => setTimeout(resolveWait, 2000))
   }
   if (!verified) throw new Error('Deployed Preview verification failed')
