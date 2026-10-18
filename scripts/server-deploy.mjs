@@ -16,7 +16,7 @@ await build({
   format: 'esm',
   target: 'node24',
 })
-const { installL4 } = await import(pathToFileURL(file).href)
+const { installL4, verifyDeployment } = await import(pathToFileURL(file).href)
 const workerName = process.env.LLLL_SERVER_WORKER
 const targetVersion = process.env.LLLL_SERVER_RELEASE
 if (
@@ -24,11 +24,29 @@ if (
   !/^v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/.test(targetVersion || '')
 )
   throw new Error('Configure a Worker name and immutable release version')
+const claim = process.env.LLLL_SERVER_SETUP_TOKEN
+if (!claim || claim.length < 32) throw new Error('Configure a private owner claim of at least 32 characters')
+async function setOwnerClaim() {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}/secrets`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'SETUP_TOKEN', type: 'secret_text', text: claim }),
+    },
+  )
+  const result = await response.json()
+  if (!response.ok || !result.success) throw new Error('Cannot configure the private owner claim')
+}
 const origin = process.env.LLLL_SERVER_ORIGIN
 if (origin) {
   const response = await fetch(origin + '/.well-known/llll').catch(() => null)
   const data = response?.ok ? await response.json() : null
   if (data?.kind === 'server' && data.version === targetVersion.slice(1)) {
+    if (!data.ready) await setOwnerClaim()
     console.log('Selected release already deployed; Server unchanged')
     process.exit(0)
   }
@@ -54,28 +72,12 @@ const result = await installL4(process.env.CLOUDFLARE_API_TOKEN, {
   mailEnabled: false,
   mailSubdomain: '',
   mailLocalPart: '',
-})
-// The private claim is returned through the installer's encrypted browser-bound
-// session, never printed in build logs. Server settings retain AUTH_SECRET.
-if (result.setupUrl && process.env.LLLL_SERVER_SETUP_TOKEN) {
-  const token = process.env.CLOUDFLARE_API_TOKEN
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}/secrets`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: 'SETUP_TOKEN',
-        type: 'secret_text',
-        text: process.env.LLLL_SERVER_SETUP_TOKEN,
-      }),
-    },
-  )
-  if (!response.ok) throw new Error('Cannot configure the private owner claim')
-}
+}, { verify: false })
+// Persist the browser-bound claim before public DNS/TLS verification. A failed
+// first verification must never lose the only usable owner claim on retry.
+await setOwnerClaim()
+await verifyDeployment(result.url, result.version, false, undefined, { attempts: 150 })
+result.verified = true
 await writeFile(
   resolve(dir, 'server-result.json'),
   JSON.stringify({ ...result, setupUrl: undefined }),
