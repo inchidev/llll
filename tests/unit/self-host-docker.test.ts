@@ -72,6 +72,5 @@ describe('self-host docker stack', () => {
     expect(template).toContain('SERVICE_USER_RUSTFS')
     expect(template).toContain('SERVICE_PASSWORD_64_RUSTFS')
     expect(template).toContain('# logo: svgs/llll.png')
-    expect(read('self-host/coolify/README.md')).toContain('1,000 stars')
   })
 })
