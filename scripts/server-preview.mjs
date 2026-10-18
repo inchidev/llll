@@ -143,6 +143,16 @@ function wrangler(args) {
 }
 wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', file])
 wrangler(['deploy', '--config', file, '--secrets-file', secrets])
+// Cloudflare only permits attaching a custom domain after the first deployment.
+if (process.env.LLLL_PREVIEW_ZONE_ID) {
+  await api('/workers/domains', 'PUT', {
+    hostname: new URL(origin).hostname,
+    service: name,
+    zone_id: process.env.LLLL_PREVIEW_ZONE_ID,
+    enabled: true,
+    previews_enabled: false,
+  })
+}
 const check = await fetch(origin + '/.well-known/llll')
 const d = await check.json()
 if (!check.ok || d.kind !== 'server')
