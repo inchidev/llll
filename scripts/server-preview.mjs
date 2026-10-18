@@ -153,8 +153,17 @@ if (process.env.LLLL_PREVIEW_ZONE_ID) {
     previews_enabled: false,
   })
 }
-const check = await fetch(origin + '/.well-known/llll')
-const d = await check.json()
-if (!check.ok || d.kind !== 'server')
-  throw new Error('Server Preview discovery verification failed')
+let verified = false
+for (let attempt = 0; attempt < 30; attempt++) {
+  const check = await fetch(origin + '/.well-known/llll', {
+    signal: AbortSignal.timeout(10000),
+  }).catch(() => null)
+  const d = check?.ok ? await check.json().catch(() => null) : null
+  if (d?.kind === 'server' && d.origin === origin) {
+    verified = true
+    break
+  }
+  await new Promise((resolveWait) => setTimeout(resolveWait, 2000))
+}
+if (!verified) throw new Error('Server Preview discovery verification failed')
 console.log(`Server Preview verified for PR #${candidate.number}: ${origin}`)

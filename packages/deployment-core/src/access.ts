@@ -110,19 +110,15 @@ async function provisionCloudflareAccess(client: Cloudflare, request: DeployRequ
   ])
   const appName = `L4 — ${request.workerName}`
   const healthName = `${appName} health`
-  const deletionName = `${appName} deletion`
   const mainExisting = applications.find(app => app.name === appName && (
     !request.customDomainEnabled || app.domain?.toLowerCase() === hostname
   ))
   const healthDomain = `${hostname}/api/setup/health`
   const healthExisting = applications.find(app => app.domain?.toLowerCase() === healthDomain && app.name === healthName)
-  const deletionDomain = `${hostname}/api/workspaces/main/deletion/prepare`
-  const deletionExisting = applications.find(app => app.domain?.toLowerCase() === deletionDomain && app.name === deletionName)
   const conflict = applications.find(app => (
-    (app.domain?.toLowerCase() === hostname || app.domain?.toLowerCase() === healthDomain || app.domain?.toLowerCase() === deletionDomain)
+    (app.domain?.toLowerCase() === hostname || app.domain?.toLowerCase() === healthDomain)
     && app.name !== appName
     && app.name !== healthName
-    && app.name !== deletionName
   ))
   if (conflict) {
     throw createError({ statusCode: 409, statusMessage: `${conflict.domain} is already protected by another Cloudflare Access application` })
@@ -155,15 +151,7 @@ async function provisionCloudflareAccess(client: Cloudflare, request: DeployRequ
     app_launcher_visible: false,
     policies: [{ name: 'Installer health check', decision: 'bypass', include: [{ everyone: {} }] }],
   })
-  const deletion = await putApplication(client, request.accountId, deletionExisting, {
-    domain: deletionDomain,
-    type: 'self_hosted',
-    name: deletionName,
-    destinations: [{ type: 'public', uri: deletionDomain }],
-    app_launcher_visible: false,
-    policies: [{ name: 'Authorized installer deletion', decision: 'bypass', include: [{ everyone: {} }] }],
-  })
-  if (!application.id || !application.aud || !health.id || !deletion.id) {
+  if (!application.id || !application.aud || !health.id) {
     throw createError({ statusCode: 502, statusMessage: 'Cloudflare did not return the Access application details' })
   }
   return {
@@ -171,7 +159,6 @@ async function provisionCloudflareAccess(client: Cloudflare, request: DeployRequ
     audience: application.aud,
     applicationId: application.id,
     healthApplicationId: health.id,
-    deletionApplicationId: deletion.id,
   }
 }
 

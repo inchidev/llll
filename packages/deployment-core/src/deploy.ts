@@ -33,7 +33,6 @@ type ExistingWorker = {
   accessAudience?: string
   accessApplicationId?: string
   accessHealthApplicationId?: string
-  accessDeletionApplicationId?: string
   primary?: boolean
   lifecycleBindingNames?: string[]
   bindings?: ExistingWorkerBinding[]
@@ -141,7 +140,6 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
       accessAudience: text('CF_ACCESS_AUD'),
       accessApplicationId: text('CF_ACCESS_APP_ID'),
       accessHealthApplicationId: text('CF_ACCESS_HEALTH_APP_ID'),
-      accessDeletionApplicationId: text('CF_ACCESS_DELETION_APP_ID'),
       primary: text('LLLL_PRIMARY') === 'true',
       lifecycleBindingNames,
       bindings,
@@ -389,7 +387,7 @@ async function uploadWorker(
   resources: { databaseId: string, bucketName: string | undefined, kvId: string, assetsJwt: string, origin: string },
   existing: ExistingWorker,
   ownerSetupToken: string | null,
-  access: { issuer: string, audience: string, applicationId: string, healthApplicationId: string, deletionApplicationId: string } | null,
+  access: { issuer: string, audience: string, applicationId: string, healthApplicationId: string } | null,
   primary: boolean,
 ) {
   if (request.backupBucketName) {
@@ -434,7 +432,6 @@ async function uploadWorker(
       { type: 'plain_text', name: 'CF_ACCESS_AUD', text: access.audience },
       { type: 'plain_text', name: 'CF_ACCESS_APP_ID', text: access.applicationId },
       { type: 'plain_text', name: 'CF_ACCESS_HEALTH_APP_ID', text: access.healthApplicationId },
-      { type: 'plain_text', name: 'CF_ACCESS_DELETION_APP_ID', text: access.deletionApplicationId },
     )
   }
   if (request.mailEnabled) {
@@ -725,7 +722,6 @@ export async function deployL4(
           audience: existing.accessAudience || '',
           applicationId: existing.accessApplicationId || '',
           healthApplicationId: existing.accessHealthApplicationId || '',
-          deletionApplicationId: existing.accessDeletionApplicationId || '',
         }
       : await ensureCloudflareAccess(client, request, requestedHostname, accessWorkerId)
     : null

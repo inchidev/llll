@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { scryptAsync } from '@noble/hashes/scrypt.js'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils.js'
@@ -13,7 +14,7 @@ const ownerId = uuidv7()
 const memberId = uuidv7()
 const ownerAccountId = uuidv7()
 const memberAccountId = uuidv7()
-const workspaceId = 'main'
+const workspaceId = randomUUID()
 const ownerRole = uuidv7()
 const memberRole = uuidv7()
 const adminRole = uuidv7()
@@ -22,6 +23,7 @@ const now = new Date().toISOString()
 const authNow = Date.now()
 
 const sql = `
+INSERT INTO server_identity (id, singleton) VALUES ('${workspaceId}', 1) ON CONFLICT DO NOTHING;
 INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at) VALUES
   ('${ownerId}', 'Owner', 'owner@local.test', 1, ${authNow}, ${authNow}),
   ('${memberId}', 'Member', 'member@local.test', 1, ${authNow}, ${authNow});
@@ -35,7 +37,7 @@ INSERT INTO roles (id, key, name, permissions_bitmask, position, is_system, crea
 INSERT INTO users (id, handle, display_name, status, role_id, joined_at, created_at, updated_at) VALUES
   ('${ownerId}', 'owner', 'Owner', 'active', '${ownerRole}', '${now}', '${now}', '${now}'),
   ('${memberId}', 'member', 'Member', 'active', '${memberRole}', '${now}', '${now}', '${now}');
-INSERT INTO workspace (id, name, owner_id, created_at, updated_at) VALUES ('${workspaceId}', 'Local', '${ownerId}', '${now}', '${now}');
+INSERT INTO workspace (id, name, owner_id, created_at, updated_at) VALUES ((SELECT id FROM server_identity WHERE singleton = 1), 'Local', '${ownerId}', '${now}', '${now}');
 INSERT INTO channels (id, name, topic, type, visibility, position, created_at, updated_at) VALUES
   ('${generalId}', 'general', '', 'text', 'workspace', 0, '${now}', '${now}');
 `
