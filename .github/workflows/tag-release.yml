@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   actions: write
+  checks: read
 
 jobs:
   tag:
@@ -26,6 +27,14 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=20" \
             --jq '.workflow_runs | any(.head_sha == env.GITHUB_SHA and .conclusion == "success")' > "$RUNNER_TEMP/ci-ready"
           test "$(cat "$RUNNER_TEMP/ci-ready")" = true
+
+      - name: Require successful production Build for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?check_name=Workers%20Builds%3A%20llll&per_page=100" \
+            --jq '.check_runs | any(.head_sha == env.GITHUB_SHA and .app.id == 85455 and .conclusion == "success")' > "$RUNNER_TEMP/web-ready"
+          test "$(cat "$RUNNER_TEMP/web-ready")" = true
 
       - name: Tag and dispatch publishers
         env:
