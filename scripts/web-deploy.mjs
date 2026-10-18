@@ -4,12 +4,23 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
 import { pullRequestCandidate, verifyMergeParents } from './pull-request-ref.mjs'
+import { compareVersions } from './release-policy.mjs'
 
 requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
 const mode = process.argv[2]
 const branch = process.env.WORKERS_CI_BRANCH
 if (!['preview', 'production'].includes(mode) || (mode === 'production') !== (branch === 'main')) throw new Error('Production requires main; all other branches require an open PR and a Preview')
+let production
+if (mode === 'production') {
+  production = JSON.parse(await readFile(resolve(root, '.deployment/released/plan.json'), 'utf8'))
+  if (production.skip) { console.log(production.reason); process.exit(0) }
+  if (!/^[a-f0-9]{40}$/.test(production.commit)) throw new Error('Verified release plan is missing')
+  const response = await fetch('https://llll.gg/api/health', { signal: AbortSignal.timeout(15000) })
+  if (!response.ok) throw new Error('Cannot verify production before deployment')
+  const live = await response.json()
+  if (live.commit === production.commit || (live.version && compareVersions(live.version, production.version) >= 0)) { console.log('Release already deployed or superseded: production unchanged'); process.exit(0) }
+}
 const account = process.env.CLOUDFLARE_ACCOUNT_ID
 const token = process.env.CLOUDFLARE_API_TOKEN
 if (!account || !token) throw new Error('Workers Builds credentials are missing')
@@ -49,12 +60,15 @@ for (let page = 1; ; page++) {
 }
 if (!database && mode === 'production') throw new Error('Production D1 llll must already exist; provision or migrate it through the connected API before deploying')
 database ||= (await api('/d1/database', { name: databaseName })).result
-const config = JSON.parse(await readFile(resolve(root, 'apps/site/wrangler.jsonc'), 'utf8'))
-config.main = resolve(root, 'apps/site/.bundle/index.mjs')
-config.assets.directory = resolve(root, 'apps/site/.output/public')
-config.d1_databases = [{ binding: 'DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(root, 'apps/site/migrations') }]
+const site = production?.site || resolve(root, 'apps/site')
+const config = JSON.parse(await readFile(resolve(site, 'wrangler.jsonc'), 'utf8'))
+if (config.name !== 'llll') throw new Error('Release archive targets an unexpected Worker')
+config.main = resolve(site, '.bundle/index.mjs')
+config.assets.directory = resolve(site, '.output/public')
+config.d1_databases = [{ binding: 'DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(site, 'migrations') }]
 config.vars.ENVIRONMENT = mode
-config.vars.BUILD_COMMIT = process.env.WORKERS_CI_COMMIT_SHA
+config.vars.BUILD_COMMIT = production?.commit || process.env.WORKERS_CI_COMMIT_SHA
+config.vars.BUILD_VERSION = production?.version || JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
 if (mode === 'preview') delete config.vars.CLOUDFLARE_OAUTH_CLIENT_ID
 // Each Preview has its own D1. Do not inherit a shared base-config database.
 config.previews = { vars: config.vars, d1_databases: config.d1_databases }
@@ -88,4 +102,16 @@ if (mode === 'preview') {
   }
   if (!verified) throw new Error('Deployed Preview verification failed')
   console.log(`Verified PR ${pr.number} Preview: ${url}`)
+}
+
+if (mode === 'production') {
+  let verified = false
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const response = await fetch('https://llll.gg/api/health').catch(() => null)
+    const health = response?.ok ? await response.json() : null
+    if (health?.commit === production.commit && health?.version === production.version) { verified = true; break }
+    await new Promise(resolveWait => setTimeout(resolveWait, 2000))
+  }
+  if (!verified) throw new Error('Released production version did not become healthy')
+  console.log(`Verified production ${production.tag}: ${production.commit}`)
 }

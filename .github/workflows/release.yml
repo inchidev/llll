@@ -1,0 +1,149 @@
+name: Release
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Merged release PR number (retry the exact release)
+        type: number
+        required: true
+      dry_run:
+        description: Validate only; never publish or deploy
+        type: boolean
+        default: true
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  gate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.plan.outputs.eligible }}
+      commit: ${{ steps.plan.outputs.commit }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      pr: ${{ steps.plan.outputs.pr }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+      - id: plan
+        run: node scripts/resolve-release-pr.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    needs: gate
+    if: needs.gate.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: llll-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_COMMIT: ${{ needs.gate.outputs.commit }}
+      RELEASE_TAG: ${{ needs.gate.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.gate.outputs.version }}
+      RELEASE_PR: ${{ needs.gate.outputs.pr }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Require successful main CI for the exact release commit
+        run: |
+          for attempt in $(seq 1 120); do
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${RELEASE_COMMIT}&event=push&per_page=20" --jq '.workflow_runs | sort_by(.created_at) | last | .conclusion // "pending"')"
+            if [ "$state" = success ]; then break; fi
+            if [ "$state" != pending ]; then echo "Main CI: $state"; exit 1; fi
+            if [ "$attempt" = 120 ]; then exit 1; fi
+            sleep 10
+          done
+      - name: Inspect existing release and deployment capability
+        id: existing
+        env:
+          RELEASE_HOOK: ${{ secrets.CLOUDFLARE_RELEASE_HOOK }}
+        run: |
+          test -n "$RELEASE_HOOK"
+          draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          echo "published=$([ "$draft" = false ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          remote="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}")"
+          if [ -n "$remote" ]; then
+            git fetch origin "refs/tags/${RELEASE_TAG}"
+            test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_COMMIT"
+          fi
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        if: steps.existing.outputs.published != 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+        if: steps.existing.outputs.published != 'true'
+      - name: Build the complete versioned web, Server and Instance bundle
+        if: steps.existing.outputs.published != 'true'
+        env:
+          LLLL_RELEASE_VERSION: ${{ env.RELEASE_TAG }}
+          LLLL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}
+          LLLL_DOCS_REF: ${{ env.RELEASE_TAG }}
+        run: |
+          pnpm release:installer
+          cp .installer/deployment/llll-deployment.json .installer/release/
+          cp .installer/deployment/llll.tgz .installer/release/
+          tar -czf .installer/release/llll-docs.tgz docs README.md CONTEXT.md
+          pnpm test:instance
+          node scripts/test-web.mjs
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        if: steps.existing.outputs.published != 'true'
+      - name: Build and export the portable runtime image
+        if: steps.existing.outputs.published != 'true'
+        run: |
+          docker buildx build --platform linux/amd64 --load -f self-host/Dockerfile -t "llll:${RELEASE_VERSION}" .
+          test "$(docker image inspect "llll:${RELEASE_VERSION}" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          docker save "llll:${RELEASE_VERSION}" | gzip -1 > .installer/release/llll-runtime-linux-amd64.tar.gz
+      - name: Finalize and verify all release checksums
+        if: steps.existing.outputs.published != 'true'
+        run: |
+          node scripts/finalize-release.mjs
+          cd .installer/release
+          sha256sum --check SHA256SUMS
+      - name: Tag and publish the verified release
+        if: steps.existing.outputs.published != 'true'
+        run: |
+          if [ -z "$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}")" ]; then
+            git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
+            git push origin "$RELEASE_TAG"
+          fi
+          draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ "$draft" = false ]; then echo 'Published releases are immutable'; exit 1; fi
+          if [ "$draft" != true ]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "L4 ${RELEASE_VERSION}" --notes-file "docs/release-notes/${RELEASE_TAG}.md"
+          fi
+          gh release upload "$RELEASE_TAG" .installer/release/* --clobber
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/verify-release"
+          (cd "$RUNNER_TEMP/verify-release" && sha256sum --check SHA256SUMS)
+          if [[ "$RELEASE_VERSION" = *-* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
+          fi
+      - name: Verify immutable release provenance before triggering production
+        run: |
+          gh release download "$RELEASE_TAG" --pattern llll-release.json --dir "$RUNNER_TEMP/release-provenance"
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; import {validateReleaseManifest} from './scripts/release-artifacts.mjs'; validateReleaseManifest(JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/release-provenance/llll-release.json')),process.env.RELEASE_TAG,process.env.RELEASE_COMMIT)"
+      - name: Trigger Workers Builds and verify the released production version
+        env:
+          RELEASE_HOOK: ${{ secrets.CLOUDFLARE_RELEASE_HOOK }}
+        run: |
+          node scripts/trigger-release-deploy.mjs

@@ -3,6 +3,7 @@ import { communityRailIcons } from '../../packages/client-ui/icons'
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-16', ssr: true, devtools: { enabled: false },
   modules: ['@nuxt/ui'], css: ['~/assets/css/main.css'],
+  runtimeConfig: { public: { docsRef: process.env.LLLL_DOCS_REF || process.env.WORKERS_CI_COMMIT_SHA || 'main' } },
   colorMode: { preference: 'dark', fallback: 'dark' },
   icon: { clientBundle: { scan: true, icons: communityRailIcons }, serverBundle: { collections: ['ph'] } },
   nitro: { preset: 'static', prerender: { routes: ['/', '/open', '/servers', '/deploy', '/privacy', '/terms', '/docs'], crawlLinks: false } },

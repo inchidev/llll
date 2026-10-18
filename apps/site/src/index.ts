@@ -26,7 +26,7 @@ async function rateLimit(request: Request, env: WebEnv) {
   if ((row?.count || 0) > 60) fail(429, 'Too many requests. Try again shortly.')
 }
 async function handle(request: Request, env: WebEnv): Promise<Response> {
-  if (new URL(request.url).pathname === '/api/health') return json({ ok: true, component: 'web', commit: env.BUILD_COMMIT || 'development' })
+  if (new URL(request.url).pathname === '/api/health') return json({ ok: true, component: 'web', commit: env.BUILD_COMMIT || 'development', version: env.BUILD_VERSION || 'development' })
   const url = new URL(request.url); const path = url.pathname
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')

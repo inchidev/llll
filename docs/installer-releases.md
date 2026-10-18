@@ -1,6 +1,6 @@
 # Deployment artifacts
 
-One immutable L4 release contains matching installation/server modules, client assets and migration chains. The site and common client deploy independently from the same repository. The website holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
+One immutable L4 release contains matching installation/server modules, client assets and migration chains. A merged release PR publishes matching llll, Server, Instance and Docs artifacts and deploys the released official web app. Customer Instances and Servers update under their operators’ control. The website holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
 
 | Asset | Purpose |
 | --- | --- |
@@ -11,6 +11,8 @@ One immutable L4 release contains matching installation/server modules, client a
 | `llll-deployment-core-<version>.tgz` | Provisioning library for installation controllers and operator tooling. |
 | `llll-runtime-linux-amd64.tar.gz` | Portable Docker image, tagged `llll:<version>`, loaded with `docker load`. |
 | `llll.tgz` | Independently deployable web Worker (`llll`), public site/PWA assets and web migrations. |
+| `llll-docs.tgz` | Docs, README and domain context from the release commit. |
+| `llll-release.json` | Shared version, exact commit, release PR, component list and artifact hashes/sizes. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
 The provisioning library is `@llll/deployment-core`, not a separately deployed Admin.

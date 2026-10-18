@@ -20,7 +20,7 @@ Node 24, pnpm 10. `pnpm install --frozen-lockfile`, then `pnpm dev`. Use `pnpm t
 
 The five parts are **Instance**, **Server**, **Shell**, **Landing** and **Docs**. `apps/instance` owns local accounts and routing. The root runtime is one Server. `apps/site` serves Landing (`/`), Shell (`/open`) and Docs (`/docs`) from one official Worker named `llll`. Instance and Server are separately installable release artifacts. `apps/client` is a compatibility redirect; iOS/macOS packaging is frozen.
 
-Application deployment is Git-only: open a PR to protected `main`, verify its native Worker Preview, merge, then publish an immutable release explicitly when requested. Cloudflare Workers Builds owns web deployments. Local Wrangler is for development, types and dry runs only. See [the deployment lifecycle](docs/deployment.md).
+Application deployment is Git-only: open a PR to protected `main`, verify its native Worker Preview, merge without changing production. A release PR raises the shared version and, after its Preview and CI pass, publishes all components and triggers production from the immutable release artifact. There is no production branch. Cloudflare Workers Builds owns web deployments. Local Wrangler is for development, types and dry runs only. See [the deployment lifecycle](docs/deployment.md).
 
 Read [product scope](docs/product.md), [product language](CONTEXT.md), the [stabilization roadmap](docs/roadmap.md), [runtime architecture](docs/architecture.md), and [operations](docs/deployment.md). Gitrew headless integration, OpenRivers/AfterPrompt embedding and cross-server DMs are deferred.
 

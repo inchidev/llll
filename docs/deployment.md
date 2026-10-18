@@ -18,11 +18,11 @@ The operator owns provisioning credentials, local Accounts and backups. Shell bo
 
 The single official Worker is `llll`. It serves `/` (Landing), `/open` (Shell), `/docs` (Docs index) and `/deploy` (Instance installer). `apps/instance` and the root Server runtime are built as separate installation artifacts, not deployed as public demo accounts.
 
-Cloudflare Workers Builds is connected to the `inchidev/llll` repository and protected `main`. Its root directory is `apps/site`, build command is `pnpm build`, production command is `pnpm deploy:production`, and Preview command is `pnpm deploy:preview`. These commands reject execution outside an identified Workers Build.
+Cloudflare Workers Builds is connected to the `inchidev/llll` repository and protected `main`. Its root directory is `apps/site`, Preview commands are `pnpm build` and `pnpm deploy:preview`. Production commands are `pnpm build:production` and `pnpm deploy:production`: they verify and deploy a newer immutable release, or exit without deployment. These commands reject execution outside an identified Workers Build.
 
 Every open, mergeable same-repository PR to main gets a native Worker Preview, named after its branch. The deploy runner verifies the PR head SHA, allocates a separate `llll-pr-N` D1 and applies the web baseline. Previews use their own origin and disable production Cloudflare OAuth. Production uses the existing `llll` D1 through binding `DB`; the production runner refuses to recreate a missing database. Provision or migrate it through the connected API before deploying. No KV asset adapters or source uploads from developer machines participate.
 
-Merge requires CI and the deployed Cloudflare Preview check. Main pushes deploy the web app through Workers Builds. A release is a later, explicit invocation of the existing tag workflow after main CI passes; published tags and assets remain immutable. Runtime installation consumes a pinned published release.
+Merge requires CI and the deployed Cloudflare Preview check. Ordinary main pushes do not change production. A release PR increases the shared version, adds release notes and carries the `release` label. After merging and successful main CI, GitHub Actions publishes all components and triggers Workers Builds to deploy the exact released web archive. No production branch or local deployment is involved. See [release operations](releases.md). Runtime installation consumes a pinned published release.
 
 Build credentials remain in Cloudflare's token store. The production web secret is a production-only encrypted build variable. A Preview does not receive that secret. Administrative provisioning, domain configuration and cleanup use the connected Cloudflare API.
 
