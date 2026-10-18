@@ -36,7 +36,8 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v${version}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
           if [ "$draft" = false ]; then echo "Published releases are immutable."; exit 1; fi
 
       - name: Set up Docker Buildx
@@ -52,7 +53,7 @@ jobs:
           tags: llll:${{ steps.version.outputs.version }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
           cache-from: type=gha,scope=llll-runtime
           cache-to: type=gha,mode=max,scope=llll-runtime
 
@@ -68,9 +69,10 @@ jobs:
       - name: Wait for the installer publisher
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ steps.version.outputs.revision }}
         run: |
           for attempt in $(seq 1 60); do
-            state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/publish-installer-release.yml/runs?head_sha=${GITHUB_SHA}&per_page=20" --jq '.workflow_runs | sort_by(.created_at) | last | .conclusion // "pending"')"
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/publish-installer-release.yml/runs?head_sha=${SOURCE_REVISION}&per_page=20" --jq '.workflow_runs | sort_by(.created_at) | last | .conclusion // "pending"')"
             if [ "$state" = success ]; then exit 0; fi
             if [ "$state" != pending ]; then echo "Installer publisher: $state"; exit 1; fi
             sleep 10
@@ -82,11 +84,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
-          gh release download "$RELEASE_TAG" --pattern SHA256SUMS --dir "$RUNNER_TEMP/installer-checksums"
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP/installer-checksums"
           cd "$RUNNER_TEMP"
           awk '$2 != "llll-runtime-linux-amd64.tar.gz"' installer-checksums/SHA256SUMS > SHA256SUMS
           sha256sum llll-runtime-linux-amd64.tar.gz >> SHA256SUMS
           LC_ALL=C sort -k2 SHA256SUMS -o SHA256SUMS
-          gh release upload "$RELEASE_TAG" llll-runtime-linux-amd64.tar.gz SHA256SUMS --clobber
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" llll-runtime-linux-amd64.tar.gz SHA256SUMS --clobber
           echo "Portable image added to the draft. Verify and publish the release."
