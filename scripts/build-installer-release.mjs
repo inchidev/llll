@@ -89,7 +89,7 @@ const manifest = {
   version,
   releasedAt: new Date().toISOString(),
   compatibilityDate: '2026-09-28',
-  compatibilityFlags: ['nodejs_compat'],
+  compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
   capabilities: ['cloudflare-access-auth', 'optional-r2', 'primary-workspace-mail-v1', 'llll-installation-v1'],
   worker: {
     url: `${releaseBaseUrl}/${workerName}`,

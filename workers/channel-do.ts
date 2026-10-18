@@ -31,6 +31,7 @@ import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
 import { createSerialQueue } from './serial-queue'
+import { authorizedSockets } from './socket-access'
 
 type Sock = { userId: string; user: PublicUser }
 type Authz = { workspaceId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
@@ -159,7 +160,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       }
       return
     }
-    this.broadcast(msg)
+    await this.broadcast(msg)
   }
 
   async postAgentMessage(input: z.infer<typeof agentPostSchema>): Promise<{ id: string, channelId: string }> {
@@ -228,7 +229,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       content: body.content,
       attachmentCount: 0,
     }))
-    this.broadcast({ t: 'message', message })
+    await this.broadcast({ t: 'message', message })
     return { id, channelId: channel.id }
   }
 
@@ -247,7 +248,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (!row) throw new Error('Agent message not found')
     await this.env.DB.prepare('UPDATE messages SET content = ? WHERE id = ?').bind(body.content, body.messageId).run()
     const message = await this.loadMessage(body.messageId)
-    if (message) this.broadcast({ t: 'message.update', message, streaming: true })
+    if (message) await this.broadcast({ t: 'message.update', message, streaming: true })
   }
 
   async setAgentReaction(input: z.infer<typeof agentReactionSchema>): Promise<void> {
@@ -266,10 +267,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
     const change = await replaceAgentReaction(this.env.DB, body.messageId, body.agentId, body.emoji)
     for (const emoji of change.removed) {
-      this.broadcast({ t: 'reaction', messageId: body.messageId, emoji, userId: body.agentId, op: 'remove' })
+      await this.broadcast({ t: 'reaction', messageId: body.messageId, emoji, userId: body.agentId, op: 'remove' })
     }
     if (change.added) {
-      this.broadcast({ t: 'reaction', messageId: body.messageId, emoji: change.added, userId: body.agentId, op: 'add' })
+      await this.broadcast({ t: 'reaction', messageId: body.messageId, emoji: change.added, userId: body.agentId, op: 'add' })
     }
   }
 
@@ -393,7 +394,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         await this.onAgentControl(ws, sock, authz, agentControlSchema.parse(JSON.parse(raw)))
         break
       case 'typing':
-        this.broadcast({
+        await this.broadcast({
           t: 'typing',
           userId: sock.userId,
           active: (JSON.parse(raw) as { active?: boolean }).active !== false,
@@ -517,7 +518,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }))
     this.ctx.waitUntil(signalChannelRead(this.env, sock.userId, this.channelId(), id))
     await this.ctx.storage.put(`idem:${idemKey}`, id)
-    this.broadcast({ t: 'message', message: dto })
+    await this.broadcast({ t: 'message', message: dto })
     this.send(ws, { t: 'ack', clientId: body.clientId, id })
     this.ctx.waitUntil(signalAgentsForMessage(this.env, {
       messageId: id,
@@ -591,7 +592,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       ).bind(body.id, userId)),
     ])
     const dto = await this.loadMessage(body.id)
-    if (dto) this.broadcast({ t: 'message.update', message: dto })
+    if (dto) await this.broadcast({ t: 'message.update', message: dto })
   }
 
   private async onDelete(ws: WebSocket, sock: Sock, authz: Authz, id: string) {
@@ -616,8 +617,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       this.env.DB.prepare('UPDATE messages SET deleted_at = ?, content = ? WHERE id = ?').bind(deletedAt, '', id),
       this.env.DB.prepare('DELETE FROM message_pins WHERE message_id = ?').bind(id),
     ])
-    this.broadcast({ t: 'message.delete', id })
-    if (pin) this.broadcast({ t: 'pin', messageId: id, pin: null })
+    await this.broadcast({ t: 'message.delete', id })
+    if (pin) await this.broadcast({ t: 'pin', messageId: id, pin: null })
   }
 
   private async onRead(sock: Sock, _authz: Authz, messageId: string) {
@@ -791,7 +792,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private publishLive(live: LiveState, opts: { started?: PublicUser, outcome?: 'declined' | 'unanswered' } = {}) {
-    this.broadcast({ t: 'live', live })
+    this.ctx.waitUntil(this.broadcast({ t: 'live', live }))
     this.ctx.waitUntil(signalLiveChanged(this.env, this.channelId(), live, opts).catch(() => {}))
   }
 
@@ -1108,9 +1109,13 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return (this.ctx.id.name ?? '').replace(/^channel:/, '')
   }
 
-  private broadcast(msg: ServerMsg, except?: WebSocket) {
+  private async broadcast(msg: ServerMsg, except?: WebSocket) {
     const payload = JSON.stringify(msg)
-    for (const ws of this.ctx.getWebSockets()) {
+    const sockets = await authorizedSockets(this.ctx.getWebSockets(), async userId => {
+      const authz = await this.loadAuthz(userId)
+      return Boolean(authz && !authz.frozen)
+    })
+    for (const ws of sockets) {
       if (except && ws === except) continue
       try { ws.send(payload) }
       catch { /* ignore */ }

@@ -62,6 +62,8 @@ it('resumes an interrupted upload without replacing resources and hands the encr
       if (uploadAttempts === 1) throw new Error('Interrupted upload')
       const form = options.body as FormData
       const metadata = JSON.parse(String(form.get('metadata')))
+      // The Instance proxies HTTP and WebSocket traffic to same-account Workers.
+      expect(metadata.compatibility_flags).toContain('global_fetch_strictly_public')
       expect(JSON.stringify(metadata)).not.toContain('private-access')
       expect(metadata.bindings.find((b: { name: string }) => b.name === 'AUTH_SECRET').text).toBe(originalSecret)
     }

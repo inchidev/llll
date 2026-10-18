@@ -4,7 +4,8 @@
   "main": ".bundle/index.mjs",
   "compatibility_date": "2026-10-16",
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat",
+    "global_fetch_strictly_public"
   ],
   "assets": {
     "binding": "ASSETS",

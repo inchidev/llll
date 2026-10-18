@@ -109,7 +109,7 @@ async function probeServerList() {
   for (const server of servers) if (server.status === 'provisioning' && !probes.has(server.id)) probeServer(server)
 }
 
-// The installation Worker cannot fetch same-account workers.dev origins (Cloudflare error 1042), so the browser verifies a freshly deployed server and reports back.
+// Verify that a freshly deployed Server is reachable from the user's browser.
 async function probeServer(server: InstallationServer) {
   if (!discovery.value || !import.meta.client) return
   probes.add(server.id)
@@ -184,11 +184,10 @@ async function saveSettings() {
   toast.add({ title: 'Installation settings saved' })
 }
 
-function signOut(): Promise<void> {
-  if (!discovery.value) return Promise.resolve()
-  connections.logout(discovery.value.origin)
+async function signOut(): Promise<void> {
+  if (!discovery.value) return
+  await connections.logout(discovery.value.origin)
   window.location.assign('/connections')
-  return Promise.resolve()
 }
 
 const tabItems = computed(() => [

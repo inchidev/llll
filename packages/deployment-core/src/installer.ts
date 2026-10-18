@@ -8,7 +8,7 @@ import type { DeployProgressReporter, DeployProgressStep, DeployResponse } from 
 export type InstallL4Options = {
   manifestUrl?: string
   report?: DeployProgressReporter
-  /** Skip the in-worker health verification after upload (Cloudflare blocks worker-to-worker fetches to *.workers.dev on the same account). The caller verifies instead. */
+  /** Let the caller verify the newly deployed public endpoint, including browser reachability. */
   verify?: boolean
 }
 

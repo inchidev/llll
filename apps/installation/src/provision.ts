@@ -6,7 +6,7 @@ export type ServerRow = { public_id: string; id: string; name: string; owner_id:
 export async function provisionServer(env: InstallationEnv, server: ServerRow, owner: { email: string }, secret: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('Configure Cloudflare provisioning or use the self-host deployment command')
   const token = env.CLOUDFLARE_API_TOKEN
-  // The installation Worker cannot fetch the server's *.workers.dev origin from inside Cloudflare (error 1042), so the browser verifies the deployment and confirms it afterwards.
+  // The browser verifies the public endpoint before admitting the new Server.
   const result = await installBaseL4(token, {
     accountId: env.CLOUDFLARE_ACCOUNT_ID, workerName: server.worker_name, appName: server.name,
     adminEmail: owner.email, allowedEmails: [], authMode: 'builtin', registrationMode: 'invite_only', filesEnabled: true, backupBucketName: env.BACKUP_BUCKET_NAME || `${server.worker_name}-backups`,
@@ -20,6 +20,6 @@ export async function provisionServer(env: InstallationEnv, server: ServerRow, o
 export async function updateServer(env: InstallationEnv, server: ServerRow, version: string) {
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID || !server.worker_name) throw new Error('This server is updated by its self-host operator')
   // The provisioning manifest can be pinned; updates resolve their selected immutable release.
-  // In-worker verification is impossible (see provisionServer); the browser confirms the workspace is live instead.
+  // The browser confirms public reachability, as it does for a new Server.
   return updateL4(env.CLOUDFLARE_API_TOKEN, { accountId: env.CLOUDFLARE_ACCOUNT_ID, workerName: server.worker_name, targetVersion: version }, { verify: false })
 }

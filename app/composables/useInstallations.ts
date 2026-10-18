@@ -109,7 +109,7 @@ export function useInstallations() {
 
   async function logout(origin: string) {
     const installation = installations.value.find(item => item.origin === origin)
-    if (installation?.kind === 'installation') await request(origin, '/api/auth/sign-out', { method: 'POST' })
+    if (installation?.kind === 'installation') await request(origin, '/api/auth/sign-out', { method: 'POST', body: {} })
     tokens.value = Object.fromEntries(Object.entries(tokens.value).filter(([key]) => key !== origin))
     try { sessionStorage.removeItem(`${TOKEN}${origin}`) } catch { /* Embedded storage may be blocked. */ }
     if (installation) { installation.userId = undefined; if (installation.kind === 'installation') installation.servers = [] }

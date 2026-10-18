@@ -465,7 +465,9 @@ async function uploadWorker(
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
     compatibility_date: manifest.compatibilityDate,
-    compatibility_flags: manifest.compatibilityFlags,
+    // Installed Servers validate socket sessions against their Instance over HTTP.
+    // Older immutable release manifests omit this required runtime flag.
+    compatibility_flags: [...new Set([...manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
     bindings,
     assets: { jwt: resources.assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
@@ -516,7 +518,7 @@ export function updateWorkerBindings(
 }
 
 export type InstallVerifyOptions = {
-  /** Cloudflare error 1042 blocks fetches from a Worker to any *.workers.dev hostname on the same account, so in-worker provisioning cannot verify its own deployment. Callers outside Cloudflare keep the default. */
+  /** Disable only when the caller separately verifies the deployed public endpoint. */
   verify?: boolean
 }
 
@@ -540,7 +542,7 @@ export async function deployL4Update(
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
     compatibility_date: release.manifest.compatibilityDate,
-    compatibility_flags: release.manifest.compatibilityFlags,
+    compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
     bindings: updateWorkerBindings(existing.bindings, release.manifest),
     assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,

@@ -241,6 +241,43 @@ try {
   const invitedDirectory = await api('/api/installation/servers', { token: invitedToken })
   assert.deepEqual(invitedDirectory.payload.servers.map(server => server.id), ['beta'])
   await api('/s/alpha/api/me', { token: invitedToken, expected: 403 })
+  await api('/s/beta/api/me', { token: invitedToken })
+  async function heldSocket(path, token) {
+    const response = await mf.dispatchFetch(origin + path, { headers: { Origin: origin, Upgrade: 'websocket' } })
+    assert.equal(response.status, 101)
+    const socket = response.webSocket
+    socket.accept()
+    const events = []
+    socket.addEventListener('message', event => events.push(JSON.parse(event.data)))
+    if (token) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Held socket authentication timed out')), 5000)
+        socket.addEventListener('message', event => {
+          clearTimeout(timer)
+          assert.equal(JSON.parse(event.data).t, 'hello')
+          resolve()
+        }, { once: true })
+        socket.send(JSON.stringify({ t: 'auth', token }))
+      })
+    }
+    return { socket, events }
+  }
+  const memberChannelTicket = await api('/s/beta/api/auth/ws-token', { token: invitedToken, method: 'POST', body: {} })
+  const memberWorkspaceTicket = await api('/s/beta/api/auth/ws-token', { token: invitedToken, method: 'POST', body: {} })
+  const memberChannel = await heldSocket('/s/beta/ws/channel/beta-general', memberChannelTicket.payload.token)
+  const memberWorkspace = await heldSocket('/s/beta/ws/workspace/main', memberWorkspaceTicket.payload.token)
+  const anonymousChannel = await heldSocket('/s/beta/ws/channel/beta-general')
+  const removedSocketsClosed = Promise.all([memberChannel, memberWorkspace].map(({ socket }) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Removed member retained a live socket')), 5000)
+    socket.addEventListener('close', () => { clearTimeout(timer); resolve() }, { once: true })
+  })))
+  await api(`/s/beta/api/workspaces/main/members/${privateSignup.payload.user.id}`, { method: 'DELETE' })
+  await api('/s/beta/api/channels/beta-general/messages', { method: 'POST', body: { content: 'Private content after removal', clientId: crypto.randomUUID() } })
+  await removedSocketsClosed
+  assert.ok(!memberChannel.events.some(event => event.t === 'message'), 'Removed members must not receive new message broadcasts')
+  assert.equal(anonymousChannel.events.length, 0, 'Unauthenticated sockets must not receive broadcasts')
+  anonymousChannel.socket.close()
+  await api('/s/beta/api/channels/beta-general/messages', { token: invitedToken, expected: 403 })
   const recovery = await api('/api/installation/recovery-key', { method: 'POST', body: {} })
   await api('/api/installation/recover', { method: 'POST', token: '', expected: 401, body: { email: 'stranger@example.com', code: recovery.payload.code, password: ownerPassword } })
   await api('/api/installation/recover', { method: 'POST', token: '', body: { email: 'owner@example.com', code: recovery.payload.code, password: ownerPassword } })

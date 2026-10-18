@@ -3,6 +3,7 @@
   "name": "llll-server",
   "main": ".output/server/index.mjs",
   "compatibility_date": "2026-10-16",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "assets": {
     "binding": "ASSETS",
     "html_handling": "none",

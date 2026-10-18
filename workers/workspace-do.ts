@@ -5,6 +5,7 @@ import type { L4Env } from './env'
 import { userFromTicket } from './ticket'
 import { sendWorkspaceEvent, type WorkspaceSocketAttachment } from './workspace-events'
 import { workspacePresence } from './workspace-presence'
+import { authorizedSockets } from './socket-access'
 
 const PRESENCE_TICK_MS = 60_000
 
@@ -52,52 +53,52 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
       lastActive: Date.now(),
       visible: parsed.visible !== false,
     } satisfies WorkspaceSocketAttachment)
-    this.broadcast()
+    await this.broadcast()
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     const attachment = ws.deserializeAttachment() as WorkspaceSocketAttachment | null
-    if (attachment?.userId) this.broadcast()
+    if (attachment?.userId) await this.broadcast()
     await this.scheduleTick()
   }
 
   async snapshot(): Promise<Array<{ userId: string; status: PresenceStatus }>> {
-    return this.currentPresence()
+    return workspacePresence(await this.activeSockets())
   }
 
   async notifyChannelActivity(event: WorkspaceChannelActivityEvent, recipientIds: string[]): Promise<void> {
-    sendWorkspaceEvent(this.ctx.getWebSockets(), new Set(recipientIds), event)
+    sendWorkspaceEvent(await this.activeSockets(), new Set(recipientIds), event)
   }
 
   async notifyChannelRead(event: WorkspaceChannelReadEvent, userId: string): Promise<void> {
-    sendWorkspaceEvent(this.ctx.getWebSockets(), new Set([userId]), event)
+    sendWorkspaceEvent(await this.activeSockets(), new Set([userId]), event)
   }
 
   async notifyTasksChanged(event: WorkspaceTasksChangedEvent): Promise<void> {
-    this.broadcastMessage(event)
+    await this.broadcastMessage(event)
   }
 
   async notifyMailChanged(event: WorkspaceMailChangedEvent, recipientIds: string[]): Promise<void> {
-    sendWorkspaceEvent(this.ctx.getWebSockets(), new Set(recipientIds), event)
+    sendWorkspaceEvent(await this.activeSockets(), new Set(recipientIds), event)
   }
 
   async notifyMembersChanged(event: WorkspaceMembersChangedEvent): Promise<void> {
-    this.broadcastMessage(event)
+    await this.broadcastMessage(event)
   }
 
   async notifyLiveChanged(event: WorkspaceLiveChangedEvent, recipientIds: string[]): Promise<void> {
-    sendWorkspaceEvent(this.ctx.getWebSockets(), new Set(recipientIds), event)
+    sendWorkspaceEvent(await this.activeSockets(), new Set(recipientIds), event)
   }
 
   override async alarm(): Promise<void> {
-    this.broadcast()
+    await this.broadcast()
     await this.scheduleTick()
   }
 
   private async attach(ws: WebSocket, user: PublicUser, visible: boolean) {
     ws.serializeAttachment({ userId: user.id, lastActive: Date.now(), visible } satisfies WorkspaceSocketAttachment)
     this.send(ws, { t: 'hello', workspaceId: this.workspaceId() })
-    this.broadcast()
+    await this.broadcast()
     await this.scheduleTick()
   }
 
@@ -111,8 +112,10 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
     }
   }
 
-  private currentPresence(): Array<{ userId: string; status: PresenceStatus }> {
-    return workspacePresence(this.ctx.getWebSockets())
+  private async activeSockets() {
+    return authorizedSockets(this.ctx.getWebSockets(), async userId => Boolean(await this.env.DB.prepare(
+      "SELECT id FROM users WHERE id = ? AND status = 'active'",
+    ).bind(userId).first()))
   }
 
   private async scheduleTick() {
@@ -128,13 +131,14 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
     return (this.ctx.id.name ?? '').replace(/^workspace:/, '')
   }
 
-  private broadcast() {
-    this.broadcastMessage({ t: 'presence', users: this.currentPresence() })
+  private async broadcast() {
+    const sockets = await this.activeSockets()
+    await this.broadcastMessage({ t: 'presence', users: workspacePresence(sockets) }, sockets)
   }
 
-  private broadcastMessage(message: unknown) {
+  private async broadcastMessage(message: unknown, authorized?: WebSocket[]) {
     const payload = JSON.stringify(message)
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of authorized || await this.activeSockets()) {
       const attachment = ws.deserializeAttachment() as WorkspaceSocketAttachment | null
       if (!attachment?.userId) continue
       try { ws.send(payload) }
