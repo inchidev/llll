@@ -19,13 +19,12 @@ const missing = example.split(/\r?\n/).filter((line) => {
 
 if (missing.length) env = `${env.trimEnd()}${env.trim() ? '\n\n' : ''}${missing.join('\n')}\n`
 
-const secret = randomBytes(32).toString('base64url')
-if (/^AUTH_SECRET=(?:|replace-with-a-random-secret)$/m.test(env)) {
-  env = env.replace(/^AUTH_SECRET=(?:|replace-with-a-random-secret)$/m, `AUTH_SECRET=${secret}`)
-}
-else if (!/^AUTH_SECRET=/m.test(env)) {
-  env = `${env.trimEnd()}\nAUTH_SECRET=${secret}\n`
+for (const name of ['AUTH_SECRET', 'SETUP_TOKEN']) {
+  const secret = randomBytes(32).toString('base64url')
+  const placeholder = new RegExp(`^${name}=(?:|replace-with-a-random-secret)$`, 'm')
+  if (placeholder.test(env)) env = env.replace(placeholder, `${name}=${secret}`)
+  else if (!new RegExp(`^${name}=`, 'm').test(env)) env = `${env.trimEnd()}\n${name}=${secret}\n`
 }
 
-writeFileSync(envPath, env)
+writeFileSync(envPath, env, { mode: 0o600 })
 console.log(`Ready: ${envPath} (existing values preserved)`)
