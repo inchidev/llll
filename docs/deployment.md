@@ -20,7 +20,7 @@ The single official Worker is `llll`. It serves `/` (Landing), `/open` (Shell), 
 
 Cloudflare Workers Builds is connected to the `inchidev/llll` repository and protected `main`. Its root directory is `apps/site`, build command is `pnpm build`, production command is `pnpm deploy:production`, and Preview command is `pnpm deploy:preview`. These commands reject execution outside an identified Workers Build.
 
-Every open same-repository PR to main gets a native Worker Preview, named `pr-N`. The deploy runner verifies the PR head SHA, allocates a separate `llll-portal-pr-N` D1 and applies the portal baseline. Previews use their own origin and disable production Cloudflare OAuth. Production uses a separate `llll-portal-production` database. No KV asset adapters or source uploads from developer machines participate.
+Every open same-repository PR to main gets a native Worker Preview, named after its branch. The deploy runner verifies the PR head SHA, allocates a separate `llll-portal-pr-N` D1 and applies the portal baseline. Previews use their own origin and disable production Cloudflare OAuth. Production uses a separate `llll-portal-production` database. No KV asset adapters or source uploads from developer machines participate.
 
 Merge requires CI and the deployed Cloudflare Preview check. Main pushes deploy the web app through Workers Builds. A release is a later, explicit invocation of the existing tag workflow after main CI passes; published tags and assets remain immutable. Runtime installation consumes a pinned published release.
 

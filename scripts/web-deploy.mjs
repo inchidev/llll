@@ -57,7 +57,7 @@ function wrangler(args, capture = false) {
 }
 wrangler(['d1', 'migrations', 'apply', 'PORTAL_DB', '--remote', '--config', configFile])
 const output = wrangler(mode === 'preview'
-  ? ['preview', '--config', configFile, '--name', `pr-${pr.number}`, '--ignore-base-config', '--secrets-file', secretFile, '--json']
+  ? ['preview', '--config', configFile, '--name', branch, '--ignore-base-config', '--secrets-file', secretFile, '--json']
   : ['deploy', '--config', configFile, '--secrets-file', secretFile], true)
 process.stdout.write(output)
 if (mode === 'preview') {
