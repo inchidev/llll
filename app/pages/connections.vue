@@ -4,6 +4,13 @@ import type { InstallationDiscovery, InstallationServer } from '~~/shared/instal
 definePageMeta({ layout: 'default' })
 const connections = useInstallations()
 const route = useRoute()
+const router = useRouter()
+const address = ref('')
+const connecting = computed(() => route.query.connect === '1')
+async function connectAddress() {
+  await inspect(address.value)
+  await router.replace({ path: '/connections', query: { instance: discovery.value!.origin } })
+}
 const toast = useToast()
 const embedded = import.meta.client && window.parent !== window
 const popup = useInstallationPopup()
@@ -220,8 +227,16 @@ onMounted(async () => {
   <main class="h-full overflow-y-auto bg-default px-5 py-10 sm:px-10">
     <div class="mx-auto max-w-2xl space-y-8">
       <UAlert v-if="error" color="error" :title="error" />
-      <section v-if="discovery" class="py-3">
-        <div class="flex items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">{{ discovery.name }}</h2><p class="mt-1 text-sm text-muted">{{ discovery.origin }}</p></div></div>
+      <section v-if="connecting" class="py-3">
+        <h1 class="text-2xl font-semibold">Connect an instance</h1>
+        <p class="mt-3 text-muted">Enter the address of the L4 you want to join. You’ll sign in there.</p>
+        <form class="mt-8 max-w-md space-y-4" @submit.prevent="runAuth(connectAddress)">
+          <UFormField label="Address"><UInput v-model="address" placeholder="chat.example.com" autocomplete="url" required class="w-full" /></UFormField>
+          <UButton type="submit" label="Open" :loading="authBusy" block />
+        </form>
+      </section>
+      <section v-else-if="discovery" class="py-3">
+        <div class="flex items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">{{ discovery.name }}</h2><p class="mt-1 break-all text-sm text-muted">{{ discovery.origin }}</p></div></div>
         <template v-if="discovery.kind === 'installation'">
           <form v-if="!selected?.userId" class="mt-6 grid max-w-md gap-4" @submit.prevent="runAuth(authenticate)">
             <h3 class="font-medium">{{ mode === 'setup' ? 'Claim your instance' : mode === 'signup' ? 'Create an account here' : 'Sign in to this instance' }}</h3>

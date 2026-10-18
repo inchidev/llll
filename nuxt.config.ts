@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { llllNitroPlugins, llllNodeAliases } from './nitro.runtime.mjs'
+import { communityRailIcons } from './packages/client-ui/icons'
 
 const devPublicHost = process.env.LLLL_DEV_HOST?.trim() || ''
 const requestedClientMode = process.env.LLLL_CLIENT_MODE
@@ -32,12 +33,14 @@ export default defineNuxtConfig({
     fallback: 'dark',
   },
   icon: {
+    clientBundle: { icons: communityRailIcons },
     serverBundle: {
       collections: ['ph'],
     },
     ...((bundledClient || staticWebClient)
       ? {
           clientBundle: {
+            icons: communityRailIcons,
             scan: true,
           },
         }

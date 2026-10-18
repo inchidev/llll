@@ -54,3 +54,11 @@ The final Server module built from source commit `0d36dda` was also deployed to 
 Broadcast authorization now performs a fresh check per distinct connected user per event. High-fanout capacity has not been benchmarked by this two-person acceptance run.
 
 Native Static Assets upload, guided OAuth provisioning, VPS/celld parity, Safari, physical devices, calls, mail delivery and inference are outside the verified results above. Published alpha artifacts still contain the original defects; fixes are in source and the isolated candidate only. Existing public site and prototype installations were not updated.
+
+## Shared navigation follow-up
+
+The direct client and official Shell now render the same `CommunityRail` component, including its navigation colors, 72 px width and centered buttons. Connection names are available in tooltips and group menus. Signed-out connections have no sign-in tile in the rail; authentication stays in the main area. The plus button opens the address form, and installation is available from the L4 logo menu.
+
+Browser verification on the same isolated fixture covered both entry points: owner login, L4 installation menu, plus/address connection, group collapse/expand, connection navigation, Alpha/Beta switching and channel reload. At 713 px viewport width all five rail buttons shared the same center (35.5 px), with no rotated labels. Screenshots were inspected at 390, 713 and 1280 px; the narrow layout had no horizontal document overflow. These are Chromium viewport checks, not physical-device acceptance.
+
+Local lint, both Nuxt type checks, runtime/site builds and all 499 existing unit tests passed. Only the isolated fixture's frontend assets were updated through the connector and its existing QA asset adapter. No new release, production deployment, schema changes or account/storage changes were part of this follow-up.

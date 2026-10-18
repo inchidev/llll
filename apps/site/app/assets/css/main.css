@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@source "../../../../../packages/client-ui";
 
 @font-face {
   font-family: Geist;

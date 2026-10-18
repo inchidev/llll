@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "apps/site/**"
+      - "packages/client-ui/**"
       - "shared/**"
       - "scripts/build-site.mjs"
       - "scripts/site-cloudflare.mjs"
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "apps/site/**"
+      - "packages/client-ui/**"
       - "shared/**"
       - "scripts/build-site.mjs"
       - "scripts/site-cloudflare.mjs"
