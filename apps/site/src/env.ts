@@ -1,6 +1,6 @@
-export type PortalEnv = {
+export type WebEnv = {
   ASSETS: Fetcher
-  PORTAL_DB: D1Database
+  DB: D1Database
   AUTH_SECRET: string
   PUBLIC_ORIGIN: string
   ENVIRONMENT?: string

@@ -1,4 +1,4 @@
-/** Completed installations this browser deployed through the portal.
+/** Completed installations this browser deployed through the web.
  * The deploy session (Cloudflare grant and cookie) lives for about an hour,
  * so /deploy keeps a local record of what this browser created and offers it
  * again on return even after the session ended.

@@ -1,12 +1,12 @@
 import { encryptSecret } from '../../../shared/encrypted-secret'
 import { refreshCloudflareGrant, randomCode } from '../../../shared/cloudflare-oauth'
-import type { PortalEnv } from './env'
+import type { WebEnv } from './env'
 import type { DeploymentState } from './session'
 import { digest } from './session'
 
 /** Releases come from published GitHub tags, never from a pinned env URL.
  * The operator configures no version: the user picks one on `/deploy` and the
- * portal verifies it against that release's own `SHA256SUMS` plus per-module
+ * web verifies it against that release's own `SHA256SUMS` plus per-module
  * hashes. Published tags and assets are immutable; a repair needs a new version.
  */
 export const RELEASE_REPO = 'inchidev/llll'
@@ -38,12 +38,12 @@ function releaseBase(version: string) {
 
 /** Published (non-draft) releases with deployment artifacts, newest first.
  * A `GITHUB_TOKEN` (any PAT, no scopes needed for public repos) avoids GitHub
- * API rate limits on shared Cloudflare egress IPs. Without it the portal uses
+ * API rate limits on shared Cloudflare egress IPs. Without it the website uses
  * the unauthenticated quota.
  */
 export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
   const response = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases?per_page=30`, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'llll-portal', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(20000),
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'llll-web', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(20000),
   })
   if (!response.ok) throw new Error(`The release list could not be loaded from GitHub (${response.status})`)
   const data = await response.json() as { tag_name?: string; name?: string; draft?: boolean; prerelease?: boolean; published_at?: string; html_url?: string; assets?: { name?: string }[] }[]
@@ -78,7 +78,7 @@ async function release(version: string): Promise<{ artifact: Artifact; manifestU
 }
 
 /** Each completed phase is resumable. Persisted names and secrets never change on retry. */
-export async function advanceDeployment(state: DeploymentState, env: PortalEnv, save: () => Promise<void>) {
+export async function advanceDeployment(state: DeploymentState, env: WebEnv, save: () => Promise<void>) {
   if (!state.grant || !state.accountId || !state.version || !state.worker || !state.authSecret || !state.setupToken) throw new Error('Start the deployment first')
   if (state.grant.expiresAt < Date.now() + 120000) { state.grant = await refreshCloudflareGrant(state.grant); await save() }
   const token = state.grant.accessToken
@@ -144,7 +144,7 @@ export async function advanceDeployment(state: DeploymentState, env: PortalEnv, 
     const check = await fetch(state.origin + '/.well-known/llll', { redirect: 'manual', signal: AbortSignal.timeout(15000) })
     const data = await check.json() as { product: string; origin: string; ready: boolean }
     if (!check.ok || data.product !== 'llll' || data.origin !== state.origin || data.ready) throw new Error('Installation verification failed; retry before claiming ownership')
-    // The installation now owns the grant. The portal keeps no Cloudflare credential.
+    // The installation now owns the grant. The website keeps no Cloudflare credential.
     delete state.grant; delete state.authSecret; delete state.verifier; delete state.state
     state.completed = true; state.step = 3; await save()
   }

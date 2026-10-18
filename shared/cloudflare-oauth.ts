@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const CLOUDFLARE_AUTH_URL = 'https://dash.cloudflare.com/oauth2/auth'
 export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
-// Every id here is probe-verified against the portal OAuth client: requesting
+// Every id here is probe-verified against the web OAuth client: requesting
 // anything outside the client's registered set fails the whole consent with
 // invalid_scope. Groups: provisioning (accounts, Workers, D1, KV, R2),
 // custom domains + mail (zones, DNS, Email Routing rules, Email Sending),

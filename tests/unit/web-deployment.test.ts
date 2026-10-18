@@ -26,7 +26,7 @@ it('names the missing Workers edit rights when the assets upload is refused', as
     if (url.pathname.endsWith('/assets-upload-session')) return Response.json({ success: false, errors: [{ message: 'No access to the specified resource' }] }, { status: 403 })
     return Response.json({ success: true, result: [{ results: [] }] })
   }))
-  const env = { PUBLIC_ORIGIN: 'https://portal.example' }
+  const env = { PUBLIC_ORIGIN: 'https://web.example' }
   await expect(advanceDeployment(state, env as Parameters<typeof advanceDeployment>[1], async () => {})).rejects.toThrow('missing Workers edit rights')
 })
 it('resumes an interrupted upload without replacing resources and hands the encrypted grant to the installation', async () => {
@@ -69,9 +69,9 @@ it('resumes an interrupted upload without replacing resources and hands the encr
     }
     return Response.json({ success: true, result })
   }))
-  const env = { PUBLIC_ORIGIN: 'https://portal.example' }
+  const env = { PUBLIC_ORIGIN: 'https://web.example' }
   const save = async () => { snapshots.push(JSON.stringify(state)) }
-  // Only the deployment fields are needed by this engine; it does not access portal storage.
+  // Only the deployment fields are needed by this engine; it does not access web storage.
   await advanceDeployment(state, env as Parameters<typeof advanceDeployment>[1], save)
   expect(state.step).toBe(1)
   await expect(advanceDeployment(state, env as Parameters<typeof advanceDeployment>[1], save)).rejects.toThrow('Interrupted upload')

@@ -25,7 +25,7 @@ jobs:
       - run: pnpm build:site
       - run: pnpm build:deployment
       - run: pnpm test:instance
-      - run: node scripts/test-portal.mjs
+      - run: node scripts/test-web.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: llll-preview-${{ github.sha }}

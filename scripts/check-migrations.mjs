@@ -78,6 +78,14 @@ function migrationFilesAt(revision, directory = 'drizzle/migrations') {
   return output.split('\n').filter(isMigrationPath).map(filePath => basename(filePath))
 }
 
+export function validateWebBaselineRename(directory, status, paths, previous, current) {
+  if (directory !== 'apps/site/migrations' || status !== 'R100' || paths.length !== 2
+    || !/^apps\/site\/migrations\/0000_[a-z0-9_]+\.sql$/.test(paths[0])
+    || paths[0] === paths[1] || paths[1] !== 'apps/site/migrations/0000_web_baseline.sql') return false
+  if (!previous.equals(current)) throw new Error('Merged migration SQL is immutable')
+  return true
+}
+
 function verifyImmutableHistory(baseRevision, currentMigrations, directory = 'drizzle/migrations') {
   try {
     execFileSync('git', ['merge-base', '--is-ancestor', baseRevision, 'HEAD'], { cwd: root, stdio: 'ignore' })
@@ -100,14 +108,23 @@ function verifyImmutableHistory(baseRevision, currentMigrations, directory = 'dr
     'diff', '--name-status', '--find-renames', `${baseRevision}...HEAD`, '--', directory,
   ])
 
+  const renamedBaselines = new Map()
   for (const line of changes.split('\n').filter(Boolean)) {
     const [status, ...paths] = line.split('\t')
+    if (directory === 'apps/site/migrations' && status === 'R100' && baseMigrations.length === 1) {
+      const previous = execFileSync('git', ['show', `${baseRevision}:${paths[0]}`], { cwd: root })
+      const current = readFileSync(join(root, paths[1]))
+      if (validateWebBaselineRename(directory, status, paths, previous, current)) {
+        renamedBaselines.set(basename(paths[0]), basename(paths[1]))
+        continue
+      }
+    }
     if (baseDirectory === directory && status !== 'A' && paths.some(isMigrationPath)) {
       throw new Error(`Merged migration SQL is immutable; ${status} ${paths.join(' -> ')}`)
     }
   }
 
-  const baseNames = new Set(baseMigrations.map(migration => migration.fileName))
+  const baseNames = new Set(baseMigrations.map(migration => renamedBaselines.get(migration.fileName) || migration.fileName))
   const added = currentMigrations.filter(migration => !baseNames.has(migration.fileName))
   const expectedFirst = baseMigrations.length
   added.forEach((migration, index) => {
@@ -134,14 +151,14 @@ export async function checkMigrations({ baseRevision = '' } = {}) {
 
   const installationFiles = (await readdir(join(root, 'apps/instance/migrations'))).filter(name => name.endsWith('.sql'))
   const installation = validateMigrationFileNames(installationFiles)
-  const portalFiles = (await readdir(join(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql'))
-  const portal = validateMigrationFileNames(portalFiles)
+  const webFiles = (await readdir(join(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql'))
+  const web = validateMigrationFileNames(webFiles)
   if (baseRevision) {
-    verifyImmutableHistory(baseRevision, portal, 'apps/site/migrations')
+    verifyImmutableHistory(baseRevision, web, 'apps/site/migrations')
     verifyImmutableHistory(baseRevision, migrations)
     verifyImmutableHistory(baseRevision, installation, 'apps/instance/migrations')
   }
-  console.log(`Validated ${portal.length} portal migrations`)
+  console.log(`Validated ${web.length} web migrations`)
   console.log(`Validated ${installation.length} installation migrations`)
 
   const first = migrations.at(0)?.fileName.slice(0, 4) || 'none'

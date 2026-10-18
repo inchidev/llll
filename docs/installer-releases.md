@@ -1,6 +1,6 @@
 # Deployment artifacts
 
-One immutable L4 release contains matching installation/server modules, client assets and migration chains. The site and common client deploy independently from the same repository. The portal holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
+One immutable L4 release contains matching installation/server modules, client assets and migration chains. The site and common client deploy independently from the same repository. The website holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
 
 | Asset | Purpose |
 | --- | --- |
@@ -10,7 +10,7 @@ One immutable L4 release contains matching installation/server modules, client a
 | `llll-assets.json` | Server client assets and ordered server migrations. |
 | `llll-deployment-core-<version>.tgz` | Provisioning library for installation controllers and operator tooling. |
 | `llll-runtime-linux-amd64.tar.gz` | Portable Docker image, tagged `llll:<version>`, loaded with `docker load`. |
-| `llll.tgz` | Independently deployable portal Worker (`llll`), public site/PWA assets and portal migrations. |
+| `llll.tgz` | Independently deployable web Worker (`llll`), public site/PWA assets and web migrations. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
 The provisioning library is `@llll/deployment-core`, not a separately deployed Admin.

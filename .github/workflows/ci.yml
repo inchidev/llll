@@ -78,7 +78,7 @@ jobs:
           pnpm build:site
           pnpm build:deployment
           pnpm test:instance
-          node scripts/test-portal.mjs
+          node scripts/test-web.mjs
 
   self-host:
     name: self-host

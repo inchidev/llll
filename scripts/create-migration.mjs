@@ -4,8 +4,9 @@ import { validateMigrationFileNames } from './check-migrations.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const target = process.argv[3] || 'server'
-if (!['server', 'installation', 'portal'].includes(target)) throw new Error('Choose server, installation or portal')
-const migrationsDirectory = join(root, target === 'server' ? 'drizzle/migrations' : `apps/${target === 'portal' ? 'site' : target}/migrations`)
+const directories = { server: 'drizzle/migrations', instance: 'apps/instance/migrations', web: 'apps/site/migrations' }
+if (!Object.hasOwn(directories, target)) throw new Error('Choose server, instance or web')
+const migrationsDirectory = join(root, directories[target])
 const slug = process.argv[2]?.trim() || ''
 
 if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/u.test(slug)) {

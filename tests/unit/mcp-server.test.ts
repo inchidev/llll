@@ -160,14 +160,14 @@ describe('L4 MCP server', () => {
       method: 'tools/call',
       params: {
         name: 'create_document',
-        arguments: { title: 'Portal', content: '<p>Import Slack, Mattermost, and Discord.</p>' },
+        arguments: { title: 'Web', content: '<p>Import Slack, Mattermost, and Discord.</p>' },
       },
     })
 
     expect(response.status).toBe(200)
     expect(payload.result.isError).not.toBe(true)
     expect(sqlite.prepare('SELECT title, content, created_by as createdBy FROM documents').get()).toEqual({
-      title: 'Portal',
+      title: 'Web',
       content: '<p>Import Slack, Mattermost, and Discord.</p>',
       createdBy: 'agent',
     })

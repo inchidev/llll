@@ -5,12 +5,12 @@ Baseline: `0.1.0-alpha.1`, prepared on 2026-10-18. The source and release histor
 ## Local checks
 
 - Frozen-lockfile dependency installation completed on Node 24.21.0 and pnpm 10.30.3.
-- Lint, root types, site/portal types and Instance types passed.
+- Lint, root types, site/web types and Instance types passed.
 - 92 unit-test files passed, containing 494 tests. Historical upgrade-fixture tests were replaced by tests of the shipped fresh schemas.
-- The migration checker found one contiguous `0000` migration for each of Server, Instance and portal. Drizzle reported no schema changes against the initial snapshot.
+- The migration checker found one contiguous `0000` migration for each of Server, Instance and web. Drizzle reported no schema changes against the initial snapshot.
 - Server, Instance, site/Shell and installer artifacts built. The Server Worker passed a minified Wrangler bundle dry run.
 - The isolated three-Worker fixture passed owner bootstrap, identity, invitations, cross-server HTTP/WebSocket denial, private files, session revocation and PKCE/OIDC flows. Server and Instance archives were restored into fresh SQLite databases with clean foreign-key checks and preserved message/owner data.
-- The isolated portal fixture passed assets, installer configuration, unavailable OAuth and cross-origin mutation denial.
+- The isolated web fixture passed assets, installer configuration, unavailable OAuth and cross-origin mutation denial.
 
 ## Cloudflare isolation
 

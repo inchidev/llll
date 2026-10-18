@@ -64,7 +64,7 @@ export function useShell() {
     persist(); open(installation)
     return installation
   }
-  /** A deployment this browser finished keeps its unused owner claim in the portal session:
+  /** A deployment this browser finished keeps its unused owner claim in the web session:
    * connecting its installation again (address bar, tile, remembered link) still claims. */
   async function adoptDeployClaim(origin: string) {
     if (claims.value[origin]) return

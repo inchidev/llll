@@ -18,7 +18,7 @@ The owner was claimed through the browser. The two Servers were provisioned thro
 
 | Trigger | Published alpha behavior | Unreleased fix |
 | --- | --- | --- |
-| Instance proxies a same-account Server without a service binding | Cloudflare returns an error document instead of application HTTP/WebSocket traffic | Enable `global_fetch_strictly_public` on Instance, Server and portal deployments. Add it when installing/updating an older immutable Server manifest too. |
+| Instance proxies a same-account Server without a service binding | Cloudflare returns an error document instead of application HTTP/WebSocket traffic | Enable `global_fetch_strictly_public` on Instance, Server and web deployments. Add it when installing/updating an older immutable Server manifest too. |
 | Reload a Shell URL containing a Server UUID and Channel path | The prerendered landing page takes over and navigation returns to `/` | Route valid UUID paths internally to `/200`, the canonical URL of Nuxt's client-only `200.html` entry. The fixture models both Cloudflare's `index.html` fallback and its `.html` redirect rather than hiding these behaviors. |
 | Kick a member while their Channel socket remains open | HTTP messages/files return 403, but the existing socket receives subsequent messages | Check current Server/Channel access before broadcasts, exclude unauthenticated sockets and close connections whose access was revoked. Workspace events and presence also exclude removed members. |
 | Sign out while the sign-out request is delayed by 500 ms | Navigation cancels revocation; the previous signed token still returns 200. Waiting also exposed the endpoint's missing JSON body. | Send the required empty JSON body and await server sign-out before clearing connection state and navigating. |
@@ -27,7 +27,7 @@ Same-account routing was retested after removing the test fixture's forward and 
 
 ## Browser evidence
 
-Two independent Chromium browser sessions used an owner Account and an invited member Account. The Shell was deployed separately from the Instance using the release's portal module and assets; its routing fix was then tested from source.
+Two independent Chromium browser sessions used an owner Account and an invited member Account. The Shell was deployed separately from the Instance using the release's web module and assets; its routing fix was then tested from source.
 
 | Scenario | Result |
 | --- | --- |
@@ -49,7 +49,7 @@ The fixture's removed-member row was explicitly reset only to repeat the before/
 
 ## Local validation and remaining limits
 
-499 unit tests across 95 files, lint, root/portal/Instance types, builds, fresh-schema checks, the three-runtime Instance fixture and the portal fixture passed. Regression coverage includes the older manifest's missing transport flag, the actual SPA fallback, held Channel/Workspace sockets through a kick, unauthenticated sockets, fail-closed recipient authorization and the JSON sign-out request waiting for revocation.
+499 unit tests across 95 files, lint, root/web/Instance types, builds, fresh-schema checks, the three-runtime Instance fixture and the web fixture passed. Regression coverage includes the older manifest's missing transport flag, the actual SPA fallback, held Channel/Workspace sockets through a kick, unauthenticated sockets, fail-closed recipient authorization and the JSON sign-out request waiting for revocation.
 
 The final Server module built from source commit `0d36dda` was also deployed to the isolated fixture after local validation; SHA-256: `e7b2ea3bfa210aa65d66d1714705f5efafef6b13b66db66f5f9ee7f7059b573c`. Browser before/after reproductions and local real-runtime regressions are distinct evidence; the fixture does not change the published release's bytes.
 

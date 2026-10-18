@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
 import assert from 'node:assert/strict'
 const root = resolve(import.meta.dirname, '..')
-const port = Number(process.env.LLLL_PORTAL_TEST_PORT || 19003)
+const port = Number(process.env.LLLL_WEB_TEST_PORT || 19003)
 const origin = `http://localhost:${port}`
 const publicDir = resolve(root, 'apps/site/.output/public')
 async function assets(request) {
@@ -26,10 +26,10 @@ async function assets(request) {
   }
   return new Response(data, { headers: { 'Content-Type': ({ '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' })[extension] || 'application/octet-stream' } })
 }
-const mf = new Miniflare(convertV4MiniflareOptions({ host: '127.0.0.1', port, workers: [{ name: 'portal', modules: true, scriptPath: resolve(root, 'apps/site/.bundle/index.mjs'), compatibilityDate: '2026-09-26', d1Databases: { PORTAL_DB: 'portal' }, serviceBindings: { ASSETS: assets }, bindings: { PUBLIC_ORIGIN: origin, AUTH_SECRET: 'local-portal-test-secret-'.repeat(3), TEST_ALLOW_LOCAL_ORIGINS: 'true' } }] }))
+const mf = new Miniflare(convertV4MiniflareOptions({ host: '127.0.0.1', port, workers: [{ name: 'web', modules: true, scriptPath: resolve(root, 'apps/site/.bundle/index.mjs'), compatibilityDate: '2026-09-26', d1Databases: { DB: 'web' }, serviceBindings: { ASSETS: assets }, bindings: { PUBLIC_ORIGIN: origin, AUTH_SECRET: 'local-web-test-secret-'.repeat(3), TEST_ALLOW_LOCAL_ORIGINS: 'true' } }] }))
 try {
-  const db = await mf.getD1Database('PORTAL_DB')
-  await db.exec(await readFile(resolve(root, 'apps/site/migrations/0000_portal_baseline.sql'), 'utf8'))
+  const db = await mf.getD1Database('DB')
+  await db.exec(await readFile(resolve(root, 'apps/site/migrations/0000_web_baseline.sql'), 'utf8'))
   assert.equal((await mf.dispatchFetch(origin + '/')).status, 200)
   const deepLink = await mf.dispatchFetch(origin + '/00000000-0000-4000-8000-000000000001/channels/general')
   assert.equal(deepLink.status, 200)
@@ -39,9 +39,9 @@ try {
   assert.equal((await mf.dispatchFetch(origin + '/api/deploy/oauth')).status, 503)
   const forbidden = await mf.dispatchFetch(origin + '/api/servers/register', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: '{}' })
   assert.equal(forbidden.status, 403)
-  console.log('PASS: portal assets, installer configuration, unavailable OAuth and cross-origin mutation denial')
+  console.log('PASS: web assets, installer configuration, unavailable OAuth and cross-origin mutation denial')
   if (process.argv.includes('--serve')) {
-    console.log(`Local L4 portal: ${origin}`)
+    console.log(`Local L4 web: ${origin}`)
     await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve) })
   }
 } finally { await mf.dispose() }

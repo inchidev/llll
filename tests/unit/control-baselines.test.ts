@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
 const installationSql = readFileSync(new URL('../../apps/instance/migrations/0000_installation_baseline.sql', import.meta.url), 'utf8')
-const portalSql = readFileSync(new URL('../../apps/site/migrations/0000_portal_baseline.sql', import.meta.url), 'utf8')
+const webSql = readFileSync(new URL('../../apps/site/migrations/0000_web_baseline.sql', import.meta.url), 'utf8')
 
 describe('fresh control schemas', () => {
   it('creates Instance identity, public server IDs and refresh leases in one baseline', () => {
@@ -26,10 +26,10 @@ describe('fresh control schemas', () => {
     finally { db.close() }
   })
 
-  it('keeps portal session and routing data separate from Instance accounts', () => {
+  it('keeps web session and routing data separate from Instance accounts', () => {
     const db = new DatabaseSync(':memory:')
     try {
-      db.exec(portalSql)
+      db.exec(webSql)
       db.exec("INSERT INTO deployment_sessions (id_hash,payload,expires_at) VALUES ('hash','encrypted',123)")
       expect(db.prepare('SELECT lease_until FROM deployment_sessions').get()).toMatchObject({ lease_until: 0 })
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'auth_users'").get()).toBeUndefined()

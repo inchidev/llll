@@ -40,18 +40,19 @@ if (mode === 'preview') {
   }
   if (!pr) throw new Error('Preview requires the current head of a mergeable PR to main. Open or update the PR and retry the Build.')
 }
-const databaseName = mode === 'production' ? 'llll-portal-production' : `llll-portal-pr-${pr.number}`
+const databaseName = mode === 'production' ? 'llll' : `llll-pr-${pr.number}`
 let database
 for (let page = 1; ; page++) {
   const data = await api(`/d1/database?per_page=100&page=${page}`)
   database = data.result.find(item => item.name === databaseName)
   if (database || page >= (data.result_info?.total_pages || 1)) break
 }
+if (!database && mode === 'production') throw new Error('Production D1 llll must already exist; provision or migrate it through the connected API before deploying')
 database ||= (await api('/d1/database', { name: databaseName })).result
 const config = JSON.parse(await readFile(resolve(root, 'apps/site/wrangler.jsonc'), 'utf8'))
 config.main = resolve(root, 'apps/site/.bundle/index.mjs')
 config.assets.directory = resolve(root, 'apps/site/.output/public')
-config.d1_databases = [{ binding: 'PORTAL_DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(root, 'apps/site/migrations') }]
+config.d1_databases = [{ binding: 'DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(root, 'apps/site/migrations') }]
 config.vars.ENVIRONMENT = mode
 config.vars.BUILD_COMMIT = process.env.WORKERS_CI_COMMIT_SHA
 if (mode === 'preview') delete config.vars.CLOUDFLARE_OAUTH_CLIENT_ID
@@ -62,15 +63,15 @@ await mkdir(work, { recursive: true })
 const configFile = resolve(work, 'web.json')
 await writeFile(configFile, JSON.stringify(config))
 const secretFile = resolve(work, 'secrets.json')
-const secret = mode === 'production' ? process.env.PORTAL_AUTH_SECRET : randomBytes(32).toString('hex')
-if (!secret) throw new Error('Production PORTAL_AUTH_SECRET is required')
+const secret = mode === 'production' ? process.env.WEB_AUTH_SECRET : randomBytes(32).toString('hex')
+if (!secret) throw new Error('Production WEB_AUTH_SECRET is required')
 await writeFile(secretFile, JSON.stringify({ AUTH_SECRET: secret }), { mode: 0o600 })
 function wrangler(args, capture = false) {
   const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' })
   if (result.status !== 0) { if (capture) process.stderr.write(result.stderr || result.stdout); throw new Error(`Remote Wrangler ${args[0]} failed`) }
   return result.stdout
 }
-wrangler(['d1', 'migrations', 'apply', 'PORTAL_DB', '--remote', '--config', configFile])
+wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', configFile])
 const output = wrangler(mode === 'preview'
   ? ['preview', '--config', configFile, '--name', branch, '--ignore-base-config', '--secrets-file', secretFile, '--json']
   : ['deploy', '--config', configFile, '--secrets-file', secretFile], true)

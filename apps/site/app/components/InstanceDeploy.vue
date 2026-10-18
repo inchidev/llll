@@ -14,7 +14,7 @@ const versions = ref<{ version: string; name: string; published_at: string; note
 const version = ref('')
 const releasesError = ref('')
 const remembered = ref<DeployedInstallation[]>([])
-/** Set when the portal session is gone and this browser deployed before: the page then says so instead of silently looking new. */
+/** Set when the web session is gone and this browser deployed before: the page then says so instead of silently looking new. */
 const sessionEnded = ref(false)
 /** Deployments in flight navigate straight to the shell; returning later shows the completion screen again without redirecting. */
 const redirected = ref(false)
