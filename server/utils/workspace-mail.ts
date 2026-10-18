@@ -1,3 +1,4 @@
+import { getServerId } from '../../shared/server-id'
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { users } from '../../drizzle/schema'
@@ -60,7 +61,7 @@ export async function ensureWorkspaceMailFromEnv(env: L4Env): Promise<void> {
     return
   }
 
-  const owner = await env.DB.prepare('SELECT owner_id as ownerId FROM workspace WHERE id = ?').bind('main').first<{ ownerId: string }>()
+  const owner = await env.DB.prepare('SELECT owner_id as ownerId FROM workspace WHERE id = ?').bind(await getServerId(env.DB)).first<{ ownerId: string }>()
   if (!owner) return
   const created = nowIso()
   const existing = await env.DB.prepare('SELECT channel_id as channelId, local_part as localPart FROM email_mailboxes LIMIT 1').first<{ channelId: string; localPart: string }>()

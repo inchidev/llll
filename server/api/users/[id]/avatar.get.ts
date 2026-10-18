@@ -1,14 +1,14 @@
+import { getServerId } from '../../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { users } from '../../../../drizzle/schema'
 import { isStoredAvatarKey } from '../../../../shared/avatar'
-import { WORKSPACE_ID } from '../../../../shared/ids'
 import { cf, requireFiles, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { requireMember } from '../../../utils/guards'
 
 export default defineEventHandler(async (event) => {
   const userId = getRouterParam(event, 'id')!
-  await requireMember(event, WORKSPACE_ID)
+  await requireMember(event, (await getServerId(cf(event).env.DB)))
   const { env } = cf(event)
   const db = getDb(env.DB)
   const row = (await db.select({ avatarR2Key: users.avatarR2Key }).from(users)

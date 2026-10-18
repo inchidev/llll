@@ -1,3 +1,4 @@
+import { getServerId } from '../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authUsers, users } from '../../drizzle/schema'
@@ -19,6 +20,6 @@ export default defineEventHandler(async (event) => {
   const displayName = body.displayName.trim()
   await db.update(users).set({ displayName }).where(eq(users.id, me.id))
   await db.update(authUsers).set({ name: displayName, updatedAt: new Date() }).where(eq(authUsers.id, me.id)).catch(() => undefined)
-  waitUntil(signalMembersChanged(env, 'main'))
+  waitUntil(signalMembersChanged(env, await getServerId(env.DB)))
   return { user: { ...me, displayName } }
 })

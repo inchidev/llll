@@ -1,8 +1,8 @@
+import { getServerId } from '../shared/server-id'
 import { channelPath } from '../shared/paths'
 import { liveNotificationTitle } from '../shared/live'
 import type { LiveState, PublicUser } from '../shared/types'
 import type { WorkspaceLiveChangedEvent } from '../shared/workspace-realtime'
-import { WORKSPACE_ID } from '../shared/ids'
 import { asRpc, type L4Env } from './env'
 
 type LiveChannel = {
@@ -67,6 +67,6 @@ export async function signalLiveChanged(
   }
   const stub = asRpc<{
     notifyLiveChanged: (event: WorkspaceLiveChangedEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${WORKSPACE_ID}`))
+  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
   await stub.notifyLiveChanged(event, recipientIds)
 }

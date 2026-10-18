@@ -10,6 +10,13 @@ const session = useSessionStore()
 const appName = computed(() => session.health?.appName || DEFAULT_APP_NAME)
 const route = useRoute()
 const toast = useToast()
+const embedded = ref(false)
+const popupBusy = ref(false)
+const popup = useServerPopup()
+async function signInWindow() {
+  popupBusy.value = true
+  try { await popup.signIn(); await session.refresh(api); await navigateTo(safeNextPath(), { external: safeNextPath().startsWith('/api/auth/connection/authorize?') }) } catch (cause) { error.value = errorMessage(cause) } finally { popupBusy.value = false }
+}
 const busy = ref(false)
 const socialBusy = ref<AuthLoginMethod | null>(null)
 const error = ref<string | null>(null)
@@ -26,9 +33,10 @@ type Schema = z.output<typeof schema>
 const state = reactive<Partial<Schema>>({ email: '', password: '' })
 
 onMounted(async () => {
+  embedded.value = window.parent !== window
   await session.refresh(api)
   if (session.user) {
-    await navigateTo(safeNextPath())
+    await navigateTo(safeNextPath(), { external: safeNextPath().startsWith('/api/auth/connection/authorize?') })
     return
   }
   if (session.health && !session.health.ready) await navigateTo('/setup')
@@ -45,7 +53,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       await navigateTo({ path: '/signup/accept', query: { next: safeNextPath() } })
       return
     }
-    await navigateTo(safeNextPath())
+    await navigateTo(safeNextPath(), { external: safeNextPath().startsWith('/api/auth/connection/authorize?') })
   }
   catch (err) {
     error.value = errorMessage(err)
@@ -57,7 +65,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 }
 
 function safeNextPath() {
-  const next = typeof route.query.next === 'string' ? route.query.next : '/'
+  const next = typeof route.query.return_to === 'string' ? route.query.return_to : typeof route.query.next === 'string' ? route.query.next : '/'
   return next.startsWith('/') && !next.startsWith('//') ? next : '/'
 }
 
@@ -117,6 +125,7 @@ const canCreateAccount = computed(() => Boolean(
 
 <template>
   <div>
+    <UButton v-if="embedded" label="Sign in in a window" color="neutral" variant="outline" :loading="popupBusy" class="mb-6" @click="signInWindow" />
     <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Sign in</h2>
     <p class="mt-1.5 text-sm text-muted">
       Welcome back. Sign in to continue to {{ appName }}.
@@ -193,5 +202,6 @@ const canCreateAccount = computed(() => Boolean(
         <ULink to="/setup" class="text-default font-medium">Run setup</ULink>
       </p>
     </div>
+    <UButton to="/recover" label="Use a recovery key" variant="link" class="mt-4" />
   </div>
 </template>

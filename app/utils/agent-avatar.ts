@@ -1,5 +1,4 @@
 import { isStoredAvatarKey } from '~~/shared/avatar'
-import { WORKSPACE_ID } from '~~/shared/ids'
 import type { UserKind } from '~~/shared/types'
 
 export const agentAvatarSources = [
@@ -26,7 +25,7 @@ export function agentAvatarSrc(id: string): string {
 export function userAvatarSrc(user: { id: string, kind: UserKind, avatarR2Key?: string | null }): string | undefined {
   if (isStoredAvatarKey(user.avatarR2Key)) {
     const path = user.kind === 'agent'
-      ? `/api/workspaces/${WORKSPACE_ID}/agents/${user.id}/avatar`
+      ? `/api/agents/${user.id}/avatar`
       : `/api/users/${user.id}/avatar`
     return `${path}?v=${encodeURIComponent(user.avatarR2Key)}`
   }

@@ -1,7 +1,8 @@
+import { getServerId } from '../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { users } from '../../../drizzle/schema'
 import { isStoredAvatarKey, MAX_AVATAR_BYTES } from '../../../shared/avatar'
-import { newId, nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { newId, nowIso } from '../../../shared/ids'
 import { extForMime, sniffMime } from '../../../shared/mime'
 import { signalMembersChanged } from '../../../workers/member-events'
 import { cf, requireFiles, fail } from '../../utils/cf'
@@ -9,7 +10,7 @@ import { getDb } from '../../utils/db'
 import { requireMember } from '../../utils/guards'
 
 export default defineEventHandler(async (event): Promise<{ avatarR2Key: string }> => {
-  const { user } = await requireMember(event, WORKSPACE_ID)
+  const { user } = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const { env, waitUntil } = cf(event)
   const form = await readMultipartFormData(event)
   const file = form?.find(part => part.name === 'file' && part.data)
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event): Promise<{ avatarR2Key: string }
     .where(eq(users.id, user.id)).limit(1))[0]
   if (!current) fail(404, 'not_found', 'User not found')
 
-  const key = `${WORKSPACE_ID}/users/${user.id}/avatar-${newId()}.${extForMime(mime)}`
+  const key = `${(await getServerId(cf(event).env.DB))}/users/${user.id}/avatar-${newId()}.${extForMime(mime)}`
   await requireFiles(env).put(key, file.data, { httpMetadata: { contentType: mime } })
   try {
     await db.update(users).set({ avatarR2Key: key, updatedAt: nowIso() }).where(eq(users.id, user.id))
@@ -33,6 +34,6 @@ export default defineEventHandler(async (event): Promise<{ avatarR2Key: string }
     throw error
   }
   if (isStoredAvatarKey(current.avatarR2Key)) await requireFiles(env).delete(current.avatarR2Key)
-  waitUntil(signalMembersChanged(env, WORKSPACE_ID))
+  waitUntil(signalMembersChanged(env, (await getServerId(cf(event).env.DB))))
   return { avatarR2Key: key }
 })

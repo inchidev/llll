@@ -1,5 +1,6 @@
+import { getServerId } from '../shared/server-id'
 import PostalMime, { type Address } from 'postal-mime'
-import { newId, nowIso, WORKSPACE_ID } from '../shared/ids'
+import { newId, nowIso } from '../shared/ids'
 import { MAIL_EXTERNAL_USER_ID, MAIL_LIMITS, mailAddressList, mergeMailAddresses } from '../shared/mail'
 import { plainMailBody } from '../shared/mail-content'
 import type { L4Env } from './env'
@@ -133,10 +134,11 @@ export async function ingestWorkspaceEmail(message: WorkspaceEmailEnvelope, env:
     ).bind(mailbox.channelId, mailbox.channelId, ...refs).first<{ channelId: string; participantsJson: string }>()
   }
 
+  const serverId = await getServerId(env.DB)
   const created = nowIso()
   const messageId = newId()
   const subject = (parsed.subject || '(no subject)').replace(/[\r\n]+/gu, ' ').trim().slice(0, 500)
-  const rawKey = `${WORKSPACE_ID}/mail/raw/${messageId}.eml`
+  const rawKey = `${serverId}/mail/raw/${messageId}.eml`
 
   // Keep attachments within the limits; the message says what was left out.
   const omitted: string[] = []
@@ -155,7 +157,7 @@ export async function ingestWorkspaceEmail(message: WorkspaceEmailEnvelope, env:
       contentType: attachment.mimeType || 'application/octet-stream',
       content,
       size: content.byteLength,
-      key: `${WORKSPACE_ID}/mail/attachments/${messageId}/${id}-${filename}`,
+      key: `${serverId}/mail/attachments/${messageId}/${id}-${filename}`,
     }]
   })
   if (!env.FILES) omitted.push(...attachmentRows.splice(0).map(attachment => `${attachment.filename} (R2 is disabled)`))

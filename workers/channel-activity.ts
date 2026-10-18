@@ -1,4 +1,4 @@
-import { WORKSPACE_ID } from '../shared/ids'
+import { getServerId } from '../shared/server-id'
 import { notificationPreview } from '../shared/notifications'
 import { channelPath } from '../shared/paths'
 import type { PublicUser } from '../shared/types'
@@ -97,7 +97,7 @@ export async function signalChannelActivity(
   }
   const stub = asRpc<{
     notifyChannelActivity: (event: WorkspaceChannelActivityEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${WORKSPACE_ID}`))
+  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
   await stub.notifyChannelActivity(event, audience.recipientIds)
 }
 
@@ -118,6 +118,6 @@ export async function signalChannelRead(
   }
   const stub = asRpc<{
     notifyChannelRead: (event: WorkspaceChannelReadEvent, userId: string) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${WORKSPACE_ID}`))
+  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
   await stub.notifyChannelRead(event, userId)
 }

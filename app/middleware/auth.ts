@@ -6,7 +6,6 @@ export default defineNuxtRouteMiddleware(async (to) => {
     await session.refresh(fetcher)
   }
   if (!session.user) {
-    if (useInstances().activeInstallation.value?.kind === 'installation') return navigateTo('/connections')
     return navigateTo({ path: '/login', query: { next: to.fullPath } })
   }
   if (session.user.onboardingRequired && to.path !== '/signup/accept') {

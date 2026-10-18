@@ -1,48 +1,23 @@
 export default defineNuxtPlugin(async () => {
-  const connections = useInstances()
-  const clientMode = useRuntimeConfig().public.clientMode as string
-  connections.initialize()
-  const bootstrap = (window as Window & { __LLLL_BOOTSTRAP__?: { token: string; serverId: string } }).__LLLL_BOOTSTRAP__
-  Reflect.deleteProperty(window, '__LLLL_BOOTSTRAP__')
-  if (bootstrap?.token) connections.tokens.value[location.origin] = bootstrap.token
-  if (clientMode === 'web') {
-    connections.installations.value = connections.installations.value.filter(item => item.origin === location.origin)
-    if (connections.active.value?.origin !== location.origin) connections.active.value = null
-  }
-  if (['http:', 'https:'].includes(location.protocol)) {
-    try {
-      const discovery = await connections.discover(location.origin)
-      if (discovery.kind === 'server' && !connections.active.value) connections.select(location.origin, discovery.id)
-      const launch = useState<string>('llll-telegram-launch', () => '')
-      if (discovery.kind === 'installation' && discovery.telegram && launch.value) {
-        const initData = launch.value
-        launch.value = ''
-        await connections.request(location.origin, '/api/auth/telegram/miniapp', { method: 'POST', body: { initData } })
-      }
-    }
-    catch { /* The client can always add an installation explicitly. */ }
-  }
-  await Promise.all(connections.installations.value.map(async installation => {
-    try { await connections.refresh(installation.origin) }
-    catch { /* Keep unavailable connections visible for account recovery. */ }
-  }))
-  if (bootstrap?.serverId && connections.installations.value.find(i => i.origin === location.origin)?.servers.some(s => s.id === bootstrap.serverId)) connections.select(location.origin, bootstrap.serverId)
+  if (!['http:', 'https:'].includes(location.protocol)) return
+  const connection = useServers()
+  connection.initialize()
   const original = globalThis.$fetch
   globalThis.$fetch = original.create({
     onRequest({ request, options }) {
-      if (typeof request !== 'string' || !request.startsWith('/api/') || !connections.activeBase.value) return
-      options.baseURL = connections.activeBase.value
-      options.credentials = 'include'
-      const headers = new Headers(options.headers)
-      const token = connections.tokens.value[connections.active.value?.origin || '']
-      if (token) headers.set('Authorization', `Bearer ${token}`)
-      headers.set('x-llll-client', clientMode)
-      options.headers = headers
+      if (typeof request !== 'string' || !request.startsWith('/api/')) return
+      const token = connection.tokens.value[location.origin]
+      if (token) {
+        const headers = new Headers(options.headers)
+        headers.set('Authorization', `Bearer ${token}`)
+        options.headers = headers
+      }
     },
   })
-  const timer = setInterval(() => {
-    if (document.hidden) return
-    for (const installation of connections.installations.value) void connections.refresh(installation.origin).catch(() => {})
-  }, 120000)
-  window.addEventListener('pagehide', () => clearInterval(timer), { once: true })
+  try {
+    const server = await connection.discover(location.origin)
+    connection.select(server.origin, server.id)
+  } catch {
+    /* The setup/health page explains an unavailable Server. */
+  }
 })

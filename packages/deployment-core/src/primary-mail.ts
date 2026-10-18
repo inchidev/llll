@@ -18,7 +18,7 @@ export async function ensurePrimaryMail(
     if (!worker.id || worker.id === request.workerName) continue
     const settings = await client.workers.scripts.scriptAndVersionSettings.get(worker.id, { account_id: request.accountId })
     const bindings = settings.bindings as Array<{ name?: string, type?: string, text?: string }> || []
-    const managed = bindings.some(binding => binding.name === 'LLLL_INSTALLATION' && binding.type === 'plain_text')
+    const managed = bindings.some(binding => binding.name === 'LLLL_SERVER_MARKER' && binding.type === 'plain_text')
     const sameZone = bindings.some(binding => binding.name === 'MAIL_ZONE_ID' && binding.text === request.zoneId)
     if (managed && sameZone) {
       throw createError({

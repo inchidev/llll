@@ -26,7 +26,7 @@ function fakeEnv(results: unknown[]) {
   return {
     notifyLiveChanged,
     env: {
-      DB: { prepare: () => new Statement(results.shift()) },
+      DB: { prepare: (sql: string) => new Statement(sql.includes('server_identity') ? { id: '00000000-0000-4000-8000-000000000001' } : results.shift()) },
       WORKSPACE_DO: {
         getByName: () => ({ notifyLiveChanged }),
       },

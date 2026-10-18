@@ -1,6 +1,7 @@
+import { getServerId } from '../../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { channels, invites, roles, users } from '../../../../drizzle/schema'
-import { nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { nowIso } from '../../../../shared/ids'
 import { requireUser } from '../../../utils/auth'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -33,11 +34,11 @@ export default defineEventHandler(async (event) => {
       updatedAt: nowIso(),
     }).where(eq(users.id, user.id))
     await db.update(invites).set({ uses: invite.uses + 1 }).where(eq(invites.code, code))
-    await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: user.id, action: 'member.join', targetType: 'user', targetId: user.id })
-    waitUntil(signalMembersChanged(env, WORKSPACE_ID))
+    await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: user.id, action: 'member.join', targetType: 'user', targetId: user.id })
+    waitUntil(signalMembersChanged(env, (await getServerId(cf(event).env.DB))))
   }
 
   const general = (await db.select().from(channels).where(eq(channels.name, 'general')).limit(1))[0]
   const first = general ?? (await db.select().from(channels).limit(1))[0]
-  return { workspaceId: WORKSPACE_ID, channelId: first?.id ?? null }
+  return { workspaceId: (await getServerId(cf(event).env.DB)), channelId: first?.id ?? null }
 })

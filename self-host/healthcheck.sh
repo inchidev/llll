@@ -10,5 +10,4 @@ if [ ! -f "${CELLD_WATCH}/.migrations-applied" ]; then
 fi
 
 path=/api/setup/health
-if [ "${LLLL_MODE:-server}" = "installation" ]; then path=/.well-known/llll; fi
 curl -fsS "http://127.0.0.1:${LLLL_PORT:-8080}${path}"

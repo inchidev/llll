@@ -1,4 +1,3 @@
-import { verifyInstallationIdentity, signInstallationIdentity } from '../shared/instance-identity'
 import type { PublicUser } from '../shared/types'
 import type { L4Env } from './env'
 
@@ -8,18 +7,11 @@ export async function userFromTicket(env: L4Env, token: string): Promise<PublicU
   if (ticket) {
     await env.TICKETS.delete(`wsticket:${token}`)
     if (ticket.startsWith('{')) {
-      if (!env.LLLL_INSTALLATION_KEY || !env.LLLL_INSTALLATION_ORIGIN || !env.LLLL_SERVER_ID) return null
       try {
-        const saved = JSON.parse(ticket) as { userId: string; installationToken: string }
-        const identity = await verifyInstallationIdentity(saved.installationToken, env.LLLL_INSTALLATION_KEY, env.LLLL_INSTALLATION_ORIGIN, env.LLLL_SERVER_ID)
-        if (identity.sub !== saved.userId) return null
-        const proof = await signInstallationIdentity(identity, env.LLLL_INSTALLATION_KEY, env.LLLL_INSTALLATION_ORIGIN, env.LLLL_SERVER_ID)
-        const request = new Request(`${env.LLLL_INSTALLATION_INTERNAL_ORIGIN || env.LLLL_INSTALLATION_ORIGIN}/api/installation/socket-session/${encodeURIComponent(env.LLLL_SERVER_ID)}`, { method: 'POST', headers: { 'x-llll-identity': proof } })
-        const response = env.INSTALLATION_SERVICE ? await env.INSTALLATION_SERVICE.fetch(request) : await fetch(request)
-        if (!response.ok) return null
-        return loadUser(env, saved.userId)
-      }
-      catch { return null }
+        const saved = JSON.parse(ticket) as { userId: string; sessionId: string }
+        const session = await env.DB.prepare('SELECT id FROM auth_sessions WHERE id = ? AND user_id = ? AND expires_at > ?').bind(saved.sessionId, saved.userId, Date.now()).first()
+        return session ? loadUser(env, saved.userId) : null
+      } catch { return null }
     }
     return loadUser(env, ticket)
   }

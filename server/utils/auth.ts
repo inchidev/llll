@@ -1,3 +1,4 @@
+import { getServerId } from '../../shared/server-id'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils.js'
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
@@ -12,7 +13,6 @@ import { cf, fail } from './cf'
 import { getDb } from './db'
 import { writeAudit } from './messages'
 import { signalMembersChanged } from '../../workers/member-events'
-import { installationUser } from './installation-auth'
 import {
   consumeSocialOnboardingTicket,
   hasAcceptedCurrentOnboarding,
@@ -60,14 +60,14 @@ export async function ensureDomainUser(event: H3Event, identity: AuthIdentity) {
   row = (await db.select().from(users).where(eq(users.id, identity.id)).limit(1))[0]!
   if (active) {
     await writeAudit(env, {
-      workspaceId: 'main',
+      workspaceId: await getServerId(env.DB),
       actorId: identity.id,
       action: 'member.join',
       targetType: 'user',
       targetId: identity.id,
       meta: { admission: runtime.mode === 'access' ? 'access' : 'open' },
     })
-    waitUntil(signalMembersChanged(env, 'main'))
+    waitUntil(signalMembersChanged(env, await getServerId(env.DB)))
   }
   return row
 }
@@ -113,14 +113,14 @@ export async function activateOpenMember(event: H3Event, userId: string) {
     updatedAt: joinedAt,
   }).where(eq(users.id, userId))
   await writeAudit(env, {
-    workspaceId: 'main',
+    workspaceId: await getServerId(env.DB),
     actorId: userId,
     action: 'member.join',
     targetType: 'user',
     targetId: userId,
     meta: { admission: runtime.mode === 'access' ? 'access' : 'open', onboarding: true },
   })
-  waitUntil(signalMembersChanged(env, 'main'))
+  waitUntil(signalMembersChanged(env, await getServerId(env.DB)))
 }
 
 const CURRENT_USER = Symbol('llll.currentUser')
@@ -133,8 +133,6 @@ export function currentUser(event: H3Event): Promise<SessionUser | null> {
 }
 
 async function resolveCurrentUser(event: H3Event): Promise<SessionUser | null> {
-  const installation = await installationUser(event)
-  if (installation) return sessionUser(event, installation.row, visibleAuthEmail(installation.email))
   const { env } = cf(event)
   const db = getDb(env.DB)
   if (authMode(env) === 'access') {
@@ -204,7 +202,7 @@ export async function requireUser(event: H3Event): Promise<SessionUser> {
 export async function issueWsTicket(event: H3Event, userId: string): Promise<string> {
   const { env } = cf(event)
   const token = bytesToHex(randomBytes(24))
-  const installationToken = getHeader(event, 'x-llll-identity')
-  await env.TICKETS.put(`wsticket:${token}`, installationToken ? JSON.stringify({ userId, installationToken }) : userId, { expirationTtl: 120 })
+  const session = await (await sessionAuthFromEvent(event)).api.getSession({ headers: event.headers })
+  await env.TICKETS.put(`wsticket:${token}`, session ? JSON.stringify({ userId, sessionId: session.session.id }) : userId, { expirationTtl: 120 })
   return token
 }

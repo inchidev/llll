@@ -12,7 +12,7 @@ export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
 
   const { env } = cf(event)
   const installedVersion = env.LLLL_VERSION?.trim() || packageVersion
-  const management = env.LLLL_SERVER_ID ? 'installation' : 'operator'
+  const management = 'operator'
   const checkedAt = new Date().toISOString()
 
   try {

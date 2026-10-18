@@ -6,11 +6,11 @@ This defines the intended product boundary. It does not certify implementation o
 
 ## The first experience
 
-An operator deploys an Instance, claims its owner Account, creates the first Server and shares an invitation. A participant accepts the invitation, joins that Server and starts a conversation. The direct Instance address works without the official Shell.
+An operator deploys a Server, claims its owner Account and shares an invitation. A participant accepts the invitation, joins that Server and starts a conversation. The direct Server address works without the official Shell.
 
-Participants use Servers, Channels, Threads, Direct Messages and files. Operators additionally manage the Instance. `Installation` and `Workspace` remain implementation names; user-facing copy uses `Instance` and `Server` as defined in [the glossary](../CONTEXT.md).
+Participants use Servers, Channels, Threads, Direct Messages and files. Owners additionally manage Server deployment settings. `Installation` and `Workspace` remain implementation names; user-facing copy uses `Instance` and `Server` as defined in [the glossary](../CONTEXT.md).
 
-One Instance can host several isolated Servers. A community should not have to understand resource IDs, pairing keys, Workers or database bindings to join. Registration of an existing server remains an advanced operator operation.
+Each Server is an autonomous deployment. A community should not have to understand resource IDs, pairing keys, Workers or database bindings to join. Registration of an existing server remains an advanced operator operation.
 
 ## Capabilities
 
@@ -28,19 +28,19 @@ Agents have the Server's local permission boundary. Their current scope is conve
 
 ## Deployment boundary
 
-The normal topology is an Instance with one or more isolated Servers. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; `apps/instance` owns Instance identity and routing. See [the architecture decision](adr/0001-installation-and-server-boundaries.md).
+The normal topology is an independent Server with an optional Shell. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; The Server owns local identity and routing. See [the architecture decision](adr/0001-installation-and-server-boundaries.md).
 
-The two deployment targets are Cloudflare and VPS using Docker Compose/celld. Stabilization verifies Cloudflare first. The multi-server VPS path needs separate transport and browser acceptance before it can be described as equally ready. A standalone Server is an advanced topology and a useful development target; testing it does not certify the Instance proxy or Shell.
+The two deployment targets are Cloudflare and VPS using Docker Compose/celld. Stabilization verifies Cloudflare first. The multi-server VPS path needs separate transport and browser acceptance before it can be described as equally ready. Verify both the direct Client and Shell.
 
 The public guide should lead with one complete path per target, from a pinned release to the first invitation. Manual provisioning, existing-server registration and Coolify details remain operator references. Verify the public image archive checksum, embedded version and architecture before promising a build-free install.
 
 ## Fixed boundaries
 
-- Accounts and sessions belong to the Instance. Server membership, Roles and removals remain authoritative locally. Email matching never grants access.
+- Accounts and sessions belong to the Server. Server membership, Roles and removals remain authoritative locally. Email matching never grants access.
 - Direct Messages remain inside a Server. Shell bookmarks and public routing IDs grant no membership.
-- Backups remain separate from live files. Recovery includes Instance identity/secrets and each Server's content; server deletion never deletes Backup buckets.
-- Server and Instance migrations have separate baselines. Merged SQL, published tags and published assets remain immutable.
-- L4 remains MIT software. The official Instance is a limited demo. This stabilization adds no managed-hosting marketplace, billing or OEM business.
+- Backups remain separate from live files. Recovery includes the Server identity, accounts, secrets and content; server deletion never deletes Backup buckets.
+- Append Server migrations; retain the retired Instance baseline unchanged. Merged SQL, published tags and published assets remain immutable.
+- L4 remains MIT software. There is no required official Instance. This stabilization adds no managed-hosting marketplace, billing or OEM business.
 
 ## Deferred work
 

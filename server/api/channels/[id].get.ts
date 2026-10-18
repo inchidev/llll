@@ -1,7 +1,7 @@
+import { getServerId } from '../../../shared/server-id'
 import { requireChannelAccess } from '../../utils/guards'
 import { cf } from '../../utils/cf'
 import { toDmDto } from '../../utils/dms'
-import { WORKSPACE_ID } from '../../../shared/ids'
 import { threadTitle } from '../../../shared/threads'
 import { attachments, messages } from '../../../drizzle/schema'
 import { eq } from 'drizzle-orm'
@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
   return {
     channel: {
       id: ch.id,
-      workspaceId: WORKSPACE_ID,
+      workspaceId: (await getServerId(cf(event).env.DB)),
       name: ch.name,
       topic: ch.topic,
       type: ch.type,

@@ -1,7 +1,7 @@
 import { resolveServerWebSocketUrl } from '~~/shared/client-router'
 
 export function useApi() {
-  const connections = useInstances()
+  const connections = useServers()
   const { native, activeOrigin } = useClientServers()
   const config = useRuntimeConfig()
 

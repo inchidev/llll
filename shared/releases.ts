@@ -8,7 +8,7 @@ export type PublishedRelease = {
 
 export type UpdateStatusDTO = {
   installedVersion: string
-  management: 'installation' | 'operator'
+  management: 'operator'
   latestRelease: PublishedRelease | null
   releasesBehind: number
   updateAvailable: boolean

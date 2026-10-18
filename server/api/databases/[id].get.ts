@@ -1,6 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
 import type { DatabasePageDTO } from '../../../shared/types'
-import { WORKSPACE_ID } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { loadDatabasePage, validCalendarRange } from '../../utils/database-views'
@@ -20,7 +20,7 @@ const querySchema = z.object({
 })
 
 export default defineEventHandler(async (event): Promise<DatabasePageDTO> => {
-  await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const parsed = querySchema.safeParse(getQuery(event))
   if (!parsed.success) fail(400, 'bad_request', parsed.error.issues[0]?.message ?? 'Invalid database query')
   const query = parsed.data

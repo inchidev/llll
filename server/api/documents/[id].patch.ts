@@ -1,5 +1,5 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { WORKSPACE_ID } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf } from '../../utils/cf'
 import { updateDocument } from '../../utils/document-service'
@@ -13,7 +13,7 @@ const bodySchema = z.object({
 }).refine(body => body.title !== undefined || body.content !== undefined, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)

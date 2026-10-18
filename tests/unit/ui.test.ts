@@ -5,7 +5,7 @@ import { isLastChannel, lastChannelSerializer, useUiStore } from '../../app/stor
 import { isSearchShortcut } from '../../shared/shortcuts'
 
 beforeEach(() => {
-  vi.stubGlobal('useInstances', () => ({ scope: ref('https://test.example/server/test-user') }))
+  vi.stubGlobal('useServers', () => ({ scope: ref('https://test.example/server/test-user') }))
   vi.stubGlobal('useSessionStore', () => ({ user: { id: 'test-user' } }))
 })
 

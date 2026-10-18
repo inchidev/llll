@@ -1,8 +1,8 @@
+import { getServerId } from '../../shared/server-id'
 import { inArray } from 'drizzle-orm'
 import { attachments, channels, messageMentions, messagePins, messageReactions, messages, users } from '../../drizzle/schema'
 import type { AttachmentDTO, MessageDTO, MessagePinDTO, PublicUser, ReactionDTO } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
-import { WORKSPACE_ID } from '../../shared/ids'
 import { getDb } from './db'
 
 export function toPublicUser(row: typeof users.$inferSelect): PublicUser {
@@ -100,10 +100,11 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     if (t.parentMessageId) threads.set(t.parentMessageId, t.id)
   }
 
+  const serverId = await getServerId(env.DB)
   return rows.map((row) => ({
     id: row.id,
     channelId: row.channelId,
-    workspaceId: WORKSPACE_ID,
+    workspaceId: serverId,
     author: authors.get(row.authorId) ?? { id: row.authorId, kind: 'human', displayName: 'Unknown', avatarR2Key: null },
     content: row.deletedAt ? '' : row.content,
     replyTo: row.replyToId ? replies.get(row.replyToId) ?? null : null,

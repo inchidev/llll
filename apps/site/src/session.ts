@@ -4,7 +4,7 @@ import type { WebEnv } from './env'
 
 export type DeploymentState = {
   state?: string; verifier?: string; grant?: CloudflareGrant
-  accountId?: string; name?: string; version?: string; worker?: string; installationId?: string; databaseId?: string; bucket?: string
+  accountId?: string; name?: string; version?: string; worker?: string; ownerEmail?: string; workerTag?: string; buildTokenId?: string; triggerId?: string; buildId?: string; databaseId?: string; bucket?: string
   authSecret?: string; setupToken?: string; origin?: string
   step?: number; error?: string; completed?: boolean
 }

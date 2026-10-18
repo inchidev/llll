@@ -1,7 +1,8 @@
+import { getServerId } from '../../../../../shared/server-id'
 import { and, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { tasks } from '../../../../../drizzle/schema'
-import { nowIso, WORKSPACE_ID } from '../../../../../shared/ids'
+import { nowIso } from '../../../../../shared/ids'
 import { Permission } from '../../../../../shared/permissions'
 import { signalTasksChanged } from '../../../../../workers/task-events'
 import { cf, fail } from '../../../../utils/cf'
@@ -18,7 +19,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
   const boardId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
   }).where(eq(tasks.id, id)))
   await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>])
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: actor.user.id,
     action: 'task.move',
     targetType: 'task',

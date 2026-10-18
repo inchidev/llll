@@ -35,6 +35,7 @@ function d1(database: DatabaseSync): D1Database {
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
+  sqlite.exec("CREATE TABLE server_identity(singleton INTEGER PRIMARY KEY, id TEXT); INSERT INTO server_identity VALUES(1,'00000000-0000-4000-8000-000000000001')")
   sqlite.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, status TEXT NOT NULL);
     CREATE TABLE channels (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, visibility TEXT NOT NULL, parent_id TEXT);

@@ -1,6 +1,7 @@
+import { getServerId } from '../../../../shared/server-id'
 import { and, eq, isNull } from 'drizzle-orm'
 import { channels, taskNumbers, tasks } from '../../../../drizzle/schema'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -13,7 +14,7 @@ import { requireTask } from '../../../utils/task-policy'
  * work as in chat; the channel list leaves it out and only task managers can open it.
  */
 export default defineEventHandler(async (event) => {
-  await requireMember(event, WORKSPACE_ID, Permission.manageTasks)
+  await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
   const { env } = cf(event)
   const db = getDb(env.DB)
   const task = await requireTask(env, getRouterParam(event, 'id')!)

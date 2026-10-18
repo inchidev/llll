@@ -4,9 +4,6 @@ import { uuidv7 } from 'uuidv7'
 
 const inviteCode = customAlphabet('abcdefghjkmnpqrstuvwxyz23456789', 8)
 
-/** The only workspace in a L4 installation. */
-export const WORKSPACE_ID = 'main'
-
 export function newId(): string {
   return uuidv7()
 }

@@ -1,8 +1,17 @@
-import { cf } from '../../utils/cf'
+import { embedOrigins } from '../../../shared/embed'
+import { getServerId } from '../../../shared/server-id'
+import { readAppBranding } from '../../../shared/app-branding'
 import { version } from '../../../package.json'
-import { INSTALLATION_API_VERSION } from '../../../shared/instance'
+import { cf } from '../../utils/cf'
+import { ensureMigrated, workspaceReady } from '../../utils/db'
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async event => {
+  if (getRequestURL(event).pathname !== '/.well-known/llll') return
   const { env } = cf(event)
-  return { product: 'llll', kind: 'server', id: env.LLLL_SERVER_ID || 'main', name: env.APP_NAME || 'L4', apiVersion: INSTALLATION_API_VERSION, version, origin: env.PUBLIC_ORIGIN || getRequestURL(event).origin, registration: env.AUTH_REGISTRATION_MODE === 'open', telegram: false }
+  await ensureMigrated(env.DB, env)
+  const allowed = embedOrigins(env.EMBED_ORIGINS)
+  const origin = getHeader(event, 'origin')
+  if (origin && allowed.includes(origin)) { setHeader(event, 'Access-Control-Allow-Origin', origin); setHeader(event, 'Vary', 'Origin') }
+  setHeader(event, 'Cache-Control', 'no-store')
+  return { product: 'llll', kind: 'server', id: await getServerId(env.DB), name: readAppBranding(env).appName, apiVersion: 1, version, origin: env.PUBLIC_ORIGIN || getRequestURL(event).origin, registration: env.AUTH_REGISTRATION_MODE === 'open', telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID), embedOrigins: allowed, ready: await workspaceReady(env.DB) }
 })

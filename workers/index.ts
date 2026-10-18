@@ -1,3 +1,4 @@
+import { getServerId } from '../shared/server-id'
 import type { L4Env } from './env'
 import { ChannelDurableObject } from './channel-do'
 import { WorkspaceDurableObject } from './workspace-do'
@@ -21,6 +22,7 @@ export default {
       }
       const workspace = url.pathname.match(/^\/ws\/workspace\/([^/]+)/)
       if (workspace?.[1]) {
+        if (workspace[1] !== await getServerId(env.DB)) return new Response('Server not found', { status: 404 })
         return env.WORKSPACE_DO.getByName(`workspace:${workspace[1]}`).fetch(request)
       }
     }

@@ -1,6 +1,7 @@
+import { getServerId } from '../../shared/server-id'
 import type { H3Event } from 'h3'
 import { ALL_PERMISSIONS, MemberPermissions } from '../../shared/permissions'
-import { newId, nowIso, WORKSPACE_ID } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import { authAccounts, authUsers, auditLog, channelCategories, channels, roles, users, workspace } from '../../drizzle/schema'
 import { cf } from './cf'
 import { ensureMigrated, getDb, userCount } from './db'
@@ -33,7 +34,7 @@ export async function provisionWorkspace(event: H3Event, seed: AdminSeed) {
   const db = getDb(env.DB)
   const userId = seed.userId || newId()
   const accountId = newId()
-  const workspaceId = WORKSPACE_ID
+  const workspaceId = (await getServerId(cf(event).env.DB))
   const ownerRoleId = newId()
   const adminRoleId = newId()
   const memberRoleId = newId()

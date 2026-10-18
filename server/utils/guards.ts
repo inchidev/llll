@@ -1,8 +1,8 @@
+import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { H3Event } from 'h3'
 import { channelRoleOverrides, channels, channelMembers, emailMailboxAccess, emailMailboxes, roles, tasks, users, workspace } from '../../drizzle/schema'
 import { resolveChannelPermissions } from '../../shared/channel-permissions'
-import { WORKSPACE_ID } from '../../shared/ids'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
 import { mailPermissionAllows } from '../../shared/mail'
 import type { ChannelType, MailboxPermission, PublicUser } from '../../shared/types'
@@ -33,7 +33,7 @@ export type ChannelAccess = Membership & {
 }
 
 export async function requireMember(event: H3Event, workspaceId: string, flag?: PermissionFlag): Promise<Membership> {
-  if (workspaceId !== WORKSPACE_ID) fail(404, 'not_found', 'Workspace not found')
+  if (workspaceId !== (await getServerId(cf(event).env.DB))) fail(404, 'not_found', 'Workspace not found')
   const user = await requireUser(event)
   const { env } = cf(event)
   const db = getDb(env.DB)
@@ -46,7 +46,7 @@ export async function requireMember(event: H3Event, workspaceId: string, flag?: 
       .innerJoin(roles, eq(roles.id, users.roleId))
       .where(and(eq(users.id, user.id), eq(users.status, 'active')))
       .limit(1),
-    db.select({ ownerId: workspace.ownerId }).from(workspace).where(eq(workspace.id, WORKSPACE_ID)).limit(1),
+    db.select({ ownerId: workspace.ownerId }).from(workspace).where(eq(workspace.id, (await getServerId(cf(event).env.DB)))).limit(1),
   ])
 
   const row = rows[0]
@@ -94,7 +94,7 @@ export async function requireChannelAccess(event: H3Event, channelId: string, fl
   // Settle both and report failures in the original order: missing channel first.
   const [channelResult, memberResult] = await Promise.allSettled([
     db.select().from(channels).where(eq(channels.id, channelId)).limit(1),
-    requireMember(event, WORKSPACE_ID),
+    requireMember(event, (await getServerId(cf(event).env.DB))),
   ])
   if (channelResult.status === 'rejected') throw channelResult.reason
   const channel = channelResult.value[0]
@@ -161,7 +161,7 @@ export async function requireChannelAccess(event: H3Event, channelId: string, fl
     if (flag === Permission.sendMessages && frozen) fail(403, 'forbidden', 'You can no longer send messages to this user')
     return {
       user,
-      workspaceId: WORKSPACE_ID,
+      workspaceId: (await getServerId(cf(event).env.DB)),
       roleId: '',
       roleName: 'member',
       perms,

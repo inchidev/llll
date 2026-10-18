@@ -1,5 +1,5 @@
+import { getServerId } from '../shared/server-id'
 import type { WorkspaceMailChangedEvent } from '../shared/workspace-realtime'
-import { WORKSPACE_ID } from '../shared/ids'
 import type { L4Env } from './env'
 import { asRpc } from './env'
 
@@ -15,6 +15,6 @@ export async function signalMailChanged(env: L4Env, mailboxId: string, threadId:
   const event: WorkspaceMailChangedEvent = { t: 'mail.changed', mailboxId, threadId }
   const stub = asRpc<{
     notifyMailChanged: (event: WorkspaceMailChangedEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${WORKSPACE_ID}`))
+  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
   await stub.notifyMailChanged(event, recipientIds)
 }

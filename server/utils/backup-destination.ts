@@ -1,3 +1,4 @@
+import { getServerId } from '../../shared/server-id'
 import { z } from 'zod'
 import { decryptSecret } from '../../shared/encrypted-secret'
 import type { BackupDestinationDTO } from '../../shared/backups'
@@ -95,7 +96,7 @@ export async function loadBackupDestination(
   env: L4Env,
   installationSecret = env.AUTH_SECRET?.trim() || '',
 ): Promise<BackupDestinationRuntimeConfig> {
-  const fallback = () => env.BACKUPS ? { ...blankDestination(), bucketBinding: env.BACKUPS, bucket: env.BACKUP_BUCKET_NAME || 'deployment-backups', prefix: `servers/${env.LLLL_SERVER_ID || 'main'}` } : blankDestination()
+  const fallback = async () => env.BACKUPS ? { ...blankDestination(), bucketBinding: env.BACKUPS, bucket: env.BACKUP_BUCKET_NAME || 'deployment-backups', prefix: `servers/${await getServerId(env.DB)}` } : blankDestination()
   let row: BackupDestinationRow | null
   try {
     row = await env.DB.prepare(

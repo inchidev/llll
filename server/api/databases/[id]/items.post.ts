@@ -1,5 +1,6 @@
+import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
 import { cf, fail } from '../../../utils/cf'
 import { databaseFieldsFor, databaseSqlValue, loadDatabaseItem, requireDatabase } from '../../../utils/database-data'
@@ -14,7 +15,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const databaseId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -36,6 +37,6 @@ export default defineEventHandler(async (event) => {
   }
   const placeholders = columns.map(() => '?').join(', ')
   await env.DB.prepare(`INSERT INTO database_items (${columns.join(', ')}) VALUES (${placeholders})`).bind(...values).run()
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'database_item.create', targetType: 'database_item', targetId: id, meta: { databaseId, title: body.title } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.create', targetType: 'database_item', targetId: id, meta: { databaseId, title: body.title } })
   return { item: await loadDatabaseItem(env, id) }
 })

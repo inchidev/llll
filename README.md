@@ -1,27 +1,19 @@
 # L4 · llll.gg
 
-MIT licensed software for independent communities. Start with a Server for channels, conversations and shared files. Use Tasks, Data and internal Apps within that Server; connect Mail, Agents and calls when needed.
+MIT licensed software for independent communities. Each Server owns its accounts, login, database, files and realtime. Chat, Tasks, Mail, Data, Apps and Agents live within that Server.
 
-One Instance can contain many Servers. Every server gets its own Worker, D1 database, private files bucket and Durable Objects. The web/PWA/Telegram shell groups Servers by Instance and embeds each Instance’s own client. Accounts and login stay local; direct addresses remain fully usable. No public managed-hosting marketplace is required.
+Deploy one Server on your Cloudflare account or VPS. Claim the owner, invite someone and start a conversation. Open it directly or connect its address/invitation in the official web/PWA/Telegram Shell. Native iOS/macOS packaging is frozen.
 
-## Deploy
+- [Server and Shell model](docs/server.md)
+- [Deployment and credentials](docs/deployment.md)
+- [Local and isolated verification](docs/worker-previews.md)
+- [Immutable releases](docs/releases.md)
+- [Product scope](docs/product.md)
 
-The first release is `0.1.0-alpha.1`, a developer alpha for fresh databases. Cloudflare is the first acceptance target. VPS/celld remains experimental; see the [known runtime issues](docs/self-host-findings.md). This baseline does not upgrade the archived prototype.
+Server, Shell, Landing and Docs are the four product parts. `app`/`server` implement one autonomous Server; `apps/site` serves Landing, Shell, Docs and the Server installer. No Instance or master node is required. A Server's persistent UUIDv4 identifies it publicly and internally; bookmarked connections do not grant membership.
 
-Start with [the Instance model and account/credential flow](docs/instance.md). Deploy an Instance once, create its owner, then provision or register isolated servers inside it. The `/deploy` installer uses Cloudflare OAuth and transfers provisioning credentials to the new Instance. Its operator must configure a public OAuth client and a verified release. Team source deployments use the Git pipeline described below.
+Run `pnpm install --frozen-lockfile`, `pnpm dev:full` for isolated local development, and `pnpm test:server` after `pnpm build:deployment` for the two-Server integration fixture. Use `pnpm build:site` and `node scripts/test-web.mjs --serve` to exercise the Shell alongside it.
 
-Run on your Cloudflare account or your VPS with celld and Docker Compose. The [deployment guide](docs/deployment.md) leads from a pinned release to a private Instance. Its experimental VPS path verifies and loads the release's portable Docker image, then generates Compose without building the application or using a registry account.
+Application deployments run only in Cloudflare Workers Builds from Git. Feature PRs get isolated Previews; ordinary merges leave production unchanged. A merged release PR with a shared version increase publishes immutable artifacts and promotes the official site. Customer Server versions remain pinned under operator control. Never deploy application code from a developer machine.
 
-The generated files contain private credentials. Keep them out of Git. Configure optional Telegram, calls, AI and email providers when needed. Backup destinations are separate from live file buckets.
-
-## Develop
-
-Node 24, pnpm 10. `pnpm install --frozen-lockfile`, then `pnpm dev`. Use `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm db:migrations:check`. [Worker verification](docs/worker-previews.md) includes a three-Worker integration fixture.
-
-The five parts are **Instance**, **Server**, **Shell**, **Landing** and **Docs**. `apps/instance` owns local accounts and routing. The root runtime is one Server. `apps/site` serves Landing (`/`), Shell (`/open`) and Docs (`/docs`) from one official Worker named `llll`. Instance and Server are separately installable release artifacts. `apps/client` is a compatibility redirect; iOS/macOS packaging is frozen.
-
-Application deployment is Git-only: open a PR to protected `main`, verify its native Worker Preview, merge without changing production. A release PR raises the shared version and, after its Preview and CI pass, publishes all components and triggers production from the immutable release artifact. There is no production branch. Cloudflare Workers Builds owns web deployments. Local Wrangler is for development, types and dry runs only. See [the deployment lifecycle](docs/deployment.md).
-
-Read [product scope](docs/product.md), [product language](CONTEXT.md), the [stabilization roadmap](docs/roadmap.md), [runtime architecture](docs/architecture.md), and [operations](docs/deployment.md). Gitrew headless integration, OpenRivers/AfterPrompt embedding and cross-server DMs are deferred.
-
-Source attribution is preserved in [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE).
+This is a fresh standalone-server release line. Archived prototype and Instance-bound databases are not upgrade targets. Merged migration SQL and published assets are immutable.

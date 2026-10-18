@@ -17,9 +17,7 @@ const deletionQ = useQuery({
     <LayoutLoadError v-else-if="deletionQ.error.value" message="Server removal information did not load." :retry="deletionQ.refetch" />
     <UAlert
       v-else class="mt-8" color="warning" title="Removal is handled by the deployment operator"
-      :description="deletionQ.data.value?.managedBy === 'installation'
-        ? 'Ask the instance operator to remove this server and its directory entry after saving a backup. Keep the backup destination.'
-        : 'Remove this server through its Cloudflare or VPS deployment configuration after saving a backup. Keep the backup destination.'"
+      description="Remove this server through its Cloudflare or VPS deployment configuration after saving a backup. Keep the backup destination."
     />
     <UButton class="mt-5" label="Review backups" color="neutral" variant="outline" @click="$emit('backups')" />
   </div>

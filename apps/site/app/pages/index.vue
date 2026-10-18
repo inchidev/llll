@@ -25,7 +25,7 @@ const productGroups = [
 const freedoms = [
   { title: 'Invite everyone.', description: 'No seat fees. Your team can grow without buying access for each person.' },
   { title: 'Keep your history.', description: 'No retention tier. Conversations stay searchable until you choose to delete them.' },
-  { title: 'Own your workspace.', description: 'MIT software. Run independent instances with isolated servers on Cloudflare or your VPS.' },
+  { title: 'Own your workspace.', description: 'MIT software. Run independent servers on Cloudflare or your VPS.' },
 ]
 
 useSeoMeta({
@@ -73,7 +73,7 @@ useHead({
         'AI agents in chat who can read and create Tasks',
         'Optional voice, video, and screen sharing through RealtimeKit',
         'Unlimited customer-owned workspaces, members, and message history',
-        'Independent instances with local accounts',
+        'Independent servers with local accounts',
       ],
     }),
   }],
@@ -97,7 +97,7 @@ useHead({
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
             <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. One instance, many servers. Run it on your own infrastructure.</p>
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. Independent servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
@@ -169,13 +169,13 @@ useHead({
           <div class="mx-auto max-w-3xl text-center">
             <p class="mb-3 text-sm font-medium text-primary">Ways to run</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Choose where to run L4.</h2>
-            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Run on your Cloudflare account, or use celld on your VPS. In either case, you operate the instance and own its data.</p>
+            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Run on your Cloudflare account, or use celld on your VPS. In either case, you operate the server and own its data.</p>
           </div>
           <div class="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Your account" color="primary" variant="subtle" class="self-start" />
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on Cloudflare</h3>
-              <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy an instance, then create isolated servers. Each server has its own database, files and realtime runtime.</p>
+              <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy your server and invite your community. Each server has its own database, files and realtime runtime.</p>
               <ul class="my-7 space-y-3 text-sm text-toned">
                 <li>Full MIT product, including all five apps and agents</li>
                 <li>No seats, history tiers, or reduced open-source edition</li>

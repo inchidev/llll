@@ -1,7 +1,8 @@
+import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import { channels, channelMembers, users } from '../../drizzle/schema'
 import { dmTitle } from '../../shared/dm'
-import { newId, nowIso, WORKSPACE_ID } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
 import { asRpc } from './cf'
@@ -48,7 +49,7 @@ export async function toDmDto(
   }
   return {
     id: ch.id,
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(env.DB)),
     name: ch.name,
     topic: ch.topic,
     type: 'dm',

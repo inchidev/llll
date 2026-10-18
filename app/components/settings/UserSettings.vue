@@ -14,6 +14,12 @@ const push = usePushNotifications()
 const presence = usePresenceStore()
 const toast = useToast()
 const colorMode = useColorMode()
+const recoveryCode = ref('')
+const recoveryBusy = ref(false)
+async function replaceRecoveryKey() {
+  recoveryBusy.value = true
+  try { recoveryCode.value = (await api<{ code: string }>('/api/auth/recovery-key', { method: 'POST' })).code } catch (cause) { toast.add({ title: errorMessage(cause), color: 'error' }) } finally { recoveryBusy.value = false }
+}
 const revealEmail = ref(false)
 const confirmLogout = ref(false)
 const savingName = ref(false)
@@ -320,7 +326,7 @@ async function logout() {
         </div>
       </div>
 
-      <UButton v-if="useInstances().activeInstallation.value?.kind === 'installation'" class="mt-8" label="Manage instance account" to="/connections" color="neutral" variant="outline" @click="open = false" />
+      <div class="mt-8 max-w-sm space-y-3"><h2 class="text-sm font-semibold">Account recovery</h2><p class="text-sm text-muted">Save a recovery key for this Server. It lets you set a new password without email delivery. Replacing the key invalidates the previous one.</p><UButton label="Replace recovery key" color="neutral" variant="outline" :loading="recoveryBusy" @click="replaceRecoveryKey" /><UAlert v-if="recoveryCode" title="Save this key now" :description="recoveryCode" color="warning" /></div>
       <h2 v-if="hasPassword" class="mt-10 text-xs font-bold uppercase tracking-wide text-muted">Password and Authentication</h2>
       <div v-if="hasPassword" class="mt-3 max-w-sm space-y-3">
         <UFormField label="Current password">

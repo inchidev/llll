@@ -1,7 +1,8 @@
+import { getServerId } from '../../../../../shared/server-id'
 import { z } from 'zod'
 import { realtimekitSettings } from '../../../../../drizzle/schema'
 import type { RealtimeKitSettingsAdminDTO } from '../../../../../shared/types'
-import { nowIso, WORKSPACE_ID } from '../../../../../shared/ids'
+import { nowIso } from '../../../../../shared/ids'
 import { encryptSecret } from '../../../../../shared/encrypted-secret'
 import {
   connectRealtimeKit,
@@ -80,11 +81,11 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
     .onConflictDoUpdate({ target: realtimekitSettings.id, set: values })
 
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'realtimekit.settings.connect',
     targetType: 'workspace',
-    targetId: WORKSPACE_ID,
+    targetId: (await getServerId(cf(event).env.DB)),
     meta: { appId: connection.appId, token: body.apiToken ? 'replaced' : 'unchanged' },
   })
   return { realtimekit: realtimekitSettingsAdminDto(await loadRealtimeKitConfig(env)) }

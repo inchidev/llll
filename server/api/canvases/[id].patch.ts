@@ -1,5 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import type { CanvasDTO } from '../../../shared/types'
 import { cf, fail } from '../../utils/cf'
@@ -11,7 +12,7 @@ import { parseBody } from '../../utils/validate'
 const bodySchema = z.object({ title: z.string().trim().min(1).max(160), version: z.number().int().positive() })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -26,6 +27,6 @@ export default defineEventHandler(async (event) => {
      created_at as createdAt, updated_at as updatedAt`,
   ).bind(body.title, nowIso(), id, body.version).first<Omit<CanvasDTO, 'nodes' | 'edges'>>()
   if (!updated) fail(409, 'stale_canvas', 'This canvas changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'canvas.update', targetType: 'canvas', targetId: id, meta: { fields: ['title'] } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas.update', targetType: 'canvas', targetId: id, meta: { fields: ['title'] } })
   return { canvas: updated }
 })

@@ -1,6 +1,7 @@
+import { getServerId } from '../../shared/server-id'
 import { eq, or } from 'drizzle-orm'
 import { taskDependencies, taskLabelLinks, tasks } from '../../drizzle/schema'
-import { newId, nowIso, WORKSPACE_ID } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import type { TaskBoardDTO, TaskDetailDTO, TaskPriority, TaskStatus } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
 import { signalTasksChanged } from '../../workers/task-events'
@@ -100,7 +101,7 @@ export async function createTask(
     ...[...new Set(input.labelIds)].map(labelId => db.insert(taskLabelLinks).values({ taskId: id, labelId })),
     ...[...new Set(input.dependencyIds)].map(dependsOnTaskId => db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId, createdAt: now })),
   ])
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
+  await writeAudit(env, { workspaceId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
   schedule(signalTasksChanged(env, boardId, id))
   return (await loadTaskDetail(env, id))!
 }
@@ -166,7 +167,7 @@ export async function updateTask(
     if (dependencyIds.length) await db.insert(taskDependencies).values(dependencyIds.map(dependsOnTaskId => ({ taskId: id, dependsOnTaskId, createdAt: updatedAt })))
   }
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(env.DB)),
     actorId,
     action: input.archived === true ? 'task.archive' : input.archived === false ? 'task.restore' : 'task.update',
     targetType: 'task',

@@ -2,11 +2,11 @@
 
 L4 has one long-lived branch, `main`. Every same-repository PR gets an isolated Cloudflare Worker Preview. Ordinary merges accumulate in main without changing production or publishing a release. There is no production branch.
 
-One shared version covers **llll** (Landing, Shell and installer), **Server**, **Instance** and **Docs**. The first release is `0.1.0-alpha.1` for fresh databases; the archived prototype is not an upgrade target. Existing customer Instances and Servers remain under their operators' update control.
+One shared version covers **llll** (Landing, Shell and installer), **Server** and **Docs**. The first release is `0.1.0-alpha.1` for fresh databases; the archived prototype is not an upgrade target. Customer Servers remain under their operators' update control.
 
 ## Validate a change
 
-Open a focused PR to main. Required checks include lint, type checking, tests, migrations, builds, Instance/Server integration, self-host smoke and the deployed Cloudflare Preview. `release-policy` rejects a version change outside a release PR. See [isolated verification](worker-previews.md).
+Open a focused PR to main. Required checks include lint, type checking, tests, migrations, builds, Server integration, self-host smoke and the deployed Cloudflare Preview. `release-policy` rejects a version change outside a release PR. See [isolated verification](worker-previews.md).
 
 ## Release PR
 
@@ -25,6 +25,8 @@ Cloudflare holds its build token and production secret. GitHub holds only `CLOUD
 
 See [deployment artifacts](installer-releases.md) for the release contract. Customers explicitly select named prereleases; automatic runtime update discovery remains stable-only.
 
-## Roll out an Instance
+## Roll out a Server
 
-A release updates llll.gg and makes matching Instance/Server artifacts available. It does not force an update of customer installations. Back up Instance D1 and encryption/deployment secrets, and each Server to a separate backup destination. Operators apply matching modules/assets and pending migrations while preserving resource bindings, secrets and DO namespaces, then verify owner login, directory, local roles, files and realtime.
+A release updates llll.gg and publishes matching standalone Server artifacts. Operators keep their selected Server version pinned. Back up its D1, live files and original encryption secrets to separate storage. Cloudflare updates run through its Git-connected Build and preserve resource bindings, secrets and DO namespaces; VPS operators apply the verified portable image. Verify local owner/member login, permissions, files, realtime and the same UUID before considering the update complete.
+
+The standalone transition installs fresh Server databases. Instance runtime is retired and its immutable migration baseline remains in the repository; no running Instances need migration. Old release tags/assets are never changed or offered as standalone bundles.

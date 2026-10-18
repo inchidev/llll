@@ -80,7 +80,7 @@ describe('published installer core integration', () => {
       { type: 'secret_text', name: 'LLLL_CONTROL_TOKEN' },
       { type: 'service', name: 'LLLL_ADMIN' },
       { type: 'plain_text', name: 'LLLL_TELEMETRY_ENDPOINT' },
-      { type: 'secret_text', name: 'LLLL_INSTALLATION_KEY' },
+      { type: 'secret_text', name: 'LLLL_SERVER_MARKER_KEY' },
       { type: 'secret_text', name: 'AUTH_SECRET' },
       { type: 'send_email', name: 'MAIL_EMAIL' },
       { type: 'assets', name: 'ASSETS' },
@@ -88,7 +88,7 @@ describe('published installer core integration', () => {
     ], manifest)
 
     expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_EMAIL_DOMAINS' })
-    expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_INSTALLATION_KEY' })
+    expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_SERVER_MARKER_KEY' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'AUTH_SECRET' })
     expect(bindings.map(binding => binding.name)).not.toContain('LLLL_CONTROL_TOKEN')
     expect(bindings.map(binding => binding.name)).not.toContain('LLLL_ADMIN')

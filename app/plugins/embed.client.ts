@@ -1,70 +1,92 @@
 import { embedCommand, EMBED_VERSION, safeEmbedPath } from '~~/shared/embed'
-
 export default defineNuxtPlugin(async (nuxt) => {
   if (window.parent === window) return
-  const connections = useInstances()
-  const context = useState('llll-embed', () => ({ parent: '', enabled: true }))
-  const parameters = new URLSearchParams(location.search)
-  const parentOrigin = parameters.get('parent') || (() => { try { return sessionStorage.getItem('llll.embed-parent') || '' } catch { return '' } })()
-  const installation = await connections.discover(location.origin)
-  if (!installation.embedOrigins?.includes(parentOrigin)) return
-  context.value.parent = parentOrigin
-  try { sessionStorage.setItem('llll.embed-parent', parentOrigin) } catch { /* Storage may be partitioned or unavailable. */ }
-  const post = (data: unknown) => window.parent.postMessage({ llll: EMBED_VERSION, ...data as object }, parentOrigin)
-  const router = useRouter()
-  const mounted = new Promise<void>(resolve => nuxt.hook('app:mounted', () => { resolve() }))
+  const connection = useServers()
+  const server = await connection.discover(location.origin)
+  const parent =
+    new URLSearchParams(location.search).get('parent') ||
+    (() => {
+      try {
+        return sessionStorage.getItem('llll.embed-parent') || ''
+      } catch {
+        return ''
+      }
+    })()
+  if (!server.embedOrigins.includes(parent)) return
+  useState('llll-embed', () => ({ parent: '', enabled: true })).value = {
+    parent,
+    enabled: true,
+  }
+  try {
+    sessionStorage.setItem('llll.embed-parent', parent)
+  } catch {
+    /* In-memory embedding still works. */
+  }
+  const post = (data: object) =>
+    window.parent.postMessage({ llll: EMBED_VERSION, ...data }, parent)
+  const session = useSessionStore()
   const live = useLiveStore()
   const colorMode = useColorMode()
-  const toast = useToast()
+  const router = useRouter()
   const unread = useState('llll-embed-unread', () => 0)
-  const local = computed(() => connections.installations.value.find(i => i.origin === location.origin))
   const publish = () => {
-    post({ type: 'session', authenticated: Boolean(local.value?.userId) })
-    post({ type: 'servers', servers: (local.value?.servers || []).filter(s => s.publicId && s.status === 'ready').map(s => ({ id: s.publicId, name: s.name, unread: s.id === connections.active.value?.serverId ? unread.value : 0 })) })
+    post({ type: 'session', authenticated: Boolean(session.user) })
+    post({
+      type: 'servers',
+      servers: [{ id: server.id, name: server.name, unread: unread.value }],
+    })
   }
-  watch(() => [local.value?.userId, local.value?.servers, unread.value], publish, { deep: true })
-  watch(() => live.connection, value => post({ type: 'call', active: value === 'connected' || value === 'connecting' }))
-  router.afterEach(to => {
-    const server = connections.activeServer.value
-    if (server?.publicId && safeEmbedPath(to.fullPath)) post({ type: 'navigate', serverId: server.publicId, path: to.fullPath })
+  watch(() => [session.user?.id, unread.value], publish)
+  watch(
+    () => live.connection,
+    (v) =>
+      post({ type: 'call', active: v === 'connected' || v === 'connecting' }),
+  )
+  router.afterEach((to) => {
+    if (safeEmbedPath(to.fullPath))
+      post({ type: 'navigate', serverId: server.id, path: to.fullPath })
   })
-  let switching = false
-  window.addEventListener('message', async event => {
-    if (event.source !== window.parent || event.origin !== parentOrigin || event.data?.llll !== EMBED_VERSION) return
+  window.addEventListener('message', async (event) => {
+    if (
+      event.source !== window.parent ||
+      event.origin !== parent ||
+      event.data?.llll !== EMBED_VERSION
+    )
+      return
     const parsed = embedCommand.safeParse(event.data)
     if (!parsed.success) return
-    await mounted
     const command = parsed.data
-    if (command.type === 'theme') { colorMode.preference = command.theme; return }
-    if (command.type === 'telegram') {
-      if (!installation.telegram) return
-      try { await connections.request(location.origin, '/api/auth/telegram/miniapp', { method: 'POST', body: { initData: command.initData } }); await connections.refresh(location.origin); publish() }
-      catch { /* The installation's own login remains available. */ }
+    if (command.type === 'theme') {
+      colorMode.preference = command.theme
       return
     }
-    if (switching || !safeEmbedPath(command.path)) return
-    const server = local.value?.servers.find(s => s.publicId === command.serverId)
-    if (!server) { post({ type: 'open-rejected', serverId: command.serverId, reason: 'unavailable' }); await router.replace('/connections'); return }
-    if (connections.active.value?.serverId !== server.id) {
-      if (live.connection === 'connected' || live.connection === 'connecting') {
-        toast.add({ title: 'End the current call before switching servers', color: 'warning' })
-        const current = connections.activeServer.value
-        post({ type: 'open-rejected', serverId: command.serverId, currentServerId: current?.publicId, path: router.currentRoute.value.fullPath, reason: 'call-active' })
-        return
+    if (command.type === 'telegram') {
+      if (!server.telegram) return
+      try {
+        await connection.request(
+          location.origin,
+          '/api/auth/telegram/miniapp',
+          { method: 'POST', body: { initData: command.initData } },
+        )
+        await session.refresh()
+        publish()
+      } catch {
+        /* Local login remains available. */
       }
-      switching = true
-      // A new server gets fresh query caches, sockets and content state.
-      const form = document.createElement('form')
-      form.method = 'POST'; form.action = '/embed/open'; form.style.display = 'none'
-      for (const [name, value] of Object.entries({ parent: parentOrigin, server: server.publicId!, path: command.path, session: connections.tokens.value[location.origin] || '' })) {
-        const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; form.appendChild(input)
-      }
-      document.body.appendChild(form); form.submit()
+      return
     }
-    else await router.replace(command.path)
+    if (command.serverId !== server.id || !safeEmbedPath(command.path)) {
+      post({
+        type: 'open-rejected',
+        serverId: command.serverId,
+        reason: 'unavailable',
+      })
+      return
+    }
+    await router.replace(command.path)
   })
-  nuxt.hook('app:mounted', async () => {
-  post({ type: 'ready', version: EMBED_VERSION, name: installation.name })
-  publish()
+  nuxt.hook('app:mounted', () => {
+    post({ type: 'ready', version: EMBED_VERSION, name: server.name })
+    publish()
   })
 })

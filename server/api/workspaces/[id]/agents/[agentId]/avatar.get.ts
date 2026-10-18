@@ -1,3 +1,4 @@
+import { getServerId } from '../../../../../../shared/server-id'
 import { and, eq } from 'drizzle-orm'
 import { agents, users } from '../../../../../../drizzle/schema'
 import { cf, requireFiles, fail } from '../../../../../utils/cf'
@@ -5,7 +6,7 @@ import { getDb } from '../../../../../utils/db'
 import { requireMember } from '../../../../../utils/guards'
 
 export default defineEventHandler(async (event) => {
-  const workspaceId = getRouterParam(event, 'id')!
+  const workspaceId = await getServerId(cf(event).env.DB)
   const agentId = getRouterParam(event, 'agentId')!
   await requireMember(event, workspaceId)
   const { env } = cf(event)

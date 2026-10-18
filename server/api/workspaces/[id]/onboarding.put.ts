@@ -1,5 +1,6 @@
+import { getServerId } from '../../../../shared/server-id'
 import { onboardingRevisions } from '../../../../drizzle/schema'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import type { PublicOnboardingConfig } from '../../../../shared/types'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -45,7 +46,7 @@ export default defineEventHandler(async (event): Promise<{ onboarding: PublicOnb
     createdAt,
   })
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'onboarding.publish',
     targetType: 'onboarding_revision',

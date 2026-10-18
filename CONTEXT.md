@@ -6,12 +6,6 @@ This is the product glossary. See [product scope](docs/product.md), [runtime arc
 
 Free MIT licensed software for independent communities. A community gathers in a Server. Chat is the starting point; Tasks, Mail, Data, Apps and Agents are capabilities within that Server.
 
-## Instance
-
-An independently operated deployment that owns local Accounts, login, sessions and a directory of Servers. An Instance may contain multiple Servers. Its owner operates the deployment and manages server provisioning.
-
-**Instance** is the product, source-directory and canonical API term (`apps/instance`, `/api/instance`). Legacy manifest fields, environment bindings, discovery values and immutable SQL keep their published spellings for compatibility; they are not another entity.
-
 ## Server
 
 A community with its own Members, Roles, conversations, content and settings. A Member may belong to several Servers; access to one does not imply access to another.
@@ -20,7 +14,7 @@ A community with its own Members, Roles, conversations, content and settings. A 
 
 ## Account
 
-A human's local login identity in one Instance. Accounts in different Instances are independent. Explicit account linking connects login methods to an Account; matching email addresses do not establish that link.
+A human's local login identity on one Server. Accounts on different Servers are independent. Explicit account linking connects login methods to an Account; matching email addresses do not establish that link.
 
 ## Member
 
@@ -28,7 +22,7 @@ A human or Agent participating in one Server. A human's Account identifies them;
 
 ## Role and Grant
 
-A Role groups permissions for Members in a Server. A Grant permits an operation on a resource. Instance ownership and Server administration are separate responsibilities.
+A Role groups permissions for Members in a Server. A Grant permits an operation on a resource. The Server Owner operates its deployment; Roles grant local community permissions.
 
 ## Channel, Thread and Direct Message
 
@@ -48,7 +42,7 @@ A Task records work and its responsibility. Data comprises user-managed Database
 
 ## Client and Shell
 
-The Client is the interface served by an Instance. The official Shell groups connections to Instances and displays their Clients. A saved connection is a bookmark, not an Account or a membership grant.
+The Client is the interface served by a standalone Server. The official Shell displays connected Servers and embeds their Clients. A saved connection is a bookmark, not an Account or a membership grant.
 
 ## Provider and Backup
 

@@ -1,6 +1,7 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
 import { normalizeDatabaseOptions } from '../../../shared/database'
-import { nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { databaseFieldDto, requireDatabase, requireDatabaseField } from '../../utils/database-data'
@@ -15,7 +16,7 @@ const bodySchema = z.object({
 }).refine(body => Object.keys(body).length > 0, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -45,6 +46,6 @@ export default defineEventHandler(async (event) => {
   if (body.position !== undefined) { assignments.push('position = ?'); values.push(body.position) }
   if (body.options !== undefined) { assignments.push('config_json = ?'); values.push(JSON.stringify({ options })) }
   await env.DB.prepare(`UPDATE database_fields SET ${assignments.join(', ')} WHERE id = ?`).bind(...values, id).run()
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'database_field.update', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, fields: Object.keys(body) } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.update', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, fields: Object.keys(body) } })
   return { field: databaseFieldDto(await requireDatabaseField(env, id)) }
 })

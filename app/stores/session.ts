@@ -31,13 +31,12 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   async function logout(fetcher: SessionFetcher = asSessionFetcher($fetch)) {
-    const connections = useInstances()
-    if (connections.activeInstallation.value?.kind === 'installation') {
-      await connections.logout(connections.activeInstallation.value.origin)
-      user.value = null
-      return '/connections'
-    }
     const response = await fetcher('/api/auth/logout', { method: 'POST' }) as { redirect?: string | null } | undefined
+    if (import.meta.client && typeof window !== 'undefined') {
+      const connection = useServers()
+      Reflect.deleteProperty(connection.tokens.value, window.location.origin)
+      try { sessionStorage.removeItem('llll.server-session:' + window.location.origin) } catch { /* In-memory sessions are cleared above. */ }
+    }
     user.value = null
     return response?.redirect || null
   }

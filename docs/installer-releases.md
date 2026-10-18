@@ -1,24 +1,20 @@
 # Deployment artifacts
 
-One immutable L4 release contains matching installation/server modules, client assets and migration chains. A merged release PR publishes matching llll, Server, Instance and Docs artifacts and deploys the released official web app. Customer Instances and Servers update under their operators’ control. The website holds an encrypted temporary OAuth grant during bootstrap and deletes it after transfer or expiry. Customer content and ongoing provisioning credentials remain in their installation.
+One immutable release contains matching standalone Server, Shell/site, client assets, Docs and migration chains. Customer versions remain under operator control. Bundle schema version 2 removes the Instance component. The retired schema-1 bundles remain unchanged and are not compatible standalone installation choices.
 
 | Asset | Purpose |
 | --- | --- |
-| `llll-deployment.json` | Complete verified bundle: `site`, `client`, `installation`, `server` modules; static assets; separate installation/server migrations. |
+| `llll-deployment.json` | Complete verified bundle: `site`, `client`, `server` modules; static assets; ordered Server migrations. |
 | `llll-cloudflare-manifest.json` | Server runtime manifest with immutable asset URLs, hashes, compatibility flags and DO classes. |
 | `llll-worker.mjs` | Bundled server Worker. |
 | `llll-assets.json` | Server client assets and ordered server migrations. |
-| `llll-deployment-core-<version>.tgz` | Provisioning library for installation controllers and operator tooling. |
+| `llll-deployment-core-<version>.tgz` | Provisioning library for Workers Builds and operator tooling. |
 | `llll-runtime-linux-amd64.tar.gz` | Portable Docker image, tagged `llll:<version>`, loaded with `docker load`. |
 | `llll.tgz` | Independently deployable web Worker (`llll`), public site/PWA assets and web migrations. |
 | `llll-docs.tgz` | Docs, README and domain context from the release commit. |
 | `llll-release.json` | Shared version, exact commit, release PR, component list and artifact hashes/sizes. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
-The provisioning library is `@llll/deployment-core`, not a separately deployed Admin.
+`@llll/deployment-core` is a library used inside Workers Builds, not a deployed Admin or Server control plane. The browser-bound installer configures a Git-connected Build and removes its temporary encrypted OAuth grant after verified completion or expiry. Accounts, content and provider credentials remain on each Server.
 
-Build with `pnpm release:installer`. `pnpm build:deployment` builds all four modules, static assets and migration arrays. The release workflow includes the full bundle and generates checksums before publication. Verify module SHA256, asset hashes/sizes and ordered migration names before deploying. Never modify a published tag or asset.
-
-`packages/deployment-core` creates or updates one server Worker and its resources. `apps/instance` owns the account/session boundary and calls the library after checking installation owner authority. The operator bootstraps the installation itself with `scripts/deploy-instance.mjs` or the private celld Compose generator.
-
-No release deploys a separate account-wide Admin or a public control-plane callback. Domain routing and resource removal remain operator-managed. A server update preserves its data bindings, auth/provider secrets and DO namespaces, and applies only pending ordered migrations. Initial migration baselines are immutable; append schema changes instead of rewriting published SQL.
+Build with `pnpm release:installer`. Validate all module SHA-256, asset hashes/sizes, migration order and release provenance. Published tags and assets and merged SQL are immutable. The release workflow packages the portable runtime image and all components before publishing, then promotes the official web archive through Workers Builds.

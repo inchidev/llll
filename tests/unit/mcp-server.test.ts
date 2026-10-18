@@ -28,12 +28,13 @@ function d1(database: DatabaseSync): D1Database {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(INIT_SQL)
+  sqlite.exec("INSERT INTO server_identity(singleton,id) VALUES (1,'00000000-0000-4000-8000-000000000001')")
   sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 0);
     INSERT INTO identity_keys (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com');
     INSERT INTO users (id, display_name, status, role_id, joined_at)
       VALUES ('owner', 'Owner', 'active', 'owner-role', '2026-09-06T00:00:00.000Z');
-    INSERT INTO workspace (id, name, owner_id) VALUES ('main', 'L4', 'owner');
+    INSERT INTO workspace (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001', 'L4', 'owner');
   `)
 })
 
@@ -41,14 +42,14 @@ afterEach(() => sqlite.close())
 
 function ownerPrincipal(): McpPrincipal {
   const authorization = {
-    workspaceId: 'main',
+    workspaceId: '00000000-0000-4000-8000-000000000001',
     principal: { id: 'owner', kind: 'human' as const, roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true },
     credential: { kind: 'mcp' as const, id: 'token', scopes: ['tasks:read', 'tasks:write', 'documents:read', 'documents:write'] as const },
   }
   return {
     tokenId: 'token',
     userId: 'owner',
-    workspaceId: 'main',
+    workspaceId: '00000000-0000-4000-8000-000000000001',
     roleId: 'owner-role',
     roleName: 'Owner',
     perms: ALL_PERMISSIONS,

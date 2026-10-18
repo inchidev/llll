@@ -1,3 +1,4 @@
+import { getServerId } from '../shared/server-id'
 import { createStorageBackup } from '../shared/storage-backup'
 import { uploadBackupToR2 } from '../shared/r2-backup'
 import { version } from '../package.json'
@@ -29,6 +30,7 @@ export default {
       }
       const workspace = url.pathname.match(/^\/ws\/workspace\/([^/]+)/)
       if (workspace?.[1]) {
+        if (workspace[1] !== await getServerId(env.DB)) return new Response('Server not found', { status: 404 })
         return env.WORKSPACE_DO.getByName(`workspace:${workspace[1]}`).fetch(request)
       }
     }
@@ -51,7 +53,7 @@ export default {
           cloudflare: { request, env, context, url },
         },
       },
-      host: url.hostname,
+      host: url.host,
       protocol: url.protocol,
       method: request.method,
       headers: request.headers,
@@ -64,7 +66,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
     if (env.BACKUPS && env.FILES) {
       const createdAt = new Date().toISOString()
-      await uploadBackupToR2(env.BACKUPS, `servers/${env.LLLL_SERVER_ID || 'main'}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, env.FILES, createdAt, version))
+      await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, env.FILES, createdAt, version))
     }
   },
 }

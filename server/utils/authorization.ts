@@ -1,6 +1,6 @@
+import { getServerId } from '../../shared/server-id'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { AuthorizationContext, CredentialKind, WorkspaceAction } from '../../shared/authorization'
-import { WORKSPACE_ID } from '../../shared/ids'
 import type { McpScope } from '../../shared/mcp'
 import type { L4Env } from '../../workers/env'
 
@@ -20,7 +20,7 @@ export async function loadAuthorizationContext(
      JOIN roles r ON r.id = u.role_id
      JOIN workspace w ON w.id = ?
      WHERE u.id = ? AND u.status = 'active'`,
-  ).bind(WORKSPACE_ID, input.principalId).first<{
+  ).bind((await getServerId(env.DB)), input.principalId).first<{
     id: string
     kind: 'human' | 'agent'
     roleId: string
@@ -37,7 +37,7 @@ export async function loadAuthorizationContext(
          JOIN roles r ON r.id = u.role_id
          JOIN workspace w ON w.id = ?
          WHERE u.id = ? AND u.kind = 'human' AND u.status = 'active'`,
-      ).bind(WORKSPACE_ID, input.delegatedBy).first<{
+      ).bind((await getServerId(env.DB)), input.delegatedBy).first<{
         roleName: string
         permissions: number
         ownerId: string
@@ -45,7 +45,7 @@ export async function loadAuthorizationContext(
     : null
   if (input.delegatedBy && !delegated) return null
   return {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(env.DB)),
     principal: {
       id: row.id,
       kind: row.kind,

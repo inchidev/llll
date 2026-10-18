@@ -542,7 +542,7 @@ function roleAccessLabel(role: RoleDTO) {
             name="prompt"
             label="Generate with Jev"
             :hint="workersAi ? 'Optional' : 'Needs Workers AI'"
-            :description="workersAi ? undefined : 'Jev uses Workers AI and is unavailable on this instance. Create the app directly instead.'"
+            :description="workersAi ? undefined : 'Jev uses Workers AI and is unavailable on this server. Create the app directly instead.'"
           >
             <UTextarea v-model="createState.prompt" :disabled="!workersAi" class="w-full" autoresize :rows="3" placeholder="Build a sales overview from Leads and Companies" />
           </UFormField>

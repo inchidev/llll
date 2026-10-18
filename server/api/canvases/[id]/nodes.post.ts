@@ -1,5 +1,6 @@
+import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
 import { cf } from '../../../utils/cf'
 import { loadCanvasNode, requireCanvas } from '../../../utils/data-resources'
@@ -16,7 +17,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const canvasId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -28,6 +29,6 @@ export default defineEventHandler(async (event) => {
      (id, canvas_id, kind, content, x, y, width, height, color, version, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 240, 144, ?, 1, ?, ?, ?)`,
   ).bind(id, canvasId, body.kind, body.content, body.x, body.y, body.color, actor.user.id, now, now).run()
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'canvas_node.create', targetType: 'canvas_node', targetId: id, meta: { canvasId, kind: body.kind } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.create', targetType: 'canvas_node', targetId: id, meta: { canvasId, kind: body.kind } })
   return { node: await loadCanvasNode(env, id) }
 })

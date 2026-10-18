@@ -37,7 +37,7 @@ describe('release PR policy', () => {
 describe('release artifact provenance', () => {
   const commit = 'a'.repeat(40)
   const files = Object.fromEntries(['llll.tgz', 'llll-deployment.json', 'llll-cloudflare-manifest.json', 'llll-runtime-linux-amd64.tar.gz', 'llll-docs.tgz', 'llll-worker.mjs', 'llll-assets.json', 'llll-deployment-core-0.1.0-alpha.2.tgz'].map(name => [name, { sha256: 'b'.repeat(64), size: 100 }]))
-  const manifest = { schemaVersion: 1, version: next.version, commit, releasePr: 42, components: ['llll', 'server', 'instance', 'docs'], files }
+  const manifest = { schemaVersion: 2, version: next.version, commit, releasePr: 42, components: ['llll', 'server', 'docs'], files }
   it('requires the matching immutable tag, commit and all components', () => {
     expect(() => validateReleaseManifest(manifest, 'v0.1.0-alpha.2', commit)).not.toThrow()
     expect(() => validateReleaseManifest(manifest, 'v0.1.0-alpha.3', commit)).toThrow()
@@ -51,10 +51,10 @@ describe('release artifact provenance', () => {
   })
   it('rejects a corrupt component and missing migration chain', () => {
     const content = 'export default {}'
-    const bundle = { schemaVersion: 1, version: next.version, modules: Object.fromEntries(['site', 'client', 'installation', 'server'].map(name => [name, { content, size: content.length, sha256: sha256(content) }])), assets: [{ path: '/index.html', contentBase64: 'aGVsbG8=', size: 5, hash: '5d41402abc4b2a76b9719d911017c592' }], migrations: { installation: [{ name: '0000_instance_baseline.sql', sql: 'CREATE TABLE accounts(id);' }], server: [{ name: '0000_server_baseline.sql', sql: 'CREATE TABLE users(id);' }] } }
+    const bundle = { schemaVersion: 2, version: next.version, modules: Object.fromEntries(['site', 'client', 'server'].map(name => [name, { content, size: content.length, sha256: sha256(content) }])), assets: [{ path: '/index.html', contentBase64: 'aGVsbG8=', size: 5, hash: '5d41402abc4b2a76b9719d911017c592' }], migrations: { installation: [{ name: '0000_instance_baseline.sql', sql: 'CREATE TABLE accounts(id);' }], server: [{ name: '0000_server_baseline.sql', sql: 'CREATE TABLE users(id);' }] } }
     expect(() => validateDeploymentBundle(bundle, next.version)).not.toThrow()
     expect(() => validateDeploymentBundle({ ...bundle, modules: { ...bundle.modules, server: { content: 'corrupted' } } }, next.version)).toThrow('server module')
-    expect(() => validateDeploymentBundle({ ...bundle, migrations: { ...bundle.migrations, installation: [] } }, next.version)).toThrow('installation migrations')
+    expect(() => validateDeploymentBundle({ ...bundle, migrations: { ...bundle.migrations, server: [] } }, next.version)).toThrow('server migrations')
   })
 })
 
@@ -98,7 +98,7 @@ it('prepares the released archive instead of newer main output and rejects corru
   execFileSync('tar', ['-czf', tar, '-C', resolve(root, 'archive'), '.bundle/index.mjs', '.output/public', 'migrations', 'wrangler.jsonc'])
   const bytes = readFileSync(tar), commit = 'b'.repeat(40), main = 'c'.repeat(40)
   const files = Object.fromEntries(['llll.tgz', 'llll-deployment.json', 'llll-cloudflare-manifest.json', 'llll-runtime-linux-amd64.tar.gz', 'llll-docs.tgz', 'llll-worker.mjs', 'llll-assets.json', 'llll-deployment-core-0.1.0-alpha.2.tgz'].map(name => [name, { sha256: sha256(bytes), size: bytes.length }]))
-  const manifest = JSON.stringify({ schemaVersion: 1, version: next.version, commit, releasePr: 42, components: ['llll', 'server', 'instance', 'docs'], files })
+  const manifest = JSON.stringify({ schemaVersion: 2, version: next.version, commit, releasePr: 42, components: ['llll', 'server', 'docs'], files })
   const base = 'https://github.com/inchidev/llll/releases/download/v0.1.0-alpha.2'
   const responses = { 'https://llll.gg/api/health': JSON.stringify({ commit: 'a'.repeat(40), version: ordinary.version }), [`${base}/llll-release.json`]: manifest, [`${base}/SHA256SUMS`]: `${sha256(manifest)}  llll-release.json\n${sha256(bytes)}  llll.tgz` }
   const preloader = resolve(root, 'fetch.mjs')

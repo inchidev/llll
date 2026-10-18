@@ -1,5 +1,5 @@
+import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
-import { WORKSPACE_ID } from '../../../../shared/ids'
 import { cf } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
 import { invokeGadget } from '../../../utils/gadget-runtime'
@@ -16,7 +16,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const body = parseBody(bodySchema, await readBody(event))
   return { item: await invokeGadget(cf(event).env, actor, getRouterParam(event, 'id')!, body) }
 })

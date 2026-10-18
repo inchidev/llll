@@ -10,13 +10,9 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 
 export type L4Env = {
   /** The installation that may introduce an explicitly admitted member. */
-  LLLL_INSTALLATION_INTERNAL_ORIGIN?: string
-  INSTALLATION_SERVICE?: Fetcher
-  LLLL_INSTALLATION_ORIGIN?: string
-  LLLL_INSTALLATION_KEY?: string
-  LLLL_SERVER_ID?: string
-  LLLL_ALLOW_INSTALLATION_BOOTSTRAP?: string
-  LLLL_SERVER_OWNER_ID?: string
+  EMBED_ORIGINS?: string
+  TELEGRAM_TRUSTED_BOT_ID?: string
+  TELEGRAM_BOT_TOKEN?: string
   DB: D1Database
   BACKUPS?: R2Bucket
   BACKUP_BUCKET_NAME?: string
@@ -114,13 +110,13 @@ export type L4Env = {
   ADMIN_HANDLE?: string
   ADMIN_WORKSPACE?: string
   AGENT_MODEL?: string
-  LLLL_INSTALLATION?: string
   LLLL_ACCOUNT_ID?: string
   LLLL_WORKER_NAME?: string
   LLLL_CUSTOM_DOMAIN?: string
   LLLL_ZONE_ID?: string
   LLLL_ZONE_NAME?: string
   LLLL_APP_SUBDOMAIN?: string
+  LLLL_SERVER_MARKER?: string
   LLLL_VERSION?: string
   LLLL_APP_HOSTNAME?: string
   /** Cloudflare account id used to call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. */

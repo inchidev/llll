@@ -5,9 +5,6 @@
 # process; the container restart policy starts it again.
 set -eu
 
-if [ "${LLLL_MODE:-server}" = "installation" ]; then
-  CELLD_TEMPLATE=${CELLD_TEMPLATE:-/opt/llll/wrangler.instance.celld.json}
-fi
 TEMPLATE="${CELLD_TEMPLATE:-/opt/llll/wrangler.celld.json}"
 CONFIG="${CELLD_CONFIG:-$(dirname "$TEMPLATE")/wrangler.celld.local.json}"
 CELLD_BUCKET="${CELLD_BUCKET:-s3://cells}"
@@ -138,23 +135,10 @@ put_var POSTMARK_INBOUND_SECRET
 put_var MAILGUN_WEBHOOK_SIGNING_KEY
 put_var SES_SNS_TOPIC_ARN
 put_var BROWSER_CDP_URL
-put_var LLLL_INSTALLATION_ORIGIN
-put_var LLLL_INSTALLATION_INTERNAL_ORIGIN
-put_var LLLL_INSTALLATION_KEY
-put_var LLLL_SERVER_ID
-put_var LLLL_SERVER_OWNER_ID
-put_var LLLL_ALLOW_INSTALLATION_BOOTSTRAP
-put_var INSTALLATION_ID
-put_var INSTALLATION_NAME
 put_var SETUP_TOKEN
 put_var EMBED_ORIGINS
 put_var TELEGRAM_TRUSTED_BOT_ID
 put_var TELEGRAM_BOT_TOKEN
-put_var CLIENT_ORIGINS
-put_var TRUSTED_SERVER_ORIGINS
-put_var IDENTITY_ISSUER
-put_var IDENTITY_CLIENT_ID
-put_var IDENTITY_CLIENT_SECRET
 
 tmp=$(mktemp)
 jq '.vars.LLLL_RUNTIME="celld" | .vars.AUTH_REGISTRATION_MODE="invite_only"' "$CONFIG" > "$tmp"

@@ -2,8 +2,9 @@
 import { useQuery } from '@tanstack/vue-query'
 import type { MailboxDTO, MemberDTO } from '~~/shared/types'
 import { mailPath } from '~~/shared/paths'
-import { WORKSPACE_ID } from '~~/shared/ids'
 import { Permission } from '~~/shared/permissions'
+
+const { workspaceId } = useWorkspace()
 
 definePageMeta({ layout: 'workspace', middleware: ['auth'] })
 
@@ -14,8 +15,8 @@ const mailboxesQ = useQuery({
   queryFn: () => api<{ mailboxes: MailboxDTO[] }>('/api/mail/mailboxes'),
 })
 const membersQ = useQuery({
-  queryKey: ['members', WORKSPACE_ID],
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${WORKSPACE_ID}/members`),
+  queryKey: ['members', workspaceId.value],
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${workspaceId.value}/members`),
 })
 // People who manage mailboxes get the way to create one instead of "ask an admin".
 const { can } = usePermissions(computed(() => membersQ.data.value?.members))
@@ -39,7 +40,7 @@ watch(() => mailboxesQ.data.value?.mailboxes, (mailboxes) => {
         ? 'Create an address like support@, or give yourself access to an existing one, in Email settings.'
         : 'Ask a server admin for access to a mailbox.'"
     >
-      <UButton v-if="canManageMail" icon="i-ph-gear" label="Set up email" :to="`/w/${WORKSPACE_ID}/settings?section=email`" />
+      <UButton v-if="canManageMail" icon="i-ph-gear" label="Set up email" :to="`/w/${workspaceId}/settings?section=email`" />
     </LayoutEmptyState>
   </div>
 </template>

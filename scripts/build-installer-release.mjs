@@ -90,7 +90,7 @@ const manifest = {
   releasedAt: new Date().toISOString(),
   compatibilityDate: '2026-09-28',
   compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
-  capabilities: ['cloudflare-access-auth', 'optional-r2', 'primary-workspace-mail-v1', 'llll-installation-v1'],
+  capabilities: ['cloudflare-access-auth', 'optional-r2', 'primary-workspace-mail-v1', 'llll-standalone-server-v1'],
   worker: {
     url: `${releaseBaseUrl}/${workerName}`,
     sha256: digest('sha256', worker),

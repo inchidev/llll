@@ -1,6 +1,7 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
 import { DatabaseViewLayouts } from '../../../shared/database'
-import { nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { databaseFieldsFor, requireDatabase } from '../../utils/database-data'
@@ -18,7 +19,7 @@ const bodySchema = z.object({
 }).refine(body => Object.keys(body).some(key => key !== 'version'), 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -43,6 +44,6 @@ export default defineEventHandler(async (event) => {
      created_by as createdBy, created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, id, body.version).first<Parameters<typeof parseDatabaseView>[0]>()
   if (!updated) fail(409, 'stale_database_view', 'This view changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'database_view.update', targetType: 'database_view', targetId: id, meta: { databaseId: current.databaseId, fields: Object.keys(body).filter(key => key !== 'version') } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_view.update', targetType: 'database_view', targetId: id, meta: { databaseId: current.databaseId, fields: Object.keys(body).filter(key => key !== 'version') } })
   return { view: parseDatabaseView(updated, fields) }
 })

@@ -1,5 +1,6 @@
+import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
 import { cf, fail } from '../../../utils/cf'
 import { requireCanvas, requireCanvasNode } from '../../../utils/data-resources'
@@ -11,7 +12,7 @@ const bodySchema = z.object({ fromNodeId: z.string().min(8), toNodeId: z.string(
   .refine(body => body.fromNodeId !== body.toNodeId, 'Choose two different canvas items')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const canvasId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -28,6 +29,6 @@ export default defineEventHandler(async (event) => {
   await env.DB.prepare(
     'INSERT INTO canvas_edges (id, canvas_id, from_node_id, to_node_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   ).bind(id, canvasId, from.id, to.id, actor.user.id, createdAt).run()
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'canvas_edge.create', targetType: 'canvas_edge', targetId: id, meta: { canvasId, fromNodeId: from.id, toNodeId: to.id } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.create', targetType: 'canvas_edge', targetId: id, meta: { canvasId, fromNodeId: from.id, toNodeId: to.id } })
   return { edge: { id, canvasId, fromNodeId: from.id, toNodeId: to.id, createdBy: actor.user.id, createdAt } }
 })

@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { drizzle } from 'drizzle-orm/d1'
 import baselineSql from '../../drizzle/migrations/0000_server_baseline.sql?raw'
+import standaloneSql from '../../drizzle/migrations/0001_standalone_server.sql?raw'
 import { schema } from '../../drizzle/schema'
 
 export function getDb(d1: D1Database) {
@@ -24,6 +25,7 @@ export function d1ExecSql(sql: string): string {
 
 export const INIT_SQL = d1ExecSql([
   baselineSql,
+  standaloneSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */
@@ -69,7 +71,7 @@ export async function userCount(db: D1Database): Promise<number> {
 
 export async function workspaceReady(db: D1Database): Promise<boolean> {
   try {
-    return Boolean(await db.prepare("SELECT id FROM workspace WHERE id = 'main'").first())
+    return Boolean(await db.prepare("SELECT id FROM workspace LIMIT 1").first())
   }
   catch {
     return false

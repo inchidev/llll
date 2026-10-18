@@ -212,15 +212,29 @@ export const agentTurns = sqliteTable('agent_turns', {
   check('agent_turns_status_check', sql`${table.status} in ('queued', 'thinking', 'tool', 'waiting_approval')`),
 ])
 
-/** One row per installation. Its id is not copied into workspace-owned tables. */
+export const serverIdentity = sqliteTable('server_identity', {
+  singleton: integer('singleton').notNull().unique(),
+  id: text('id').primaryKey(),
+}, table => [check('server_identity_singleton_check', sql`${table.singleton} = 1`), check('server_identity_uuid_check', sql`length(${table.id}) = 36 AND substr(${table.id},15,1) = '4' AND substr(${table.id},20,1) IN ('8','9','a','b')`)])
+
+export const connectionGrants = sqliteTable('connection_grants', {
+  codeHash: text('code_hash').primaryKey(), userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }), sessionId: text('session_id').notNull().references(() => authSessions.id, { onDelete: 'cascade' }), challenge: text('challenge').notNull(), redirectUri: text('redirect_uri').notNull(), expiresAt: integer('expires_at').notNull(),
+})
+export const accountRecovery = sqliteTable('account_recovery', {
+  userId: text('user_id').primaryKey().references(() => authUsers.id, { onDelete: 'cascade' }), codeHash: text('code_hash').notNull().unique(), createdAt: integer('created_at').notNull(),
+})
+
+/** One independent Server; its permanent UUID also identifies its community. */
 export const workspace = sqliteTable('workspace', {
-  id: text('id').primaryKey().default('main'),
+  id: text('id').primaryKey().references(() => serverIdentity.id),
+  singleton: integer('singleton').notNull().default(1),
   name: text('name').notNull(),
   iconR2Key: text('icon_r2_key'),
   ownerId: text('owner_id').notNull().references(() => users.id),
   ...isoTimestamps(),
 }, table => [
-  check('workspace_singleton_check', sql`${table.id} = 'main'`),
+  uniqueIndex('workspace_singleton_idx').on(table.singleton),
+  check('workspace_singleton_check', sql`${table.singleton} = 1`),
 ])
 
 /** Revocable MCP credentials. Only their SHA-256 digests are retained. */
@@ -889,6 +903,9 @@ export const taskAttachments = sqliteTable('task_attachments', {
 ])
 
 export const schema = {
+  serverIdentity,
+  connectionGrants,
+  accountRecovery,
   identityKeys,
   authUsers,
   authSessions,

@@ -1,5 +1,6 @@
+import { getServerId } from '../../shared/server-id'
 import { authorize, WorkspaceAction, type AuthorizationContext } from '../../shared/authorization'
-import { newId, nowIso, WORKSPACE_ID } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { PublicUser } from '../../shared/types'
@@ -142,7 +143,7 @@ export async function authenticateMcpRequest(
      JOIN workspace w ON w.id = ?
      WHERE t.token_hash = ? AND t.revoked_at IS NULL
      LIMIT 1`,
-  ).bind(WORKSPACE_ID, tokenHash).first<{
+  ).bind((await getServerId(env.DB)), tokenHash).first<{
     tokenId: string
     userId: string
     createdBy: string
@@ -164,7 +165,7 @@ export async function authenticateMcpRequest(
   const scopes = parseScopes(row.scopesJson)
   const delegatedBy = row.createdBy === row.userId ? null : row.createdBy
   const authorization: AuthorizationContext = {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(env.DB)),
     principal: { id: row.userId, kind: row.userKind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner },
     credential: { kind: 'mcp', id: row.tokenId, scopes },
     ...(delegatedBy ? { delegation: { by: delegatedBy } } : {}),
@@ -172,7 +173,7 @@ export async function authenticateMcpRequest(
   return {
     tokenId: row.tokenId,
     userId: row.userId,
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(env.DB)),
     roleId: row.roleId,
     roleName: row.roleName,
     perms,

@@ -1,6 +1,6 @@
 # Installation and server boundaries
 
-Status: accepted.
+Status: superseded by [0002](0002-standalone-servers.md). The following records the retired design.
 
 An installation owns accounts, authentication, sessions, invitations, provisioning credentials and a directory of servers. Its controller and control D1 deploy to the operator's Cloudflare account or VPS. Each server owns its content, roles, onboarding, removals, database, files and realtime runtime.
 

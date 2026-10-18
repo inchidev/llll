@@ -1,17 +1,17 @@
 ---
 name: llll-create-server
-description: Create or verify an L4 installation and its isolated servers on Cloudflare or celld. Use for explicit install/deploy/create/update requests, not ordinary code changes.
+description: Create or verify a standalone L4 Server on Cloudflare or celld for an explicit install/create/update request.
 ---
 
-# Deploy L4
+# Create an L4 Server
 
-Read the current `docs/instance.md` and `docs/deployment.md`. An installation owns accounts and a server directory; every server has separate resources. There is no separate Admin application. The optional site provides a Cloudflare OAuth installer with a temporary credential handoff.
+Read `docs/server.md` and `docs/deployment.md`. Each Server owns accounts, sessions, UUID identity, content and its independent resources. There is no Instance or master node.
 
-1. Establish the target installation, provider and existing state. Use ignored deployment configuration and private credentials; do not ask for tokens in chat or print claims/secrets.
-2. For Cloudflare, bootstrap the installation through the documented source installer. Its owner can then configure a scoped API token in Instance settings to provision servers, or register separately deployed servers. Agent account operations use the connected Cloudflare API tool; local Wrangler is for validation unless the user explicitly authorizes an exception.
-3. For VPS, generate private celld Compose configuration, deploy it through the operator's Docker/Coolify setup, create the owner with the private claim link and register its servers. The web app has no Docker socket.
-4. Preserve existing D1, files, backups, pairing/encryption secrets and deployment state. After an uncertain operation, inspect current state before retrying.
-5. Verify installation discovery/owner login, server membership, independent resources, files and realtime separately. A successful resource creation alone is not proof that the installation is ready.
-6. Before updates, back up control data/secrets and server data. Published releases and migration SQL are immutable. VPS updates and resource deletion are operator actions.
+1. Verify the target checkout, Git remote, provider/account and existing state. Keep credentials, setup claims and targets in ignored private files; never print them.
+2. Cloudflare application code deploys only in Workers Builds from Git. Use the connected API for administrative configuration and cleanup, never application uploads. Feature PRs require isolated Preview proof; publish production only from a merged release PR and immutable verified assets. Local Wrangler is for types, dry runs and isolated development.
+3. Create the Server through its Git-connected Build or the supported installer. Pin a published standalone release and preserve resource names and secrets across retries. Claim the local owner and verify direct and Shell login.
+4. On VPS use the portable release image and standalone celld Compose configuration. Protect persistent storage and private operator credentials. Do not give the Client Docker/SSH access.
+5. Verify UUID stability, local owner/member/invitation access, denial, messages, files, actual WebSocket authentication, logout revocation and separate backup/restore. Resource existence alone is not readiness.
+6. Keep backups separate from live files and preserve backup buckets on Server deletion. Never replace published tags/assets or merged SQL.
 
-The Cloudflare OAuth installer requires a configured public PKCE client and a verified published release. Its Cloudflare grant is separate from local Account/Telegram authentication. The initial alpha is for fresh databases; never apply its baselines to an archived prototype database. Return the installation/client address, setup and verification status, and any remaining credential/provider step. Keep private claim and recovery information out of public artifacts.
+Return the Server and Shell links, version and verified behavior. Save owner/recovery information in an ignored private file. Keep future hosted billing and global L4 identity outside the creation scope.

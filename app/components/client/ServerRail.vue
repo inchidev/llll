@@ -1,21 +1,8 @@
 <script setup lang="ts">
 import CommunityRail from '../../../packages/client-ui/CommunityRail.vue'
-
-const { installations, active, select, toggle } = useInstances()
-const groups = computed(() => installations.value.map(installation => ({
-  ...installation,
-  servers: installation.servers.filter(server => server.status === 'ready'),
-})))
-function connection(origin?: string) {
-  window.location.assign(origin ? `/connections?instance=${encodeURIComponent(origin)}` : '/connections')
-}
-function open(origin: string, serverId: string) {
-  if (active.value?.origin === origin && active.value.serverId === serverId) return
-  select(origin, serverId)
-  window.location.assign('/')
-}
+const { servers, active } = useServers()
+const groups = computed(() => servers.value.map(s => ({ origin: s.origin, name: s.name, servers: [{ id: s.id, name: s.name }] })))
+function open(origin: string) { location.assign(origin) }
+function connect() { location.assign('https://llll.gg/open') }
 </script>
-
-<template>
-  <CommunityRail :groups="groups" :active-origin="active?.origin" :active-server-id="active?.serverId" @server="open" @toggle="toggle" @group="connection" @connections="connection()" @connect="navigateTo('/connections?connect=1')" @install="navigateTo('/deploy')" />
-</template>
+<template><CommunityRail :groups="groups" :active-origin="active?.origin" :active-server-id="active?.serverId" @server="open" @connections="connect" @connect="connect" @install="navigateTo('https://llll.gg/deploy', { external: true })" /></template>

@@ -1,5 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { WORKSPACE_ID, newId, nowIso } from '../../../shared/ids'
+import {  newId, nowIso } from '../../../shared/ids'
 import { isBase64UrlKey, isSafePushEndpoint } from '../../../shared/notifications'
 import { requireMember } from '../../utils/guards'
 import { cf, fail } from '../../utils/cf'
@@ -16,7 +17,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const member = await requireMember(event, WORKSPACE_ID)
+  const member = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   if (!pushConfigured(env)) fail(503, 'push_unconfigured', 'Web Push is not configured')

@@ -1,10 +1,10 @@
+import { getServerId } from '../../../../shared/server-id'
 import type { GadgetRuntimeDTO } from '../../../../shared/gadgets'
-import { WORKSPACE_ID } from '../../../../shared/ids'
 import { cf } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
 import { openGadget } from '../../../utils/gadget-runtime'
 
 export default defineEventHandler(async (event): Promise<GadgetRuntimeDTO> => {
-  const actor = await requireMember(event, WORKSPACE_ID)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   return openGadget(cf(event).env, actor, getRouterParam(event, 'id')!)
 })

@@ -1,7 +1,7 @@
+import { getServerId } from '../../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { realtimekitSettings } from '../../../../drizzle/schema'
 import type { RealtimeKitSettingsAdminDTO } from '../../../../shared/types'
-import { WORKSPACE_ID } from '../../../../shared/ids'
 import { loadRealtimeKitConfig, realtimekitSettingsAdminDto } from '../../../../workers/realtimekit'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -18,11 +18,11 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
   }
   await getDb(env.DB).delete(realtimekitSettings).where(eq(realtimekitSettings.id, 'main'))
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'realtimekit.settings.remove',
     targetType: 'workspace',
-    targetId: WORKSPACE_ID,
+    targetId: (await getServerId(cf(event).env.DB)),
   })
   return { realtimekit: realtimekitSettingsAdminDto(await loadRealtimeKitConfig(env)) }
 })

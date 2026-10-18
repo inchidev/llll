@@ -1,9 +1,10 @@
+import { getServerId } from '../../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { backupDestinations } from '../../../../drizzle/schema'
 import type { BackupDestinationDTO } from '../../../../shared/backups'
 import { encryptSecret } from '../../../../shared/encrypted-secret'
-import { nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { nowIso } from '../../../../shared/ids'
 import { authSecret } from '../../../utils/auth-config'
 import {
   BACKUP_S3_SECRET_SCOPE,
@@ -36,11 +37,11 @@ export default defineEventHandler(async (event): Promise<{ destination: BackupDe
   if (body.remove) {
     await db.delete(backupDestinations).where(eq(backupDestinations.id, 'main'))
     await writeAudit(env, {
-      workspaceId: WORKSPACE_ID,
+      workspaceId: (await getServerId(cf(event).env.DB)),
       actorId: member.user.id,
       action: 'backup.destination.remove',
       targetType: 'workspace',
-      targetId: WORKSPACE_ID,
+      targetId: (await getServerId(cf(event).env.DB)),
     })
     return { destination: backupDestinationDto(await loadBackupDestination(env, installationSecret)) }
   }
@@ -99,11 +100,11 @@ export default defineEventHandler(async (event): Promise<{ destination: BackupDe
   })
 
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'backup.destination.update',
     targetType: 'workspace',
-    targetId: WORKSPACE_ID,
+    targetId: (await getServerId(cf(event).env.DB)),
     meta: {
       endpoint: new URL(endpoint).host,
       bucket: body.bucket,

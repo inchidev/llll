@@ -82,8 +82,7 @@ jobs:
         run: >-
           pnpm --filter @llll/mobile typecheck &&
           pnpm --filter @llll/desktop typecheck &&
-          pnpm --filter @llll/extension typecheck &&
-          pnpm --filter @llll/instance typecheck
+          pnpm --filter @llll/extension typecheck
 
       # Keep test output in the log: the GitHub annotations reporter crashes
       # the runner with a Unicode EncoderFallbackException on this suite.
@@ -91,12 +90,12 @@ jobs:
         if: matrix.check == 'test'
         run: pnpm test --reporter=default
 
-      - name: Verify the fresh Instance and isolated Server runtimes
+      - name: Verify the independent Server runtimes
         if: matrix.check == 'integration'
         run: |
           pnpm build:site
           pnpm build:deployment
-          pnpm test:instance
+          pnpm test:server
           node scripts/test-web.mjs
 
   self-host:
@@ -131,24 +130,12 @@ jobs:
       - name: Build the image and require health 200
         run: bash self-host/smoke.sh
 
-      - name: Verify an installation with two isolated servers
-        run: |
-          node scripts/self-host-instance.mjs .deployment/ci-compose http://localhost:18080 alpha beta
-          docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json up -d --no-build
-          node scripts/test-self-host-instance.mjs .deployment/ci-compose
-
       - name: Show Compose logs
         if: failure()
         run: |
           docker compose -f self-host/docker-compose.yml logs --no-color
-          if [ -f .deployment/ci-compose/compose.json ]; then
-            docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json logs --no-color
-          fi
 
       - name: Stop validation containers
         if: always()
         run: |
           docker compose -f self-host/docker-compose.yml down -v
-          if [ -f .deployment/ci-compose/compose.json ]; then
-            docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json down -v
-          fi

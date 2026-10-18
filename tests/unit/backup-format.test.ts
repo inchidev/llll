@@ -155,7 +155,8 @@ describe('backup format', () => {
         INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 1023);
         INSERT INTO identity_keys (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com');
         INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP);
-        INSERT INTO workspace (name, owner_id) VALUES ('Workspace', 'owner');
+        INSERT INTO server_identity(singleton,id) VALUES (1,'00000000-0000-4000-8000-000000000001');
+        INSERT INTO workspace (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001','Workspace', 'owner');
         INSERT INTO channels (id, name, type, visibility) VALUES ('channel', 'general', 'text', 'workspace');
         INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES ('message', 'channel', 'owner', 'A searchable message', CURRENT_TIMESTAMP);
         INSERT INTO channels (id, name, type, visibility, parent_id, parent_message_id)

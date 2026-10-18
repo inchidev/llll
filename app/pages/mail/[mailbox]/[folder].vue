@@ -2,9 +2,10 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
 import { formatDateTime } from '~~/shared/format'
-import { WORKSPACE_ID } from '~~/shared/ids'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
 import { withMailboxUnread, withMessage, withoutMessage, withoutThread, withThreadActivity, withThreadFirst, withThreadRead, type MailThreadDetail, type MailThreadPages } from '~/utils/mail-cache'
+
+const { workspaceId } = useWorkspace()
 
 definePageMeta({ layout: 'workspace', middleware: ['auth'] })
 
@@ -126,7 +127,7 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
   return {
     id: `tmp:${key}`,
     channelId: threadId,
-    workspaceId: WORKSPACE_ID,
+    workspaceId: workspaceId.value,
     author: { id: user.id, kind: user.kind, displayName: user.displayName, avatarR2Key: user.avatarR2Key },
     content,
     replyTo: null,

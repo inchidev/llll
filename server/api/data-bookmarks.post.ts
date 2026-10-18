@@ -1,6 +1,6 @@
+import { getServerId } from '../../shared/server-id'
 import { z } from 'zod'
 import type { DataBookmarkDTO } from '../../shared/types'
-import { WORKSPACE_ID } from '../../shared/ids'
 import { Permission } from '../../shared/permissions'
 import { cf } from '../utils/cf'
 import { requireCanvas, requireDocument } from '../utils/data-resources'
@@ -12,7 +12,7 @@ import { parseBody } from '../utils/validate'
 const bodySchema = z.object({ targetType: z.enum(['database_view', 'document', 'canvas']), targetId: z.string().min(1) })
 
 export default defineEventHandler(async (event): Promise<{ bookmark: DataBookmarkDTO }> => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   if (body.targetType === 'database_view') {

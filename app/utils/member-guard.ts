@@ -1,4 +1,3 @@
-import { WORKSPACE_ID } from '~~/shared/ids'
 import { hasPermission, type PermissionFlag } from '~~/shared/permissions'
 import type { MemberDTO } from '~~/shared/types'
 
@@ -14,12 +13,14 @@ export async function guardMemberPermission(flags: PermissionFlag[]) {
 
   const { api, native } = useApi()
   const requestFetch = useRequestFetch()
-  const url = `/api/workspaces/${WORKSPACE_ID}/members`
+  const serverId = useServers().activeServer.value?.id
+  if (!serverId) return navigateTo('/login')
+  const url = `/api/workspaces/${serverId}/members`
   const load = (): Promise<{ members: MemberDTO[] }> => import.meta.client && native
     ? api<{ members: MemberDTO[] }>(url)
     : requestFetch<{ members: MemberDTO[] }>(url)
   const response = import.meta.client
-    ? await useNuxtApp().$queryClient.ensureQueryData({ queryKey: ['members', WORKSPACE_ID], queryFn: load })
+    ? await useNuxtApp().$queryClient.ensureQueryData({ queryKey: ['members', serverId], queryFn: load })
     : await load()
 
   const member = response.members.find(item => item.user.id === session.user?.id)

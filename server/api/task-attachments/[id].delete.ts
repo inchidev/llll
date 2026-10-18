@@ -1,6 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { taskAttachments } from '../../../drizzle/schema'
-import { WORKSPACE_ID } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { signalTasksChanged } from '../../../workers/task-events'
 import { cf, requireFiles, fail } from '../../utils/cf'
@@ -10,7 +10,7 @@ import { writeAudit } from '../../utils/messages'
 import { requireTask } from '../../utils/task-policy'
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
   const id = getRouterParam(event, 'id')!
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const task = await requireTask(env, attachment.taskId)
   await requireFiles(env).delete(attachment.r2Key)
   await db.delete(taskAttachments).where(eq(taskAttachments.id, id))
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'task_attachment.delete', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename: attachment.filename } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.delete', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename: attachment.filename } })
   waitUntil(signalTasksChanged(env, task.boardId, task.id))
   return { ok: true }
 })

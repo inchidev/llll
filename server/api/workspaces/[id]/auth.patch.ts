@@ -1,8 +1,9 @@
+import { getServerId } from '../../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authAccounts, authProviderCredentials, authSettings } from '../../../../drizzle/schema'
 import type { AuthCredentialProvider, AuthSettingsAdminDTO } from '../../../../shared/types'
-import { nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { nowIso } from '../../../../shared/ids'
 import { AUTH_PROVIDERS, authSecret, authSettingsAdminDto, forgetSessionAuthConfig, loadAuthRuntimeConfig } from '../../../utils/auth-config'
 import { encryptAuthSecret } from '../../../utils/auth-secrets'
 import { cf, fail } from '../../../utils/cf'
@@ -157,11 +158,11 @@ export default defineEventHandler(async (event): Promise<{ auth: AuthSettingsAdm
   }).where(eq(authSettings.id, 'main'))
 
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'auth.settings.update',
     targetType: 'workspace',
-    targetId: WORKSPACE_ID,
+    targetId: (await getServerId(cf(event).env.DB)),
     meta: {
       registrationMode: body.registrationMode,
       enabledMethods: Object.entries(effective).filter(([, enabled]) => enabled).map(([method]) => method),

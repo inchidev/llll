@@ -321,7 +321,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <dt class="text-muted">Browser</dt>
         <dd :class="browserCopy.startsWith('Public page') ? 'text-muted' : ''">{{ browserCopy }}</dd>
         <dt class="text-muted">Containers</dt>
-        <dd class="text-muted">Agents have no container, computer, or shell on this instance.</dd>
+        <dd class="text-muted">Agents have no container, computer, or shell on this server.</dd>
         <dt class="text-muted">Tasks</dt>
         <dd>Can read tasks and create new tasks.</dd>
         <template v-if="selectedAgent">

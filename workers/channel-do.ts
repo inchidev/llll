@@ -1,3 +1,4 @@
+import { getServerId } from '../shared/server-id'
 import { DurableObject } from 'cloudflare:workers'
 import { z } from 'zod'
 import type { AttachmentDTO, LiveState, MessageDTO, PublicUser, ServerMsg } from '../shared/types'
@@ -6,7 +7,7 @@ import { canAccessAgentConversation, isDmType } from '../shared/dm'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission } from '../shared/permissions'
 import { liveKindFor } from '../shared/live'
 import { resolveChannelPermissions } from '../shared/channel-permissions'
-import { newId, nowIso, WORKSPACE_ID } from '../shared/ids'
+import { newId, nowIso } from '../shared/ids'
 import { asRpc, callsProvider, type L4Env } from './env'
 import type { RealtimeKitParticipant } from './realtimekit'
 import { liveMedia } from './live-media'
@@ -207,7 +208,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const message: MessageDTO = {
       id,
       channelId: channel.id,
-      workspaceId: WORKSPACE_ID,
+      workspaceId: (await getServerId(this.env.DB)),
       author: agent,
       content: body.content,
       replyTo: null,
@@ -840,7 +841,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       `SELECT u.kind, r.permissions_bitmask as perms, r.id as roleId, w.owner_id as ownerId
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       JOIN workspace w ON w.id = 'main'
+       CROSS JOIN workspace w
        WHERE u.id = ? AND u.status = 'active'`,
     ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string }>()
     if (!membership) return null
@@ -871,7 +872,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         frozen = (still.results ?? []).length !== ids.length
       }
       const perms = directMessagePermissions(membership.perms, membership.ownerId === userId, frozen)
-      return { workspaceId: WORKSPACE_ID, type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }
+      return { workspaceId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }
     }
     let perms = membership.ownerId === userId ? ALL_PERMISSIONS : membership.perms
     if (membership.ownerId !== userId) {
@@ -893,7 +894,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         perms &= ~(Permission.sendMessages | Permission.attachFiles)
       }
     }
-    return { workspaceId: WORKSPACE_ID, type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }
+    return { workspaceId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }
   }
 
   private async loadDmParticipants(): Promise<PublicUser[]> {
@@ -1023,7 +1024,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return {
       id: row.id,
       channelId: row.channel_id,
-      workspaceId: WORKSPACE_ID,
+      workspaceId: (await getServerId(this.env.DB)),
       author: { id: row.uid, kind: row.kind, displayName: row.display_name, avatarR2Key: row.avatar_r2_key },
       content: row.deleted_at ? '' : row.content,
       replyTo: null,

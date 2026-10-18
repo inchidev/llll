@@ -6,9 +6,9 @@ import { parseVersion } from './release-policy.mjs'
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 export function validateReleaseManifest(manifest, tag, commit) {
   parseVersion(manifest.version)
-  if (!/^[a-f0-9]{40}$/.test(commit) || manifest.schemaVersion !== 1 || `v${manifest.version}` !== tag || manifest.commit !== commit
+  if (!/^[a-f0-9]{40}$/.test(commit) || ![1, 2].includes(manifest.schemaVersion) || `v${manifest.version}` !== tag || manifest.commit !== commit
     || !Number.isSafeInteger(manifest.releasePr) || manifest.releasePr < 1
-    || JSON.stringify(manifest.components) !== JSON.stringify(['llll', 'server', 'instance', 'docs'])) throw new Error('Release provenance does not match the immutable tag')
+    || JSON.stringify(manifest.components) !== JSON.stringify(manifest.schemaVersion === 1 ? ['llll', 'server', 'instance', 'docs'] : ['llll', 'server', 'docs'])) throw new Error('Release provenance does not match the immutable tag')
   for (const name of ['llll.tgz', 'llll-deployment.json', 'llll-cloudflare-manifest.json', 'llll-runtime-linux-amd64.tar.gz', 'llll-docs.tgz', 'llll-worker.mjs', 'llll-assets.json', `llll-deployment-core-${manifest.version}.tgz`]) {
     if (!/^[a-f0-9]{64}$/.test(manifest.files?.[name]?.sha256) || !Number.isSafeInteger(manifest.files[name].size) || manifest.files[name].size <= 0) throw new Error(`Incomplete release: ${name}`)
   }
@@ -18,8 +18,8 @@ export function validateArchivePaths(paths, listing) {
     || listing.split('\n').filter(Boolean).some(line => !['-', 'd'].includes(line[0]))) throw new Error('Unsafe web release archive')
 }
 export function validateDeploymentBundle(bundle, version) {
-  if (bundle.schemaVersion !== 1 || bundle.version !== version) throw new Error('Deployment bundle version mismatch')
-  for (const name of ['site', 'client', 'installation', 'server']) {
+  if (bundle.schemaVersion !== 2 || bundle.version !== version) throw new Error('Deployment bundle version mismatch')
+  for (const name of ['site', 'client', 'server']) {
     const module = bundle.modules?.[name]
     if (!module || Buffer.byteLength(module.content) !== module.size || sha256(module.content) !== module.sha256) throw new Error(`Invalid ${name} module`)
   }
@@ -31,7 +31,7 @@ export function validateDeploymentBundle(bundle, version) {
       || bytes.length !== asset.size || createHash('md5').update(bytes).digest('hex') !== asset.hash) throw new Error('Invalid client asset')
     seen.add(asset.path)
   }
-  for (const kind of ['installation', 'server']) {
+  for (const kind of ['server']) {
     const migrations = bundle.migrations?.[kind]
     if (!Array.isArray(migrations) || !migrations.length) throw new Error(`Missing ${kind} migrations`)
     for (const [index, migration] of migrations.entries()) {
@@ -46,7 +46,7 @@ export async function writeReleaseManifest(directory, { version, commit, release
     const bytes = await readFile(resolve(directory, name))
     files[name] = { sha256: sha256(bytes), size: bytes.length }
   }
-  const manifest = { schemaVersion: 1, version, commit, releasePr, components: ['llll', 'server', 'instance', 'docs'], files }
+  const manifest = { schemaVersion: 2, version, commit, releasePr, components: ['llll', 'server', 'docs'], files }
   validateReleaseManifest(manifest, `v${version}`, commit)
   await writeFile(resolve(directory, 'llll-release.json'), JSON.stringify(manifest, null, 2) + '\n')
   let sums = ''

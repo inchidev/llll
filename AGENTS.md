@@ -2,34 +2,33 @@
 
 MIT licensed independent community software. Nuxt 4, Pinia, TanStack Query, Workers/celld, D1, R2, Durable Objects.
 
-## Five parts
+## Four parts
 
 | Part | Source / entry point | Responsibility |
 | --- | --- | --- |
-| Instance | `apps/instance` | Local Accounts, login, sessions, Server directory and provisioning. |
-| Server | Root Nuxt runtime (`app`, `server`) | One community's Members, Roles, conversations, content, files and realtime. |
-| Shell | `apps/site`, `/open` and Server UUID routes | Bookmarks and navigation; embeds each Instance's own Client. |
+| Server | Root Nuxt runtime (`app`, `server`) | One community's Accounts, login, sessions, Members, Roles, content, files and realtime. |
+| Shell | `apps/site`, `/open` and Server UUID routes | Device-local bookmarks and navigation; embeds each Server's own Client. |
 | Landing | `apps/site`, `/` | Public product entry point. |
-| Docs | `docs`, `apps/site` at `/docs` | Source documentation and its web index; production links are pinned to the release tag. |
+| Docs | `docs`, `apps/site` at `/docs` | Source documentation and its web index, pinned to the released version. |
 
-Landing, Shell, the Docs index and `/deploy` (Instance installer) share the official Worker `llll`. Instance and Server are separately deployable release artifacts. `apps/client` is a compatibility redirect to the Shell. iOS/macOS packaging is frozen.
+Landing, Shell, Docs and `/deploy` (Server installer) share the official Worker `llll`. Each standalone Server is separately deployed. `apps/client` redirects to the Shell. Native iOS/macOS packaging remains frozen.
 
 ## Domains
 
 - Production: `https://llll.gg`.
 - Native PR Previews: `https://<preview-slug>.dev.llll.gg`. The base `dev.llll.gg` does not serve production or a shared development app.
 - Production and Preview `workers.dev` URLs remain disabled. Domain administration uses the connected Cloudflare API.
-- Customer Instances and Servers use operator-owned origins; they do not depend on an official hosted Instance or demo Server.
+- Customer Servers use operator-owned origins; they do not depend on an official hosted service or demo Server.
 
 ## Working rules
 
-- One Instance owns accounts, sessions and a directory of servers. Each server owns its Worker, D1 database, private files bucket and Durable Objects.
-- The official web/PWA/Telegram Shell embeds each Instance's own Client through a small postMessage protocol.
-- Server authorization, removals and roles stay local even when an installation introduces an identity. Never grant access by email matching.
-- Accounts and login stay local to the installation. Public server IDs are UUIDv4; shell bookmarks and routing metadata do not grant membership.
+- Each standalone Server owns its Accounts, login, sessions, Worker, D1 database, private files bucket and Durable Objects. There is no Instance runtime or master Server.
+- The official web/PWA/Telegram Shell embeds each Server's own Client through a small postMessage protocol.
+- Server authorization, removals and roles stay local. Any future external identity provider must link explicitly; never grant access by email matching.
+- Accounts and login stay local to each Server. Its persistent UUIDv4 is also the internal workspace ID; there is no `main` workspace alias. Shell bookmarks and directory metadata grant no membership.
 - DM stays inside a server. Gitrew and cross-product integrations are later work.
 - Keep backup destinations separate from live file buckets. Never delete backup buckets with servers.
-- Fresh histories start at separate `0000` baselines for server and installation. Merged migration SQL is immutable. This fresh history starts at 0.1.0-alpha.1; it has no upgrade path from the archived prototype.
+- Merged migration SQL is immutable, including the retired Instance baseline kept as historical evidence. Append Server migrations. The standalone transition is for fresh databases; there are no running Instances to migrate. Published tags/assets remain immutable.
 - Keep personal targets and credentials in ignored files. Verify the target checkout and Git remote before mutations.
 - Preserve unrelated work. Changes after the initial bootstrap go through focused PRs to main with local and isolated deployment verification. Published release tags/assets are immutable.
 - Never deploy application code from this machine, including through Wrangler or a direct API upload. Application deployments run only in Cloudflare Workers Builds from Git: PR -> Worker Preview -> protected main. Ordinary merges never change production. Only a merged PR labelled release that increases the shared package version may publish all components and trigger production from immutable release artifacts. There is one main and no production branch. The connected Cloudflare API tool is for administrative configuration and cleanup. Local Wrangler is limited to types, dry runs and isolated development.
@@ -38,5 +37,5 @@ Landing, Shell, the Docs index and `/deploy` (Instance installer) share the offi
 
 - [Product language](CONTEXT.md): canonical terms and compatibility spellings.
 - [Releases](docs/releases.md): shared version, release PR, publication, production promotion and retries.
-- [Deployment](docs/deployment.md): official web, customer Instance/Server boundaries, domains and credentials.
+- [Deployment](docs/deployment.md): official web, customer Server boundaries, domains and credentials.
 - [Preview verification](docs/worker-previews.md): required checks, isolated fixtures and Preview data cleanup.

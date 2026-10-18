@@ -14,19 +14,6 @@ const updateQ = useQuery({
 
 const status = computed(() => updateQ.data.value)
 const releaseLabel = computed(() => status.value?.releasesBehind === 1 ? 'release' : 'releases')
-const connections = useInstances()
-const connected = computed(() => connections.activeInstallation.value?.kind === 'installation')
-const busy = ref(false)
-const updateError = ref('')
-async function installUpdate() {
-  const active = connections.active.value
-  if (!active || !status.value?.latestRelease) return
-  busy.value = true
-  updateError.value = ''
-  try { await connections.request(active.origin, `/api/instance/servers/${active.serverId}/update`, { method: 'POST', body: { version: status.value.latestRelease.tagName } }); location.reload() }
-  catch (cause) { updateError.value = errorMessage(cause) }
-  finally { busy.value = false }
-}
 </script>
 
 <template>
@@ -47,7 +34,6 @@ async function installUpdate() {
       />
     </div>
 
-    <UAlert v-if="updateError" class="mt-5" color="error" :title="updateError" />
     <LayoutSkeleton v-if="updateQ.isPending.value" variant="form" :rows="2" class="mt-8" />
     <UAlert
       v-else-if="updateQ.error.value"
@@ -72,7 +58,7 @@ async function installUpdate() {
             <p v-if="status.updateAvailable" class="mt-1 text-sm text-warning">{{ status.releasesBehind }} {{ releaseLabel }} behind</p>
             <p v-else class="mt-1 text-sm text-success">Up to date</p>
           </div>
-          <UBadge :label="status.management === 'installation' ? 'Instance' : 'Operator deployment'" color="neutral" variant="subtle" />
+          <UBadge :label="'Operator deployment'" color="neutral" variant="subtle" />
         </div>
 
         <div v-if="status.latestRelease" class="mt-6 border-t border-default pt-5">
@@ -84,7 +70,6 @@ async function installUpdate() {
         </div>
 
         <div class="mt-6 flex flex-wrap gap-2">
-          <UButton v-if="connected && status.updateAvailable" label="Back up and update server" :loading="busy" @click="installUpdate" />
           <UButton
             v-if="status.latestRelease"
             :to="status.latestRelease.url"
@@ -99,7 +84,7 @@ async function installUpdate() {
       </div>
 
       <UAlert
-        v-if="!connected && status.updateAvailable && status.management === 'operator'"
+        v-if="status.updateAvailable && status.management === 'operator'"
         class="mt-4"
         color="neutral"
         title="Repository deployment"

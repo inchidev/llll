@@ -1,5 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { databaseFieldsFor, databaseItemDto, databaseSqlValue, requireDatabase, requireDatabaseItem } from '../../utils/database-data'
@@ -15,7 +16,7 @@ const bodySchema = z.object({
 }).refine(body => body.title !== undefined || body.values !== undefined, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -39,6 +40,6 @@ export default defineEventHandler(async (event) => {
      created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, id, body.version).first<Parameters<typeof databaseItemDto>[0]>()
   if (!updated) fail(409, 'stale_record', 'This record changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'database_item.update', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, fields: [...Object.keys(body.values ?? {}), ...(body.title !== undefined ? ['title'] : [])] } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.update', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, fields: [...Object.keys(body.values ?? {}), ...(body.title !== undefined ? ['title'] : [])] } })
   return { item: databaseItemDto(updated, fields) }
 })

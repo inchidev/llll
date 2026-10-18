@@ -1,4 +1,4 @@
-import { WORKSPACE_ID } from '../../../../../shared/ids'
+import { getServerId } from '../../../../../shared/server-id'
 import {
   loadRealtimeKitConfig,
   RealtimeKitHttpError,
@@ -34,11 +34,11 @@ export default defineEventHandler(async (event): Promise<RealtimeKitConnectionTe
   }
 
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: member.user.id,
     action: 'realtimekit.connection.test',
     targetType: 'workspace',
-    targetId: WORKSPACE_ID,
+    targetId: (await getServerId(cf(event).env.DB)),
     meta: { source: config.source, hostPreset: config.hostPreset, participantPreset: config.participantPreset },
   })
   return { ok: true, ...result }

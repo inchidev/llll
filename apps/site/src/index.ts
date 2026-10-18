@@ -17,7 +17,7 @@ async function input(request: Request): Promise<unknown> { try { return JSON.par
 function publicOrigin(value: string, env: WebEnv) {
   const url = new URL(value)
   const local = env.TEST_ALLOW_LOCAL_ORIGINS === 'true' && ['localhost', '127.0.0.1'].includes(url.hostname)
-  if (url.origin !== value || (!local && (url.protocol !== 'https:' || !url.hostname.includes('.') || /^(?:\d|\[)/.test(url.hostname) || /\.(?:localhost|local|internal|test|invalid)$/.test(url.hostname)))) fail(400, 'Enter a public HTTPS installation origin')
+  if (url.origin !== value || (!local && (url.protocol !== 'https:' || !url.hostname.includes('.') || /^(?:\d|\[)/.test(url.hostname) || /\.(?:localhost|local|internal|test|invalid)$/.test(url.hostname)))) fail(400, 'Enter a public HTTPS server origin')
   return url.origin
 }
 async function rateLimit(request: Request, env: WebEnv) {
@@ -35,19 +35,19 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   if (path === '/api/servers/register' && request.method === 'POST') {
     const value = z.object({ id: uuidSchema, origin: z.string().max(2048) }).parse(await input(request))
     const origin = publicOrigin(value.origin, env)
-    const proof = await fetch(origin + '/.well-known/llll/servers/' + value.id, { redirect: 'manual', signal: AbortSignal.timeout(10000) })
-    if (!proof.ok) fail(400, 'The installation could not verify this server')
+    const proof = await fetch(origin + '/.well-known/llll', { redirect: 'manual', signal: AbortSignal.timeout(10000) })
+    if (!proof.ok) fail(400, 'The server could not verify this server')
     const data = JSON.parse(await boundedText(proof)) as { id?: string; origin?: string }
-    if (data.id !== value.id || data.origin !== origin) fail(400, 'Server ownership proof did not match')
+    if (data.id !== value.id || data.origin !== origin || (data as { kind?: string }).kind !== 'server') fail(400, 'Server ownership proof did not match')
     const registered = await env.DB.prepare('INSERT INTO server_directory(id,origin,verified_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET verified_at=excluded.verified_at WHERE origin=excluded.origin RETURNING id').bind(value.id, origin, Date.now()).first()
-    if (!registered) fail(409, 'This server ID is registered to another installation')
+    if (!registered) fail(409, 'This server ID is registered to another server')
     return json({ ok: true })
   }
   const lookup = path.match(/^\/api\/servers\/([a-f0-9-]{36})$/)
   if (lookup && request.method === 'GET') {
     if (!uuidSchema.safeParse(lookup[1]).success) fail(404, 'Server not found')
     const row = await env.DB.prepare('SELECT origin FROM server_directory WHERE id=?').bind(lookup[1]).first<{ origin: string }>()
-    if (!row) fail(404, 'Server is not in the directory. Connect its installation by address.')
+    if (!row) fail(404, 'Server is not in the directory. Connect its server by address.')
     return json(row)
   }
   if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID) })
@@ -88,7 +88,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
     if (session.data.accountId) {
       const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
-      if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this installation') }
+      if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this server') }
     }
     await session.save()
     return Response.redirect(env.PUBLIC_ORIGIN + '/deploy', 303)
@@ -96,13 +96,13 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   if (path === '/api/deploy/session') {
     const session = await webSession(request, env); const data = session.data
     const accounts = data.grant && !data.worker ? await cloudflare<{ id: string; name: string }[]>(data.grant.accessToken, '/accounts') : []
-    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/connections#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
+    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
   }
   if (path === '/api/deploy/start' && request.method === 'POST') {
     const session = await webSession(request, env)
     if (!session.data.grant) fail(401, 'Connect Cloudflare first')
     if (session.data.worker) fail(409, 'Resume the existing deployment')
-    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
+    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), ownerEmail: z.string().email(), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
     const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
     if (!accounts.some(a => a.id === value.accountId)) fail(403, 'Choose an account authorized by Cloudflare')
     // Fail fast when the grant cannot touch Workers scripts (unchecked consent
@@ -112,7 +112,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       const probe = await fetch(`https://api.cloudflare.com/client/v4/accounts/${value.accountId}/workers/scripts?per_page=1`, { headers: { Authorization: `Bearer ${session.data.grant.accessToken}` }, signal: AbortSignal.timeout(20000) })
       if (probe.status === 403) fail(403, 'Cloudflare denied Workers access for this grant. Reconnect Cloudflare and approve every requested permission, or ask an account admin for Workers rights.')
     } catch (error) { if (error instanceof Error && 'status' in error) throw error }
-    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version)); await session.save()
+    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail)); await session.save()
     return json({ ok: true })
   }
   if (path === '/api/deploy/advance' && request.method === 'POST') {

@@ -1,29 +1,22 @@
 # Isolated verification
 
-Feature/fix PRs target `main`. Before merging, run lint, type checks, unit tests, migration validation, the Instance integration fixture and an isolated deployment. The initial migration baselines are immutable after merging; append the next numbered migration from current main and update its runtime registry.
+Feature/fix PRs target protected `main`. Run lint, root/Shell/client type checks, unit tests, immutable migration validation, builds, independent Server integration and self-host smoke. Verify the deployed PR head before merging. Ordinary merges never change production; a merged release PR publishes and promotes immutable artifacts.
 
-Cloudflare Workers Builds is connected to `inchidev/llll`. Each open, mergeable same-repository PR to main gets a native `llll` Worker Preview named after its branch, with a separate `llll-pr-N` D1 and an HTTPS URL at `<preview-slug>.dev.llll.gg`. The runner verifies that custom-domain URL; `workers.dev` URLs stay disabled. Closing the PR removes its native Preview. The runner verifies the exact PR head and deployed `/api/health` commit. Production OAuth and web secrets are excluded from Previews. The deployed Preview check and CI must pass before merging. Ordinary main builds leave production unchanged. Only a merged release PR that increases the shared version publishes all components and triggers production from the released artifact; see [releases](releases.md).
+The official `llll` Worker has a native Preview at `<preview-slug>.dev.llll.gg` with its own D1. Production and Preview workers.dev addresses stay disabled. CI also builds immutable candidate artifacts; developer machines do not upload them.
 
-GitHub Actions also builds immutable preview artifacts and tests fresh Instance/Server boundaries. Those artifacts are not uploaded from developer machines. Use the local fixture below to verify community flows independently of the official web Preview. Cloudflare administration and cleanup use only the connected API. Never delete preserved backup buckets. Per-PR D1 data is retained until administrative cleanup; it is never reused by another PR or production.
+A Server Preview uses `scripts/server-preview.mjs` inside Workers Builds. It requires the exact head of an open mergeable PR, separate `llll-server-pr-N` D1/FILES/BACKUPS/TICKETS resources, private Preview secrets and an operator-owned HTTPS origin. Its source deployment is isolated from customer Servers and the official site. Connected Cloudflare tools configure the Worker, domain and Build; they never upload code.
 
-For a local three-Worker fixture:
-
-```sh
-pnpm build
-pnpm exec wrangler deploy --dry-run --config wrangler.installer.jsonc --outdir .installer/bundle
-pnpm build:instance
-node scripts/test-instance.mjs --serve
-```
-
-The fixture tests fresh owner bootstrap, installation sessions, two D1/R2 boundaries, invitation permissions, account logout and a one-use PKCE client handoff. Its generated credentials live only in ignored `.deployment` files. Stop it after browser verification.
-
-It dispatches requests in process. It therefore cannot decide anything about a WebSocket handshake, a redirect, static asset lookup or any other transport-level behaviour — treat those as unverified until they are exercised against the target runtime. See [self-host findings](self-host-findings.md).
-
-To browse that fixture through the shell the way an installation sees llll.gg, start it with the shell origin allowed and run the site beside it:
+## Local fixture
 
 ```sh
-LLLL_TEST_EMBED_ORIGIN=http://localhost:3100 node scripts/test-instance.mjs --serve
-pnpm exec nuxt dev apps/site --port 3100
+pnpm build:site
+pnpm build:deployment
+pnpm test:server
+node scripts/test-server.mjs --serve
 ```
 
-Then open `http://localhost:3100/open?instance=http://localhost:18984`. The embed origin is also a client origin, so `/.well-known/llll` passes the shell's cross-origin check. Both servers stay reached through the installation at `/s/<id>/`; ports `18985` and `18986` are service bindings, not browsable addresses.
+The two Servers listen at `http://localhost:18984` and `http://localhost:18985`. They have independent D1, FILES, BACKUPS, TICKETS, DOs and AUTH_SECRET. The fixture verifies local owner/member accounts, stable UUID identity before/after setup, invitations, messages, HTTP denial, actual WebSocket authentication, foreign-server ticket denial, logout revocation, S256 handoff/replay denial and backup restoration with the same UUID and clean foreign keys.
+
+Start the Shell with `node scripts/test-web.mjs --serve`; open `http://localhost:19003/open?server=http://localhost:18984`. Generated fixture credentials stay in ignored `.deployment/integration/fixture.json`. Test direct and embedded login, invitation opening, server switching, reload, unread state, expired sessions and one unavailable Server. Inspect phone and desktop layouts. Local Miniflare proof does not certify Cloudflare custom domains, browser cookie policies on different sites, physical devices, or celld's network transport; verify those separately.
+
+Keep backup destinations separate from live files. Closing a PR can remove its Preview, but retained D1 and backup buckets require administrative cleanup and must never be reused by another PR or production.

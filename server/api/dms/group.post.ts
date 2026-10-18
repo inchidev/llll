@@ -1,8 +1,9 @@
+import { getServerId } from '../../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { channels, channelMembers, users } from '../../../drizzle/schema'
 import { DM_GROUP_MAX, DM_GROUP_MIN } from '../../../shared/dm'
-import { newId, nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { newId, nowIso } from '../../../shared/ids'
 import { requireUser } from '../../utils/auth'
 import { cf, fail } from '../../utils/cf'
 import { getDb } from '../../utils/db'
@@ -11,12 +12,13 @@ import { parseBody } from '../../utils/validate'
 
 const bodySchema = z.object({
   userIds: z.array(z.string().min(8)).min(2).max(DM_GROUP_MAX),
-  workspaceId: z.literal(WORKSPACE_ID).optional(),
+  workspaceId: z.string().uuid().optional(),
 })
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event)
   const body = parseBody(bodySchema, await readBody(event))
+  if (body.workspaceId && body.workspaceId !== await getServerId(cf(event).env.DB)) fail(404, 'not_found', 'Server not found')
   const { env } = cf(event)
   const db = getDb(env.DB)
   const ids = [...new Set([me.id, ...body.userIds])]

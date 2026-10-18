@@ -26,7 +26,7 @@ describe('uploaded avatars', () => {
 
   it('keeps the agent avatar endpoint for uploaded agent pictures', () => {
     expect(userAvatarSrc({ id: 'agent-1', kind: 'agent', avatarR2Key: 'main/agents/agent-1/avatar-a.png' }))
-      .toMatch(/^\/api\/workspaces\/main\/agents\/agent-1\/avatar\?v=/)
+      .toMatch(/^\/api\/agents\/agent-1\/avatar\?v=/)
   })
 
   it('ignores remote provider pictures the image policy would block', () => {

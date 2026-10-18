@@ -1,6 +1,7 @@
+import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
 import { taskLabels } from '../../../../drizzle/schema'
-import { newId, nowIso, WORKSPACE_ID } from '../../../../shared/ids'
+import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
 import { signalTasksChanged } from '../../../../workers/task-events'
 import { cf } from '../../../utils/cf'
@@ -14,7 +15,7 @@ const colors = ['neutral', 'primary', 'info', 'success', 'warning', 'error'] as 
 const bodySchema = z.object({ name: z.string().trim().min(1).max(40), color: z.enum(colors).default('neutral') })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
   const boardId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
@@ -27,7 +28,7 @@ export default defineEventHandler(async (event) => {
   catch {
     throw createError({ statusCode: 409, statusMessage: 'A label with that name already exists' })
   }
-  await writeAudit(env, { workspaceId: WORKSPACE_ID, actorId: actor.user.id, action: 'task_label.create', targetType: 'task_label', targetId: label.id, meta: { boardId, name: label.name } })
+  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_label.create', targetType: 'task_label', targetId: label.id, meta: { boardId, name: label.name } })
   waitUntil(signalTasksChanged(env, boardId))
   return { label }
 })

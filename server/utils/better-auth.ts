@@ -1,5 +1,7 @@
+import { serverConnection } from './connection-auth'
+import { serverTelegram } from './telegram-auth'
 import { betterAuth } from 'better-auth'
-import { captcha, genericOAuth } from 'better-auth/plugins'
+import { bearer, captcha, genericOAuth } from 'better-auth/plugins'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import type { H3Event } from 'h3'
 import { authAccounts, authSessions, authUsers, authVerifications } from '../../drizzle/schema'
@@ -155,6 +157,9 @@ export async function createAuth(
         : {}),
     },
     plugins: [
+      bearer({ requireSignature: true }),
+      serverConnection({ ...env, PUBLIC_ORIGIN: baseURL }, [baseURL]),
+      serverTelegram(env, config.registrationMode),
       ...(publicConfig.methods.telegram && telegram
         ? [genericOAuth({
             config: [{
@@ -197,7 +202,8 @@ export async function createAuth(
     ],
     trustedOrigins: [baseURL],
     advanced: {
-      cookiePrefix: 'df',
+      cookiePrefix: `llll-server${new URL(baseURL).port ? '-' + new URL(baseURL).port : ''}`,
+      cookies: baseURL.startsWith('https:') ? { session_token: { attributes: { sameSite: 'none', secure: true, partitioned: true } } } : undefined,
       useSecureCookies: baseURL.startsWith('https://'),
     },
   })

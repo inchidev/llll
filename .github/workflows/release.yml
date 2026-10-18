@@ -91,7 +91,7 @@ jobs:
           node-version-file: .node-version
       - run: pnpm install --frozen-lockfile
         if: steps.existing.outputs.published != 'true'
-      - name: Build the complete versioned web, Server and Instance bundle
+      - name: Build the complete versioned web and Server bundle
         if: steps.existing.outputs.published != 'true'
         env:
           LLLL_RELEASE_VERSION: ${{ env.RELEASE_TAG }}
@@ -102,7 +102,7 @@ jobs:
           cp .installer/deployment/llll-deployment.json .installer/release/
           cp .installer/deployment/llll.tgz .installer/release/
           tar -czf .installer/release/llll-docs.tgz docs README.md CONTEXT.md
-          pnpm test:instance
+          pnpm test:server
           node scripts/test-web.mjs
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
         if: steps.existing.outputs.published != 'true'

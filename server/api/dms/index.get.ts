@@ -1,6 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { channels, channelMembers, users } from '../../../drizzle/schema'
-import { WORKSPACE_ID } from '../../../shared/ids'
 import { hasPermission, Permission } from '../../../shared/permissions'
 import { channelUnreadCounts } from '../../../workers/unread'
 import { requireMember } from '../../utils/guards'
@@ -9,7 +9,7 @@ import { getDb } from '../../utils/db'
 import { toDmDto } from '../../utils/dms'
 
 export default defineEventHandler(async (event) => {
-  const member = await requireMember(event, WORKSPACE_ID)
+  const member = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const me = member.user
   const { env } = cf(event)
   const db = getDb(env.DB)

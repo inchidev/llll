@@ -42,17 +42,15 @@
     "macos:build": "pnpm prepare:clients:desktop && pnpm --filter @llll/desktop build",
     "extension:build": "pnpm prepare:clients:extension",
     "dev:simulator-proxy": "node scripts/simulator-proxy.mjs",
-    "build:instance": "node scripts/build-instance.mjs",
     "postbuild": "node scripts/build-pwa.mjs",
-    "build:deployment": "pnpm build && pnpm exec wrangler deploy --dry-run --minify --config wrangler.installer.jsonc --outdir .installer/bundle && pnpm build:instance && node scripts/build-deployment-release.mjs",
-    "test:instance": "node scripts/test-instance.mjs",
-    "deploy:instance": "node --env-file-if-exists=.env scripts/deploy-instance.mjs",
+    "build:deployment": "pnpm build && pnpm exec wrangler deploy --dry-run --minify --config wrangler.installer.jsonc --outdir .installer/bundle && node scripts/build-deployment-release.mjs",
     "build:site": "node scripts/build-site.mjs",
     "site:build": "node scripts/build-site.mjs",
     "typecheck:site": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit",
     "site:typecheck": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit",
     "web:preview": "node scripts/web-deploy.mjs preview",
-    "web:deploy": "node scripts/web-deploy.mjs production"
+    "web:deploy": "node scripts/web-deploy.mjs production",
+    "test:server": "node scripts/test-server.mjs"
   },
   "cloudflare": {
     "bindings": {

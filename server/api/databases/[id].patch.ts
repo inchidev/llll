@@ -1,5 +1,6 @@
+import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { nowIso, WORKSPACE_ID } from '../../../shared/ids'
+import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { requireDatabase } from '../../utils/database-data'
@@ -14,7 +15,7 @@ const bodySchema = z.object({
 }).refine(body => Object.keys(body).length > 0, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
@@ -32,7 +33,7 @@ export default defineEventHandler(async (event) => {
   if (body.archived !== undefined) { assignments.push('archived_at = ?'); values.push(body.archived ? nowIso() : null) }
   await env.DB.prepare(`UPDATE database_definitions SET ${assignments.join(', ')} WHERE id = ?`).bind(...values, id).run()
   await writeAudit(env, {
-    workspaceId: WORKSPACE_ID,
+    workspaceId: (await getServerId(cf(event).env.DB)),
     actorId: actor.user.id,
     action: body.archived === true ? 'database.archive' : body.archived === false ? 'database.restore' : 'database.update',
     targetType: 'database',

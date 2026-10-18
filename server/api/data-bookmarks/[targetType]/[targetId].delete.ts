@@ -1,4 +1,4 @@
-import { WORKSPACE_ID } from '../../../../shared/ids'
+import { getServerId } from '../../../../shared/server-id'
 import { Permission } from '../../../../shared/permissions'
 import { cf, fail } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
@@ -6,7 +6,7 @@ import { requireMember } from '../../../utils/guards'
 const targetTypes = new Set(['database_view', 'document', 'canvas'])
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, WORKSPACE_ID, Permission.manageDatabases)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const targetType = getRouterParam(event, 'targetType')!
   const targetId = getRouterParam(event, 'targetId')!
   if (!targetTypes.has(targetType)) fail(400, 'bad_request', 'Unsupported bookmark target')

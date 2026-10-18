@@ -47,6 +47,11 @@ export function originOk(event: H3Event): boolean {
   if (['native', 'extension'].includes(getHeader(event, 'x-llll-client') ?? '')) return true
   const origin = getHeader(event, 'origin')
   if (!origin) return true
+  let configured: string | undefined
+  try { configured = cf(event).env.PUBLIC_ORIGIN } catch { /* Isolated handler tests may only supply Host. */ }
+  if (configured) {
+    try { return new URL(origin).origin === new URL(configured).origin } catch { return false }
+  }
   const host = getHeader(event, 'host')
   if (!host) return false
   try {

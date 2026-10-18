@@ -1,167 +1,299 @@
 import { normalizeServerOrigin } from '../../../../shared/client-router'
-import { embedEvent, EMBED_VERSION, safeEmbedPath } from '../../../../shared/embed'
-
-export type ShellServer = { id: string; name: string; unread: number }
-export type ShellInstance = { origin: string; name: string; collapsed: boolean; servers: ShellServer[] }
-
-/** The well-known check failing at the network level names itself: navigation to
- * the shell must say what stalled instead of silently showing an empty form. */
-export const INSTALLATION_UNREACHABLE = 'The instance is unreachable. Check the address or try again in a moment.'
-
+import {
+  embedEvent,
+  EMBED_VERSION,
+  safeEmbedPath,
+  uuidSchema,
+} from '../../../../shared/embed'
+import type { ServerDiscovery } from '../../../../shared/server'
+export type ShellServer = {
+  id: string
+  origin: string
+  name: string
+  unread: number
+}
+export const SERVER_UNREACHABLE =
+  'The server is unreachable. Check the address or try again in a moment.'
 export function useShell() {
-  const installations = useState<ShellInstance[]>('shell-installations', () => [])
+  const servers = useState<ShellServer[]>('shell-servers', () => [])
+  const groups = computed(() =>
+    servers.value.map((s) => ({
+      origin: s.origin,
+      name: s.name,
+      servers: [s],
+    })),
+  )
   const selected = useState('shell-selected', () => '')
   const loaded = useState<string[]>('shell-loaded', () => [])
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
   const initialized = useState('shell-initialized', () => false)
-  const frames = useState<Record<string, HTMLIFrameElement>>('shell-frames', () => ({}))
-  const pending = useState<Record<string, string>>('shell-pending-server', () => ({}))
-  const error = useState('shell-error', () => '')
-  /** One-time owner claims per origin, set only before that installation's iframe mounts. */
+  const frames = useState<Record<string, HTMLIFrameElement>>(
+    'shell-frames',
+    () => ({}),
+  )
+  const starts = useState<Record<string, string>>('shell-starts', () => ({}))
   const claims = useState<Record<string, string>>('shell-claims', () => ({}))
+  const error = useState('shell-error', () => '')
   const address = useState('shell-address', () => '')
   const busy = useState('shell-busy', () => false)
-  const registered = new Set<string>()
   const telegram = useState<string>('shell-telegram', () => '')
   const route = useRoute()
   const router = useRouter()
-
   function persist() {
-    try { localStorage.setItem('llll.shell.v1', JSON.stringify(installations.value)) } catch { /* Bookmarks remain usable in memory. */ }
+    try {
+      localStorage.setItem(
+        'llll.shell.servers.v1',
+        JSON.stringify(servers.value),
+      )
+    } catch {
+      /* Bookmarks remain usable in memory. */
+    }
   }
   function send(origin: string, data: object) {
-    frames.value[origin]?.contentWindow?.postMessage({ llll: EMBED_VERSION, ...data }, origin)
+    frames.value[origin]?.contentWindow?.postMessage(
+      { llll: EMBED_VERSION, ...data },
+      origin,
+    )
   }
   function requestedPath() {
-    const path = route.params.serverId ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/' : '/'
-    return safeEmbedPath(path) ? path : '/'
+    return safeEmbedPath(
+      route.params.serverId
+        ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/'
+        : '/',
+    )
+      ? route.params.serverId
+        ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/'
+        : '/'
+      : '/'
   }
-  function open(installation: ShellInstance, serverId?: string) {
-    selected.value = installation.origin
-    if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
-    if (serverId) {
-      pending.value[installation.origin] = serverId
-      void router.push('/' + serverId)
-      send(installation.origin, { type: 'open', serverId, path: '/' })
-    }
+  function open(server: ShellServer, id = server.id, path = '/') {
+    if (id !== server.id) return
+    selected.value = server.origin
+    if (!loaded.value.includes(server.origin)) loaded.value.push(server.origin)
+    void router.push('/' + server.id + (path === '/' ? '' : path))
+    send(server.origin, { type: 'open', serverId: server.id, path })
   }
   async function connect(address: string, claim?: string) {
-    const url = new URL(/^https?:\/\//.test(address) ? address : 'https://' + address)
-    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS instance address')
-    const validClaim = /^[A-Za-z0-9_-]{20,300}$/.test(claim || '') ? claim : undefined
-    if (!loaded.value.includes(url.origin)) {
-      if (validClaim) claims.value[url.origin] = validClaim
-      else await adoptDeployClaim(url.origin)
-    }
+    const url = new URL(
+      /^https?:\/\//.test(address) ? address : 'https://' + address,
+    )
+    const origin = normalizeServerOrigin(url.origin)
+    if (
+      url.username ||
+      url.password ||
+      !/^\/(?:invite\/[a-zA-Z0-9_-]+\/?)?$/.test(url.pathname) ||
+      url.search ||
+      url.hash
+    )
+      throw new Error('Enter a Server address or invitation URL')
     let response: Response
-    try { response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000) }) }
-    catch { throw new Error(INSTALLATION_UNREACHABLE) }
-    const data = await response.json()
-    if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 instance')
-    if (!data.embedOrigins?.includes(location.origin)) throw new Error('This instance has not allowed embedding here. Open its own address or ask its operator.')
-    let installation = installations.value.find(item => item.origin === url.origin)
-    if (!installation) { installation = { origin: url.origin, name: String(data.name).slice(0, 100), collapsed: false, servers: [] }; installations.value.push(installation) }
-    persist(); open(installation)
-    return installation
-  }
-  /** A deployment this browser finished keeps its unused owner claim in the web session:
-   * connecting its installation again (address bar, tile, remembered link) still claims. */
-  async function adoptDeployClaim(origin: string) {
-    if (claims.value[origin]) return
     try {
-      const session = await $fetch<{ completed?: boolean; origin?: string; claim?: string }>('/api/deploy/session')
-      if (!session.completed || !session.claim || session.origin !== origin) return
-      const token = session.claim.split('#claim=')[1]
-      if (token && /^[A-Za-z0-9_-]{20,300}$/.test(token)) claims.value[origin] = token
+      response = await fetch(origin + '/.well-known/llll', {
+        credentials: 'omit',
+        redirect: 'error',
+        signal: AbortSignal.timeout(15000),
+      })
+    } catch {
+      throw new Error(SERVER_UNREACHABLE)
     }
-    catch { /* Session ended or offline: the claim field stays manual. */ }
+    const d = (await response.json()) as ServerDiscovery
+    if (
+      !response.ok ||
+      d.product !== 'llll' ||
+      d.kind !== 'server' ||
+      d.apiVersion !== 1 ||
+      d.origin !== origin ||
+      !uuidSchema.safeParse(d.id).success
+    )
+      throw new Error('This address is not a compatible L4 Server')
+    if (!d.embedOrigins?.includes(location.origin))
+      throw new Error(
+        'This Server has not allowed embedding here. Open its own address or ask its operator.',
+      )
+    let server = servers.value.find((s) => s.origin === origin)
+    if (server && server.id !== d.id)
+      throw new Error(
+        'The Server identity at this address changed. Remove the old connection before reconnecting.',
+      )
+    if (!server) {
+      server = {
+        origin,
+        id: d.id,
+        name: String(d.name).slice(0, 100),
+        unread: 0,
+      }
+      servers.value.push(server)
+    }
+    if (!loaded.value.includes(origin)) {
+      if (claim && /^[A-Za-z0-9_-]{20,300}$/.test(claim))
+        claims.value[origin] = claim
+      else
+        try {
+          const state = await $fetch<{
+            completed?: boolean
+            origin?: string
+            claim?: string
+          }>('/api/deploy/session')
+          if (state.completed && state.origin === origin && state.claim)
+            claims.value[origin] = state.claim.split('#claim=')[1] || ''
+        } catch {
+          /* A normal connection requires local login. */
+        }
+      starts.value[origin] = claims.value[origin]
+        ? '/setup'
+        : url.pathname.startsWith('/invite/')
+          ? url.pathname
+          : d.ready
+            ? '/'
+            : '/setup'
+    }
+    persist()
+    open(server, server.id, starts.value[origin] || '/')
+    return server
   }
-  /** The rail's sign-in tile: fresh iframe, so adopt the deploy session's claim before it mounts. */
-  async function openOwner(installation: ShellInstance) {
-    if (!loaded.value.includes(installation.origin)) await adoptDeployClaim(installation.origin)
-    open(installation)
-  }
-  function frameSrc(origin: string, parentOrigin: string) {
-    const claim = claims.value[origin]
-    return `${origin}/connections?parent=${encodeURIComponent(parentOrigin)}${claim ? `#claim=${claim}` : ''}`
+  function frameSrc(origin: string, parent: string) {
+    const target = new URL(starts.value[origin] || '/', origin)
+    target.searchParams.set('parent', parent)
+    if (claims.value[origin]) target.hash = 'claim=' + claims.value[origin]
+    return target.toString()
   }
   async function submitAddress() {
-    error.value = ''; busy.value = true
-    try { await connect(address.value) }
-    catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not connect' }
-    finally { busy.value = false }
+    error.value = ''
+    busy.value = true
+    try {
+      await connect(address.value)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'Could not connect'
+    } finally {
+      busy.value = false
+    }
   }
   async function resolveServer() {
     const id = String(route.params.serverId || '')
-    if (!id) return
-    let installation = installations.value.find(i => i.servers.some(s => s.id === id))
-    if (!installation) {
-      const resolved = await $fetch<{ origin: string }>('/api/servers/' + encodeURIComponent(id))
-      installation = await connect(resolved.origin)
+    if (!uuidSchema.safeParse(id).success) return
+    const path = requestedPath()
+    let server = servers.value.find((s) => s.id === id)
+    if (!server) {
+      const resolved = await $fetch<{ origin: string }>(
+        '/api/servers/' + encodeURIComponent(id),
+      )
+      server = await connect(resolved.origin)
+      if (server.id !== id)
+        throw new Error('Server identity did not match the link')
     }
-    selected.value = installation.origin
-    if (!loaded.value.includes(installation.origin)) loaded.value.push(installation.origin)
-    pending.value[installation.origin] = id
-    send(installation.origin, { type: 'open', serverId: id, path: requestedPath() })
+    selected.value = server.origin
+    await router.replace('/' + id + (path === '/' ? '' : path))
+    if (!loaded.value.includes(server.origin)) {
+      starts.value[server.origin] = path
+      loaded.value.push(server.origin)
+    }
+    send(server.origin, { type: 'open', serverId: id, path })
   }
   function initialize() {
     if (initialized.value) return
     initialized.value = true
     try {
-      const saved = JSON.parse(localStorage.getItem('llll.shell.v1') || '[]')
-      if (Array.isArray(saved)) installations.value = saved.slice(0, 50).flatMap(i => {
-        try {
-          const origin = normalizeServerOrigin(i.origin)
-          const parsed = embedEvent.parse({ type: 'servers', servers: i.servers })
-          if (parsed.type !== 'servers') return []
-          return [{ origin, name: String(i.name).slice(0, 100), collapsed: Boolean(i.collapsed), servers: parsed.servers }]
-        } catch { return [] }
-      })
-    } catch { /* Start with an empty rail. */ }
-    window.addEventListener('message', event => {
-      const installation = installations.value.find(i => i.origin === event.origin)
-      if (!installation || event.source !== frames.value[event.origin]?.contentWindow || event.data?.llll !== EMBED_VERSION) return
+      const saved = JSON.parse(
+        localStorage.getItem('llll.shell.servers.v1') || '[]',
+      )
+      if (Array.isArray(saved))
+        servers.value = saved.slice(0, 50).flatMap((s) => {
+          try {
+            return uuidSchema.safeParse(s.id).success
+              ? [
+                  {
+                    id: s.id,
+                    origin: normalizeServerOrigin(s.origin),
+                    name: String(s.name).slice(0, 100),
+                    unread: 0,
+                  },
+                ]
+              : []
+          } catch {
+            return []
+          }
+        })
+    } catch {
+      /* Empty bookmarks. */
+    }
+    window.addEventListener('message', (event) => {
+      const server = servers.value.find((s) => s.origin === event.origin)
+      if (
+        !server ||
+        event.source !== frames.value[event.origin]?.contentWindow ||
+        event.data?.llll !== EMBED_VERSION
+      )
+        return
       const parsed = embedEvent.safeParse(event.data)
       if (!parsed.success) return
-      const message = parsed.data
-      if (message.type === 'ready') {
-        send(event.origin, { type: 'theme', theme: 'dark' })
-        if (event.origin === selected.value && route.params.serverId) send(event.origin, { type: 'open', serverId: route.params.serverId, path: requestedPath() })
+      const m = parsed.data
+      if (m.type === 'ready') {
+        send(server.origin, { type: 'theme', theme: 'dark' })
+        if (
+          server.origin === selected.value &&
+          route.params.serverId === server.id
+        )
+          send(server.origin, {
+            type: 'open',
+            serverId: server.id,
+            path: requestedPath(),
+          })
         const initData = telegram.value || window.Telegram?.WebApp?.initData
-        if (event.origin === selected.value && initData) send(event.origin, { type: 'telegram', initData })
+        if (server.origin === selected.value && initData)
+          send(server.origin, { type: 'telegram', initData })
       }
-      if (message.type === 'servers') {
-        installation.servers = message.servers
-        persist()
-        for (const server of message.servers) {
-          const key = event.origin + '/' + server.id
-          if (registered.has(key)) continue
-          registered.add(key)
-          void $fetch('/api/servers/register', { method: 'POST', body: { origin: event.origin, id: server.id } }).catch(() => { registered.delete(key) })
+      if (m.type === 'servers') {
+        const info = m.servers.find((s) => s.id === server.id)
+        if (info) {
+          server.name = info.name
+          server.unread = info.unread
+          persist()
+          void $fetch('/api/servers/register', {
+            method: 'POST',
+            body: { origin: server.origin, id: server.id },
+          }).catch(() => {})
         }
-        if (event.origin === selected.value && route.params.serverId && message.servers.some(s => s.id === route.params.serverId)) send(event.origin, { type: 'open', serverId: route.params.serverId, path: requestedPath() })
       }
-      if (message.type === 'session' && !message.authenticated) { installation.servers = []; persist() }
-      if (message.type === 'navigate' && event.origin === selected.value && installation.servers.some(s => s.id === message.serverId) && safeEmbedPath(message.path)) {
-        if (pending.value[event.origin] && pending.value[event.origin] !== message.serverId) return
-        Reflect.deleteProperty(pending.value, event.origin)
-        void router.replace('/' + message.serverId + (message.path === '/' ? '' : message.path))
+      if (
+        m.type === 'navigate' &&
+        server.origin === selected.value &&
+        m.serverId === server.id &&
+        safeEmbedPath(m.path)
+      )
+        void router.replace('/' + server.id + (m.path === '/' ? '' : m.path))
+      if (m.type === 'session' && !m.authenticated) {
+        server.unread = 0
+        persist()
       }
-      if (message.type === 'open-rejected' && pending.value[event.origin] === message.serverId) {
-        Reflect.deleteProperty(pending.value, event.origin)
-        error.value = message.reason === 'call-active' ? 'End the current call before switching servers.' : 'This server is unavailable on the installation.'
-        if (event.origin === selected.value && message.currentServerId && installation.servers.some(s => s.id === message.currentServerId) && message.path && safeEmbedPath(message.path)) void router.replace('/' + message.currentServerId + message.path)
-      }
-      if (message.type === 'call') calls.value[event.origin] = message.active
+      if (m.type === 'call') calls.value[server.origin] = m.active
     })
   }
   function forget(origin: string) {
-    if (calls.value[origin]) throw new Error('End the active call before removing this installation')
-    installations.value = installations.value.filter(i => i.origin !== origin)
-    loaded.value = loaded.value.filter(i => i !== origin)
+    if (calls.value[origin])
+      throw new Error('End the active call before removing this Server')
+    servers.value = servers.value.filter((s) => s.origin !== origin)
+    loaded.value = loaded.value.filter((s) => s !== origin)
     Reflect.deleteProperty(frames.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()
   }
-  return { error, installations, selected, loaded, calls, frames, frameSrc, initialize, connect, open, openOwner, resolveServer, persist, forget, address, busy, submitAddress }
+  return {
+    error,
+    servers,
+    groups,
+    selected,
+    loaded,
+    calls,
+    frames,
+    frameSrc,
+    initialize,
+    connect,
+    open,
+    resolveServer,
+    persist,
+    forget,
+    address,
+    busy,
+    submitAddress,
+  }
 }
