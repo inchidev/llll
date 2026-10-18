@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { compareVersions, parseVersion, releasePlan } from '../../scripts/release-policy.mjs'
@@ -83,4 +83,35 @@ it('the production resolver ignores existing tags and writes a no-op plan withou
   const env = { CI: 'true', WORKERS_CI: '1', WORKERS_CI_BUILD_UUID: 'isolated-test', WORKERS_CI_BRANCH: 'main', PATH: resolve(root, 'bin') }
   const output = execFileSync(process.execPath, ['--import', preloader, resolve(root, 'scripts/prepare-production.mjs')], { encoding: 'utf8', env })
   expect(output).toContain('No newer published release: production unchanged')
+})
+it('prepares the released archive instead of newer main output and rejects corrupted downloads', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'llll-released-artifact-'))
+  temporary.push(root)
+  for (const path of ['scripts', 'bin', 'archive/.bundle', 'archive/.output/public', 'archive/migrations', '.deployment/released/site']) mkdirSync(resolve(root, path), { recursive: true })
+  for (const name of ['prepare-production.mjs', 'ci-only.mjs', 'release-policy.mjs', 'release-artifacts.mjs']) cpSync(resolve('scripts', name), resolve(root, 'scripts', name))
+  writeFileSync(resolve(root, '.deployment/released/site/stale'), 'cached unreleased file')
+  writeFileSync(resolve(root, 'archive/.bundle/index.mjs'), 'released web code')
+  writeFileSync(resolve(root, 'archive/.output/public/index.html'), 'released page')
+  writeFileSync(resolve(root, 'archive/migrations/0000_web_baseline.sql'), 'CREATE TABLE example(id);')
+  writeFileSync(resolve(root, 'archive/wrangler.jsonc'), '{"name":"llll"}')
+  const tar = resolve(root, 'web.tgz')
+  execFileSync('tar', ['-czf', tar, '-C', resolve(root, 'archive'), '.bundle/index.mjs', '.output/public', 'migrations', 'wrangler.jsonc'])
+  const bytes = readFileSync(tar), commit = 'b'.repeat(40), main = 'c'.repeat(40)
+  const files = Object.fromEntries(['llll.tgz', 'llll-deployment.json', 'llll-cloudflare-manifest.json', 'llll-runtime-linux-amd64.tar.gz', 'llll-docs.tgz', 'llll-worker.mjs', 'llll-assets.json', 'llll-deployment-core-0.1.0-alpha.2.tgz'].map(name => [name, { sha256: sha256(bytes), size: bytes.length }]))
+  const manifest = JSON.stringify({ schemaVersion: 1, version: next.version, commit, releasePr: 42, components: ['llll', 'server', 'instance', 'docs'], files })
+  const base = 'https://github.com/inchidev/llll/releases/download/v0.1.0-alpha.2'
+  const responses = { 'https://llll.gg/api/health': JSON.stringify({ commit: 'a'.repeat(40), version: ordinary.version }), [`${base}/llll-release.json`]: manifest, [`${base}/SHA256SUMS`]: `${sha256(manifest)}  llll-release.json\n${sha256(bytes)}  llll.tgz` }
+  const preloader = resolve(root, 'fetch.mjs')
+  const mockFetch = (corrupt: boolean) => writeFileSync(preloader, `const responses=${JSON.stringify(responses)}; globalThis.fetch=async url=>{if(url==='${base}/llll.tgz')return new Response(Buffer.from('${(corrupt ? Buffer.from('corrupted') : bytes).toString('base64')}','base64'));if(!(url in responses))throw new Error('Unexpected request');return new Response(responses[url]);}`)
+  writeFileSync(resolve(root, 'bin/git'), `#!${process.execPath}\nconst a=process.argv.slice(2);const s=a.join(' ');if(a[0]==='ls-remote') console.log('${commit}\\trefs/tags/v0.1.0-alpha.2');else if(a[0]==='fetch'){}else if(s==='rev-parse FETCH_HEAD^{commit}')console.log('${commit}');else if(s==='rev-parse --is-shallow-repository')console.log('false');else if(s==='merge-base --is-ancestor ${commit} ${main}'){}else if(s==='show ${commit}:package.json')console.log('{"version":"0.1.0-alpha.2"}');else if(s==='show ${commit}^:package.json')console.log('{"version":"0.1.0-alpha.1"}');else process.exit(1);`, { mode: 0o755 })
+  // Restrict Git to the stub; the real tar only reads/writes this isolated fixture.
+  const env = { CI: 'true', WORKERS_CI: '1', WORKERS_CI_BUILD_UUID: 'isolated-test', WORKERS_CI_BRANCH: 'main', WORKERS_CI_COMMIT_SHA: main, PATH: `${resolve(root, 'bin')}:/usr/bin:/bin` }
+  mockFetch(false)
+  execFileSync(process.execPath, ['--import', preloader, resolve(root, 'scripts/prepare-production.mjs')], { env, stdio: 'pipe' })
+  const plan = JSON.parse(readFileSync(resolve(root, '.deployment/released/plan.json'), 'utf8'))
+  expect(plan).toMatchObject({ skip: false, version: next.version, commit })
+  expect(readFileSync(resolve(plan.site, '.bundle/index.mjs'), 'utf8')).toBe('released web code')
+  expect(() => readFileSync(resolve(plan.site, 'stale'))).toThrow()
+  mockFetch(true)
+  expect(() => execFileSync(process.execPath, ['--import', preloader, resolve(root, 'scripts/prepare-production.mjs')], { env, stdio: 'pipe' })).toThrow('checksum mismatch')
 })
