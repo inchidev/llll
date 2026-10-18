@@ -24,6 +24,6 @@ The published release has its own checksums and module/asset hashes. The isolati
 
 - This is a developer alpha, not a completed production rollout. Existing site and prototype deployments were not migrated to these baselines.
 - No remote browser or static-asset acceptance is claimed. The isolated Cloudflare Workers exercise application HTTP/WebSocket APIs; the frontend and installer assets were checked by builds and local fixtures.
-- VPS/celld transport and reload issues remain open. Local Docker was unavailable; the CI self-host job provides the Linux Compose check, and its outcome must be inspected before publication. That check does not certify the unresolved browser flows.
+- VPS/celld transport and reload issues remain open. Local Docker was unavailable; the initial CI Linux Compose job passed startup, owner setup and two-Server isolation. The final release commit must pass CI again before publication. That check does not certify the unresolved browser flows.
 - Email delivery, inference, media Providers, real-device push, Safari and Telegram-device behavior require independent acceptance.
 - Restoring the local fixture's archives into SQLite proves schema/content recovery, not a complete operator disaster-recovery drill with production secrets and domains.

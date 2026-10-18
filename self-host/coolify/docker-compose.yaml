@@ -69,7 +69,8 @@ services:
         exit 1
 
   llll:
-    image: ghcr.io/inchidev/llll-runtime:${LLLL_VERSION:?published release version}
+    image: llll:${LLLL_VERSION:?published release version}
+    pull_policy: never
     stop_grace_period: 50s
     depends_on:
       bucket-init:

@@ -9,9 +9,9 @@ Use a focused same-repository PR to `main`. Run lint, type checking, unit tests,
 ## Publish
 
 1. Merge the validated change. Set the root and deployment-library version together and add `docs/release-notes/v<version>.md` before tagging.
-2. Run the Tag release workflow on `main` after CI succeeds for that exact commit. It creates `v<version>` and dispatches both publishers. Never move or recreate a tag.
+2. Run the Tag release workflow on `main` after CI succeeds for that exact commit. It creates `v<version>` and dispatches both publishers. The image publisher adds its portable archive to the same unpublished draft. Never move or recreate a tag.
 3. Wait for the installer-release and self-host image workflows. The installer workflow creates a draft GitHub Release.
-4. Download the draft artifacts and verify `SHA256SUMS`, full module/asset integrity, version, and both ordered migration arrays. Check the self-host image is anonymously pullable if its documentation advertises a public image.
+4. Download the draft artifacts and verify `SHA256SUMS`, full module/asset integrity, version, and both ordered migration arrays. Check the portable Docker archive is included in `SHA256SUMS`, and verify its embedded image tag and architecture. It is delivered through the public release and requires no registry account.
 5. Publish the verified draft, marking alpha/beta/rc versions as prereleases. Independently fetch its public manifest and checksums. Published artifacts are immutable; a repair needs a new version or an exact-tag recovery workflow only while the draft is unpublished. The installer offers complete named prereleases for explicit selection; automatic update discovery remains stable-only.
 
 See [installer-releases.md](installer-releases.md) for the artifact contract. The site/common client are optional shared entry points; customer installations remain their own account and storage authorities.

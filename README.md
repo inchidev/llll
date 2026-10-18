@@ -10,12 +10,7 @@ The first release is `0.1.0-alpha.1`, a developer alpha for fresh databases. Clo
 
 Start with [the installation model and account/credential flow](docs/installation.md). Deploy an installation once, create its owner, then provision or register isolated servers inside it. The `/deploy` installer uses Cloudflare OAuth and transfers provisioning credentials to the new installation. Its operator must configure a public OAuth client and a verified release. API-token source deployment remains available.
 
-Run on your Cloudflare account or your VPS with celld and Docker Compose. Start with [deployment instructions](docs/deployment.md). On VPS:
-
-```sh
-node scripts/self-host-installation.mjs .deployment/my-installation https://chat.example.com main games
-docker compose -f .deployment/my-installation/compose.json up -d --build
-```
+Run on your Cloudflare account or your VPS with celld and Docker Compose. The [deployment guide](docs/deployment.md) leads from a pinned release to a private Instance. Its experimental VPS path verifies and loads the release's portable Docker image, then generates Compose without building the application or using a registry account.
 
 The generated files contain private credentials. Keep them out of Git. Configure optional Telegram, calls, AI and email providers when needed. Backup destinations are separate from live file buckets.
 

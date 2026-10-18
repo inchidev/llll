@@ -72,7 +72,7 @@ docker compose up -d --build
 
 The new container deploys the image it was built from and runs `celld d1 migrations apply <database_name>` again. Migrations that are already recorded are skipped. Expect a short outage while the single node restarts.
 
-When the release workflow has published an image, you can switch `llll.image` to `ghcr.io/inchidev/llll-runtime:<version>`, remove the `build` block, and run `docker compose pull && docker compose up -d`. The published image is `linux/amd64`. Other architectures build from the Dockerfile.
+Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then run `docker load --input llll-runtime-linux-amd64.tar.gz`. It loads `llll:<version>` locally. Set that exact image in Compose, remove the `build` block and use `pull_policy: never`. The image is `linux/amd64`; other architectures build from the Dockerfile. See [deployment](../docs/deployment.md#vps-docker-compose-and-coolify) for the prebuilt multi-server path.
 
 Do not change `AUTH_SECRET` during an upgrade. It signs sessions, and backup credentials stored by the app are encrypted with it.
 

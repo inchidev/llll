@@ -32,7 +32,7 @@ The normal topology is an Instance with one or more isolated Servers. Site, Shel
 
 The two deployment targets are Cloudflare and VPS using Docker Compose/celld. Stabilization verifies Cloudflare first. The multi-server VPS path needs separate transport and browser acceptance before it can be described as equally ready. A standalone Server is an advanced topology and a useful development target; testing it does not certify the Instance proxy or Shell.
 
-The public guide should lead with one complete path per target, from a pinned release to the first invitation. Manual provisioning, existing-server registration and Coolify details remain operator references. Check anonymous image pull access and a usable version before promising a build-free install.
+The public guide should lead with one complete path per target, from a pinned release to the first invitation. Manual provisioning, existing-server registration and Coolify details remain operator references. Verify the public image archive checksum, embedded version and architecture before promising a build-free install.
 
 ## Fixed boundaries
 

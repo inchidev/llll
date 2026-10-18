@@ -75,6 +75,7 @@ jobs:
       - name: Verify the fresh Instance and isolated Server runtimes
         if: matrix.check == 'integration'
         run: |
+          pnpm build:site
           pnpm build:deployment
           pnpm test:installation
           node scripts/test-portal.mjs

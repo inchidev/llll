@@ -32,13 +32,21 @@ Preview isolation, per Cloudflare: Durable Objects and Containers are automatic 
 
 ## VPS, Docker Compose and Coolify
 
-Generate a private Compose installation:
+For the published `linux/amd64` image, download and verify the release archive before generating a private Compose installation:
 
 ```sh
-node scripts/self-host-installation.mjs .deployment/my-installation https://chat.example.com main games
-# Keep the generated directory private. It contains credentials.
-docker compose -f .deployment/my-installation/compose.json up -d --build
+version=0.1.0-alpha.1
+cache=".deployment/releases/v${version}"
+mkdir -p "$cache"
+curl -fL "https://github.com/inchidev/llll/releases/download/v${version}/SHA256SUMS" -o "$cache/SHA256SUMS"
+curl -fL "https://github.com/inchidev/llll/releases/download/v${version}/llll-runtime-linux-amd64.tar.gz" -o "$cache/llll-runtime-linux-amd64.tar.gz"
+(cd "$cache" && sha256sum --check --ignore-missing SHA256SUMS)
+docker load --input "$cache/llll-runtime-linux-amd64.tar.gz"
+LLLL_IMAGE="llll:${version}" node scripts/self-host-installation.mjs .deployment/my-installation https://chat.example.com main games
+docker compose -f .deployment/my-installation/compose.json up -d
 ```
+
+The generated directory contains private credentials. Keep it out of Git. The prebuilt path has no application build and requires no registry account. For other architectures or source development, omit `LLLL_IMAGE` and run Compose with `up -d --build` instead.
 
 Put a TLS reverse proxy in front of `127.0.0.1:8080`. Open the URL in `owner-claim.txt`, create the installation owner, then register each entry from `servers.json` under Installation settings. Each server is a private celld service with its own fleet bucket, D1, logical FILES bucket and DO state. Only the installation port is published. Server origins are pinned in `TRUSTED_SERVER_ORIGINS` by the generator; arbitrary HTTP origins are rejected.
 

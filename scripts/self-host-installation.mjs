@@ -6,6 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 const destination = resolve(process.argv[2] || '.deployment/self-host')
 const origin = new URL(process.argv[3] || 'http://localhost:8080').origin
 const ids = process.argv.slice(4).length ? process.argv.slice(4) : ['main']
+const image = process.env.LLLL_IMAGE?.trim() || 'llll:local'
 if (ids.some(id => !/^[a-z][a-z0-9-]{0,39}$/.test(id)) || new Set(ids).size !== ids.length) throw new Error('Use unique lowercase server IDs (up to 40 characters)')
 await mkdir(destination, { recursive: true })
 try { await access(resolve(destination, 'compose.json')); throw new Error('Destination already contains a deployment. Choose a new directory; keep existing secrets for updates.') }
@@ -21,7 +22,7 @@ const services = {
 const volumes = { 'rustfs-data': {} }
 function runtime(name, env) {
   volumes[`${name}-data`] = {}
-  return { ...(name === 'installation' ? { build: { context: relative(destination, root), dockerfile: 'self-host/Dockerfile' } } : { pull_policy: 'never' }), image: 'llll:local', restart: 'unless-stopped', depends_on: { 'bucket-init': { condition: 'service_completed_successfully' } }, environment: { ADMIN_EMAIL: 'owner@example.com', SETUP_TOKEN: setup, AUTH_SECRET: random(), ...env, AWS_ACCESS_KEY_ID: credentials.RUSTFS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY: credentials.RUSTFS_SECRET_KEY, AWS_REGION: 'us-east-1', S3_ENDPOINT: 'http://rustfs:9000', CELLD_BUCKET: `s3://${name}-cells`, CELLD_WATCH: '/var/lib/llll/celld', CELLD_DURABILITY: 'bucket', CELLD_READY_FLEET_GATE_MS: '0' }, volumes: [`${name}-data:/var/lib/llll/celld`] }
+  return { ...(image === 'llll:local' && name === 'installation' ? { build: { context: relative(destination, root), dockerfile: 'self-host/Dockerfile' } } : { pull_policy: 'never' }), image, restart: 'unless-stopped', depends_on: { 'bucket-init': { condition: 'service_completed_successfully' } }, environment: { ADMIN_EMAIL: 'owner@example.com', SETUP_TOKEN: setup, AUTH_SECRET: random(), ...env, AWS_ACCESS_KEY_ID: credentials.RUSTFS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY: credentials.RUSTFS_SECRET_KEY, AWS_REGION: 'us-east-1', S3_ENDPOINT: 'http://rustfs:9000', CELLD_BUCKET: `s3://${name}-cells`, CELLD_WATCH: '/var/lib/llll/celld', CELLD_DURABILITY: 'bucket', CELLD_READY_FLEET_GATE_MS: '0' }, volumes: [`${name}-data:/var/lib/llll/celld`] }
 }
 services.installation = runtime('installation', { LLLL_MODE: 'installation', PUBLIC_ORIGIN: origin, INSTALLATION_ID: 'self-host', INSTALLATION_NAME: 'My L4', SETUP_TOKEN: setup, CLIENT_ORIGINS: 'https://llll.gg', EMBED_ORIGINS: 'https://llll.gg', TRUSTED_SERVER_ORIGINS: ids.map(id => `http://llll-${id}:8080`).join(',') })
 services.installation.ports = [`127.0.0.1:${new URL(origin).hostname === 'localhost' ? (new URL(origin).port || 8080) : 8080}:8080`]

@@ -9,6 +9,7 @@ One immutable L4 release contains matching installation/server modules, client a
 | `llll-worker.mjs` | Bundled server Worker. |
 | `llll-assets.json` | Server client assets and ordered server migrations. |
 | `llll-deployment-core-<version>.tgz` | Provisioning library for installation controllers and operator tooling. |
+| `llll-runtime-linux-amd64.tar.gz` | Portable Docker image, tagged `llll:<version>`, loaded with `docker load`. |
 | `llll.tgz` | Independently deployable portal Worker (`llll`), public site/PWA assets and portal migrations. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
