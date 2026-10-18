@@ -143,7 +143,7 @@ onMounted(load)
       color="neutral"
       variant="subtle"
       title="Calls are unavailable on this runtime"
-      description="Live sessions and calls use Cloudflare RealtimeKit. This instance is not on Cloudflare's network, so they stay off. Text chat is unaffected."
+      description="Live sessions and calls use Cloudflare RealtimeKit. This Server is not on Cloudflare's network, so they stay off. Text chat is unaffected."
     />
     <UAlert
       v-else-if="restCalls && !connected"

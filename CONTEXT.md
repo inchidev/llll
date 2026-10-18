@@ -10,7 +10,7 @@ Free MIT licensed software for independent communities. A community gathers in a
 
 A community with its own Members, Roles, conversations, content and settings. A Member may belong to several Servers; access to one does not imply access to another.
 
-**Server** is the interface term. **Workspace** is the inherited implementation name for one Server; it is not another level between Instance and Server.
+**Server** is the interface term. **Workspace** is the inherited implementation name for one Server; both names refer to the same autonomous community and the same UUID.
 
 ## Account
 

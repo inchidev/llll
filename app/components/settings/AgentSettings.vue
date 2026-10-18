@@ -284,7 +284,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         v-if="workersAi || openAiCompatible"
         name="model"
         label="Model"
-        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. This instance's AI_MODEL is ${session.health?.aiModel}.` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API.' : undefined"
+        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. This Server's AI_MODEL is ${session.health?.aiModel}.` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API.' : undefined"
       >
         <template v-if="workersAi" #hint>
           <ULink

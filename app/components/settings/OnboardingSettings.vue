@@ -24,7 +24,7 @@ const tabs: Array<{ id: DocumentKind; label: string }> = [
 ]
 const descriptions: Record<DocumentKind, string> = {
   terms: 'The agreement members accept when creating an account.',
-  privacy: 'How this instance handles account, message, and file data.',
+  privacy: 'How this Server handles account, message, and file data.',
   rules: 'Behaviour expected from members inside this server.',
 }
 const placeholders: Record<DocumentKind, string> = {

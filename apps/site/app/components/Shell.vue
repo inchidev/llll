@@ -8,8 +8,6 @@ const route = useRoute()
 const ownOrigin = ref('')
 const error = shell.error
 const path = computed(() => normalizeRoutePath(route.path))
-/** `instance` is the current spelling. `server` stays accepted so links
- * shared before the rename keep working. */
 const queryOrigin = computed(() => {
   const value = route.query.server
   return typeof value === 'string' ? value : ''
@@ -39,8 +37,8 @@ function connect() {
 }
 const showDeploy = computed(() => path.value === '/deploy')
 /** The shell survives route changes as a v-show'd component, and its connect-on-mount check cannot run again.
- * When the deploy completion screen or a remembered-installation link navigates to /open?instance=…,
- * connect here (with one bounded retry: a freshly deployed installation may not answer right away). */
+ * When the deploy completion screen or a saved Server link navigates to /open?server=…,
+ * connect here (with one bounded retry: a freshly deployed Server may not answer right away). */
 let lastAutoOrigin = ''
 async function connectQuery(
   origin: string,
