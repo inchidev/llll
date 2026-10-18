@@ -47,7 +47,7 @@ COPY --from=build /src/.output /opt/llll/.output
 COPY --from=build /src/drizzle/migrations /opt/llll/drizzle/migrations
 COPY --from=build /src/wrangler.celld.json /opt/llll/wrangler.celld.json
 COPY --from=build /src/apps/instance /opt/llll/apps/instance
-COPY --from=build /src/wrangler.installation.celld.json /opt/llll/wrangler.installation.celld.json
+COPY --from=build /src/wrangler.instance.celld.json /opt/llll/wrangler.instance.celld.json
 COPY self-host/entrypoint.sh /usr/local/bin/llll-entrypoint
 COPY self-host/healthcheck.sh /usr/local/bin/llll-healthcheck
 

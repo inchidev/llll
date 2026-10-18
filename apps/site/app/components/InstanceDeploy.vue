@@ -3,7 +3,7 @@ import { readDeployedInstallations, recordDeployedInstallation, type DeployedIns
 
 const route = useRoute()
 const method = ref(route.query.method === 'vps' ? 'vps' : 'cloudflare')
-const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify installation', 'Ready']
+const phases = ['Create database and backup storage', 'Upload application and configure credentials', 'Verify instance', 'Ready']
 const name = ref('My L4')
 const accountId = ref('')
 const busy = ref(false)
@@ -53,7 +53,7 @@ async function deploy() {
     await refresh()
     while (!session.value?.completed) { await $fetch('/api/deploy/advance', { method: 'POST', timeout: 150000 }); await refresh() }
     if (session.value?.origin && !redirected.value) { redirected.value = true; await navigateTo(openRoute.value) }
-  } catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same installation.' }
+  } catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same instance.' }
   finally { busy.value = false }
 }
 onMounted(async () => {
@@ -138,7 +138,7 @@ async function copyOrigin() {
       <p class="text-muted">Generate a private instance with isolated server services. Run it on your VPS or import the Compose project into Coolify, then configure HTTPS.</p>
       <pre class="overflow-x-auto rounded-lg border border-default p-4 text-xs leading-6">git clone https://github.com/inchidev/llll.git
 cd llll
-node scripts/self-host-installation.mjs .deployment/my-l4 https://chat.example.com main games
+node scripts/self-host-instance.mjs .deployment/my-l4 https://chat.example.com main games
 docker compose -f .deployment/my-l4/compose.json up -d --build</pre>
       <p class="text-sm text-muted">Keep generated credentials private. Open the owner claim link, then register the generated servers. Automatic SSH deployment is not available yet.</p>
       <UButton to="https://github.com/inchidev/llll/blob/main/docs/deployment.md" label="VPS deployment guide" color="neutral" variant="outline" external />

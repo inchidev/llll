@@ -23,7 +23,7 @@ The following source and verification entry points exist at the audited baseline
 | Mail | [Mailbox UI](../app/pages/mail/index.vue), [ingest tests](../tests/unit/inbound-email.test.ts), [delivery tests](../tests/unit/mail-delivery.test.ts) | Named Provider, actual receive/reply, attachments, rejection and retry |
 | Agents | [Turn tests](../tests/unit/agent-turns.test.ts), [ingress tests](../tests/unit/agent-ingress.test.ts) | Configured inference, local grants, approval continuation and failure recovery |
 | Notifications and calls | [Notification tests](../tests/unit/notifications.test.ts), [Live tests](../tests/unit/live-room.test.ts) | Real-device push and configured media Provider, including access revocation |
-| Install and recovery | [Compose checks](../scripts/test-self-host-installation.mjs), [Backup tests](../tests/unit/backup-format.test.ts), [release workflow](../.github/workflows/publish-installer-release.yml), [image workflow](../.github/workflows/publish-image.yml) | Fresh pinned release/image, update, browser transport and restore of both layers |
+| Install and recovery | [Compose checks](../scripts/test-self-host-instance.mjs), [Backup tests](../tests/unit/backup-format.test.ts), [release workflow](../.github/workflows/publish-installer-release.yml), [image workflow](../.github/workflows/publish-image.yml) | Fresh pinned release/image, update, browser transport and restore of both layers |
 
 This is an initial map of evidence, not an exhaustive test inventory. Apps, files, invitations, PWA and Telegram are included in milestone acceptance even where no individual test file is listed above.
 

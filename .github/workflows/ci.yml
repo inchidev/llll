@@ -114,9 +114,9 @@ jobs:
 
       - name: Verify an installation with two isolated servers
         run: |
-          node scripts/self-host-installation.mjs .deployment/ci-compose http://localhost:18080 alpha beta
+          node scripts/self-host-instance.mjs .deployment/ci-compose http://localhost:18080 alpha beta
           docker compose -p llll-multi-smoke -f .deployment/ci-compose/compose.json up -d --no-build
-          node scripts/test-self-host-installation.mjs .deployment/ci-compose
+          node scripts/test-self-host-instance.mjs .deployment/ci-compose
 
       - name: Show Compose logs
         if: failure()

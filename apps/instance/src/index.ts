@@ -441,7 +441,7 @@ export default {
     catch (error) {
       const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error && 'status' in error ? Number(error.status) : 500
       if (status >= 500) console.error(JSON.stringify({ event: 'installation.request.failed', path: new URL(request.url).pathname, message: error instanceof Error ? error.message : 'Unknown error' }))
-      response = json({ error: { message: status >= 500 ? 'Installation request failed' : error instanceof Error ? error.message : 'Request failed' } }, status)
+      response = json({ error: { message: status >= 500 ? 'Instance request failed' : error instanceof Error ? error.message : 'Request failed' } }, status)
     }
     if (response.status === 101) return response
     const result = new Response(response.body, response)

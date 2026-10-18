@@ -1,5 +1,5 @@
 {
-  "name": "llll-installation",
+  "name": "llll-instance",
   "main": ".bundle/index.mjs",
   "compatibility_date": "2026-10-16",
   "compatibility_flags": [
@@ -14,7 +14,7 @@
   "d1_databases": [
     {
       "binding": "INSTALLATION_DB",
-      "database_name": "llll-installation",
+      "database_name": "llll-instance",
       "database_id": "00000000-0000-4000-8000-000000000000",
       "migrations_dir": "migrations"
     }

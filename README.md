@@ -2,13 +2,13 @@
 
 MIT licensed software for independent communities. Start with a Server for channels, conversations and shared files. Use Tasks, Data and internal Apps within that Server; connect Mail, Agents and calls when needed.
 
-One installation can contain many servers. Every server gets its own Worker, D1 database, private files bucket and Durable Objects. The web/PWA/Telegram shell groups servers by installation and embeds each installation’s own client. Accounts and login stay local; direct addresses remain fully usable. No public managed-hosting marketplace is required.
+One Instance can contain many Servers. Every server gets its own Worker, D1 database, private files bucket and Durable Objects. The web/PWA/Telegram shell groups Servers by Instance and embeds each Instance’s own client. Accounts and login stay local; direct addresses remain fully usable. No public managed-hosting marketplace is required.
 
 ## Deploy
 
 The first release is `0.1.0-alpha.1`, a developer alpha for fresh databases. Cloudflare is the first acceptance target. VPS/celld remains experimental; see the [known runtime issues](docs/self-host-findings.md). This baseline does not upgrade the archived prototype.
 
-Start with [the installation model and account/credential flow](docs/instance.md). Deploy an installation once, create its owner, then provision or register isolated servers inside it. The `/deploy` installer uses Cloudflare OAuth and transfers provisioning credentials to the new installation. Its operator must configure a public OAuth client and a verified release. API-token source deployment remains available.
+Start with [the Instance model and account/credential flow](docs/instance.md). Deploy an Instance once, create its owner, then provision or register isolated servers inside it. The `/deploy` installer uses Cloudflare OAuth and transfers provisioning credentials to the new Instance. Its operator must configure a public OAuth client and a verified release. Team source deployments use the Git pipeline described below.
 
 Run on your Cloudflare account or your VPS with celld and Docker Compose. The [deployment guide](docs/deployment.md) leads from a pinned release to a private Instance. Its experimental VPS path verifies and loads the release's portable Docker image, then generates Compose without building the application or using a registry account.
 

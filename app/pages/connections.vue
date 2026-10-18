@@ -188,7 +188,7 @@ async function saveSettings() {
   await connections.request(discovery.value.origin, '/api/instance/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(settings).filter(([, value]) => value.trim())) })
   for (const key of Object.keys(settings) as (keyof typeof settings)[]) settings[key] = ''
   configured.value = await connections.request(discovery.value.origin, '/api/instance/settings')
-  toast.add({ title: 'Installation settings saved' })
+  toast.add({ title: 'Instance settings saved' })
 }
 
 async function signOut(): Promise<void> {

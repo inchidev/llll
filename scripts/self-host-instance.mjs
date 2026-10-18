@@ -36,4 +36,4 @@ services['bucket-init'] = { image: 'amazon/aws-cli:2.38.0', depends_on: { rustfs
 await writeFile(resolve(destination, 'compose.json'), JSON.stringify({ name: 'llll-installation', services, volumes }, null, 2) + '\n', { mode: 0o600 })
 await writeFile(resolve(destination, 'servers.json'), JSON.stringify(registry, null, 2) + '\n', { mode: 0o600 })
 await writeFile(resolve(destination, 'owner-claim.txt'), `${origin}/connections#claim=${setup}\n`, { mode: 0o600 })
-console.log(`Created ${destination}. Run docker compose -f ${destination}/compose.json up -d --build. Open owner-claim.txt privately, then register the entries in servers.json using Installation settings. Put TLS in front before connecting llll.gg.`)
+console.log(`Created ${destination}. Run docker compose -f ${destination}/compose.json up -d --build. Open owner-claim.txt privately, then register the entries in servers.json using Instance settings. Put TLS in front before connecting llll.gg.`)

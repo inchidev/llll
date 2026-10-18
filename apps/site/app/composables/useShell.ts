@@ -6,7 +6,7 @@ export type ShellInstance = { origin: string; name: string; collapsed: boolean; 
 
 /** The well-known check failing at the network level names itself: navigation to
  * the shell must say what stalled instead of silently showing an empty form. */
-export const INSTALLATION_UNREACHABLE = 'The installation is unreachable. Check the address or try again in a moment.'
+export const INSTALLATION_UNREACHABLE = 'The instance is unreachable. Check the address or try again in a moment.'
 
 export function useShell() {
   const installations = useState<ShellInstance[]>('shell-installations', () => [])
@@ -47,7 +47,7 @@ export function useShell() {
   }
   async function connect(address: string, claim?: string) {
     const url = new URL(/^https?:\/\//.test(address) ? address : 'https://' + address)
-    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS installation address')
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('Enter an HTTPS instance address')
     const validClaim = /^[A-Za-z0-9_-]{20,300}$/.test(claim || '') ? claim : undefined
     if (!loaded.value.includes(url.origin)) {
       if (validClaim) claims.value[url.origin] = validClaim
@@ -57,8 +57,8 @@ export function useShell() {
     try { response = await fetch(url.origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000) }) }
     catch { throw new Error(INSTALLATION_UNREACHABLE) }
     const data = await response.json()
-    if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 installation')
-    if (!data.embedOrigins?.includes(location.origin)) throw new Error('This installation has not allowed embedding here. Open its own address or ask its operator.')
+    if (!response.ok || data.product !== 'llll' || data.kind !== 'installation' || data.origin !== url.origin) throw new Error('This address is not an L4 instance')
+    if (!data.embedOrigins?.includes(location.origin)) throw new Error('This instance has not allowed embedding here. Open its own address or ask its operator.')
     let installation = installations.value.find(item => item.origin === url.origin)
     if (!installation) { installation = { origin: url.origin, name: String(data.name).slice(0, 100), collapsed: false, servers: [] }; installations.value.push(installation) }
     persist(); open(installation)

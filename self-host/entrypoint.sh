@@ -6,7 +6,7 @@
 set -eu
 
 if [ "${LLLL_MODE:-server}" = "installation" ]; then
-  CELLD_TEMPLATE=${CELLD_TEMPLATE:-/opt/llll/wrangler.installation.celld.json}
+  CELLD_TEMPLATE=${CELLD_TEMPLATE:-/opt/llll/wrangler.instance.celld.json}
 fi
 TEMPLATE="${CELLD_TEMPLATE:-/opt/llll/wrangler.celld.json}"
 CONFIG="${CELLD_CONFIG:-$(dirname "$TEMPLATE")/wrangler.celld.local.json}"

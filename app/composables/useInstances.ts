@@ -46,14 +46,14 @@ export function useInstances() {
 
   async function request<T>(origin: string, path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
     const normalized = normalizeServerOrigin(origin)
-    if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid installation API path')
+    if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid instance API path')
     const response = await fetch(`${normalized}${path}`, {
       method: options.method || 'GET', credentials: 'include', redirect: 'error',
       headers: { Accept: 'application/json', ...(location.protocol === 'capacitor:' ? { Origin: 'capacitor://localhost' } : {}), ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(tokens.value[normalized] ? { Authorization: `Bearer ${tokens.value[normalized]}` } : {}) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     })
     const payload = await response.json().catch(() => null) as { error?: { message?: string }; message?: string } | null
-    if (!response.ok) throw Object.assign(new Error(payload?.error?.message || payload?.message || `Installation request failed (${response.status})`), { status: response.status })
+    if (!response.ok) throw Object.assign(new Error(payload?.error?.message || payload?.message || `Instance request failed (${response.status})`), { status: response.status })
     const token = response.headers.get('set-auth-token')
     if (token) { tokens.value[normalized] = token; try { sessionStorage.setItem(`${TOKEN}${normalized}`, token) } catch { /* Keep the token only in this iframe's memory. */ } }
     return payload as T
@@ -62,8 +62,8 @@ export function useInstances() {
   async function discover(address: string) {
     const origin = normalizeServerOrigin(address)
     const discovery = await request<InstanceDiscovery & { ready?: boolean }>(origin, '/.well-known/llll')
-    if (discovery.origin !== origin || typeof discovery.name !== 'string' || typeof discovery.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,47}$/.test(discovery.id)) throw new Error('Installation discovery returned an invalid identity')
-    if (discovery.product !== 'llll' || discovery.apiVersion !== INSTALLATION_API_VERSION || !['installation', 'server', 'client'].includes(discovery.kind)) throw new Error('This installation uses an incompatible L4 API. Open its own client or update it.')
+    if (discovery.origin !== origin || typeof discovery.name !== 'string' || typeof discovery.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,47}$/.test(discovery.id)) throw new Error('Instance discovery returned an invalid identity')
+    if (discovery.product !== 'llll' || discovery.apiVersion !== INSTALLATION_API_VERSION || !['installation', 'server', 'client'].includes(discovery.kind)) throw new Error('This instance uses an incompatible L4 API. Open its own client or update it.')
     if (discovery.kind === 'client') return discovery
     const existing = installations.value.find(item => item.origin === origin)
     if (!existing) installations.value.push({ origin, id: discovery.id, name: discovery.name, kind: discovery.kind, servers: discovery.kind === 'server' ? [{ id: discovery.id, name: discovery.name, ownerId: '', version: discovery.version, status: 'ready' }] : [] })
@@ -102,7 +102,7 @@ export function useInstances() {
 
   function select(origin: string, serverId: string) {
     const installation = installations.value.find(item => item.origin === origin)
-    if (!installation?.servers.some(server => server.id === serverId && server.status === 'ready')) throw new Error('Server is not available on this installation')
+    if (!installation?.servers.some(server => server.id === serverId && server.status === 'ready')) throw new Error('Server is not available on this instance')
     active.value = { origin, serverId }
     persist()
   }

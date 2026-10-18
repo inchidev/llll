@@ -38,7 +38,7 @@ curl -fL "https://github.com/inchidev/llll/releases/download/v${version}/SHA256S
 curl -fL "https://github.com/inchidev/llll/releases/download/v${version}/llll-runtime-linux-amd64.tar.gz" -o "$cache/llll-runtime-linux-amd64.tar.gz"
 (cd "$cache" && sha256sum --check --ignore-missing SHA256SUMS)
 docker load --input "$cache/llll-runtime-linux-amd64.tar.gz"
-LLLL_IMAGE="llll:${version}" node scripts/self-host-installation.mjs .deployment/my-installation https://chat.example.com main games
+LLLL_IMAGE="llll:${version}" node scripts/self-host-instance.mjs .deployment/my-installation https://chat.example.com main games
 docker compose -f .deployment/my-installation/compose.json up -d
 ```
 

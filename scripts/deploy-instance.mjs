@@ -77,4 +77,4 @@ form.append('installation.mjs', new Blob([artifact.modules.installation.content]
 await api(`/accounts/${account}/workers/scripts/${worker}`, 'PUT', form)
 await api(`/accounts/${account}/workers/scripts/${worker}/subdomain`, 'POST', { enabled: true, previews_enabled: false })
 await api(`/accounts/${account}/workers/scripts/${worker}/schedules`, 'PUT', [{ cron: '23 3 * * *' }])
-console.log(`Installation: ${origin}\nPrivate owner setup: ${origin}/connections#claim=${saved.setupToken}\nKeep ${file} private and backed up. Connect provisioning credentials in Installation settings when needed. Attach a custom domain through Cloudflare and update PUBLIC_ORIGIN before using it.`)
+console.log(`Installation: ${origin}\nPrivate owner setup: ${origin}/connections#claim=${saved.setupToken}\nKeep ${file} private and backed up. Connect provisioning credentials in Instance settings when needed. Attach a custom domain through Cloudflare and update PUBLIC_ORIGIN before using it.`)
