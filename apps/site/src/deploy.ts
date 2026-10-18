@@ -94,10 +94,32 @@ function releaseBase(version: string) {
   return `https://github.com/${RELEASE_REPO}/releases/download/${version}`
 }
 
+/** Public GitHub feed avoids the REST quota shared by Cloudflare egress IPs. */
+async function feedReleases() {
+  const xml = new TextDecoder().decode(await downloadBytes(
+    `https://github.com/${RELEASE_REPO}/releases.atom`, 524288, 'release feed',
+  ))
+  const releases = await Promise.all([...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].slice(0, 20).map(async ([, entry]) => {
+    const version = entry?.match(/<id>[^<]*\/(v[^<]+)<\/id>/)?.[1]
+    if (!version || !VERSION_PATTERN.test(version)) return null
+    try {
+      const checksums = new TextDecoder().decode(await downloadBytes(
+        `${releaseBase(version)}/SHA256SUMS`, 65536, 'release checksums',
+      ))
+      const assets = [{ name: 'SHA256SUMS' }, ...[...checksums.matchAll(/^[a-f0-9]{64}[ \t]+([^\s]+)$/gm)].map((match) => ({ name: match[1] }))]
+      const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+      const title = (entry?.match(/<title>([^<]*)<\/title>/)?.[1] || version)
+        .replace(/&(amp|lt|gt|quot|apos);/g, (_, name: string) => entities[name] || '').slice(0, 200)
+      return { tag_name: version, name: title, published_at: entry?.match(/<updated>([^<]*)<\/updated>/)?.[1] || '', html_url: `https://github.com/${RELEASE_REPO}/releases/tag/${version}`, assets }
+    } catch { return null }
+  }))
+  return releases.filter((release) => release !== null)
+}
+
 /** Published (non-draft) releases with deployment artifacts, newest first.
  * A `GITHUB_TOKEN` (any PAT, no scopes needed for public repos) avoids GitHub
- * API rate limits on shared Cloudflare egress IPs. Without it the website uses
- * the unauthenticated quota.
+ * API rate limits on shared Cloudflare egress IPs. If the public quota is
+ * exhausted, use the public feed and require the same deployment assets.
  */
 export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
   const response = await fetch(
@@ -111,11 +133,11 @@ export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
       signal: AbortSignal.timeout(20000),
     },
   )
-  if (!response.ok)
+  if (!response.ok && ![403, 429].includes(response.status))
     throw new Error(
       `The release list could not be loaded from GitHub (${response.status})`,
     )
-  const data = (await response.json()) as {
+  const data = (response.ok ? await response.json() : await feedReleases()) as {
     tag_name?: string
     name?: string
     draft?: boolean

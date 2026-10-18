@@ -25,3 +25,5 @@ RealtimeKit, AI and mail are optional Server-local settings. Cloudflare deployme
 Back up Server D1, live files and encryption/deployment secrets to a destination separate from live files. Backup buckets survive Server deletion. Restore into isolated resources and verify the same UUID, accounts, roles, messages and files. Save local account recovery keys privately; they are single-use and revoke sessions when redeemed.
 
 There are no working Instances to migrate. This release installs fresh standalone databases and rejects an existing Instance-bound workspace rather than silently losing its login credentials. Merged baselines, release tags and assets remain immutable.
+
+Published release discovery uses GitHub REST with an optional public-repository token, and falls back to the public release feed on quota responses. Feed entries must name a supported version and expose the deployment artifact and manifest in published checksums; the manifest must declare the matching standalone capability. Installing still verifies every artifact checksum.
