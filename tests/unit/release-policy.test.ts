@@ -115,3 +115,12 @@ it('prepares the released archive instead of newer main output and rejects corru
   mockFetch(true)
   expect(() => execFileSync(process.execPath, ['--import', preloader, resolve(root, 'scripts/prepare-production.mjs')], { env, stdio: 'pipe' })).toThrow('checksum mismatch')
 })
+it('retries a hook that reused a main Build started before release publication', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'llll-release-hook-'))
+  temporary.push(root)
+  const script = resolve(root, 'trigger.mjs'), preloader = resolve(root, 'fetch.mjs')
+  cpSync(resolve('scripts/trigger-release-deploy.mjs'), script)
+  writeFileSync(preloader, `let posts=0; globalThis.setTimeout=fn=>{queueMicrotask(fn);return 0};globalThis.fetch=async(url,init)=>{if(init?.method==='POST'){if(url!=='https://invalid.example/hook')throw new Error('Unexpected hook');posts++;return Response.json({success:true,result:{already_exists:posts===1}})}if(url!=='https://llll.gg/api/health')throw new Error('Unexpected URL');if(posts===2)return Response.json({commit:'${'b'.repeat(40)}',version:'0.1.0-alpha.2'});return Response.json({commit:'${'a'.repeat(40)}',version:'0.1.0-alpha.1'})}`)
+  const output = execFileSync(process.execPath, ['--import', preloader, script], { encoding: 'utf8', env: { GITHUB_ACTIONS: 'true', RELEASE_HOOK: 'https://invalid.example/hook', RELEASE_COMMIT: 'b'.repeat(40), RELEASE_VERSION: next.version, PATH: '/no-deployment-tools' } })
+  expect(output).toContain('Production verified: v0.1.0-alpha.2')
+})
