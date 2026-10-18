@@ -73,7 +73,7 @@ function initials(name: string) {
   --ui-text-inverted: #fafafa;
   --ui-border: #e5e5e5;
 }
-:global(.dark) .community-rail {
+.dark .community-rail {
   --ui-bg-elevated: #0a0a0a;
   --ui-bg-accented: #171717;
   --ui-bg-inverted: #fafafa;
