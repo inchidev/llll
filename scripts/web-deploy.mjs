@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { pullRequestCandidate, verifyMergeParents } from './pull-request-ref.mjs'
 
 requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
@@ -18,12 +19,26 @@ async function api(path, body) {
   if (!response.ok || !data.success) throw new Error(`Cloudflare ${path}: ${data.errors?.map(error => error.message).join('; ') || response.status}`)
   return data
 }
+function git(args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+  if (result.status !== 0) throw new Error('Cannot verify the PR Git refs')
+  return result.stdout
+}
 let pr
 if (mode === 'preview') {
-  const response = await fetch(`https://api.github.com/repos/inchidev/llll/pulls?state=open&head=${encodeURIComponent(`inchidev:${branch}`)}`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'L4-Workers-Builds' } })
-  if (!response.ok) throw new Error(`Cannot verify the PR: GitHub ${response.status}`)
-  pr = (await response.json()).find(item => item.base.ref === 'main' && item.head.sha === process.env.WORKERS_CI_COMMIT_SHA)
-  if (!pr) throw new Error('Only the current head of an open PR to main can create a Preview')
+  // Git refs avoid the shared unauthenticated REST API quota in Builds.
+  // A merge ref plus both parents proves this head is mergeable into current main.
+  const repository = 'https://github.com/inchidev/llll.git'
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const refs = git(['ls-remote', repository, 'refs/heads/main', `refs/heads/${branch}`, 'refs/pull/*'])
+    const candidate = pullRequestCandidate(refs, branch, process.env.WORKERS_CI_COMMIT_SHA)
+    if (candidate) {
+      git(['fetch', '--no-tags', '--depth=1', repository, `refs/pull/${candidate.number}/merge`])
+      if (verifyMergeParents(git(['cat-file', '-p', 'FETCH_HEAD']), candidate)) { pr = candidate; break }
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, 2000))
+  }
+  if (!pr) throw new Error('Preview requires the current head of a mergeable PR to main. Open or update the PR and retry the Build.')
 }
 const databaseName = mode === 'production' ? 'llll-portal-production' : `llll-portal-pr-${pr.number}`
 let database

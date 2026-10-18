@@ -2,7 +2,7 @@
 
 Feature/fix PRs target `main`. Before merging, run lint, type checks, unit tests, migration validation, the Instance integration fixture and an isolated deployment. The initial migration baselines are immutable after merging; append the next numbered migration from current main and update its runtime registry.
 
-Cloudflare Workers Builds is connected to `inchidev/llll`. Each open same-repository PR to main gets a native `llll` Worker Preview named after its branch, with a separate `llll-portal-pr-N` D1. The runner verifies the exact PR head and deployed `/api/health` commit. Production OAuth and portal secrets are excluded from Previews. The deployed Preview check and CI must pass before merging. Main builds deploy production; release publication remains a separate explicit action.
+Cloudflare Workers Builds is connected to `inchidev/llll`. Each open, mergeable same-repository PR to main gets a native `llll` Worker Preview named after its branch, with a separate `llll-portal-pr-N` D1. The runner verifies the exact PR head and deployed `/api/health` commit. Production OAuth and portal secrets are excluded from Previews. The deployed Preview check and CI must pass before merging. Main builds deploy production; release publication remains a separate explicit action.
 
 GitHub Actions also builds immutable preview artifacts and tests fresh Instance/Server boundaries. Those artifacts are not uploaded from developer machines. Use the local fixture below to verify community flows independently of the official web Preview. Cloudflare administration and cleanup use only the connected API. Never delete preserved backup buckets. Per-PR D1 data is retained until administrative cleanup; it is never reused by another PR or production.
 
