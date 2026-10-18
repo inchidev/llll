@@ -17,3 +17,9 @@ Real HTTPS checks passed owner setup, persistent UUID, local login, forged-ident
 First-domain verification exposed propagation delays; a manual retry exposed missing webhook commit metadata. The final scripts allow a bounded longer propagation wait and verify the checked-out Git commit against the current PR head and both merge parents. Server deployment persists the private owner claim before public verification and repairs it on an unclaimed-server retry.
 
 This is not public installer OAuth acceptance. The connected Cloudflare API refused OAuth-client registration reads, so registered Workers Builds scopes and fresh browser consent were not established. The installer needs the account's repository integration, deployment token and Builds administrative permission. Device/native and optional provider results remain separate.
+
+## Held-socket revocation correction
+
+A further real Cloudflare probe showed that a Channel socket authenticated before logout could still submit a message afterward. Alpha.3 publication was cancelled before any tag or release asset was created. The correction persists the local session ID in hibernating socket attachments and rechecks it before queued writes and every private fanout, including presence and agent updates. Authorizations are cached only per user and session within one fanout. Missing builtin session IDs fail closed.
+
+The local fixture now holds sockets across member logout and owner recovery, denies revoked writes and passive fanout, and verifies that another independent session of the same user keeps working. These cases run with real Worker sockets, alongside the existing HTTP and pending-ticket revocation checks.

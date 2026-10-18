@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { PresenceStatus, PublicUser } from '../shared/types'
 import type { WorkspaceChannelActivityEvent, WorkspaceChannelReadEvent, WorkspaceLiveChangedEvent, WorkspaceMailChangedEvent, WorkspaceMembersChangedEvent, WorkspaceTasksChangedEvent } from '../shared/workspace-realtime'
 import type { L4Env } from './env'
-import { userFromTicket } from './ticket'
+import { sessionFromTicket, socketSessionActive } from './ticket'
 import { sendWorkspaceEvent, type WorkspaceSocketAttachment } from './workspace-events'
 import { workspacePresence } from './workspace-presence'
 import { authorizedSockets } from './socket-access'
@@ -38,18 +38,18 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
 
     const attachment = ws.deserializeAttachment() as WorkspaceSocketAttachment | null
     if (parsed.t === 'auth' && parsed.token) {
-      const user = await userFromTicket(this.env, parsed.token)
-      if (!user) {
+      const session = await sessionFromTicket(this.env, parsed.token)
+      if (!session) {
         ws.close(4001, 'unauthorized')
         return
       }
-      await this.attach(ws, user, parsed.visible !== false)
+      await this.attach(ws, session.user, parsed.visible !== false, session.sessionId)
       return
     }
     if (!attachment?.userId || parsed.t !== 'activity') return
 
     ws.serializeAttachment({
-      userId: attachment.userId,
+      ...attachment,
       lastActive: Date.now(),
       visible: parsed.visible !== false,
     } satisfies WorkspaceSocketAttachment)
@@ -95,8 +95,8 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
     await this.scheduleTick()
   }
 
-  private async attach(ws: WebSocket, user: PublicUser, visible: boolean) {
-    ws.serializeAttachment({ userId: user.id, lastActive: Date.now(), visible } satisfies WorkspaceSocketAttachment)
+  private async attach(ws: WebSocket, user: PublicUser, visible: boolean, sessionId?: string) {
+    ws.serializeAttachment({ userId: user.id, sessionId, lastActive: Date.now(), visible } satisfies WorkspaceSocketAttachment)
     this.send(ws, { t: 'hello', workspaceId: this.workspaceId() })
     await this.broadcast()
     await this.scheduleTick()
@@ -113,9 +113,7 @@ export class WorkspaceDurableObject extends DurableObject<L4Env> {
   }
 
   private async activeSockets() {
-    return authorizedSockets(this.ctx.getWebSockets(), async userId => Boolean(await this.env.DB.prepare(
-      "SELECT id FROM users WHERE id = ? AND status = 'active'",
-    ).bind(userId).first()))
+    return authorizedSockets(this.ctx.getWebSockets(), (_id, session) => socketSessionActive(this.env, session))
   }
 
   private async scheduleTick() {

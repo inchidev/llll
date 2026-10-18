@@ -30,3 +30,13 @@ it('fails closed when current authorization cannot be established', async () => 
   expect(await authorizedSockets([member], async () => { throw new Error('D1 unavailable') })).toEqual([])
   expect(member.close).toHaveBeenCalledWith(4403, 'access_revoked')
 })
+
+it('does not reuse another session authorization for the same user', async () => {
+  const live = { deserializeAttachment: () => ({ userId: 'owner', sessionId: 'live' }), close: vi.fn() }
+  const revoked = { deserializeAttachment: () => ({ userId: 'owner', sessionId: 'revoked' }), close: vi.fn() }
+  const check = vi.fn(async (_id: string, session: { sessionId?: string }) => session.sessionId === 'live')
+  expect(await authorizedSockets([live, revoked], check)).toEqual([live])
+  expect(check).toHaveBeenCalledTimes(2)
+  expect(revoked.close).toHaveBeenCalledWith(4403, 'access_revoked')
+  expect(live.close).not.toHaveBeenCalled()
+})

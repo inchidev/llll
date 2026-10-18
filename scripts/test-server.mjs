@@ -297,6 +297,32 @@ try {
     socket.close()
     return result
   }
+  async function heldSocket(path, actor = 'alpha-owner') {
+    const ticket = await api('alpha', '/api/auth/ws-token', { actor, method: 'POST', body: {} })
+    const response = await instances.alpha.dispatchFetch(origins.alpha + path, { headers: { Upgrade: 'websocket' } })
+    assert.equal(response.status, 101)
+    const socket = response.webSocket
+    socket.accept()
+    const messages = []
+    const closed = new Promise((resolveClose) => socket.addEventListener('close', resolveClose, { once: true }))
+    await new Promise((resolveHello, reject) => {
+      const timer = setTimeout(() => reject(new Error('Held socket hello timeout')), 5000)
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data)
+        messages.push(message)
+        if (message.t === 'hello') { clearTimeout(timer); resolveHello() }
+      })
+      socket.send(JSON.stringify({ t: 'auth', token: ticket.payload.token }))
+    })
+    return { socket, messages, closed }
+  }
+  async function mustClose(held) {
+    let timer
+    try {
+      const event = await Promise.race([held.closed, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Revoked socket stayed open')), 5000) })])
+      assert.equal(event.code, 4403)
+    } finally { clearTimeout(timer) }
+  }
   const ticket = await api('alpha', '/api/auth/ws-token', {
     method: 'POST',
     body: {},
@@ -312,12 +338,17 @@ try {
     method: 'POST',
     body: {},
   })
+  const heldMember = await heldSocket(`/ws/channel/${general.id}`, 'alpha-member')
   await api('alpha', '/api/auth/logout', {
     actor: 'alpha-member',
     method: 'POST',
     body: {},
   })
   assert.notEqual((await socketAuth('alpha', revoked.payload.token)).t, 'hello')
+  heldMember.socket.send(JSON.stringify({ t: 'message.create', content: 'Revoked socket must not write', clientId: crypto.randomUUID() }))
+  await mustClose(heldMember)
+  assert.equal(heldMember.messages.some((m) => m.t === 'message'), false)
+
   const verifier = 'a'.repeat(64)
   const challenge = Buffer.from(
     await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)),
@@ -397,6 +428,8 @@ try {
     method: 'POST',
     body: {},
   })
+  const heldOwnerChannel = await heldSocket(`/ws/channel/${general.id}`)
+  const heldOwnerWorkspace = await heldSocket(`/ws/workspace/${ids.alpha}`)
   const newPassword = 'RecoveredOwnerPassword123!'
   await api('alpha', '/api/auth/recover', {
     actor: 'anonymous',
@@ -423,6 +456,28 @@ try {
     method: 'POST',
     body: { email: 'owner@example.com', password: newPassword },
   })
+  heldOwnerWorkspace.socket.send(JSON.stringify({ t: 'activity', visible: true }))
+  await api('alpha', `/api/channels/${general.id}/messages`, { method: 'POST', body: { content: 'Recovery session fanout' } })
+  await mustClose(heldOwnerChannel)
+  await mustClose(heldOwnerWorkspace)
+  assert.equal(heldOwnerChannel.messages.some((m) => m.t === 'message'), false)
+  await api('alpha', '/api/auth/login', { actor: 'another-owner', method: 'POST', body: { email: 'owner@example.com', password: newPassword } })
+  const revokedTab = await heldSocket(`/ws/channel/${general.id}`)
+  const retainedTab = await heldSocket(`/ws/channel/${general.id}`, 'another-owner')
+  const retainedMessage = new Promise((resolveMessage, reject) => {
+    const timer = setTimeout(() => reject(new Error('Valid session did not receive fanout')), 5000)
+    retainedTab.socket.addEventListener('message', (event) => {
+      if (JSON.parse(event.data).t === 'message') { clearTimeout(timer); resolveMessage() }
+    })
+  })
+  await api('alpha', '/api/auth/logout', { method: 'POST', body: {} })
+  await api('alpha', `/api/channels/${general.id}/messages`, { actor: 'another-owner', method: 'POST', body: { content: 'Other owner session remains authorized' } })
+  await mustClose(revokedTab)
+  await retainedMessage
+  assert.equal(retainedTab.messages.some((m) => m.t === 'message'), true)
+  assert.equal(revokedTab.messages.some((m) => m.t === 'message'), false)
+  retainedTab.socket.close()
+  await api('alpha', '/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: newPassword } })
   const a = await instances.alpha.getR2Bucket('FILES'),
     b = await instances.beta.getR2Bucket('FILES')
   await a.put('same-key', 'alpha')

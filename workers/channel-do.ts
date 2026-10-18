@@ -11,7 +11,7 @@ import { newId, nowIso } from '../shared/ids'
 import { asRpc, callsProvider, type L4Env } from './env'
 import type { RealtimeKitParticipant } from './realtimekit'
 import { liveMedia } from './live-media'
-import { userFromTicket } from './ticket'
+import { sessionFromTicket, socketSessionActive } from './ticket'
 import { channelHasUnread } from './unread'
 import { liveNotificationStatement, messageNotificationStatement, signalNotificationOutbox } from './notifications'
 import { signalLiveChanged } from './live-events'
@@ -34,7 +34,7 @@ import { mailPermissionAllows } from '../shared/mail'
 import { createSerialQueue } from './serial-queue'
 import { authorizedSockets } from './socket-access'
 
-type Sock = { userId: string; user: PublicUser }
+type Sock = { userId: string; user: PublicUser; sessionId?: string }
 type Authz = { workspaceId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
 
 const createSchema = z.object({
@@ -111,13 +111,13 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
     const sock = ws.deserializeAttachment() as Sock | null
     if (msg.t === 'auth' && typeof msg.token === 'string') {
-      const user = await userFromTicket(this.env, msg.token)
-      if (!user) {
+      const session = await sessionFromTicket(this.env, msg.token)
+      if (!session) {
         this.send(ws, { t: 'error', code: 'unauthorized', message: 'Invalid session' })
         ws.close(4001, 'unauthorized')
         return
       }
-      await this.hello(ws, user)
+      await this.hello(ws, session.user, session.sessionId)
       return
     }
     if (!sock?.userId) {
@@ -153,7 +153,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
   async fanout(msg: ServerMsg): Promise<void> {
     if (msg.t === 'agent.state') {
-      for (const ws of this.ctx.getWebSockets()) {
+      for (const ws of await authorizedSockets(this.ctx.getWebSockets(), (_id, session) => socketSessionActive(this.env, session))) {
         const sock = ws.deserializeAttachment() as Sock | null
         if (!sock?.userId) continue
         const authz = await this.loadAuthz(sock.userId)
@@ -374,6 +374,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async handle(ws: WebSocket, sock: Sock, raw: string) {
+    if (!await socketSessionActive(this.env, sock)) {
+      ws.close(4403, 'session_revoked')
+      return
+    }
     const parsed = JSON.parse(raw) as { t: string }
     const authz = await this.loadAuthz(sock.userId)
     if (!authz) {
@@ -643,7 +647,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       last_read_message_id: string | null
     }>()
     const cursor = state?.last_read_message_id ?? messageId
-    this.sendToUser(sock.userId, {
+    await this.sendToUser(sock.userId, {
       t: 'read.ack',
       channelId: this.channelId(),
       messageId: cursor,
@@ -797,14 +801,14 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     this.ctx.waitUntil(signalLiveChanged(this.env, this.channelId(), live, opts).catch(() => {}))
   }
 
-  private async hello(ws: WebSocket, user: PublicUser) {
+  private async hello(ws: WebSocket, user: PublicUser, sessionId?: string) {
     const authz = await this.loadAuthz(user.id)
     if (!authz) {
       this.send(ws, { t: 'error', code: 'not_found', message: 'Channel not found' })
       ws.close(4404, 'not_found')
       return
     }
-    ws.serializeAttachment({ userId: user.id, user } satisfies Sock)
+    ws.serializeAttachment({ userId: user.id, user, sessionId } satisfies Sock)
     const live = await this.getLive()
     let participants: PublicUser[] | undefined
     if (isDmType(authz.type) || (authz.type === 'thread')) {
@@ -1112,7 +1116,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
   private async broadcast(msg: ServerMsg, except?: WebSocket) {
     const payload = JSON.stringify(msg)
-    const sockets = await authorizedSockets(this.ctx.getWebSockets(), async userId => {
+    const sockets = await authorizedSockets(this.ctx.getWebSockets(), async (userId, session) => {
+      if (!await socketSessionActive(this.env, session)) return false
       const authz = await this.loadAuthz(userId)
       return Boolean(authz && !authz.frozen)
     })
@@ -1123,9 +1128,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
   }
 
-  private sendToUser(userId: string, msg: ServerMsg) {
+  private async sendToUser(userId: string, msg: ServerMsg) {
     const payload = JSON.stringify(msg)
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of await authorizedSockets(this.ctx.getWebSockets(), (_id, session) => socketSessionActive(this.env, session))) {
       const sock = ws.deserializeAttachment() as Sock | null
       if (sock?.userId !== userId) continue
       try { ws.send(payload) }
