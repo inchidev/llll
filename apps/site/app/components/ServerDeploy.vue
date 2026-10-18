@@ -164,7 +164,7 @@ async function copyOrigin() {
   <UContainer class="max-w-3xl py-8 sm:py-16">
     <h1 class="text-4xl font-semibold tracking-tight">Install your own L4</h1>
     <p class="mt-4 text-muted">
-      Your accounts, servers and data. Free MIT software.
+      Your Server, its accounts and its data. Free MIT software.
     </p>
 
     <UAlert
@@ -228,8 +228,8 @@ async function copyOrigin() {
       <template v-if="session?.completed">
         <h2 class="text-2xl font-semibold">Your server is ready</h2>
         <p class="text-muted">
-          Create its owner, save the recovery key, then create your first
-          server.
+          Create its owner, then invite your community. Save an account recovery
+          key in User settings.
         </p>
         <UButton
           :to="session.claim"
@@ -255,8 +255,7 @@ async function copyOrigin() {
           />
         </div>
         <p class="text-sm text-muted">
-          The address above is the only identifier of your server — copy it
-          somewhere safe. This browser will remember it in Connections; other
+          Save the address above to connect to your Server. This browser will remember it in Connections; other
           devices need it again.
         </p>
       </template>
@@ -354,8 +353,8 @@ async function copyOrigin() {
       </template>
       <template v-else>
         <p class="text-muted">
-          Authorize L4 to deploy into your Cloudflare account. Its credentials
-          are handed to your server after deployment.
+          Authorize L4 to configure deployment in your Cloudflare account.
+          Your Server owns its accounts and login.
         </p>
         <UButton
           to="/api/deploy/oauth"
@@ -375,8 +374,9 @@ async function copyOrigin() {
           remains available.
         </p>
         <p class="text-sm text-muted">
-          Cloudflare bills infrastructure usage directly. Enable R2 before
-          deploying.
+          Before connecting, enable R2 and configure the repository connection
+          and deployment token in Workers Builds. Cloudflare bills usage
+          directly.
         </p>
       </template>
       <UAlert v-if="error" color="error" :description="error" /><UButton
@@ -391,20 +391,21 @@ async function copyOrigin() {
     <section v-else class="mt-8 space-y-6">
       <h2 class="text-2xl font-semibold">celld + Docker Compose</h2>
       <p class="text-muted">
-        Generate a private server with isolated server services. Run it on your
-        VPS or import the Compose project into Coolify, then configure HTTPS.
+        Run one independent Server on your VPS with Docker Compose or Coolify,
+        then configure HTTPS.
       </p>
       <pre
         class="overflow-x-auto rounded-lg border border-default p-4 text-xs leading-6"
       >
 git clone https://github.com/inchidev/llll.git
-cd llll
-node scripts/self-host-server.mjs .deployment/my-l4 https://chat.example.com main games
-docker compose -f .deployment/my-l4/compose.json up -d --build</pre>
+cd llll/self-host
+cp .env.example .env
+# Set your origin, owner email and private secrets in .env
+docker compose up -d --build</pre>
       <p class="text-sm text-muted">
-        Keep generated credentials private. Open the owner claim link, then
-        register the generated servers. Automatic SSH deployment is not
-        available yet.
+        Keep credentials private. Open the owner claim link, set your password,
+        then connect the Server address from Shell. Automatic SSH deployment
+        is not available yet.
       </p>
       <UButton
         to="https://github.com/inchidev/llll/blob/main/docs/deployment.md"
