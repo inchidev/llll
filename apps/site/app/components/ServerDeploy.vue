@@ -7,8 +7,6 @@ import {
   type DeployedServer,
 } from '../../../../shared/deploy-recall'
 
-const route = useRoute()
-const method = ref(route.query.method === 'vps' ? 'vps' : 'cloudflare')
 const phases = [
   'Configure your Server',
   'Start deployment',
@@ -168,12 +166,8 @@ async function copyOrigin() {
 }
 </script>
 <template>
-  <UContainer class="max-w-3xl py-8 sm:py-16">
-    <UButton to="/open" label="Add a server" icon="i-ph-arrow-left" color="neutral" variant="link" class="mb-6 px-0" />
-    <h1 class="text-3xl font-semibold tracking-tight">Create your L4</h1>
-    <p class="mt-4 text-muted">
-      Deploy to your Cloudflare account. Start on workers.dev, with your own accounts and data.
-    </p>
+  <section class="space-y-6">
+    <p class="text-sm leading-6 text-muted">Deploy to your Cloudflare account. Start on workers.dev, with your own accounts and data.</p>
 
     <UAlert
       v-if="sessionEnded"
@@ -204,7 +198,7 @@ async function copyOrigin() {
             </p>
           </div>
           <UButton
-            :to="`/open?server=${encodeURIComponent(entry.origin)}`"
+            :to="`/create?server=${encodeURIComponent(entry.origin)}`"
             label="Open in the shell"
             icon="i-ph-arrow-square-out"
             color="neutral"
@@ -215,23 +209,7 @@ async function copyOrigin() {
       </ul>
     </section>
 
-    <UTabs
-      v-if="
-        !session?.authorized &&
-        session?.step === undefined &&
-        !session?.completed
-      "
-      v-model="method"
-      class="mt-8"
-      :items="[
-        { label: 'Cloudflare', value: 'cloudflare' },
-        { label: 'VPS / Coolify', value: 'vps' },
-      ]"
-    />
-    <section
-      v-if="method === 'cloudflare' || session?.authorized"
-      class="mt-8 space-y-6"
-    >
+    <section class="space-y-6">
       <p v-if="grantLeft" class="text-sm text-muted">{{ grantLeft }}</p>
       <template v-if="session?.completed">
         <h2 class="text-2xl font-semibold">Your Server is deployed</h2>
@@ -399,32 +377,5 @@ async function copyOrigin() {
         variant="outline"
       />
     </section>
-    <section v-else class="mt-8 space-y-6">
-      <h2 class="text-2xl font-semibold">celld + Docker Compose</h2>
-      <p class="text-muted">
-        Run one independent Server on your VPS with Docker Compose or Coolify,
-        then configure HTTPS.
-      </p>
-      <pre
-        class="overflow-x-auto rounded-lg border border-default p-4 text-xs leading-6"
-      >
-git clone https://github.com/inchidev/llll.git
-cd llll/self-host
-cp .env.example .env
-# Set your origin, owner email and private secrets in .env
-docker compose up -d --build</pre>
-      <p class="text-sm text-muted">
-        Keep credentials private. Open the owner claim link, set your password,
-        then connect the Server address from Shell. Automatic SSH deployment
-        is not available yet.
-      </p>
-      <UButton
-        to="https://github.com/inchidev/llll/blob/main/docs/deployment.md"
-        label="VPS deployment guide"
-        color="neutral"
-        variant="outline"
-        external
-      />
-    </section>
-  </UContainer>
+  </section>
 </template>

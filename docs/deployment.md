@@ -4,7 +4,9 @@ Deploy one Server, claim its owner, then invite members. Accounts, files and con
 
 ## Cloudflare
 
-The Shell's plus button opens `/open`: connect an existing Server by address, or choose **Create your L4**. The `/deploy` installer connects Cloudflare, selects an account, Server name, admin email and published standalone release, then configures a Git-connected Workers Build. A new Server starts on the customer's `workers.dev` hostname; domain selection is not part of this installer.
+The Shell's plus button opens `/create`, with three tabs: **Connect**, **Cloudflare** and **VPS**. Connecting by address, configuring a Cloudflare deployment and reading VPS setup all stay on that page. Tab links use `?tab=cloudflare` or `?tab=vps`. The Shell logo opens `/` on the current origin, including in Previews. Existing `/open`, `/deploy` and `/servers` links redirect to `/create` while preserving connection parameters; old `/deploy?method=vps` links select VPS.
+
+The Cloudflare tab selects an account, Server name, admin email and published standalone release, then configures a Git-connected Workers Build. A new Server starts on the customer's `workers.dev` hostname; domain selection is not part of this installer. The PWA starts at `/create`; its existing manifest ID remains stable for already installed copies.
 
 The account must have Cloudflare's Git integration for this repository and an eligible Workers Builds deployment token with Workers, D1, R2 and KV rights. Register `workers-ci.read` and `workers-ci.write` on the L4 OAuth client alongside the other scopes in `shared/cloudflare-oauth.ts` **before publishing the web release that requests them**. Workers script permissions alone do not replace these Builds scopes. Existing authorizations need fresh consent through **Reconnect Cloudflare**. The installer checks Builds token access before starting a deployment; missing rights or prerequisites leave the form retryable and do not allocate a Server. The installer never uploads application code itself.
 

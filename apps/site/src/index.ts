@@ -28,6 +28,16 @@ async function rateLimit(request: Request, env: WebEnv) {
 async function handle(request: Request, env: WebEnv): Promise<Response> {
   if (new URL(request.url).pathname === '/api/health') return json({ ok: true, component: 'web', commit: env.BUILD_COMMIT || 'development', version: env.BUILD_VERSION || 'development' })
   const url = new URL(request.url); const path = url.pathname
+  const legacyPath = path.replace(/\/+$/, '')
+  if (['GET', 'HEAD'].includes(request.method) && ['/open', '/deploy', '/servers'].includes(legacyPath)) {
+    const target = new URL(request.url)
+    target.pathname = '/create'
+    if (legacyPath === '/deploy') {
+      target.searchParams.set('tab', target.searchParams.get('method') === 'vps' ? 'vps' : 'cloudflare')
+      target.searchParams.delete('method')
+    }
+    return Response.redirect(target.toString(), 307)
+  }
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')
     await rateLimit(request, env)
@@ -83,7 +93,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       // Surface Cloudflare's reason (it names the refused scope) instead of a generic cancellation.
       const detail = (url.searchParams.get('error_description') || '').slice(0, 300)
       session.data.error = detail ? `Cloudflare refused the authorization: ${detail}` : 'Cloudflare authorization was cancelled'
-      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/deploy', 303)
+      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare', 303)
     }
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
     if (session.data.accountId) {
@@ -91,7 +101,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this server') }
     }
     await session.save()
-    return Response.redirect(env.PUBLIC_ORIGIN + '/deploy', 303)
+    return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare', 303)
   }
   if (path === '/api/deploy/session') {
     const session = await webSession(request, env); const data = session.data

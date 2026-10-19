@@ -6,6 +6,7 @@ it('hands the owner credential to Shell without putting it in an HTTP request', 
   const origin = 'https://llll-example.customer.workers.dev'
   const route = deploymentShellUrl(origin, `${origin}/setup#claim=${token}`)
   const url = new URL(route, 'https://llll.gg')
+  expect(url.pathname).toBe('/create')
   expect(url.searchParams.get('server')).toBe(origin)
   expect(url.pathname + url.search).not.toContain(token)
   expect(url.searchParams.has('claim')).toBe(false)

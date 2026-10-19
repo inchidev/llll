@@ -2,7 +2,7 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const shellUrl = '/open'
+const shellUrl = '/create'
 const siteUrl = 'https://llll.gg/'
 const pageTitle = 'L4 — Chat and work together. Run it yourself.'
 const pageDescription = 'Bring team chat, tasks, shared email, knowledge, and internal tools together. AI teammates, custom internal apps, and no seat fees. Run on your Cloudflare account or VPS.'
@@ -99,7 +99,7 @@ useHead({
             <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl">Chat. Work. <span class="block text-muted">On your terms.</span></h1>
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. Independent servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
@@ -181,14 +181,14 @@ useHead({
                 <li>No seats, history tiers, or reduced open-source edition</li>
                 <li>You pay Cloudflare directly for infrastructure usage</li>
               </ul>
-              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
+              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
             </UCard>
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
               <UBadge label="Docker Compose · Coolify" color="neutral" variant="outline" class="self-start" />
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on your VPS</h3>
               <p class="mt-4 text-base leading-7 text-muted">The same server logic on celld. Keep chat, tasks, documents and files on your own machine. Connect optional calls, AI and mail providers when you need them.</p>
               <ul class="my-7 space-y-3 text-sm text-toned"><li>Local accounts and your own domain</li><li>One private runtime and database per server</li><li>Separate backups and operator-controlled updates</li></ul>
-              <UButton to="/deploy?method=vps" label="VPS setup" color="neutral" variant="outline" size="lg" class="mt-auto self-start" />
+              <UButton to="/create?tab=vps" label="VPS setup" color="neutral" variant="outline" size="lg" class="mt-auto self-start" />
             </UCard>
           </div>
         </UContainer>
@@ -201,7 +201,7 @@ useHead({
             <img src="/brand/logo-128.png" alt="" class="mx-auto size-16" width="64" height="64">
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/deploy" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
@@ -225,7 +225,7 @@ useHead({
             <p class="mb-4 text-sm font-semibold text-highlighted">Resources</p>
             <ul class="space-y-3 text-sm text-muted">
               <li><NuxtLink to="/docs" class="hover:text-highlighted">Documentation</NuxtLink></li>
-              <li><NuxtLink to="/deploy" class="hover:text-highlighted">Setup guide</NuxtLink></li>
+              <li><NuxtLink to="/create?tab=cloudflare" class="hover:text-highlighted">Setup guide</NuxtLink></li>
               <li><ULink :to="shellUrl" class="hover:text-highlighted">Open L4</ULink></li>
               <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
             </ul>

@@ -6,6 +6,6 @@ export default defineNuxtConfig({
   runtimeConfig: { public: { docsRef: process.env.LLLL_DOCS_REF || process.env.WORKERS_CI_COMMIT_SHA || 'main' } },
   colorMode: { preference: 'dark', fallback: 'dark' },
   icon: { clientBundle: { scan: true, icons: communityRailIcons }, serverBundle: { collections: ['ph'] } },
-  nitro: { preset: 'static', prerender: { routes: ['/', '/open', '/servers', '/deploy', '/privacy', '/terms', '/docs'], crawlLinks: false } },
+  nitro: { preset: 'static', prerender: { routes: ['/', '/create', '/privacy', '/terms', '/docs'], crawlLinks: false } },
   app: { head: { htmlAttrs: { lang: 'en' }, meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#090909' }], link: [{rel:'icon', href:'/favicon.svg'}, {rel:'manifest', href:'/site.webmanifest'}] } },
 })

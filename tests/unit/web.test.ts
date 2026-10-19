@@ -36,7 +36,9 @@ it('surfaces Cloudflare refusal reason on the deploy page instead of a generic c
   const refused = '/api/deploy/callback?error=invalid_scope&error_description='
     + encodeURIComponent("The OAuth 2.0 Client is not allowed to request scope 'offline_access'.")
     + '&state=' + auth.searchParams.get('state')
-  expect((await web.fetch(req(refused, cookie), env)).status).toBe(303)
+  const callback = await web.fetch(req(refused, cookie), env)
+  expect(callback.status).toBe(303)
+  expect(callback.headers.get('location')).toBe(origin + '/create?tab=cloudflare')
   const session = await web.fetch(req('/api/deploy/session', cookie), env)
   expect(await session.text()).toContain('offline_access')
 })
@@ -73,7 +75,9 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
     return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })
   }))
   const callback = '/api/deploy/callback?code=one&state=' + auth.searchParams.get('state')
-  expect((await web.fetch(req(callback, cookie), env)).status).toBe(303)
+  const authorized = await web.fetch(req(callback, cookie), env)
+  expect(authorized.status).toBe(303)
+  expect(authorized.headers.get('location')).toBe(origin + '/create?tab=cloudflare')
   expect((await web.fetch(req(callback, cookie), env)).status).toBe(400)
   const response = await web.fetch(req('/api/deploy/session', cookie), env)
   const text = await response.text()
@@ -82,6 +86,19 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
   expect((await webSession(req('/', cookie), env)).data.grant?.refreshToken).toBe('secret-refresh')
   const foreign = new Request(origin + '/api/deploy/start', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://evil.example' }, body: '{}' })
   expect((await web.fetch(foreign, env)).status).toBe(403)
+})
+
+it('redirects old entry links on the current origin and preserves connection parameters', async () => {
+  for (const [path, expected] of [
+    ['/open/?server=https%3A%2F%2Fchat.example.com', '/create?server=https%3A%2F%2Fchat.example.com'],
+    ['/deploy/', '/create?tab=cloudflare'],
+    ['/deploy?method=vps', '/create?tab=vps'],
+    ['/servers', '/create'],
+  ]) {
+    const response = await web.fetch(req(path), env)
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(origin + expected)
+  }
 })
 
 it('lists published releases for the deploy picker and pins the chosen version to the deployment', async () => {

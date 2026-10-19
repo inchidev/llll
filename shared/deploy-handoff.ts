@@ -6,6 +6,6 @@ export function readDeploymentClaim(hash: string): string | undefined {
 
 export function deploymentShellUrl(origin: string, setupUrl?: string): string {
   const claim = setupUrl ? readDeploymentClaim(new URL(setupUrl).hash) : undefined
-  const address = `/open?server=${encodeURIComponent(origin)}`
+  const address = `/create?server=${encodeURIComponent(origin)}`
   return claim ? `${address}#${new URLSearchParams({ claim })}` : address
 }

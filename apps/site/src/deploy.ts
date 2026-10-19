@@ -7,7 +7,7 @@ import type { DeploymentState } from './session'
 import { digest } from './session'
 
 /** Releases come from published GitHub tags, never from a pinned env URL.
- * The operator configures no version: the user picks one on `/deploy` and the
+ * The operator configures no version: the user picks one on `/create` and the
  * web verifies it against that release's own `SHA256SUMS` plus per-module
  * hashes. Published tags and assets are immutable; a repair needs a new version.
  */

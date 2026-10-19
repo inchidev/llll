@@ -8,7 +8,7 @@ interface RailGroup {
   collapsed?: boolean
   servers: { id: string; name: string; unread?: number }[]
 }
-const props = defineProps<{ groups: RailGroup[]; activeOrigin?: string; activeServerId?: string }>()
+const props = defineProps<{ groups: RailGroup[]; activeOrigin?: string; activeServerId?: string; addActive?: boolean }>()
 const emit = defineEmits<{
   connect: []
   group: [origin: string]
@@ -23,7 +23,7 @@ function initials(name: string) {
 
 <template>
   <nav aria-label="Servers" class="community-rail flex h-full w-[72px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-e border-default bg-elevated px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
-    <a href="https://llll.gg" aria-label="L4 home" class="flex size-11 shrink-0 items-center justify-center rounded-2xl text-highlighted hover:bg-accented focus-visible:outline-2 focus-visible:outline-primary">
+    <a href="/" aria-label="L4 home" class="flex size-11 shrink-0 items-center justify-center rounded-2xl text-highlighted hover:bg-accented focus-visible:outline-2 focus-visible:outline-primary">
         <svg class="size-7" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M2 2h4v8h8v4H2V2Zm16 0h4v8h8v4H18V2ZM2 18h4v8h8v4H2V18Zm16 0h4v8h8v4H18V18Z" /></svg>
     </a>
     <section v-for="group in visibleGroups" :key="group.origin" :aria-label="group.name" class="flex w-full shrink-0 flex-col items-center gap-2">
@@ -37,7 +37,7 @@ function initials(name: string) {
       </template>
     </section>
     <UTooltip text="Add a server" :content="{ side: 'right' }">
-      <button aria-label="Add a server" class="flex size-11 shrink-0 items-center justify-center rounded-2xl text-muted hover:bg-accented hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary" @click="emit('connect')"><UIcon name="i-ph-plus" class="size-5" /></button>
+      <button aria-label="Add a server" :aria-current="addActive ? 'page' : undefined" :class="addActive ? 'bg-accented text-highlighted ring-2 ring-primary' : 'text-muted'" class="flex size-11 shrink-0 items-center justify-center rounded-2xl hover:bg-accented hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary" @click="emit('connect')"><UIcon name="i-ph-plus" class="size-5" /></button>
     </UTooltip>
   </nav>
 </template>
