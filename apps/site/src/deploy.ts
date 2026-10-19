@@ -88,6 +88,23 @@ export type ReleaseInfo = {
   notes_url: string
 }
 
+/** Check before allocating a Server; older grants need fresh OAuth consent. */
+export async function deploymentBuildTokens(token: string, accountId: string) {
+  let tokens: { build_token_uuid: string }[]
+  try {
+    tokens = await cloudflare<{ build_token_uuid: string }[]>(
+      token, `/accounts/${accountId}/builds/tokens`,
+    )
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && [401, 403].includes(Number(error.status)))
+      throw Object.assign(new Error('Reconnect Cloudflare and approve Workers Builds permissions. The L4 OAuth application must allow workers-ci.read and workers-ci.write, and your Cloudflare account must permit Workers Builds.'), { status: 403 })
+    throw error
+  }
+  if (!tokens.length)
+    throw Object.assign(new Error('Configure a deployment token in Cloudflare Workers Builds, then retry. Its permissions must include Workers, D1, R2 and KV.'), { status: 409 })
+  return tokens
+}
+
 function releaseBase(version: string) {
   if (!VERSION_PATTERN.test(version))
     throw new Error('Choose a published release version')
@@ -276,11 +293,7 @@ export async function advanceDeployment(
     cloudflare<T>(token, account + path, method, body)
   if (state.step === 0) {
     await release(state.version)
-    const tokens = await api<{ build_token_uuid: string }[]>('/builds/tokens')
-    if (!tokens.length)
-      throw new Error(
-        'Configure a deployment token in Cloudflare Workers Builds before creating your Server.',
-      )
+    const tokens = await deploymentBuildTokens(token, state.accountId)
     state.buildTokenId ||= tokens[0]!.build_token_uuid
     const workers = await api<{ id: string; name: string }[]>(
       '/workers/workers?per_page=100',

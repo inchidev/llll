@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { z } from 'zod'
+import { deploymentShellUrl } from '../../../../shared/deploy-handoff'
 import {
   readDeployedServers,
   recordDeployedServer,
@@ -16,6 +18,12 @@ const phases = [
 const name = ref('My L4')
 const ownerEmail = ref('')
 const accountId = ref('')
+const formSchema = z.object({
+  accountId: z.string().min(1, 'Choose a Cloudflare account'),
+  name: z.string().trim().min(1, 'Enter a Server name').max(80),
+  ownerEmail: z.email('Enter your admin email'),
+  version: z.string().min(1, 'Choose a published release'),
+})
 const busy = ref(false)
 const error = ref('')
 const config = ref<{ oauth: boolean } | null>(null)
@@ -42,10 +50,7 @@ const remembered = ref<DeployedServer[]>([])
 const sessionEnded = ref(false)
 /** Deployments in flight navigate straight to the shell; returning later shows the completion screen again without redirecting. */
 const redirected = ref(false)
-const openRoute = computed(() => {
-  const claim = session.value?.claim?.split('#claim=')[1]
-  return `/open?server=${encodeURIComponent(session.value?.origin || '')}${claim ? `&claim=${claim}` : ''}`
-})
+const openRoute = computed(() => deploymentShellUrl(session.value?.origin || '', session.value?.claim))
 const now = ref(Date.now())
 const grantExpiresAt = ref(0)
 const grantLeft = computed(() => {
@@ -122,11 +127,13 @@ async function deploy() {
     busy.value = false
   }
 }
+let clock: ReturnType<typeof setInterval> | undefined
+onUnmounted(() => clearInterval(clock))
 onMounted(async () => {
   remembered.value = readDeployedServers()
   config.value = await $fetch('/api/deploy/config')
   await refresh()
-  setInterval(() => {
+  clock = setInterval(() => {
     now.value = Date.now()
   }, 1000)
   try {
@@ -142,7 +149,7 @@ onMounted(async () => {
     version.value = session.value?.version || data.releases[0]?.version || ''
   } catch {
     releasesError.value =
-      'Could not load the release list. Enter a version like v0.1.0-alpha.1.'
+      'Could not load the release list. Enter a published version, for example v0.2.0-alpha.1.'
   }
 })
 
@@ -162,9 +169,10 @@ async function copyOrigin() {
 </script>
 <template>
   <UContainer class="max-w-3xl py-8 sm:py-16">
-    <h1 class="text-4xl font-semibold tracking-tight">Install your own L4</h1>
+    <UButton to="/open" label="Add a server" icon="i-ph-arrow-left" color="neutral" variant="link" class="mb-6 px-0" />
+    <h1 class="text-3xl font-semibold tracking-tight">Create your L4</h1>
     <p class="mt-4 text-muted">
-      Your Server, its accounts and its data. Free MIT software.
+      Deploy to your Cloudflare account. Start on workers.dev, with your own accounts and data.
     </p>
 
     <UAlert
@@ -226,22 +234,21 @@ async function copyOrigin() {
     >
       <p v-if="grantLeft" class="text-sm text-muted">{{ grantLeft }}</p>
       <template v-if="session?.completed">
-        <h2 class="text-2xl font-semibold">Your server is ready</h2>
+        <h2 class="text-2xl font-semibold">Your Server is deployed</h2>
         <p class="text-muted">
-          Create its owner, then invite your community. Save an account recovery
-          key in User settings.
+          Continue with {{ session.ownerEmail }}. Choose your password on the Server to finish signing in as its owner.
         </p>
         <UButton
-          :to="session.claim"
-          external
-          label="Create server owner"
+          :to="openRoute"
+          label="Continue as owner"
           size="lg"
         />
         <p class="break-all text-sm text-muted">{{ session.origin }}</p>
         <div class="flex flex-wrap gap-2">
           <UButton
-            :to="openRoute"
-            label="Open in the shell"
+            :to="session.claim"
+            external
+            label="Open Server directly"
             icon="i-ph-arrow-square-out"
             color="neutral"
             variant="outline"
@@ -259,13 +266,17 @@ async function copyOrigin() {
           devices need it again.
         </p>
       </template>
-      <template
+      <UForm
         v-else-if="
           session && (session.authorized || session.step !== undefined)
         "
+        :schema="session.step === undefined ? formSchema : undefined"
+        :state="{ accountId, name, ownerEmail, version }"
+        class="space-y-6"
+        @submit="deploy"
       >
         <template v-if="session.step === undefined">
-          <UFormField label="Cloudflare account"
+          <UFormField name="accountId" label="Cloudflare account"
             ><USelect
               v-model="accountId"
               :items="
@@ -273,13 +284,13 @@ async function copyOrigin() {
               "
               class="w-full"
           /></UFormField>
-          <UFormField label="Owner email"
-            ><UInput v-model="ownerEmail" type="email" required class="w-full"
+          <UFormField name="ownerEmail" label="Your admin email" description="Your local owner account on this Server. You’ll choose its password after deployment."
+            ><UInput v-model="ownerEmail" name="email" autocomplete="email" type="email" required class="w-full"
           /></UFormField>
-          <UFormField label="Server name"
+          <UFormField name="name" label="Server name"
             ><UInput v-model="name" class="w-full" maxlength="80"
           /></UFormField>
-          <UFormField label="Release version">
+          <UFormField name="version" label="Release version">
             <USelect
               v-if="versions.length"
               v-model="version"
@@ -296,7 +307,7 @@ async function copyOrigin() {
             <UInput
               v-else
               v-model="version"
-              placeholder="v0.1.0-alpha.1"
+              placeholder="v0.2.0-alpha.1"
               class="w-full"
             />
             <template #hint
@@ -342,15 +353,15 @@ async function copyOrigin() {
           Release {{ session.version }}
         </p>
         <UButton
+          type="submit"
           :label="
             session.step === undefined ? 'Deploy server' : 'Resume deployment'
           "
           :loading="busy"
           :disabled="session.step === undefined && !version"
           size="lg"
-          @click="deploy"
         />
-      </template>
+      </UForm>
       <template v-else>
         <p class="text-muted">
           Authorize L4 to configure deployment in your Cloudflare account.
@@ -380,7 +391,7 @@ async function copyOrigin() {
         </p>
       </template>
       <UAlert v-if="error" color="error" :description="error" /><UButton
-        v-if="error && session?.step !== undefined"
+        v-if="error && (session?.authorized || session?.step !== undefined)"
         to="/api/deploy/oauth?resume=1"
         external
         label="Reconnect Cloudflare"

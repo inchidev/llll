@@ -35,6 +35,8 @@ button[role="tab"][data-state="active"] { color: var(--ui-text-inverted); backgr
 }
 @media (forced-colors: active) {
   button, [role=tab], a[role=button] { border: 1px solid ButtonText; }
+  .iconify { forced-color-adjust: none; color: ButtonText; }
+  input { outline: 1px solid FieldText; outline-offset: -1px; }
 }
 
 .landing a:hover { text-decoration-thickness: 1px; text-underline-offset: 4px; }

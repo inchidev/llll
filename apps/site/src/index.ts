@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
-import { advanceDeployment, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
+import { advanceDeployment, cloudflare, deploymentBuildTokens, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
 import { webSession, digest } from './session'
 import type { WebEnv } from './env'
 
@@ -112,7 +112,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       const probe = await fetch(`https://api.cloudflare.com/client/v4/accounts/${value.accountId}/workers/scripts?per_page=1`, { headers: { Authorization: `Bearer ${session.data.grant.accessToken}` }, signal: AbortSignal.timeout(20000) })
       if (probe.status === 403) fail(403, 'Cloudflare denied Workers access for this grant. Reconnect Cloudflare and approve every requested permission, or ask an account admin for Workers rights.')
     } catch (error) { if (error instanceof Error && 'status' in error) throw error }
-    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail)); await session.save()
+    const tokens = await deploymentBuildTokens(session.data.grant.accessToken, value.accountId)
+    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail), { buildTokenId: tokens[0]!.build_token_uuid }); await session.save()
     return json({ ok: true })
   }
   if (path === '/api/deploy/advance' && request.method === 'POST') {

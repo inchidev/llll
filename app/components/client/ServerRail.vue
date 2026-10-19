@@ -5,4 +5,4 @@ const groups = computed(() => servers.value.map(s => ({ origin: s.origin, name: 
 function open(origin: string) { location.assign(origin) }
 function connect() { location.assign('https://llll.gg/open') }
 </script>
-<template><CommunityRail :groups="groups" :active-origin="active?.origin" :active-server-id="active?.serverId" @server="open" @connections="connect" @connect="connect" @install="navigateTo('https://llll.gg/deploy', { external: true })" /></template>
+<template><CommunityRail :groups="groups" :active-origin="active?.origin" :active-server-id="active?.serverId" @server="open" @connect="connect" /></template>

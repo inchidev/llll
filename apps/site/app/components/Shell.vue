@@ -2,6 +2,7 @@
 import CommunityRail from '../../../../packages/client-ui/CommunityRail.vue'
 import { SERVER_UNREACHABLE } from '../composables/useShell'
 import { normalizeRoutePath } from '../utils/shell-route'
+import { readDeploymentClaim } from '../../../../shared/deploy-handoff'
 
 const shell = useShell()
 const route = useRoute()
@@ -12,9 +13,7 @@ const queryOrigin = computed(() => {
   const value = route.query.server
   return typeof value === 'string' ? value : ''
 })
-const queryClaim = computed(() =>
-  typeof route.query.claim === 'string' ? route.query.claim : undefined,
-)
+const queryClaim = computed(() => readDeploymentClaim(route.hash))
 const checkingAddress = ref('')
 async function openGroup(origin: string) {
   const server = shell.servers.value.find(
@@ -34,6 +33,10 @@ function openServer(origin: string, id: string) {
 function connect() {
   shell.selected.value = ''
   void navigateTo('/open')
+}
+function forgetServer(origin: string) {
+  try { shell.forget(origin) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not remove this Server' }
 }
 const showDeploy = computed(() => path.value === '/deploy')
 /** The shell survives route changes as a v-show'd component, and its connect-on-mount check cannot run again.
@@ -65,12 +68,9 @@ async function handleQuery(queryOrigin: string, claim: string | undefined) {
   lastAutoOrigin = queryOrigin
   if (!queryOrigin) return
   checkingAddress.value = queryOrigin
-  const server = await connectQuery(queryOrigin, claim).finally(() => {
+  await connectQuery(queryOrigin, claim).finally(() => {
     checkingAddress.value = ''
   })
-  // Only after a successful connect may the one-time claim leave the address bar.
-  if (server && route.query.claim)
-    history.replaceState(history.state, '', '/open')
 }
 function selectFrame(element: unknown, origin: string) {
   if (element instanceof HTMLIFrameElement) shell.frames.value[origin] = element
@@ -110,9 +110,7 @@ async function mountServer() {
       "
       @server="openServer"
       @group="openGroup"
-      @connections="connect"
       @connect="connect"
-      @install="navigateTo('/deploy')"
     />
     <section class="relative min-w-0 flex-1">
       <iframe
@@ -157,6 +155,7 @@ async function mountServer() {
                 autocomplete="url"
                 required
                 class="w-full"
+                :ui="{ base: 'ring-inverted/50' }"
             /></UFormField>
             <UButton
               type="submit"
@@ -171,10 +170,16 @@ async function mountServer() {
             color="error"
             :description="error"
           />
-          <ul v-if="shell.servers.value.length" class="mt-8 space-y-2">
+          <section class="mt-10 max-w-md border-t border-default pt-8">
+            <h2 class="text-lg font-semibold">Create your L4</h2>
+            <p class="mt-2 text-sm leading-6 text-muted">Start a community on your own Cloudflare account. Your Server, accounts and data.</p>
+            <UButton to="/deploy" label="Create your L4" icon="i-ph-plus" color="neutral" variant="outline" size="lg" class="mt-5 ring-inverted/50" />
+          </section>
+          <ul v-if="shell.servers.value.length" aria-label="Saved servers" class="mt-8 max-w-md space-y-2">
             <li
               v-for="server in shell.servers.value"
               :key="server.origin"
+              class="flex items-center justify-between gap-3"
             >
               <UButton
                 :label="server.name"
@@ -182,6 +187,7 @@ async function mountServer() {
                 variant="outline"
                 @click="openGroup(server.origin)"
               />
+              <UButton :aria-label="`Remove ${server.name} from this device`" icon="i-ph-x" color="neutral" variant="ghost" @click="forgetServer(server.origin)" />
             </li>
           </ul>
         </UContainer>

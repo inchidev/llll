@@ -275,6 +275,9 @@ export function useShell() {
     servers.value = servers.value.filter((s) => s.origin !== origin)
     loaded.value = loaded.value.filter((s) => s !== origin)
     Reflect.deleteProperty(frames.value, origin)
+    Reflect.deleteProperty(starts.value, origin)
+    Reflect.deleteProperty(claims.value, origin)
+    Reflect.deleteProperty(calls.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()
   }

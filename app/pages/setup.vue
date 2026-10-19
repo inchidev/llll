@@ -90,8 +90,8 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 <template>
   <div>
-    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Create server owner</h2>
-    <p class="mt-1.5 text-sm text-muted">Set the password here so your browser saves it for this server.</p>
+    <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Finish signing in</h2>
+    <p class="mt-1.5 text-sm text-muted">Choose a password for your admin account on this Server.</p>
 
     <div v-if="!health" class="mt-6 flex items-center gap-3 text-muted">
       <UIcon name="i-ph-spinner-gap" class="size-5 animate-spin" />
@@ -111,7 +111,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
         v-if="!claimToken"
         color="warning"
         variant="subtle"
-        title="Open the private setup link from the L4 installer."
+        title="Continue from the installer in the browser you used to create this Server."
         class="mt-6"
       />
       <template v-else>
@@ -129,7 +129,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
           <UFormField name="confirm" label="Confirm password">
             <FormPasswordInput v-model="state.confirm" name="confirm" size="lg" autocomplete="new-password" class="w-full" />
           </UFormField>
-          <UButton type="submit" size="lg" label="Create owner" block :loading="busy" />
+          <UButton type="submit" size="lg" label="Sign in as owner" block :loading="busy" />
         </UForm>
       </template>
     </template>

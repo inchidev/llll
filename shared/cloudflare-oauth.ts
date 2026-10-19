@@ -2,12 +2,14 @@ import { z } from 'zod'
 
 export const CLOUDFLARE_AUTH_URL = 'https://dash.cloudflare.com/oauth2/auth'
 export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
-// Every id here is probe-verified against the web OAuth client: requesting
-// anything outside the client's registered set fails the whole consent with
-// invalid_scope. Groups: provisioning (accounts, Workers, D1, KV, R2),
+// Register every requested scope on the OAuth client before deploying the web
+// release. Unregistered scopes fail consent with invalid_scope. Workers Builds
+// needs workers-ci rights separately from Workers script administration.
+// Groups: provisioning (accounts, Workers, Builds, D1, KV, R2),
 // custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
-// and Discoflare-parity headroom the server grant carries for later
-// use (browser rendering, containers, realtime, queues). workers-scripts.admin
+// and optional provider configuration (browser rendering, containers,
+// realtime, queues). The installer grant is discarded after verification.
+// workers-scripts.admin
 // is the new-model Admin role: the legacy Workers Scripts Write group
 // (discoflare's workers-scripts.write) is not registered on this client, and
 // provisioned workers must be created, so Editor alone dies at
@@ -16,6 +18,7 @@ export const CLOUDFLARE_SCOPES = [
   'offline_access',
   'account-settings.read', 'memberships.read',
   'workers-scripts.content_read', 'workers-scripts.admin',
+  'workers-ci.read', 'workers-ci.write',
   'd1.read', 'd1.write',
   'workers-kv-storage.read', 'workers-kv-storage.write',
   'workers-r2.read', 'workers-r2.write',
