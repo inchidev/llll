@@ -90,7 +90,9 @@ jobs:
       # the runner with a Unicode EncoderFallbackException on this suite.
       - name: Run test
         if: matrix.check == 'test'
-        run: pnpm test --reporter=default
+        run: |
+          pnpm exec nuxt prepare apps/site
+          pnpm test --reporter=default
 
       - name: Verify the independent Server runtimes
         if: matrix.check == 'integration'
