@@ -1,7 +1,7 @@
 {
   "name": "@llll/deployment-core",
   "version": "0.1.0-alpha.5",
-  "description": "Cloudflare server provisioning and updates for L4 installations",
+  "description": "Cloudflare server provisioning and updates for L4 servers",
   "type": "module",
   "license": "MIT",
   "files": [

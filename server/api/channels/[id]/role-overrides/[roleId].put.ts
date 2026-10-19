@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
     })
   }
   await writeAudit(env, {
-    workspaceId: actor.workspaceId,
+    serverId: actor.serverId,
     actorId: actor.user.id,
     action: 'channel.permissions.update',
     targetType: 'channel',

@@ -7,7 +7,7 @@ function message(id: string, createdAt: string, content = id): MessageDTO {
   return {
     id,
     channelId: 'channel-1',
-    workspaceId: 'main',
+    serverId: 'main',
     author: { id: 'user-1', displayName: 'Ada', avatarR2Key: null },
     content,
     replyTo: null,

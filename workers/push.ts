@@ -3,9 +3,8 @@ import type { PushNotificationPayload } from '../shared/notifications'
 import { pushDeliveryDisposition, pushRetryDelayMs } from '../shared/notifications'
 import type { L4Env } from './env'
 
-// Rows queued before the Live rename still carry the `huddle:` tag.
 function isLiveTag(tag: string): boolean {
-  return tag.startsWith('live:') || tag.startsWith('huddle:')
+  return tag.startsWith('live:')
 }
 
 const DELIVERY_LIMIT = 20

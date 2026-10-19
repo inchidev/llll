@@ -1,7 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { createTarStream, sqlIdentifier, sqlInsertStatements, sqlValue, textEntry } from '../../server/utils/backup-format'
-import { createWorkspaceBackup } from '../../server/utils/workspace-backup'
+import { createServerBackup } from '../../server/utils/server-backup'
 import { INIT_SQL } from '../../server/utils/db'
 import type { L4Env } from '../../workers/env'
 
@@ -73,7 +73,7 @@ describe('backup format', () => {
     finally { database.close() }
   })
 
-  it('streams D1 rows and R2 objects into a restorable workspace archive', async () => {
+  it('streams D1 rows and R2 objects into a restorable server archive', async () => {
     const database = {
       async batch(statements: Array<{ all: () => Promise<{ results: unknown[] }> }>) {
         return Promise.all(statements.map(statement => statement.all()))
@@ -125,7 +125,7 @@ describe('backup format', () => {
       },
     } as unknown as L4Env
 
-    const archive = await streamBytes(createWorkspaceBackup(env, '2026-09-05T00:00:00.000Z', '0.2.0'))
+    const archive = await streamBytes(createServerBackup(env, '2026-09-05T00:00:00.000Z', '0.2.0'))
     const files = tarFiles(archive)
     expect([...files.keys()]).toEqual([
       'README.txt',
@@ -144,7 +144,7 @@ describe('backup format', () => {
     expect(JSON.parse(ascii(files.get('summary.json')!))).toMatchObject({ databaseRows: 1, r2Objects: 1, r2Bytes: 10 })
   })
 
-  it('restores the installation schema and foreign-key-linked rows in one D1-style transaction', async () => {
+  it('restores the server schema and foreign-key-linked rows in one D1-style transaction', async () => {
     const source = new DatabaseSync(':memory:')
     const restored = new DatabaseSync(':memory:')
     try {
@@ -153,14 +153,13 @@ describe('backup format', () => {
         CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB);
         INSERT INTO _cf_KV VALUES ('platform-key', X'0102');
         INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 1023);
-        INSERT INTO identity_keys (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com');
         INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP);
         INSERT INTO server_identity(singleton,id) VALUES (1,'00000000-0000-4000-8000-000000000001');
-        INSERT INTO workspace (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001','Workspace', 'owner');
-        INSERT INTO channels (id, name, type, visibility) VALUES ('channel', 'general', 'text', 'workspace');
+        INSERT INTO server (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001','Server', 'owner');
+        INSERT INTO channels (id, name, type, visibility) VALUES ('channel', 'general', 'text', 'server');
         INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES ('message', 'channel', 'owner', 'A searchable message', CURRENT_TIMESTAMP);
         INSERT INTO channels (id, name, type, visibility, parent_id, parent_message_id)
-          VALUES ('thread', 'Thread', 'thread', 'workspace', 'channel', 'message');
+          VALUES ('thread', 'Thread', 'thread', 'server', 'channel', 'message');
         INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES ('reply', 'thread', 'owner', 'Reply', CURRENT_TIMESTAMP);
         INSERT INTO documents (id, title, content, created_by) VALUES ('doc', 'Plan', '<p>Hello</p>', 'owner');
         INSERT INTO canvases (id, title, created_by) VALUES ('canvas', 'Launch', 'owner');
@@ -184,7 +183,7 @@ describe('backup format', () => {
         DB: { withSession: () => database },
         FILES: { list: async () => ({ objects: [], truncated: false }) },
       } as unknown as L4Env
-      const files = tarFiles(await streamBytes(createWorkspaceBackup(env, '2026-09-05T00:00:00.000Z', '0.2.0')))
+      const files = tarFiles(await streamBytes(createServerBackup(env, '2026-09-05T00:00:00.000Z', '0.2.0')))
       const sql = [...files.entries()]
         .filter(([name]) => name.startsWith('database/'))
         .sort(([left], [right]) => left.localeCompare(right))

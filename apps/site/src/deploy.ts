@@ -27,7 +27,7 @@ type Artifact = {
   version: string
   modules: Record<string, { content: string; sha256: string }>
   assets: Asset[]
-  migrations: { installation: { name: string; sql: string }[] }
+  migrations: { server: { name: string; sql: string }[] }
 }
 export async function cloudflare<T>(
   token: string,
@@ -177,7 +177,7 @@ export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
           capabilities?: string[]
         }
         return manifest.version === info.version.slice(1) &&
-          manifest.capabilities?.includes('llll-standalone-server-v1')
+          manifest.capabilities?.includes('llll-server-schema-v1')
           ? info
           : null
       } catch {
@@ -240,7 +240,7 @@ async function release(
   if (hash !== expected) throw new Error('Release checksum did not match')
   const artifact = JSON.parse(new TextDecoder().decode(bytes)) as Artifact
   if (
-    artifact.schemaVersion !== 2 ||
+    artifact.schemaVersion !== 3 ||
     artifact.version !== version.slice(1) ||
     !artifact.modules.server ||
     !Array.isArray(artifact.assets)

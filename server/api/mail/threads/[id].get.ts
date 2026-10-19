@@ -1,7 +1,7 @@
 import { asc, eq, or } from 'drizzle-orm'
 import { messages } from '../../../../drizzle/schema'
 import type { MailMessageDTO, MailThreadDTO } from '../../../../shared/types'
-import { requireMailboxPermission } from '../../../utils/workspace-mail'
+import { requireMailboxPermission } from '../../../utils/server-mail'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { hydrateMailMessages, mailThreadDto } from '../../../utils/mail-data'

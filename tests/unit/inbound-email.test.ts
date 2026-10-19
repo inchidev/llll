@@ -16,11 +16,11 @@ import {
   verifyInboundEmailSignature,
   verifyMailgunSignature,
 } from '../../workers/inbound-email-signature'
-import { ingestWorkspaceEmail } from '../../workers/mail-ingress'
+import { ingestServerEmail } from '../../workers/mail-ingress'
 import { allowedSnsCertificateUrl, allowedSnsSubscribeUrl, snsStringToSign, verifySnsMessage, type SnsMessage } from '../../workers/sns-signature'
 
 vi.mock('../../workers/mail-ingress', () => ({
-  ingestWorkspaceEmail: vi.fn(async () => ({ accepted: true })),
+  ingestServerEmail: vi.fn(async () => ({ accepted: true })),
 }))
 
 const SECRET = 's'.repeat(32)
@@ -31,7 +31,7 @@ const RAW = new TextEncoder().encode('From: person@example.net\r\nTo: support@ex
 const CERT = "-----BEGIN CERTIFICATE-----\nMIIDBzCCAe+gAwIBAgIUYvBzhgCzF5fk0tYVb9BsWaW2ti8wDQYJKoZIhvcNAQEL\nBQAwEzERMA8GA1UEAwwIc25zLXRlc3QwHhcNMjYxMDE0MTQ0NzMwWhcNMzYxMDEx\nMTQ0NzMwWjATMREwDwYDVQQDDAhzbnMtdGVzdDCCASIwDQYJKoZIhvcNAQEBBQAD\nggEPADCCAQoCggEBAMtO2qR3KwPsbcKfb00ZKDUPT4ctZAQTsDV+jpBVQAkcR7Bu\niRWX5PWEC/Yeu2uakoc/r6b1vaXgH4+/u7Cnfhv9qHwSfmdJmFr7T4jhGOz+XtwT\n2gdtrzRYWtTMw+X5pOwfIww2N6N7XSgF9q7+mIs7qDqeJpZ0g7+fBdGzd5wajNwX\nnM8Ez+40YYZyneFIQBxVaCe4Wn0dkQi+VItQn82RT21j+UVhNQYk2AdN7meS5VVC\nGepIUtx1swT/QTNZdqGxnCFqGusGejhGUaL0SvhsS+VAEKSJ8f3w/YgbstE+n65c\ntjzZLWW5udGL2/GdbEOvn/QlHgOXOCLvRahvbw8CAwEAAaNTMFEwHQYDVR0OBBYE\nFPNe6bn1ARUdDHN61yXs9jj5LYQBMB8GA1UdIwQYMBaAFPNe6bn1ARUdDHN61yXs\n9jj5LYQBMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAA/rHPDv\nUQ9fPwHkaaH2kujC23brYyq68ZZnRi3D0krNZVYznD7xz3HFaCc4Emw160PtUInZ\njJ0+Ag5dK/Qg3gSwWF0rMXaFgEompDQ49fRSKpHj7REFerR3c9Hg5NJDhcwzesn+\n9jTzseueh53PeQGPleePisFVFecXCLZ798O1PemUWdy7DgKh3LGpiO9DarmA2J4v\nManfVvihwSuVPagKv4y0e/XplRcfpfA5XdBRZa8ulBOeJelvcj5NPwcrK04s0Mxz\n1wOZdy4MALBtc2PCnkkQBbv9sg2d9VIJWFRLvpR6onw+IbnHqR5MTt30ycE2DmR3\nEcX/HasUZLnRldY=\n-----END CERTIFICATE-----"
 const KEY = "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDLTtqkdysD7G3C\nn29NGSg1D0+HLWQEE7A1fo6QVUAJHEewbokVl+T1hAv2HrtrmpKHP6+m9b2l4B+P\nv7uwp34b/ah8En5nSZha+0+I4Rjs/l7cE9oHba80WFrUzMPl+aTsHyMMNjeje10o\nBfau/piLO6g6niaWdIO/nwXRs3ecGozcF5zPBM/uNGGGcp3hSEAcVWgnuFp9HZEI\nvlSLUJ/NkU9tY/lFYTUGJNgHTe5nkuVVQhnqSFLcdbME/0EzWXahsZwhahrrBno4\nRlGi9Er4bEvlQBCkifH98P2IG7LRPp+uXLY82S1lubnRi9vxnWxDr5/0JR4Dlzgi\n70Wob28PAgMBAAECggEAYtOM4p9u0HRwEkgQAWk2KzyrCumckYLEh+xh/nUCMKuH\niZLhnhZ83H94lQXxUugLTCVADCeuLWCZ1vV7le6FFbQi31TaDvkuTyOUUNQimqk3\nkUExHaVKomZEmOaEX1kPuxuTnM8KErTX3qmvdPcbTasNJplT5pTyqgXx/TKA9Obw\nzUMQWVqo/V4hyS5N6b2g1L/jqyrDnzgcX+iCdvgbkmIuUSOAhGQlxdhYZPwxBoLD\nBBCtrdpbmLHPfdydjBMDfl6lAm1Kv9exa9Luvm2J67fkcCHOw0UURAlkhTWU2nys\nVZi7hu0Pfdv9AykLaZHthN5PvuUPZ/5poCoUM0iBuQKBgQDzIKG/do5ZQJ/Mwt+g\n5iONxNU4L908LT90SAiclAGno+H22wZB6lZYZfloUKLwOCulpzB4qMYhja5jMDhe\nsOpTK31BHVwpFJC16N/6CJYP+WtIrcw0Gc05u2sUxK80UQSNwxCHZn8i3GXnCQ2W\nVW9b36eJwYDg1QRtijQftEQwLQKBgQDWEoGoDExeZK+IRg1yWmmqDcHm1TnIewXJ\n81pjMw0FuTdhWjh7B+njn//+CO9UiI4vwRF2lLhZ3VMFzpagOUlp1EF1hIe6PHbd\nmmFIdd/vbrBEOAmH+rwlGOhosLMGWv4C01V+3qPbDYnVcR5LX/ruSbkvabBpNdLA\nlEgSMtflqwKBgQDDFBbUkqMLOFBAMsjOyHoUoa/XwogIZeH5Qmcug4+EXHnN4dX2\ng7m+eiwRqEnk550V8L1ywzEe8RjQ23sPd3K9QzLgUVeGWsr2OyGj9Mm7jYyop1Mn\nJuDFhv0Xj+1o0+0MdkzH59TxOtjE9T2it3B/zkgWv13SiPlhjzfdjH3+DQKBgQDV\nZxWBpODsqIqj2tHE0YTMVXKa3qz/wkP/Em1kvpuYvQ8MKZhsbXMny3Sylc2gA5Fa\n4ai7AX7VduEwxMU7bGBW85VdxYRYj7YfK6sXRQq78SgemY5G1BmDEdV9p8iP6V2X\nC34LP38w+8oP0PhWQ5Quv6ewMDgAaftyp19BZRX8iQKBgQCU+T3va4uScoA0cQz6\njByiMcWIwm0LCS4J7gZh9K3taVSpJnkvo8yuNtDMbdN+l3bWd7XTMF/bKAE86P1P\nBRn5C7BmPGD3raRhScGIJ9JWSQ+5smjpMbcJUYZn9JeSO5K/aKSyXjk08PMNNqRp\nq63xSw1KVKddlo0lB4NKZdMy6w==\n-----END PRIVATE KEY-----"
 
-const ingest = vi.mocked(ingestWorkspaceEmail)
+const ingest = vi.mocked(ingestServerEmail)
 
 function celld(extra: Record<string, string> = {}) {
   return { LLLL_RUNTIME: 'celld', ...extra } as never

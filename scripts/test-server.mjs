@@ -10,7 +10,7 @@ const password = 'LocalServerIntegrationPassword123!'
 const setup = 'local-owner-claim-'.repeat(4)
 const classes = {
   CHANNEL_DO: 'ChannelDurableObject',
-  WORKSPACE_DO: 'WorkspaceDurableObject',
+  SERVER_DO: 'ServerDurableObject',
   RATE_LIMIT_DO: 'RateLimitDurableObject',
   NOTIFICATION_DO: 'NotificationDurableObject',
   AGENT_DO: 'L4Agent',
@@ -20,7 +20,7 @@ const origins = {
   alpha: `http://localhost:${port}`,
   beta: `http://localhost:${port + 1}`,
 }
-const instances = {}
+const runtimes = {}
 const cookies = {}
 const ids = {}
 async function assets(request) {
@@ -80,7 +80,7 @@ async function api(
     headers = {},
   } = {},
 ) {
-  const response = await instances[server].dispatchFetch(
+  const response = await runtimes[server].dispatchFetch(
     origins[server] + path,
     {
       method,
@@ -111,7 +111,7 @@ async function api(
 }
 try {
   for (const [index, name] of ['alpha', 'beta'].entries()) {
-    instances[name] = new Miniflare(
+    runtimes[name] = new Miniflare(
       convertV4MiniflareOptions({
         host: '127.0.0.1',
         port: port + index,
@@ -149,12 +149,12 @@ try {
         ],
       }),
     )
-    const db = await instances[name].getD1Database('DB')
-    for (const file of (await readdir(resolve(root, 'drizzle/migrations')))
+    const db = await runtimes[name].getD1Database('DB')
+    for (const file of (await readdir(resolve(root, 'drizzle/server-migrations')))
       .filter((n) => n.endsWith('.sql'))
       .sort())
       await db.exec(
-        sql(await readFile(resolve(root, 'drizzle/migrations', file), 'utf8')),
+        sql(await readFile(resolve(root, 'drizzle/server-migrations', file), 'utf8')),
       )
     const discovery = await api(name, '/.well-known/llll', {
       actor: 'anonymous',
@@ -174,11 +174,11 @@ try {
       cookies[name + '-owner'],
       'Owner setup must establish a local session',
     )
-    const home = await api(name, '/api/workspaces')
-    assert.equal(home.payload.workspaces[0].id, ids[name])
+    const home = await api(name, '/api/servers')
+    assert.equal(home.payload.servers[0].id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.ready, true)
-    await api(name, '/api/workspaces/main/members', { expected: 404 })
+    await api(name, '/api/servers/main/members', { expected: 404 })
     const page = await api(name, '/login', { actor: 'anonymous' })
     assert.ok(
       page.response.headers
@@ -199,12 +199,12 @@ try {
   await api('alpha', '/api/me', {
     actor: 'anonymous',
     expected: 401,
-    headers: { 'x-llll-identity': 'forged-installation-identity' },
+    headers: { 'x-llll-identity': 'forged-server-identity' },
   })
-  const channels = await api('alpha', `/api/workspaces/${ids.alpha}/channels`)
+  const channels = await api('alpha', `/api/servers/${ids.alpha}/channels`)
   const general = channels.payload.channels.find((c) => c.name === 'general')
   assert.ok(general)
-  const invite = await api('alpha', `/api/workspaces/${ids.alpha}/invites`, {
+  const invite = await api('alpha', `/api/servers/${ids.alpha}/invites`, {
     method: 'POST',
     body: { maxUses: 2 },
   })
@@ -230,7 +230,7 @@ try {
     method: 'POST',
     body: { content: 'Standalone alpha message' },
   })
-  assert.equal(sent.payload.message.workspaceId, ids.alpha)
+  assert.equal(sent.payload.message.serverId, ids.alpha)
   await api('beta', `/api/channels/${general.id}/messages`, { expected: 404 })
   const form = new FormData()
   form.append(
@@ -249,7 +249,7 @@ try {
       body: form,
     },
   )
-  const upload = await instances.alpha.dispatchFetch(multipart.url, {
+  const upload = await runtimes.alpha.dispatchFetch(multipart.url, {
     method: 'POST',
     headers: multipart.headers,
     body: await multipart.arrayBuffer(),
@@ -264,8 +264,8 @@ try {
   })
   await api('beta', '/api/files/' + attachment.id, { expected: 404 })
   async function socketAuth(server, ticket) {
-    const response = await instances[server].dispatchFetch(
-      origins[server] + `/ws/workspace/${ids[server]}`,
+    const response = await runtimes[server].dispatchFetch(
+      origins[server] + `/ws/server/${ids[server]}`,
       { headers: { Upgrade: 'websocket' } },
     )
     assert.equal(response.status, 101)
@@ -299,7 +299,7 @@ try {
   }
   async function heldSocket(path, actor = 'alpha-owner') {
     const ticket = await api('alpha', '/api/auth/ws-token', { actor, method: 'POST', body: {} })
-    const response = await instances.alpha.dispatchFetch(origins.alpha + path, { headers: { Upgrade: 'websocket' } })
+    const response = await runtimes.alpha.dispatchFetch(origins.alpha + path, { headers: { Upgrade: 'websocket' } })
     assert.equal(response.status, 101)
     const socket = response.webSocket
     socket.accept()
@@ -353,7 +353,7 @@ try {
   const challenge = Buffer.from(
     await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)),
   ).toString('base64url')
-  const authorize = await instances.alpha.dispatchFetch(
+  const authorize = await runtimes.alpha.dispatchFetch(
     origins.alpha +
       '/api/auth/connection/authorize?' +
       new URLSearchParams({
@@ -409,7 +409,7 @@ try {
     method: 'POST',
     body: { email: 'member@example.com', password },
   })
-  await api('alpha', `/api/workspaces/${ids.alpha}/members/${memberId}`, {
+  await api('alpha', `/api/servers/${ids.alpha}/members/${memberId}`, {
     method: 'DELETE',
   })
   await api('alpha', '/api/files/' + attachment.id, {
@@ -429,7 +429,7 @@ try {
     body: {},
   })
   const heldOwnerChannel = await heldSocket(`/ws/channel/${general.id}`)
-  const heldOwnerWorkspace = await heldSocket(`/ws/workspace/${ids.alpha}`)
+  const heldOwnerServer = await heldSocket(`/ws/server/${ids.alpha}`)
   const newPassword = 'RecoveredOwnerPassword123!'
   await api('alpha', '/api/auth/recover', {
     actor: 'anonymous',
@@ -456,10 +456,10 @@ try {
     method: 'POST',
     body: { email: 'owner@example.com', password: newPassword },
   })
-  heldOwnerWorkspace.socket.send(JSON.stringify({ t: 'activity', visible: true }))
+  heldOwnerServer.socket.send(JSON.stringify({ t: 'activity', visible: true }))
   await api('alpha', `/api/channels/${general.id}/messages`, { method: 'POST', body: { content: 'Recovery session fanout' } })
   await mustClose(heldOwnerChannel)
-  await mustClose(heldOwnerWorkspace)
+  await mustClose(heldOwnerServer)
   assert.equal(heldOwnerChannel.messages.some((m) => m.t === 'message'), false)
   await api('alpha', '/api/auth/login', { actor: 'another-owner', method: 'POST', body: { email: 'owner@example.com', password: newPassword } })
   const revokedTab = await heldSocket(`/ws/channel/${general.id}`)
@@ -478,20 +478,20 @@ try {
   assert.equal(revokedTab.messages.some((m) => m.t === 'message'), false)
   retainedTab.socket.close()
   await api('alpha', '/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: newPassword } })
-  const a = await instances.alpha.getR2Bucket('FILES'),
-    b = await instances.beta.getR2Bucket('FILES')
+  const a = await runtimes.alpha.getR2Bucket('FILES'),
+    b = await runtimes.beta.getR2Bucket('FILES')
   await a.put('same-key', 'alpha')
   await b.put('same-key', 'beta')
   assert.equal(await (await a.get('same-key')).text(), 'alpha')
   assert.equal(await (await b.get('same-key')).text(), 'beta')
   const backup = await api(
     'alpha',
-    `/api/workspaces/${ids.alpha}/backup-to-bucket`,
+    `/api/servers/${ids.alpha}/backup-to-bucket`,
     { method: 'POST', body: {} },
   )
   assert.ok(backup.payload.sizeBytes > 0)
   assert.ok(backup.payload.key.includes(ids.alpha))
-  const bucket = await instances.alpha.getR2Bucket('BACKUPS')
+  const bucket = await runtimes.alpha.getR2Bucket('BACKUPS')
   const object = await bucket.get(backup.payload.key)
   await mkdir(resolve(root, '.deployment/integration'), { recursive: true })
   const archive = resolve(root, '.deployment/integration/alpha.tar')
@@ -515,7 +515,7 @@ try {
       .join('\n'),
   )
   restored.exec('COMMIT;')
-  assert.equal(restored.prepare('SELECT id FROM workspace').get().id, ids.alpha)
+  assert.equal(restored.prepare('SELECT id FROM server').get().id, ids.alpha)
   assert.equal(
     restored.prepare('SELECT id FROM server_identity').get().id,
     ids.alpha,
@@ -545,5 +545,5 @@ try {
     })
   }
 } finally {
-  await Promise.all(Object.values(instances).map((m) => m.dispose()))
+  await Promise.all(Object.values(runtimes).map((m) => m.dispose()))
 }

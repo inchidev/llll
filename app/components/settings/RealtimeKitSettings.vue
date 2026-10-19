@@ -4,7 +4,7 @@ const { api } = useApi()
 
 type Account = { id: string, name: string }
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const session = useSessionStore()
 const loading = ref(true)
@@ -48,7 +48,7 @@ function apply(value: RealtimeKitSettingsAdminDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`)
+    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/servers/${props.serverId}/realtimekit`)
     apply(response.realtimekit)
   }
   catch (error) {
@@ -64,7 +64,7 @@ async function connect(withToken: boolean) {
   connecting.value = true
   try {
     const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO } | { accounts: Account[] }>(
-      `/api/workspaces/${props.workspaceId}/realtimekit/connect`,
+      `/api/servers/${props.serverId}/realtimekit/connect`,
       {
         method: 'POST',
         body: {
@@ -96,7 +96,7 @@ async function connect(withToken: boolean) {
 async function testConnection() {
   testing.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/realtimekit/test`, { method: 'POST' })
+    await api(`/api/servers/${props.serverId}/realtimekit/test`, { method: 'POST' })
     toast.add({ title: 'RealtimeKit is working', color: 'success' })
   }
   catch (error) {
@@ -110,7 +110,7 @@ async function testConnection() {
 async function remove() {
   removing.value = true
   try {
-    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/realtimekit`, {
+    const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO }>(`/api/servers/${props.serverId}/realtimekit`, {
       method: 'DELETE',
     })
     apply(response.realtimekit)

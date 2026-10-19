@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 const outputDir = join(root, '.installer', 'release')
 const bundlePath = join(root, '.installer', 'bundle', 'index.js')
 const assetsDir = join(root, '.output', 'public')
-const migrationsDir = join(root, 'drizzle', 'migrations')
+const migrationsDir = join(root, 'drizzle', 'server-migrations')
 
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const version = (process.env.LLLL_RELEASE_VERSION || packageJson.version).replace(/^v/, '')
@@ -90,7 +90,7 @@ const manifest = {
   releasedAt: new Date().toISOString(),
   compatibilityDate: '2026-09-28',
   compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
-  capabilities: ['cloudflare-access-auth', 'optional-r2', 'primary-workspace-mail-v1', 'llll-standalone-server-v1'],
+  capabilities: ['cloudflare-access-auth', 'optional-r2', 'server-mail-v1', 'llll-server-schema-v1'],
   worker: {
     url: `${releaseBaseUrl}/${workerName}`,
     sha256: digest('sha256', worker),
@@ -103,7 +103,7 @@ const manifest = {
   },
   durableObjects: [
     { binding: 'CHANNEL_DO', className: 'ChannelDurableObject', migration: 'v1' },
-    { binding: 'WORKSPACE_DO', className: 'WorkspaceDurableObject', migration: 'v1' },
+    { binding: 'SERVER_DO', className: 'ServerDurableObject', migration: 'v1' },
     { binding: 'RATE_LIMIT_DO', className: 'RateLimitDurableObject', migration: 'v1' },
     { binding: 'NOTIFICATION_DO', className: 'NotificationDurableObject', migration: 'v1' },
     { binding: 'AGENT_DO', className: 'L4Agent', migration: 'v1' },

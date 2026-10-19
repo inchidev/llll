@@ -3,21 +3,21 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MemberDTO, RoleDTO } from '~~/shared/types'
 import { hasPermission, MemberPermissions, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 
 const { api } = useApi()
 const qc = useQueryClient()
 const toast = useToast()
 
 const rolesQ = useQuery({
-  queryKey: computed(() => ['roles', props.workspaceId]),
-  queryFn: () => api<{ roles: RoleDTO[] }>(`/api/workspaces/${props.workspaceId}/roles`),
-  enabled: computed(() => Boolean(props.workspaceId)),
+  queryKey: computed(() => ['roles', props.serverId]),
+  queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`),
+  enabled: computed(() => Boolean(props.serverId)),
 })
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${props.workspaceId}/members`),
-  enabled: computed(() => Boolean(props.workspaceId)),
+  queryKey: computed(() => ['members', props.serverId]),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`),
+  enabled: computed(() => Boolean(props.serverId)),
 })
 const { can, mine } = usePermissions(computed(() => membersQ.data.value?.members))
 const canManage = computed(() => can(Permission.manageRoles))
@@ -40,7 +40,7 @@ const tabs = computed(() => [
 
 // Grants grouped by what they govern, so a role reads as a policy rather than a flat list.
 const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
-  { label: 'Server', keys: ['manageWorkspace', 'manageChannels', 'manageRoles', 'invite', 'kick'] },
+  { label: 'Server', keys: ['manageServer', 'manageChannels', 'manageRoles', 'invite', 'kick'] },
   { label: 'Conversations', keys: ['sendMessages', 'attachFiles', 'startLive'] },
   { label: 'Tools', keys: ['manageTasks', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
 ]
@@ -116,8 +116,8 @@ function setGroup(keys: PermissionGrantKey[], enabled: boolean) {
 
 async function refreshRoles() {
   await Promise.all([
-    qc.invalidateQueries({ queryKey: ['roles', props.workspaceId] }),
-    qc.invalidateQueries({ queryKey: ['members', props.workspaceId] }),
+    qc.invalidateQueries({ queryKey: ['roles', props.serverId] }),
+    qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
   ])
 }
 
@@ -128,11 +128,11 @@ async function createRole() {
     let name = 'New role'
     let suffix = 2
     while (names.has(name.toLocaleLowerCase())) name = `New role ${suffix++}`
-    const res = await api<{ role: RoleDTO }>(`/api/workspaces/${props.workspaceId}/roles`, {
+    const res = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
       method: 'POST',
       body: { name, permissions: MemberPermissions },
     })
-    await qc.invalidateQueries({ queryKey: ['roles', props.workspaceId] })
+    await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
     selectedRoleId.value = res.role.id
     tab.value = 'display'
   }
@@ -149,7 +149,7 @@ async function saveRole() {
   if (!role || readOnly.value || !roleName.value.trim()) return
   saving.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/roles/${role.id}`, {
+    await api(`/api/servers/${props.serverId}/roles/${role.id}`, {
       method: 'PATCH',
       body: { name: roleName.value.trim(), permissions: rolePermissions.value },
     })
@@ -169,7 +169,7 @@ async function deleteRole() {
   if (!role) return
   deleting.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/roles/${role.id}`, { method: 'DELETE' })
+    await api(`/api/servers/${props.serverId}/roles/${role.id}`, { method: 'DELETE' })
     deleteOpen.value = false
     selectedRoleId.value = null
     await refreshRoles()
@@ -216,7 +216,7 @@ function memberName(member: MemberDTO) {
 async function assign(userId: string, roleId: string) {
   assigningId.value = userId
   try {
-    await api(`/api/workspaces/${props.workspaceId}/members/${userId}`, { method: 'PATCH', body: { roleId } })
+    await api(`/api/servers/${props.serverId}/members/${userId}`, { method: 'PATCH', body: { roleId } })
     await refreshRoles()
   }
   catch (err) {
@@ -239,7 +239,7 @@ watch(addMemberId, async (userId) => {
   <div>
     <!-- Role list -->
     <template v-if="!selectedRole">
-      <SettingsHeader title="Roles" description="Every member has one role. A role decides what its members can do across the workspace.">
+      <SettingsHeader title="Roles" description="Every member has one role. A role decides what its members can do across the server.">
         <template #actions>
           <UButton v-if="canManage" icon="i-ph-plus" label="Create role" size="sm" :loading="creating" @click="createRole" />
         </template>

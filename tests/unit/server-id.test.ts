@@ -40,7 +40,7 @@ it('allocates one UUIDv4 before setup, preserves it under concurrent discovery, 
     expect(await getServerId(db)).toBe(ids[0])
     expect(() =>
       databases[0]!.exec(
-        "INSERT INTO workspace(id,name,owner_id) VALUES('main','Invalid','owner')",
+        "INSERT INTO server(id,name,owner_id) VALUES('main','Invalid','owner')",
       ),
     ).toThrow()
   } finally {

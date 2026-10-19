@@ -41,7 +41,7 @@ export async function validateTaskAssignee(env: L4Env, assigneeId: string | null
 export async function validateTaskChannel(env: L4Env, channelId: string | null | undefined) {
   if (!channelId) return
   const row = (await getDb(env.DB).select({ id: channels.id }).from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.type, 'text'), eq(channels.visibility, 'workspace'))).limit(1))[0]
+    .where(and(eq(channels.id, channelId), eq(channels.type, 'text'), eq(channels.visibility, 'server'))).limit(1))[0]
   if (!row) fail(400, 'bad_request', 'Public text report channel not found')
 }
 

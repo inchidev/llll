@@ -15,6 +15,6 @@ export default defineEventHandler(async (event) => {
   const count = await env.DB.prepare('SELECT COUNT(*) as value FROM database_views WHERE database_id = ?').bind(view.databaseId).first<{ value: number }>()
   if ((count?.value ?? 0) <= 1) fail(409, 'last_database_view', 'Every database needs at least one view')
   await env.DB.prepare('DELETE FROM database_views WHERE id = ?').bind(id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_view.delete', targetType: 'database_view', targetId: id, meta: { databaseId: view.databaseId, name: view.name } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_view.delete', targetType: 'database_view', targetId: id, meta: { databaseId: view.databaseId, name: view.name } })
   return { ok: true }
 })

@@ -1,6 +1,6 @@
 import type { MailThreadPageDTO } from '../../../../../shared/types'
 import { isMailFolder } from '../../../../../shared/paths'
-import { requireMailboxPermission } from '../../../../utils/workspace-mail'
+import { requireMailboxPermission } from '../../../../utils/server-mail'
 import { cf } from '../../../../utils/cf'
 import { listMailThreads } from '../../../../utils/mail-threads'
 

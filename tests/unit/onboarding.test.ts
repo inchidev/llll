@@ -10,7 +10,7 @@ describe('onboarding rich text', () => {
   it('detects authored document content', () => {
     expect(richTextHasContent({
       type: 'doc',
-      content: [{ type: 'heading', content: [{ type: 'text', text: 'Workspace terms' }] }],
+      content: [{ type: 'heading', content: [{ type: 'text', text: 'Server terms' }] }],
     })).toBe(true)
   })
 

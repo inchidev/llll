@@ -2,7 +2,7 @@
 
 A small Cloudflare Worker. Email Routing delivers a message here, and this Worker POSTs the raw RFC822 bytes to a self-hosted L4 inbound webhook.
 
-This directory is not a pnpm workspace package. `src/index.ts` imports `../../../workers/email-bridge`, so the commands below run from a checkout of this repository, with the working directory `examples/email-bridge`. Copying this folder out of the checkout does not deploy.
+This directory is not a pnpm server package. `src/index.ts` imports `../../../workers/email-bridge`, so the commands below run from a checkout of this repository, with the working directory `examples/email-bridge`. Copying this folder out of the checkout does not deploy.
 
 ## Deploy
 
@@ -18,4 +18,4 @@ npx wrangler deploy
 
 3. In the Cloudflare dashboard, turn on Email Routing for the domain, add the MX and TXT records Cloudflare shows, and send a Routing rule (a catch-all, if every address should arrive here) to **Send to a Worker** → `llll-email-bridge`.
 
-The self-hosted installation stores mail only for a mailbox that exists. Create that mailbox with `MAIL_DOMAIN`, `MAIL_APP_HOSTNAME`, and `MAIL_DEFAULT_LOCAL_PART`. `MAIL_ZONE_ID` is optional off Cloudflare.
+The self-hosted server stores mail only for a mailbox that exists. Create that mailbox with `MAIL_DOMAIN`, `MAIL_APP_HOSTNAME`, and `MAIL_DEFAULT_LOCAL_PART`. `MAIL_ZONE_ID` is optional off Cloudflare.

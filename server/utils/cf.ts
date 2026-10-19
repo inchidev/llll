@@ -34,7 +34,7 @@ export function fail(status: number, code: string, message: string): never {
 }
 
 export function requireFiles(env: Pick<L4Env, 'FILES'>): R2Bucket {
-  if (!env.FILES) fail(409, 'files_disabled', 'Files and backups are disabled. Ask the installation operator to configure file storage for this server, then reload.')
+  if (!env.FILES) fail(409, 'files_disabled', 'Files and backups are disabled. Ask the server operator to configure file storage for this server, then reload.')
   return env.FILES
 }
 

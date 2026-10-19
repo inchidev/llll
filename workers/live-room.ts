@@ -44,7 +44,7 @@ export function normalizeLive(stored: unknown): LiveState {
 
 /**
  * Hosts can remove, mute, and end for everyone. That is the person who started
- * the room, and in workspace Channels anyone who can manage the Channel. Both
+ * the room, and in server Channels anyone who can manage the Channel. Both
  * people in a 1:1 Call are hosts.
  */
 export function isLiveHost(live: LiveState, userId: string, access: { directMessage: boolean, perms: number }): boolean {

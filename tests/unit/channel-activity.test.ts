@@ -1,9 +1,9 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient } from '@tanstack/vue-query'
-import { applyWorkspaceRealtimeEvent } from '../../app/utils/workspace-realtime'
+import { applyServerRealtimeEvent } from '../../app/utils/server-realtime'
 import { channelActivityAudience, signalChannelActivity } from '../../workers/channel-activity'
-import { sendWorkspaceEvent } from '../../workers/workspace-events'
+import { sendServerEvent } from '../../workers/server-events'
 
 let sqlite: DatabaseSync
 let db: D1Database
@@ -53,8 +53,8 @@ beforeEach(() => {
 afterEach(() => sqlite.close())
 
 describe('channel activity audience', () => {
-  it('targets every other active member for a workspace channel', async () => {
-    sqlite.exec(`INSERT INTO channels VALUES ('general', 'general', 'text', 'workspace', NULL);`)
+  it('targets every other active member for a server channel', async () => {
+    sqlite.exec(`INSERT INTO channels VALUES ('general', 'general', 'text', 'server', NULL);`)
 
     await expect(channelActivityAudience(db, 'general', 'author')).resolves.toEqual({
       sourceChannelId: 'general',
@@ -119,7 +119,7 @@ describe('channel activity audience', () => {
     })
     const env = {
       DB: db,
-      WORKSPACE_DO: { getByName: () => ({ notifyChannelActivity }) },
+      SERVER_DO: { getByName: () => ({ notifyChannelActivity }) },
     }
 
     await signalChannelActivity(env as never, {
@@ -144,7 +144,7 @@ describe('channel activity audience', () => {
   })
 })
 
-describe('workspace event delivery', () => {
+describe('server event delivery', () => {
   it('delivers to every tab of a recipient and no other socket', () => {
     const allowedA = vi.fn()
     const allowedB = vi.fn()
@@ -163,7 +163,7 @@ describe('workspace event delivery', () => {
       notification: { title: 'Alice in #private', body: 'hello', url: '/channels/private/threads/thread' },
     }
 
-    sendWorkspaceEvent(sockets, new Set(['member-a']), event)
+    sendServerEvent(sockets, new Set(['member-a']), event)
 
     expect(allowedA).toHaveBeenCalledWith(JSON.stringify(event))
     expect(allowedB).toHaveBeenCalledWith(JSON.stringify(event))
@@ -171,12 +171,12 @@ describe('workspace event delivery', () => {
   })
 })
 
-describe('workspace unread cache events', () => {
+describe('server unread cache events', () => {
   it('marks the root channel unread for newer thread activity', () => {
     const cache = new QueryClient()
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }] })
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
       sourceChannelId: 'thread',
       rootChannelId: 'parent',
@@ -192,7 +192,7 @@ describe('workspace unread cache events', () => {
     cache.setQueryData(['dms'], { channels: [{ id: 'dm', unread: false }] })
     cache.setQueryData(['readCursor', 'thread'], '01990000-0000-7000-8000-000000000002')
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
       sourceChannelId: 'thread',
       rootChannelId: 'dm',
@@ -208,7 +208,7 @@ describe('workspace unread cache events', () => {
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: true }] })
     cache.setQueryData(['dms'], { channels: [{ id: 'parent', unread: true }] })
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'channel.read',
       sourceChannelId: 'thread',
       rootChannelId: 'parent',
@@ -226,7 +226,7 @@ describe('workspace unread cache events', () => {
     cache.setQueryData(['channels', 'main'], { channels: [] })
     cache.setQueryData(['dms'], { channels: [] })
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
       sourceChannelId: 'dm',
       rootChannelId: 'dm',
@@ -243,19 +243,19 @@ describe('workspace unread cache events', () => {
     cache.setQueryData(['boards', 'main', false], { boards: [] })
     cache.setQueryData(['task', 'task-1'], { task: { id: 'task-1' } })
 
-    applyWorkspaceRealtimeEvent(cache, { t: 'tasks.changed', boardId: 'board-1', taskId: 'task-1' })
+    applyServerRealtimeEvent(cache, { t: 'tasks.changed', boardId: 'board-1', taskId: 'task-1' })
 
     expect(cache.getQueryState(['boards', 'main', false])?.isInvalidated).toBe(true)
     expect(cache.getQueryState(['task', 'task-1'])?.isInvalidated).toBe(true)
   })
 
-  it('invalidates the member directory when workspace membership changes', () => {
+  it('invalidates the member directory when server membership changes', () => {
     const cache = new QueryClient()
     cache.setQueryData(['members', 'main'], { members: [] })
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'members.changed',
-      workspaceId: 'main',
+      serverId: 'main',
     } as never)
 
     expect(cache.getQueryState(['members', 'main'])?.isInvalidated).toBe(true)
@@ -265,7 +265,7 @@ describe('workspace unread cache events', () => {
     const cache = new QueryClient()
     const thread = (id: string, opened: boolean) => ({ id, parentId: 'parent', title: id, lastMessageAt: '2026-09-27T10:00:00.000Z', opened, unread: false, unreadCount: 0 })
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }], threads: [thread('opened', true), thread('new', false)] })
-    const activity = (sourceChannelId: string, n: number) => applyWorkspaceRealtimeEvent(cache, {
+    const activity = (sourceChannelId: string, n: number) => applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
       sourceChannelId,
       rootChannelId: 'parent',
@@ -280,7 +280,7 @@ describe('workspace unread cache events', () => {
     expect(threads().opened).toMatchObject({ unread: true, unreadCount: 1 })
     expect(threads().new).toMatchObject({ unread: false, unreadCount: 0 })
 
-    applyWorkspaceRealtimeEvent(cache, {
+    applyServerRealtimeEvent(cache, {
       t: 'channel.read',
       sourceChannelId: 'opened',
       rootChannelId: 'parent',

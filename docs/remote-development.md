@@ -46,7 +46,7 @@ The deployed backend runs its own API, Durable Objects, Workers AI, Browser Run,
 and storage. Local server changes do not run in this mode. No
 Cloudflare credentials or copy of the backend's `AUTH_SECRET` are needed for the
 frontend connection. Sign in separately on localhost; browser sessions are
-origin-scoped. Writes affect the selected installation.
+origin-scoped. Writes affect the selected server.
 
 Cloudflare Access servers are not supported by this proxy mode. The
 Access session cookie belongs to the deployed hostname and is not sent with
@@ -62,13 +62,13 @@ local frontend. Keep its deployment config and credentials outside Git.
 
 The shared integration server should follow `main`; personal servers
 can run feature branches before their PRs are merged. Use separate resources so
-schema changes and experiments do not affect the shared installation.
+schema changes and experiments do not affect the shared server.
 
 `pnpm dev:remote` only starts the frontend; it never deploys or applies migrations.
 For local backend execution, use `pnpm dev` or `pnpm dev:full` instead.
 
 A temporary `wrangler dev --remote` session is not a complete substitute for a
-L4 installation because local and remote binding behavior differs. See
+L4 server because local and remote binding behavior differs. See
 [Cloudflare's development binding support](https://developers.cloudflare.com/workers/local-development/bindings-per-env/).
 
-For installation identity, routing and multiple servers, use the three-Worker fixture in [worker-previews.md](worker-previews.md). The root-only proxy does not simulate an installation controller.
+For server identity, routing and multiple servers, use the three-Worker fixture in [worker-previews.md](worker-previews.md). The root-only proxy does not simulate an server controller.

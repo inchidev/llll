@@ -1,6 +1,6 @@
 # Deployment artifacts
 
-One immutable release contains matching standalone Server, Shell/site, client assets, Docs and migration chains. Customer versions remain under operator control. Bundle schema version 2 removes the Instance component. The retired schema-1 bundles remain unchanged and are not compatible standalone installation choices.
+One release contains Server, Shell/site, client assets, Docs and matching migration chains. Deployment bundle and release provenance use schema version 3. The Server manifest declares `llll-server-schema-v1`; older formats are not install targets.
 
 | Asset | Purpose |
 | --- | --- |

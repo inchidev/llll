@@ -27,6 +27,6 @@ export default defineEventHandler(async (event) => {
      created_at as createdAt, updated_at as updatedAt`,
   ).bind(body.title, nowIso(), id, body.version).first<Omit<CanvasDTO, 'nodes' | 'edges'>>()
   if (!updated) fail(409, 'stale_canvas', 'This canvas changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas.update', targetType: 'canvas', targetId: id, meta: { fields: ['title'] } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas.update', targetType: 'canvas', targetId: id, meta: { fields: ['title'] } })
   return { canvas: updated }
 })

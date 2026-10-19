@@ -69,7 +69,9 @@ jobs:
         if: matrix.check == 'migrations'
         env:
           MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
-        run: pnpm db:migrations:check
+        run: |
+          pnpm model:check
+          pnpm db:migrations:check
 
       - name: Apply all migrations to a fresh local D1 database
         if: matrix.check == 'migrations'

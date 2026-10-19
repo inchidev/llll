@@ -4,7 +4,7 @@ import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import type { AgentDTO } from '~~/shared/types'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const qc = useQueryClient()
 const { api } = useApi()
@@ -31,8 +31,8 @@ const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
 
 const agentsQ = useQuery({
-  queryKey: computed(() => ['agents', props.workspaceId]),
-  queryFn: () => api<{ agents: AgentDTO[] }>(`/api/workspaces/${props.workspaceId}/agents`),
+  queryKey: computed(() => ['agents', props.serverId]),
+  queryFn: () => api<{ agents: AgentDTO[] }>(`/api/servers/${props.serverId}/agents`),
 })
 const agents = computed(() => agentsQ.data.value?.agents ?? [])
 
@@ -156,13 +156,13 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
   try {
     let result: { agent: AgentDTO }
     if (selectedAgent.value) {
-      result = await api<{ agent: AgentDTO }>(`/api/workspaces/${props.workspaceId}/agents/${selectedAgent.value.id}`, {
+      result = await api<{ agent: AgentDTO }>(`/api/servers/${props.serverId}/agents/${selectedAgent.value.id}`, {
         method: 'PATCH',
         body: event.data,
       })
     }
     else {
-      result = await api<{ agent: AgentDTO }>(`/api/workspaces/${props.workspaceId}/agents`, {
+      result = await api<{ agent: AgentDTO }>(`/api/servers/${props.serverId}/agents`, {
         method: 'POST',
         body: {
           displayName: event.data.displayName,
@@ -178,19 +178,19 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
     if (avatarFile.value) {
       const formData = new FormData()
       formData.append('file', avatarFile.value)
-      const avatar = await api<{ avatarR2Key: string }>(`/api/workspaces/${props.workspaceId}/agents/${result.agent.id}/avatar`, {
+      const avatar = await api<{ avatarR2Key: string }>(`/api/servers/${props.serverId}/agents/${result.agent.id}/avatar`, {
         method: 'PUT',
         body: formData,
       })
       result.agent.avatarR2Key = avatar.avatarR2Key
     }
     else if (removeCurrentAvatar.value && result.agent.avatarR2Key) {
-      await api(`/api/workspaces/${props.workspaceId}/agents/${result.agent.id}/avatar`, { method: 'DELETE' })
+      await api(`/api/servers/${props.serverId}/agents/${result.agent.id}/avatar`, { method: 'DELETE' })
       result.agent.avatarR2Key = null
     }
     await Promise.all([
-      qc.invalidateQueries({ queryKey: ['agents', props.workspaceId] }),
-      qc.invalidateQueries({ queryKey: ['members', props.workspaceId] }),
+      qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
     ])
     selectAgent(result.agent)
     toast.add({ title: creating ? 'Agent created' : 'Agent updated', color: 'success' })
@@ -198,8 +198,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
   catch (error) {
     if (persistedAgent) {
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ['agents', props.workspaceId] }),
-        qc.invalidateQueries({ queryKey: ['members', props.workspaceId] }),
+        qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
+        qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
       ])
       selectAgent(persistedAgent)
       toast.add({

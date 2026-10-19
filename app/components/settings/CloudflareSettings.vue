@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import type { InstallationManagementStatusDTO } from '~~/shared/releases'
-const props = withDefaults(defineProps<{ workspaceId: string, view?: 'overview' | 'domains' }>(), { view: 'overview' })
+import type { ServerManagementStatusDTO } from '~~/shared/releases'
+const props = withDefaults(defineProps<{ serverId: string, view?: 'overview' | 'domains' }>(), { view: 'overview' })
 const { api } = useApi()
 const managementQ = useQuery({
-  queryKey: computed(() => ['server-deployment', props.workspaceId]),
-  queryFn: () => api<InstallationManagementStatusDTO>(`/api/workspaces/${props.workspaceId}/management`),
+  queryKey: computed(() => ['server-deployment', props.serverId]),
+  queryFn: () => api<ServerManagementStatusDTO>(`/api/servers/${props.serverId}/management`),
 })
 const status = computed(() => managementQ.data.value)
 </script>

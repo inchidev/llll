@@ -30,7 +30,7 @@ beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(`
     CREATE TABLE roles (id TEXT PRIMARY KEY, permissions_bitmask INTEGER NOT NULL);
-    CREATE TABLE workspace (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL);
+    CREATE TABLE server (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL);
     CREATE TABLE users (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, role_id TEXT NOT NULL);
     CREATE TABLE agents (user_id TEXT PRIMARY KEY, status TEXT NOT NULL);
     CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, visibility TEXT NOT NULL, parent_id TEXT);
@@ -38,7 +38,7 @@ beforeEach(() => {
     CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT, content_type TEXT NOT NULL);
 
     INSERT INTO roles VALUES ('admin-role', 1), ('member-role', 112);
-    INSERT INTO workspace VALUES ('main', 'owner');
+    INSERT INTO server VALUES ('main', 'owner');
     INSERT INTO users VALUES
       ('owner', 'human', 'active', 'member-role'),
       ('human', 'human', 'active', 'admin-role'),

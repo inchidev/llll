@@ -3,7 +3,7 @@ import { markRaw } from 'vue'
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit'
 import type { LiveKind, LiveState } from '~~/shared/types'
 import { liveEndedTitle } from '~~/shared/live'
-import type { WorkspaceLiveChangedEvent } from '~~/shared/workspace-realtime'
+import type { ServerLiveChangedEvent } from '~~/shared/server-realtime'
 
 type Conn = 'idle' | 'connecting' | 'connected' | 'error'
 
@@ -271,7 +271,7 @@ export const useLiveStore = defineStore('live', () => {
     if (device) await meeting.value.self.setDevice(device)
   }
 
-  function receiveLive(event: WorkspaceLiveChangedEvent) {
+  function receiveLive(event: ServerLiveChangedEvent) {
     if (event.outcome && currentChannelId.value === event.channelId && meeting.value) {
       endLocal(event.outcome === 'declined' ? 'Call declined' : 'No answer')
     }

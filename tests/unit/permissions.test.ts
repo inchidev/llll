@@ -4,7 +4,7 @@ import { ALL_PERMISSIONS, hasPermission, MemberPermissions, Permission, permissi
 describe('permissions', () => {
   it('owner has every flag', () => {
     expect(hasPermission(ALL_PERMISSIONS, Permission.kick)).toBe(true)
-    expect(hasPermission(ALL_PERMISSIONS, Permission.manageWorkspace)).toBe(true)
+    expect(hasPermission(ALL_PERMISSIONS, Permission.manageServer)).toBe(true)
     expect(rolePermissions('owner')).toBe(ALL_PERMISSIONS)
   })
 
@@ -16,7 +16,7 @@ describe('permissions', () => {
     expect(hasPermission(MemberPermissions, Permission.manageDatabases)).toBe(false)
     expect(hasPermission(MemberPermissions, Permission.useGadgets)).toBe(false)
     expect(hasPermission(MemberPermissions, Permission.manageGadgets)).toBe(false)
-    expect(hasPermission(MemberPermissions, Permission.manageWorkspace)).toBe(false)
+    expect(hasPermission(MemberPermissions, Permission.manageServer)).toBe(false)
     expect(hasPermission(MemberPermissions, Permission.kick)).toBe(false)
     expect(rolePermissions('member')).toBe(MemberPermissions)
   })

@@ -2,22 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableL4Files } from '../../../packages/deployment-core/src/storage'
 import { parseBaseInstallRequest, updateWorkerBindings } from '../../../packages/deployment-core/src/index'
 
-const mocks = vi.hoisted(() => ({ installation: vi.fn(), bucket: vi.fn(), settings: vi.fn(), patch: vi.fn() }))
-vi.mock('../../../packages/deployment-core/src/servers', () => ({ readL4Server: mocks.installation }))
+const mocks = vi.hoisted(() => ({ server: vi.fn(), bucket: vi.fn(), settings: vi.fn(), patch: vi.fn() }))
+vi.mock('../../../packages/deployment-core/src/servers', () => ({ readL4Server: mocks.server }))
 vi.mock('../../../packages/deployment-core/src/deploy', async (original) => ({ ...await original<object>(), ensureR2: mocks.bucket }))
 vi.mock('../../../packages/deployment-core/src/cloudflare-client', () => ({ cloudflareClient: () => ({ workers: { scripts: { scriptAndVersionSettings: { get: mocks.settings } } } }) }))
 vi.mock('../../../packages/deployment-core/src/worker-settings', () => ({ patchWorkerBindings: mocks.patch }))
 
 beforeEach(() => { vi.clearAllMocks() })
 
-describe('optional workspace R2', () => {
+describe('optional server R2', () => {
   it('carries the explicit no-R2 choice through the base installer', () => {
     expect(parseBaseInstallRequest({ accountId: 'a'.repeat(32), workerName: 'team', appName: 'Team', filesEnabled: false }).filesEnabled).toBe(false)
     expect(parseBaseInstallRequest({ accountId: 'a'.repeat(32), workerName: 'team', appName: 'Team' }).filesEnabled).toBe(true)
   })
 
   it('adds only FILES and preserves every existing binding, including secrets and DOs', async () => {
-    mocks.installation.mockResolvedValue({ resources: { bucketName: null } })
+    mocks.server.mockResolvedValue({ resources: { bucketName: null } })
     mocks.bucket.mockResolvedValue('team-files')
     mocks.settings.mockResolvedValue({ bindings: [
       { name: 'DB', type: 'd1', database_id: 'original' },
@@ -34,14 +34,14 @@ describe('optional workspace R2', () => {
   })
 
   it('preserves an existing bucket and never reprovisions it', async () => {
-    mocks.installation.mockResolvedValue({ resources: { bucketName: 'existing-files' } })
+    mocks.server.mockResolvedValue({ resources: { bucketName: 'existing-files' } })
     await expect(enableL4Files('token', 'account', 'team')).resolves.toEqual({ bucketName: 'existing-files' })
     expect(mocks.bucket).not.toHaveBeenCalled()
     expect(mocks.patch).not.toHaveBeenCalled()
   })
 
-  it('does not provision storage when the Worker is not a L4 workspace', async () => {
-    mocks.installation.mockResolvedValue(null)
+  it('does not provision storage when the Worker is not a L4 server', async () => {
+    mocks.server.mockResolvedValue(null)
     await expect(enableL4Files('token', 'account', 'unrelated')).rejects.toMatchObject({ statusCode: 404 })
     expect(mocks.bucket).not.toHaveBeenCalled()
   })

@@ -3,15 +3,15 @@ import { cloudflareClient } from './cloudflare-client.js'
 import { type ExistingWorkerBinding, isL4Worker } from './deploy.js'
 import { createError } from './errors.js'
 
-export function installationHostname(value: unknown) {
-  if (typeof value !== 'string') throw createError({ statusCode: 400, statusMessage: 'Installation origin is missing' })
+export function serverHostname(value: unknown) {
+  if (typeof value !== 'string') throw createError({ statusCode: 400, statusMessage: 'Server origin is missing' })
   try {
     const url = new URL(value)
     if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error()
     return url.hostname.toLowerCase()
   }
   catch {
-    throw createError({ statusCode: 400, statusMessage: 'Installation origin is invalid' })
+    throw createError({ statusCode: 400, statusMessage: 'Server origin is invalid' })
   }
 }
 
@@ -38,8 +38,9 @@ function serverConfiguration(
   if (!customDomainEnabled && !hostname.endsWith('.workers.dev')) return null
   const appSubdomain = appZone ? subdomain(hostname, appZone.name) : workerName
   if (appZone && !appSubdomain) return null
-  const mailDomain = textBinding(bindings, 'MAIL_DOMAIN')
-  const mailZoneId = textBinding(bindings, 'MAIL_ZONE_ID')
+  const mail = JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]
+  const mailDomain = mail?.domain || ''
+  const mailZoneId = mail?.zoneId || ''
   const selectedZone = zones.find(item => item.accountId === accountId && item.id === mailZoneId) || appZone
   const mailSubdomain = selectedZone ? subdomain(mailDomain, selectedZone.name) : ''
   const mailEnabled = Boolean(mailDomain && mailZoneId && mailSubdomain)
@@ -50,7 +51,7 @@ function serverConfiguration(
     workerName,
     adminEmail: '',
     allowedEmails: [],
-    appName: textBinding(bindings, 'APP_NAME') || textBinding(bindings, 'ADMIN_WORKSPACE') || 'L4',
+    appName: textBinding(bindings, 'APP_NAME') || textBinding(bindings, 'ADMIN_SERVER') || 'L4',
     authMode: mode,
     registrationMode: registration === 'open' ? 'open' : 'invite_only',
     customDomainEnabled,
@@ -82,11 +83,10 @@ function serverFromBindings(
     configuration,
     resources: {
       databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,
-      primary: textBinding(bindings, 'LLLL_PRIMARY') === 'true',
       bucketName: bindings.find(binding => binding.name === 'FILES' && binding.type === 'r2_bucket')?.bucket_name || null,
       kvId: bindings.find(binding => binding.name === 'TICKETS' && binding.type === 'kv_namespace')?.namespace_id || null,
-      mailZoneId: textBinding(bindings, 'MAIL_ZONE_ID') || null,
-      mailDomain: textBinding(bindings, 'MAIL_DOMAIN') || null,
+      mailZoneId: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId || null,
+      mailDomain: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain || null,
       accessApplicationId: textBinding(bindings, 'CF_ACCESS_APP_ID') || null,
       accessHealthApplicationId: textBinding(bindings, 'CF_ACCESS_HEALTH_APP_ID') || null,
       accessDeletionApplicationId: textBinding(bindings, 'CF_ACCESS_DELETION_APP_ID') || null,
@@ -157,13 +157,13 @@ export async function listL4Servers(
       return { workerIds, settingsList: await workerSettings(client, accountId, workerIds) }
     })(),
   ])
-  const installations: CloudflareServer[] = []
+  const servers: CloudflareServer[] = []
   settingsList.forEach((bindings, index) => {
     if (!bindings) return
-    const installation = serverFromBindings(accountId, workerIds[index]!, bindings, zones)
-    if (installation) installations.push(installation)
+    const server = serverFromBindings(accountId, workerIds[index]!, bindings, zones)
+    if (server) servers.push(server)
   })
-  return installations.sort((left, right) => left.workerName.localeCompare(right.workerName))
+  return servers.sort((left, right) => left.workerName.localeCompare(right.workerName))
 }
 
 export async function readL4Server(
@@ -185,7 +185,7 @@ export async function readL4Server(
 }
 
 export async function findL4Servers(accessToken: string, origin: unknown): Promise<CloudflareServer[]> {
-  const hostname = installationHostname(origin)
+  const hostname = serverHostname(origin)
   const client = cloudflareClient(accessToken)
   const accounts = []
   for await (const account of client.accounts.list({ per_page: 50 })) accounts.push(account)
@@ -200,7 +200,7 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
         .filter(zone => zone.status === 'active' && (hostname === zone.name || hostname.endsWith(`.${zone.name}`)))
         .map(zone => zone.accountId))
 
-  const installations: CloudflareServer[] = []
+  const servers: CloudflareServer[] = []
   for (const account of accounts) {
     if (!candidateAccountIds.has(account.id)) continue
     const workerIds: string[] = []
@@ -216,7 +216,7 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
       if (appHostname.toLowerCase() !== hostname) return
       const configuration = serverConfiguration(account.id, workerName, hostname, bindings, zones)
       if (!configuration) return
-      installations.push({
+      servers.push({
         accountId: account.id,
         workerName,
         origin: `https://${hostname}`,
@@ -224,11 +224,10 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
         configuration,
         resources: {
           databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,
-          primary: textBinding(bindings, 'LLLL_PRIMARY') === 'true',
           bucketName: bindings.find(binding => binding.name === 'FILES' && binding.type === 'r2_bucket')?.bucket_name || null,
           kvId: bindings.find(binding => binding.name === 'TICKETS' && binding.type === 'kv_namespace')?.namespace_id || null,
-          mailZoneId: textBinding(bindings, 'MAIL_ZONE_ID') || null,
-          mailDomain: textBinding(bindings, 'MAIL_DOMAIN') || null,
+          mailZoneId: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId || null,
+          mailDomain: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain || null,
           accessApplicationId: textBinding(bindings, 'CF_ACCESS_APP_ID') || null,
           accessHealthApplicationId: textBinding(bindings, 'CF_ACCESS_HEALTH_APP_ID') || null,
           accessDeletionApplicationId: textBinding(bindings, 'CF_ACCESS_DELETION_APP_ID') || null,
@@ -236,5 +235,5 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
       })
     })
   }
-  return installations
+  return servers
 }

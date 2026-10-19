@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { embedCommand, embedEvent, embedOrigins, safeEmbedPath } from '../../shared/embed'
 
-describe('installation embedding boundary', () => {
+describe('server embedding boundary', () => {
   it('accepts navigation and refuses executable, external and API destinations', () => {
     expect(safeEmbedPath('/channels/one?thread=two')).toBe(true)
-    for (const path of ['//evil.example', '/\\evil.example', '/api/auth/sign-out', '/ws/workspace/main', '/connections', '/channels/\nfoo', 'javascript:alert(1)']) expect(safeEmbedPath(path), path).toBe(false)
+    for (const path of ['//evil.example', '/\\evil.example', '/api/auth/sign-out', '/ws/server/main', '/connections', '/channels/\nfoo', 'javascript:alert(1)']) expect(safeEmbedPath(path), path).toBe(false)
     expect(embedCommand.safeParse({ type: 'open', serverId: 'alpha', path: '/' }).success).toBe(false)
   })
   it('only exposes bounded shell metadata, with opaque global server IDs', () => {

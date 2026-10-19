@@ -3,15 +3,15 @@ import { useQuery } from '@tanstack/vue-query'
 import type { GadgetListDTO } from '~~/shared/gadgets'
 import { gadgetPath } from '~~/shared/paths'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const { api } = useApi()
 const nav = useNavActions()
 
 const gadgetsQ = useQuery({
-  queryKey: computed(() => ['gadgets', props.workspaceId]),
-  queryFn: () => api<GadgetListDTO>(`/api/workspaces/${props.workspaceId}/gadgets`),
-  enabled: computed(() => Boolean(props.workspaceId)),
+  queryKey: computed(() => ['gadgets', props.serverId]),
+  queryFn: () => api<GadgetListDTO>(`/api/servers/${props.serverId}/gadgets`),
+  enabled: computed(() => Boolean(props.serverId)),
 })
 const gadgets = computed(() => gadgetsQ.data.value?.gadgets ?? [])
 const activeId = computed(() => String(route.query.gadget || '') || gadgets.value[0]?.id || '')

@@ -35,7 +35,7 @@ import { createSerialQueue } from './serial-queue'
 import { authorizedSockets } from './socket-access'
 
 type Sock = { userId: string; user: PublicUser; sessionId?: string }
-type Authz = { workspaceId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
+type Authz = { serverId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
 
 const createSchema = z.object({
   t: z.literal('message.create'),
@@ -208,7 +208,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const message: MessageDTO = {
       id,
       channelId: channel.id,
-      workspaceId: (await getServerId(this.env.DB)),
+      serverId: (await getServerId(this.env.DB)),
       author: agent,
       content: body.content,
       replyTo: null,
@@ -276,12 +276,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   // The conversation's Live room. Every change runs through `liveInOrder`, so
-  // two people starting at once share one meeting. Storage keys keep their
-  // pre-Live names: 'huddle' is the room, 'huddlePresence' the heartbeat
-  // deadlines, and 'huddleCleanupAt' when an empty room closes.
+  // two people starting at once share one meeting.
 
   async getLive(): Promise<LiveState> {
-    return normalizeLive(await this.ctx.storage.get('huddle'))
+    return normalizeLive(await this.ctx.storage.get('live'))
   }
 
   /** Join the room, starting it first when it is idle and the member may start one. */
@@ -323,11 +321,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       if (!live.active || !seats[userId]) return false
       const presence = await this.livePresence()
       presence[userId] = Date.now() + LIVE_PRESENCE_TTL_MS
-      await this.ctx.storage.put('huddlePresence', presence)
+      await this.ctx.storage.put('livePresence', presence)
       if (!live.participantIds.includes(userId)) {
         // A slow heartbeat expired them without them leaving; they are still here.
         live.participantIds.push(userId)
-        await this.ctx.storage.delete('huddleCleanupAt')
+        await this.ctx.storage.delete('liveCleanupAt')
         await this.setLive(live)
         this.publishLive(live)
       }
@@ -365,7 +363,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       const keep = ([userId]: [string, unknown]) => !revoked.includes(userId)
       const presence = Object.fromEntries(Object.entries(await this.livePresence()).filter(keep))
       live.participantIds = live.participantIds.filter(id => !revoked.includes(id))
-      await this.ctx.storage.put({ huddlePresence: presence, liveSeats: Object.fromEntries(Object.entries(seats).filter(keep)) })
+      await this.ctx.storage.put({ livePresence: presence, liveSeats: Object.fromEntries(Object.entries(seats).filter(keep)) })
       if (!live.participantIds.length) await this.scheduleCleanup(liveGraceMs(live.kind, await this.isDirectMessage()))
       await this.setLive(live)
       await this.refreshAlarm()
@@ -497,7 +495,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const dto: MessageDTO = {
       id,
       channelId: this.channelId(),
-      workspaceId: authz.workspaceId,
+      serverId: authz.serverId,
       author: sock.user,
       content: body.content,
       replyTo,
@@ -709,8 +707,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
     const presence = starting ? {} : await this.livePresence()
     presence[user.id] = Date.now() + LIVE_PRESENCE_TTL_MS
-    await this.ctx.storage.put({ huddlePresence: presence, liveSeats: seats })
-    await this.ctx.storage.delete('huddleCleanupAt')
+    await this.ctx.storage.put({ livePresence: presence, liveSeats: seats })
+    await this.ctx.storage.delete('liveCleanupAt')
     if (starting && live.ringing) await this.ctx.storage.put('liveRingUntil', Date.now() + LIVE_RING_TIMEOUT_MS)
     await this.setLive(live)
 
@@ -740,7 +738,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const { [userId]: _seat, ...remainingSeats } = seats
     const { [userId]: _presence, ...presence } = await this.livePresence()
     live.participantIds = live.participantIds.filter(id => id !== userId)
-    await this.ctx.storage.put({ huddlePresence: presence, liveSeats: remainingSeats })
+    await this.ctx.storage.put({ livePresence: presence, liveSeats: remainingSeats })
     if (seat) {
       const media = await liveMedia(this.env)
       if (media) this.ctx.waitUntil(media.removeParticipants(live.meetingId, [seat.participantId]).catch(() => {}))
@@ -758,7 +756,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (current.meetingId && media) await media.endMeeting(current.meetingId)
     const live: LiveState = { ...emptyLive(), kind: current.kind }
     await this.setLive(live)
-    await this.ctx.storage.delete(['huddlePresence', 'huddleCleanupAt', 'liveSeats', 'liveRingUntil'])
+    await this.ctx.storage.delete(['livePresence', 'liveCleanupAt', 'liveSeats', 'liveRingUntil'])
     await this.env.DB.prepare('UPDATE channels SET live_meeting_id = NULL WHERE id = ?').bind(this.channelId()).run()
     await this.refreshAlarm()
     this.publishLive(live, opts)
@@ -779,7 +777,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       }
       return
     }
-    const cleanupAt = await this.ctx.storage.get<number>('huddleCleanupAt')
+    const cleanupAt = await this.ctx.storage.get<number>('liveCleanupAt')
     if (cleanupAt && cleanupAt <= now) {
       if (live.active && !live.participantIds.length) {
         try {
@@ -790,7 +788,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         }
         return
       }
-      await this.ctx.storage.delete('huddleCleanupAt')
+      await this.ctx.storage.delete('liveCleanupAt')
     }
     await this.expireLiveParticipants(now)
     await this.refreshAlarm()
@@ -819,7 +817,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async authTimeout(ws: WebSocket) {
-    // A cold installation session lookup includes KV and D1 round trips.
+    // A cold server session lookup includes KV and D1 round trips.
     await new Promise((r) => setTimeout(r, 10000))
     const sock = ws.deserializeAttachment() as Sock | null
     if (!sock?.userId) {
@@ -845,11 +843,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       `SELECT u.kind, r.permissions_bitmask as perms, r.id as roleId, w.owner_id as ownerId
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       CROSS JOIN workspace w
+       CROSS JOIN server w
        WHERE u.id = ? AND u.status = 'active'`,
     ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string }>()
     if (!membership) return null
-    const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.manageWorkspace)
+    const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.manageServer)
 
     if (accessRoot.visibility === 'private') {
       const part = await this.env.DB.prepare(
@@ -876,7 +874,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         frozen = (still.results ?? []).length !== ids.length
       }
       const perms = directMessagePermissions(membership.perms, membership.ownerId === userId, frozen)
-      return { workspaceId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }
+      return { serverId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }
     }
     let perms = membership.ownerId === userId ? ALL_PERMISSIONS : membership.perms
     if (membership.ownerId !== userId) {
@@ -898,7 +896,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         perms &= ~(Permission.sendMessages | Permission.attachFiles)
       }
     }
-    return { workspaceId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }
+    return { serverId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }
   }
 
   private async loadDmParticipants(): Promise<PublicUser[]> {
@@ -1028,7 +1026,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return {
       id: row.id,
       channelId: row.channel_id,
-      workspaceId: (await getServerId(this.env.DB)),
+      serverId: (await getServerId(this.env.DB)),
       author: { id: row.uid, kind: row.kind, displayName: row.display_name, avatarR2Key: row.avatar_r2_key },
       content: row.deleted_at ? '' : row.content,
       replyTo: null,
@@ -1057,12 +1055,12 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async scheduleCleanup(delayMs: number) {
-    await this.ctx.storage.put('huddleCleanupAt', Date.now() + delayMs)
+    await this.ctx.storage.put('liveCleanupAt', Date.now() + delayMs)
     await this.refreshAlarm()
   }
 
   private async livePresence(): Promise<Record<string, number>> {
-    return await this.ctx.storage.get<Record<string, number>>('huddlePresence') ?? {}
+    return await this.ctx.storage.get<Record<string, number>>('livePresence') ?? {}
   }
 
   /** RealtimeKit participant records of everyone who joined and has not left. */
@@ -1079,14 +1077,14 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     live.participantIds = alive
     const aliveSet = new Set(alive)
     const remainingPresence = Object.fromEntries(Object.entries(presence).filter(([userId]) => aliveSet.has(userId)))
-    await this.ctx.storage.put('huddlePresence', remainingPresence)
+    await this.ctx.storage.put('livePresence', remainingPresence)
     await this.setLive(live)
     this.publishLive(live)
     if (!alive.length) await this.scheduleCleanup(liveGraceMs(live.kind, await this.isDirectMessage()))
   }
 
   private async refreshAlarm() {
-    const cleanupAt = await this.ctx.storage.get<number>('huddleCleanupAt')
+    const cleanupAt = await this.ctx.storage.get<number>('liveCleanupAt')
     const ringUntil = await this.ctx.storage.get<number>('liveRingUntil')
     const presence = Object.values(await this.livePresence())
     const presenceAt = presence.length ? Math.min(...presence) : undefined
@@ -1097,7 +1095,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async setLive(live: LiveState) {
-    await this.ctx.storage.put('huddle', live)
+    await this.ctx.storage.put('live', live)
   }
 
   private async isDirectMessage(): Promise<boolean> {

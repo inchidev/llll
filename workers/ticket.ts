@@ -21,7 +21,7 @@ export async function sessionFromTicket(env: L4Env, token: string): Promise<{ us
   await env.TICKETS.delete(`wsticket:${token}`)
   let session: SocketSession
   try {
-    session = ticket.startsWith('{') ? JSON.parse(ticket) : { userId: ticket }
+    session = JSON.parse(ticket)
     if (typeof session.userId !== 'string' || (session.sessionId !== undefined && typeof session.sessionId !== 'string')) return null
     if (!await socketSessionActive(env, session)) return null
     const user = await loadUser(env, session.userId)

@@ -7,7 +7,7 @@ import { hydrateMailMessages } from '../../server/utils/mail-data'
 import { messages } from '../../drizzle/schema'
 import { MAIL_LIMITS } from '../../shared/mail'
 import type { L4Env } from '../../workers/env'
-import { ingestWorkspaceEmail } from '../../workers/mail-ingress'
+import { ingestServerEmail } from '../../workers/mail-ingress'
 
 let sqlite: DatabaseSync
 let files: Map<string, unknown>
@@ -69,7 +69,7 @@ function email(input: { id: string; to: string; subject?: string; from?: string;
 }
 
 function receive(raw: string, to: string, rawSize?: number) {
-  return ingestWorkspaceEmail({ from: 'customer@example.net', to, raw: stream(raw), rawSize }, env)
+  return ingestServerEmail({ from: 'customer@example.net', to, raw: stream(raw), rawSize }, env)
 }
 
 function threadsIn(mailboxId: string) {
@@ -80,7 +80,6 @@ beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(INIT_SQL)
   sqlite.exec(`
-    INSERT INTO identity_keys (id, name, email, created_at, updated_at) VALUES ('owner', 'Owner', 'owner@example.com', 0, 0), ('mail-external', 'Email', 'mail@identity.llll.invalid', 0, 0);
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('member', 'member', 'Member', 0);
     INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'member', '2026-09-01T00:00:00.000Z'), ('mail-external', 'Email', 'removed', NULL, NULL);
     INSERT INTO channels (id, name, type, visibility) VALUES ('support', 'support', 'text', 'private'), ('sales', 'sales', 'text', 'private');
@@ -96,7 +95,7 @@ beforeEach(() => {
       put: vi.fn(async (key: string, value: unknown) => { files.set(key, value) }),
       delete: vi.fn(async (keys: string | string[]) => { for (const key of [keys].flat()) files.delete(key) }),
     },
-    WORKSPACE_DO: { getByName: () => ({ notifyMailChanged: async (event: { mailboxId: string; threadId: string | null }) => { notified.push(event) } }) },
+    SERVER_DO: { getByName: () => ({ notifyMailChanged: async (event: { mailboxId: string; threadId: string | null }) => { notified.push(event) } }) },
   } as unknown as L4Env
 })
 

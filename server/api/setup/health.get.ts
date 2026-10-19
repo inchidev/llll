@@ -1,14 +1,14 @@
 import { liveAvailable } from '../../../workers/realtimekit'
 import { ensureAdminFromEnv, readAdminEnv } from '../../utils/bootstrap'
 import { cf } from '../../utils/cf'
-import { ensureMigrated, userCount, workspaceReady } from '../../utils/db'
+import { ensureMigrated, userCount, serverReady } from '../../utils/db'
 import type { SetupHealth } from '../../../shared/types'
 import { readAppBranding } from '../../../shared/app-branding'
 import { maskedOwnerEmail, readOwnerSetupEnv } from '../../utils/owner-setup'
 import { version as packageVersion } from '../../../package.json'
 import { authMode } from '../../utils/cloudflare-access'
 import { agentBrowserConfigured, aiProvider } from '../../../workers/env'
-import { installationAiModel, installationCapabilities, UNAVAILABLE_CAPABILITIES } from '../../../workers/installation-capabilities'
+import { serverAiModel, serverCapabilities, UNAVAILABLE_CAPABILITIES } from '../../../workers/server-capabilities'
 
 export default defineEventHandler(async (event): Promise<SetupHealth> => {
   setHeader(event, 'Cache-Control', 'no-store')
@@ -28,7 +28,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
       adminEnv: false,
       ownerSetup: false,
       ownerEmailHint: null,
-      bindings: { db: false, r2: false, kv: false, channelDo: false, workspaceDo: false, rateLimitDo: false, notificationDo: false, agentDo: false, workersAi: false, browser: false },
+      bindings: { db: false, r2: false, kv: false, channelDo: false, serverDo: false, rateLimitDo: false, notificationDo: false, agentDo: false, workersAi: false, browser: false },
       aiProvider: null,
       aiModel: null,
       capabilities: UNAVAILABLE_CAPABILITIES,
@@ -43,7 +43,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     r2: Boolean(env.FILES),
     kv: Boolean(env.TICKETS),
     channelDo: Boolean(env.CHANNEL_DO),
-    workspaceDo: Boolean(env.WORKSPACE_DO),
+    serverDo: Boolean(env.SERVER_DO),
     rateLimitDo: Boolean(env.RATE_LIMIT_DO),
     notificationDo: Boolean(env.NOTIFICATION_DO),
     agentDo: Boolean(env.AGENT_DO),
@@ -65,11 +65,11 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     try {
       migrated = await ensureMigrated(env.DB, env)
       users = (await ensureAdminFromEnv(event)).users
-      ready = await workspaceReady(env.DB)
+      ready = await serverReady(env.DB)
     }
     catch {
       try {
-        ;[users, ready] = await Promise.all([userCount(env.DB), workspaceReady(env.DB)])
+        ;[users, ready] = await Promise.all([userCount(env.DB), serverReady(env.DB)])
       }
       catch {
         users = 0
@@ -92,8 +92,8 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     ownerEmailHint: ownerSetup && !ready ? maskedOwnerEmail(ownerSetup.email) : null,
     bindings,
     aiProvider: provider,
-    aiModel: installationAiModel(env),
-    capabilities: installationCapabilities(env),
+    aiModel: serverAiModel(env),
+    capabilities: serverCapabilities(env),
     realtimekit: await realtimekit,
     twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
     ...readAppBranding(env),

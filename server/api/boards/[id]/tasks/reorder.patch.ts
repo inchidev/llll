@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
   }).where(eq(tasks.id, id)))
   await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>])
   await writeAudit(env, {
-    workspaceId: (await getServerId(cf(event).env.DB)),
+    serverId: (await getServerId(cf(event).env.DB)),
     actorId: actor.user.id,
     action: 'task.move',
     targetType: 'task',

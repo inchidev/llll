@@ -50,7 +50,8 @@
     "site:typecheck": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit",
     "web:preview": "node scripts/web-deploy.mjs preview",
     "web:deploy": "node scripts/web-deploy.mjs production",
-    "test:server": "node scripts/test-server.mjs"
+    "test:server": "node scripts/test-server.mjs",
+    "model:check": "node scripts/check-server-model.mjs"
   },
   "cloudflare": {
     "bindings": {
@@ -114,9 +115,6 @@
       "REALTIMEKIT_APP_ID": {
         "description": "Optional RealtimeKit app ID."
       },
-      "REALTIMEKIT_API_KEY": {
-        "description": "Optional Cloudflare API token with Realtime permissions. Store this as a secret."
-      },
       "VAPID_SUBJECT": {
         "description": "Web Push contact URI, normally mailto:admin@example.com."
       },
@@ -130,10 +128,10 @@
         "description": "Email for the first owner account."
       },
       "SETUP_TOKEN": {
-        "description": "Optional private 32+ character claim used to create the first owner on the workspace domain."
+        "description": "Optional private 32+ character claim used to create the first owner on the server domain."
       },
       "AGENT_MODEL": {
-        "description": "Default Workers AI model for workspace agents. The included default is @cf/moonshotai/kimi-k2.7-code."
+        "description": "Default Workers AI model for server agents. The included default is @cf/moonshotai/kimi-k2.7-code."
       },
       "AI_BASE_URL": {
         "description": "OpenAI-compatible chat completions base URL, used when the AI binding is absent. Include /v1 when the server expects it."
@@ -176,6 +174,9 @@
       },
       "LLLL_RUNTIME": {
         "description": "Set to celld on non-Cloudflare Workers runtimes. Inbound mail then uses INBOUND_EMAIL_SECRET or a Postmark, Mailgun, or Amazon SES webhook. Calls, Workers AI, Browser Run, and outbound mail can use CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN. cloudflare or workers keeps Cloudflare-network features."
+      },
+      "REALTIMEKIT_API_TOKEN": {
+        "description": "Optional Cloudflare API token with Realtime permissions. Store this as a secret."
       }
     }
   },

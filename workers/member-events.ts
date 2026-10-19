@@ -1,11 +1,11 @@
-import type { WorkspaceMembersChangedEvent } from '../shared/workspace-realtime'
+import type { ServerMembersChangedEvent } from '../shared/server-realtime'
 import type { L4Env } from './env'
 import { asRpc } from './env'
 
-export async function signalMembersChanged(env: L4Env, workspaceId: string): Promise<void> {
-  const event: WorkspaceMembersChangedEvent = { t: 'members.changed', workspaceId }
+export async function signalMembersChanged(env: L4Env, serverId: string): Promise<void> {
+  const event: ServerMembersChangedEvent = { t: 'members.changed', serverId }
   const stub = asRpc<{
-    notifyMembersChanged: (event: WorkspaceMembersChangedEvent) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${workspaceId}`))
+    notifyMembersChanged: (event: ServerMembersChangedEvent) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${serverId}`))
   await stub.notifyMembersChanged(event)
 }

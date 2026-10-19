@@ -4,20 +4,20 @@ import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MemberDTO as M, 
 import { Permission } from '~~/shared/permissions'
 import { channelPath } from '~~/shared/paths'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const live = useLiveStore()
 const { api } = useApi()
 const nav = useNavActions()
 const warm = useMessagePrefetch()
 
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => api<{ members: M[] }>(`/api/workspaces/${props.workspaceId}/members`),
+  queryKey: computed(() => ['members', props.serverId]),
+  queryFn: () => api<{ members: M[] }>(`/api/servers/${props.serverId}/members`),
 })
 const { can } = usePermissions(computed(() => membersQ.data.value?.members))
 const channelsQ = useQuery({
-  queryKey: computed(() => ['channels', props.workspaceId]),
-  queryFn: () => api<{ categories: Category[]; channels: Ch[]; threads?: SidebarThreadDTO[] }>(`/api/workspaces/${props.workspaceId}/channels`),
+  queryKey: computed(() => ['channels', props.serverId]),
+  queryFn: () => api<{ categories: Category[]; channels: Ch[]; threads?: SidebarThreadDTO[] }>(`/api/servers/${props.serverId}/channels`),
 })
 
 const channels = computed(() => channelsQ.data.value?.channels ?? [])
@@ -169,7 +169,7 @@ watch(() => channelsQ.data.value?.channels, (list) => {
         </ul>
       </LayoutNavSection>
 
-      <LayoutDirectMessages :workspace-id="workspaceId" class="mt-3" />
+      <LayoutDirectMessages :server-id="serverId" class="mt-3" />
     </template>
   </div>
 </template>

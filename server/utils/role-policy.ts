@@ -6,10 +6,10 @@ import { fail } from './cf'
 
 type RoleRow = typeof roles.$inferSelect
 
-export function toRoleDto(role: RoleRow, workspaceId: string, memberCount = 0): RoleDTO {
+export function toRoleDto(role: RoleRow, serverId: string, memberCount = 0): RoleDTO {
   return {
     id: role.id,
-    workspaceId,
+    serverId,
     key: role.key,
     name: role.name,
     permissions: role.permissionsBitmask,

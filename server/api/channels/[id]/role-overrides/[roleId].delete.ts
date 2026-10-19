@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
     eq(channelRoleOverrides.roleId, roleId),
   ))
   await writeAudit(env, {
-    workspaceId: actor.workspaceId,
+    serverId: actor.serverId,
     actorId: actor.user.id,
     action: 'channel.permissions.reset',
     targetType: 'channel',

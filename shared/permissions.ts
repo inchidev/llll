@@ -1,5 +1,5 @@
 export const Permission = {
-  manageWorkspace: 1 << 0,
+  manageServer: 1 << 0,
   manageChannels: 1 << 1,
   manageRoles: 1 << 2,
   invite: 1 << 3,
@@ -16,7 +16,7 @@ export const Permission = {
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
 
 export const ALL_PERMISSIONS =
-  Permission.manageWorkspace
+  Permission.manageServer
   | Permission.manageChannels
   | Permission.manageRoles
   | Permission.invite
@@ -33,14 +33,14 @@ export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
 
 export const PermissionGrants = [
-  { key: 'manageWorkspace', flag: Permission.manageWorkspace, label: 'Manage workspace', description: 'Change workspace name and settings.' },
+  { key: 'manageServer', flag: Permission.manageServer, label: 'Manage server', description: 'Change server name and settings.' },
   { key: 'manageChannels', flag: Permission.manageChannels, label: 'Manage channels', description: 'Create, edit, and remove channels and categories.' },
   { key: 'manageRoles', flag: Permission.manageRoles, label: 'Manage roles', description: 'Create roles, change grants, and assign roles to members.' },
-  { key: 'invite', flag: Permission.invite, label: 'Create invites', description: 'Invite new members to the workspace.' },
+  { key: 'invite', flag: Permission.invite, label: 'Create invites', description: 'Invite new members to the server.' },
   { key: 'sendMessages', flag: Permission.sendMessages, label: 'Send messages', description: 'Post and reply in accessible channels.' },
   { key: 'attachFiles', flag: Permission.attachFiles, label: 'Attach files', description: 'Upload attachments to messages.' },
   { key: 'startLive', flag: Permission.startLive, label: 'Start live sessions', description: 'Start a live session or call in channels and direct messages they can access. Anyone with access can join.' },
-  { key: 'kick', flag: Permission.kick, label: 'Remove members', description: 'Remove members from the workspace.' },
+  { key: 'kick', flag: Permission.kick, label: 'Remove members', description: 'Remove members from the server.' },
   { key: 'manageTasks', flag: Permission.manageTasks, label: 'Manage tasks', description: 'Create, edit, assign, archive, and remove task boards and tasks.' },
   { key: 'manageDatabases', flag: Permission.manageDatabases, label: 'Manage data', description: 'Create databases, documents, canvases, fields, and records.' },
   { key: 'useGadgets', flag: Permission.useGadgets, label: 'Use apps', description: 'Open published internal tools shared with this role.' },

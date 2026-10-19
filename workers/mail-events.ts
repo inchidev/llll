@@ -1,5 +1,5 @@
 import { getServerId } from '../shared/server-id'
-import type { WorkspaceMailChangedEvent } from '../shared/workspace-realtime'
+import type { ServerMailChangedEvent } from '../shared/server-realtime'
 import type { L4Env } from './env'
 import { asRpc } from './env'
 
@@ -12,9 +12,9 @@ export async function signalMailChanged(env: L4Env, mailboxId: string, threadId:
   ).bind(mailboxId).all<{ userId: string }>()
   const recipientIds = (rows.results ?? []).map(row => row.userId)
   if (!recipientIds.length) return
-  const event: WorkspaceMailChangedEvent = { t: 'mail.changed', mailboxId, threadId }
+  const event: ServerMailChangedEvent = { t: 'mail.changed', mailboxId, threadId }
   const stub = asRpc<{
-    notifyMailChanged: (event: WorkspaceMailChangedEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
+    notifyMailChanged: (event: ServerMailChangedEvent, recipientIds: string[]) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
   await stub.notifyMailChanged(event, recipientIds)
 }

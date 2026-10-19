@@ -10,10 +10,10 @@ Deploy one Server on your Cloudflare account or VPS. Claim the owner, invite som
 - [Immutable releases](docs/releases.md)
 - [Product scope](docs/product.md)
 
-Server, Shell, Landing and Docs are the four product parts. `app`/`server` implement one autonomous Server; `apps/site` serves Landing, Shell, Docs and the Server installer. No Instance or master node is required. A Server's persistent UUIDv4 identifies it publicly and internally; bookmarked connections do not grant membership.
+Server, Shell, Landing and Docs are the four product parts. `app`/`server` implement one autonomous Server; `apps/site` serves Landing, Shell, Docs and the Server installer. A Server's persistent UUIDv4 identifies it publicly and internally; bookmarked connections do not grant membership.
 
 Run `pnpm install --frozen-lockfile`, `pnpm dev:full` for isolated local development, and `pnpm test:server` after `pnpm build:deployment` for the two-Server integration fixture. Use `pnpm build:site` and `node scripts/test-web.mjs --serve` to exercise the Shell alongside it.
 
 Application deployments run only in Cloudflare Workers Builds from Git. Feature PRs get isolated Previews; ordinary merges leave production unchanged. A merged release PR with a shared version increase publishes immutable artifacts and promotes the official site. Customer Server versions remain pinned under operator control. Never deploy application code from a developer machine.
 
-This is a fresh standalone-server release line. Archived prototype and Instance-bound databases are not upgrade targets. Merged migration SQL and published assets are immutable.
+The Server schema starts at `drizzle/server-migrations/0000_server_baseline.sql` (`server-v1`). Use a fresh database; this line has no upgrade path from earlier schemas. Git history and published releases remain unchanged.

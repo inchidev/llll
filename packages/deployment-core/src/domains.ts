@@ -67,12 +67,10 @@ function emailDomains(bindings: ExistingWorkerBinding[]): ManagedEmailDomain[] {
       }
     }
     catch {
-      // Fall through to legacy bindings.
+      // Invalid metadata does not enable a domain.
     }
   }
-  const domain = textBinding(bindings, 'MAIL_DOMAIN')
-  const zoneId = textBinding(bindings, 'MAIL_ZONE_ID')
-  return domain && zoneId ? [{ id: 'main', zoneId, domain }] : []
+  return []
 }
 
 async function workerBindings(client: Cloudflare, accountId: string, workerName: string) {
@@ -223,13 +221,10 @@ export async function connectEmailDomain(
     ...(routingBody ? { body: routingBody } : {}),
   })
   const sending = await ensureEmailSendingDomain(accessToken, zone, domain)
-  const first = configured[0]!
   const appHostname = textBinding(bindings, 'LLLL_APP_HOSTNAME')
   await editBindings(accessToken, client, accountId, workerName, [
     { type: 'send_email', name: 'MAIL_EMAIL' },
     { type: 'plain_text', name: 'LLLL_EMAIL_DOMAINS', text: JSON.stringify(configured) },
-    { type: 'plain_text', name: 'MAIL_DOMAIN', text: first.domain },
-    { type: 'plain_text', name: 'MAIL_ZONE_ID', text: first.zoneId },
     { type: 'plain_text', name: 'MAIL_APP_HOSTNAME', text: appHostname },
   ])
   return { ...managed, sendingSubdomainId: sending.createdSubdomainId, sendingEnabled: sending.enabled }
@@ -254,12 +249,10 @@ export async function disconnectEmailDomain(
   if (remaining.length) {
     replacements.push(
       { type: 'send_email', name: 'MAIL_EMAIL' },
-      { type: 'plain_text', name: 'MAIL_DOMAIN', text: remaining[0]!.domain },
-      { type: 'plain_text', name: 'MAIL_ZONE_ID', text: remaining[0]!.zoneId },
     )
   }
   else {
-    removals.push('MAIL_EMAIL', 'MAIL_DOMAIN', 'MAIL_ZONE_ID', 'MAIL_APP_HOSTNAME')
+    removals.push('MAIL_EMAIL', 'MAIL_APP_HOSTNAME')
   }
   await editBindings(accessToken, client, accountId, workerName, replacements, removals)
   return remaining

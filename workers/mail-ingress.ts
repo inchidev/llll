@@ -11,7 +11,7 @@ type MailboxRow = {
   address: string
 }
 
-export type WorkspaceEmailEnvelope = {
+export type ServerEmailEnvelope = {
   from: string
   to: string
   raw: ReadableStream<Uint8Array>
@@ -19,7 +19,7 @@ export type WorkspaceEmailEnvelope = {
   rawSize?: number
 }
 
-export type WorkspaceEmailIngressResult =
+export type ServerEmailIngressResult =
   | { accepted: true }
   | { accepted: false, reason: string }
 
@@ -90,7 +90,7 @@ async function readRaw(stream: ReadableStream<Uint8Array>, limit: number): Promi
  * `client_request_id`, so a replay does not add a second copy. That digest is
  * not written as a Message-ID.
  */
-export async function ingestWorkspaceEmail(message: WorkspaceEmailEnvelope, env: L4Env): Promise<WorkspaceEmailIngressResult> {
+export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env): Promise<ServerEmailIngressResult> {
   const recipient = message.to.trim().toLowerCase()
   const mailbox = await env.DB.prepare(
     `SELECT mb.channel_id as channelId, lower(mb.local_part || '@' || d.domain) as address
@@ -255,7 +255,7 @@ export async function ingestWorkspaceEmail(message: WorkspaceEmailEnvelope, env:
   return { accepted: true }
 }
 
-export async function receiveWorkspaceEmail(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
-  const result = await ingestWorkspaceEmail({ from: message.from, to: message.to, raw: message.raw, rawSize: message.rawSize }, env)
+export async function receiveServerEmail(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
+  const result = await ingestServerEmail({ from: message.from, to: message.to, raw: message.raw, rawSize: message.rawSize }, env)
   if (!result.accepted) message.setReject(result.reason)
 }

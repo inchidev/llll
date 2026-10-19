@@ -28,7 +28,7 @@ const missing = computed(() => {
   if (bindings && !bindings.db) out.push('database')
   if (bindings && !bindings.kv) out.push('tickets')
   if (bindings && !bindings.channelDo) out.push('channel')
-  if (bindings && !bindings.workspaceDo) out.push('workspace')
+  if (bindings && !bindings.serverDo) out.push('server')
   if (bindings && !bindings.rateLimitDo) out.push('rate limit')
   if (bindings && !bindings.notificationDo) out.push('notifications')
   if (health.value && !health.value.migrated) out.push('migrations')
@@ -95,7 +95,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
     <div v-if="!health" class="mt-6 flex items-center gap-3 text-muted">
       <UIcon name="i-ph-spinner-gap" class="size-5 animate-spin" />
-      Checking workspace
+      Checking server
     </div>
 
     <UAlert

@@ -130,26 +130,9 @@ describe('RealtimeKit settings', () => {
     expect(realtimekitConfigured(config)).toBe(true)
   })
 
-  it('still reads the pre-Live deployment variable names', async () => {
-    const env = {
-      DB: { prepare: () => { throw new Error('D1 should not be read') } },
-      REALTIMEKIT_ACCOUNT_ID: 'account',
-      REALTIMEKIT_APP_ID: 'app',
-      REALTIMEKIT_API_KEY: 'token',
-      REALTIMEKIT_PRESET_AV: 'group-call',
-    } as unknown as L4Env
-
-    // Installs deployed before the split name one preset; everyone keeps sharing it.
-    await expect(loadRealtimeKitConfig(env)).resolves.toMatchObject({
-      apiToken: 'token',
-      hostPreset: 'group-call',
-      participantPreset: 'group-call',
-    })
-  })
-
   it('decrypts owner-connected credentials from D1', async () => {
-    const installationSecret = 'a sufficiently long installation secret'
-    const encrypted = await encryptSecret(installationSecret, REALTIMEKIT_SECRET_SCOPE, 'cloudflare-token')
+    const serverSecret = 'a sufficiently long server secret'
+    const encrypted = await encryptSecret(serverSecret, REALTIMEKIT_SECRET_SCOPE, 'cloudflare-token')
     const config = await loadRealtimeKitConfig(envWithRow({
       account_id: 'account',
       app_id: 'app',
@@ -158,7 +141,7 @@ describe('RealtimeKit settings', () => {
       api_token_version: encrypted.version,
       host_preset: LLLL_HOST_PRESET,
       participant_preset: LLLL_PARTICIPANT_PRESET,
-    }, { AUTH_SECRET: installationSecret }))
+    }, { AUTH_SECRET: serverSecret }))
 
     expect(config.apiToken).toBe('cloudflare-token')
     expect(config.source).toBe('database')
@@ -183,7 +166,7 @@ describe('RealtimeKit settings', () => {
   })
 
   it('reports an unreadable saved token after AUTH_SECRET changes', async () => {
-    const encrypted = await encryptSecret('original installation secret', REALTIMEKIT_SECRET_SCOPE, 'cloudflare-token')
+    const encrypted = await encryptSecret('original server secret', REALTIMEKIT_SECRET_SCOPE, 'cloudflare-token')
     const config = await loadRealtimeKitConfig(envWithRow({
       account_id: 'account',
       app_id: 'app',
@@ -192,7 +175,7 @@ describe('RealtimeKit settings', () => {
       api_token_version: encrypted.version,
       host_preset: LLLL_HOST_PRESET,
       participant_preset: LLLL_PARTICIPANT_PRESET,
-    }, { AUTH_SECRET: 'rotated installation secret' }))
+    }, { AUTH_SECRET: 'rotated server secret' }))
 
     expect(config.apiTokenConfigured).toBe(true)
     expect(config.secretReadable).toBe(false)
@@ -244,7 +227,7 @@ describe('connecting Live with one token', () => {
     return calls
   }
 
-  it('creates the installation app and both presets in the only account', async () => {
+  it('creates the server app and both presets in the only account', async () => {
     const calls = route({
       'GET /accounts?per_page=50': () => json([{ id: 'acct', name: 'Team' }]),
       'GET /accounts/acct/realtime/kit/apps': () => new Response(JSON.stringify({ success: true, data: [] })),

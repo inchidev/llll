@@ -6,7 +6,7 @@ import { nowIso } from '../../../../shared/ids'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
-import { fanoutDm, loadParticipants, requireWorkspaceUser, toDmDto } from '../../../utils/dms'
+import { fanoutDm, loadParticipants, requireServerUser, toDmDto } from '../../../utils/dms'
 import { parseBody } from '../../../utils/validate'
 
 const bodySchema = z.object({
@@ -20,8 +20,8 @@ export default defineEventHandler(async (event) => {
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const inWorkspace = await requireWorkspaceUser(env, body.userId)
-  if (!inWorkspace) fail(403, 'forbidden', 'User is not in this workspace')
+  const inServer = await requireServerUser(env, body.userId)
+  if (!inServer) fail(403, 'forbidden', 'User is not in this server')
 
   const existing = (await db.select().from(channelMembers).where(and(eq(channelMembers.channelId, id), eq(channelMembers.userId, body.userId))).limit(1))[0]
   if (!existing) {

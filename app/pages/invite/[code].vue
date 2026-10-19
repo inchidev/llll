@@ -39,7 +39,7 @@ async function accept() {
   }
   busy.value = true
   try {
-    const res = await $fetch<{ workspaceId: string; channelId: string | null }>(`/api/invites/${code.value}/accept`, { method: 'POST' })
+    const res = await $fetch<{ serverId: string; channelId: string | null }>(`/api/invites/${code.value}/accept`, { method: 'POST' })
     await navigateTo(res.channelId ? channelPath(res.channelId) : '/channels')
   }
   catch (err) {
@@ -58,7 +58,7 @@ async function accept() {
     <USkeleton v-if="loading" class="mt-4 h-12 w-full" />
     <template v-else>
       <p v-if="invite" class="mt-1.5 text-sm text-muted">
-        Invite to <span class="text-default font-medium">{{ invite.workspaceName }}</span>.
+        Invite to <span class="text-default font-medium">{{ invite.serverName }}</span>.
       </p>
       <UAlert v-else-if="error" color="error" variant="subtle" :title="error" class="mt-6" />
       <UButton

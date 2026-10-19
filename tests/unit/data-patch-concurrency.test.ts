@@ -13,7 +13,7 @@ const context = vi.hoisted(() => ({
 vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({
   user: { id: 'owner' },
   authorization: {
-    workspaceId: 'main',
+    serverId: 'main',
     principal: { id: 'owner', kind: 'human', roleId: 'role', roleName: 'Owner', permissions: 1023, isOwner: true },
     credential: { kind: 'session' },
   },
@@ -53,7 +53,6 @@ beforeEach(() => {
   context.sqlite.exec(INIT_SQL)
   context.sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('role', 'owner', 'Owner', 1023);
-    INSERT INTO identity_keys (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com');
     INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'role', CURRENT_TIMESTAMP);
     INSERT INTO documents (id, title, content, created_by) VALUES ('doc', 'Document', 'Initial', 'owner');
     INSERT INTO canvases (id, title, created_by) VALUES ('canvas', 'Initial', 'owner');

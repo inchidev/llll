@@ -46,6 +46,6 @@ export default defineEventHandler(async (event) => {
   if (body.position !== undefined) { assignments.push('position = ?'); values.push(body.position) }
   if (body.options !== undefined) { assignments.push('config_json = ?'); values.push(JSON.stringify({ options })) }
   await env.DB.prepare(`UPDATE database_fields SET ${assignments.join(', ')} WHERE id = ?`).bind(...values, id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.update', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, fields: Object.keys(body) } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.update', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, fields: Object.keys(body) } })
   return { field: databaseFieldDto(await requireDatabaseField(env, id)) }
 })

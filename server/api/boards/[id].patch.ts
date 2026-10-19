@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
   if (body.position !== undefined) patch.position = body.position
   if (body.archived !== undefined) patch.archivedAt = body.archived ? nowIso() : null
   await getDb(env.DB).update(taskBoards).set(patch).where(eq(taskBoards.id, id))
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: body.archived === true ? 'board.archive' : body.archived === false ? 'board.restore' : 'board.update', targetType: 'task_board', targetId: id, meta: { fields: Object.keys(body) } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: body.archived === true ? 'board.archive' : body.archived === false ? 'board.restore' : 'board.update', targetType: 'task_board', targetId: id, meta: { fields: Object.keys(body) } })
   waitUntil(signalTasksChanged(env, id))
   const board = await requireBoard(env, id)
   if (!board) fail(404, 'not_found', 'Board not found')

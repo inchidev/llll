@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   if (body.archived !== undefined) { assignments.push('archived_at = ?'); values.push(body.archived ? nowIso() : null) }
   await env.DB.prepare(`UPDATE database_definitions SET ${assignments.join(', ')} WHERE id = ?`).bind(...values, id).run()
   await writeAudit(env, {
-    workspaceId: (await getServerId(cf(event).env.DB)),
+    serverId: (await getServerId(cf(event).env.DB)),
     actorId: actor.user.id,
     action: body.archived === true ? 'database.archive' : body.archived === false ? 'database.restore' : 'database.update',
     targetType: 'database',

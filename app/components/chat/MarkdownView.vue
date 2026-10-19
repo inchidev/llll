@@ -17,7 +17,7 @@ function reveal(target: Element) {
   return true
 }
 
-// Links to this installation (such as copied message links) stay in the app.
+// Links to this server (such as copied message links) stay in the app.
 function onClick(event: MouseEvent) {
   const target = event.target as Element | null
   if (!target) return

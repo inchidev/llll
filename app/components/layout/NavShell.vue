@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DropdownMenuItem } from '@nuxt/ui'
-import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, WorkspaceDTO as W, MemberDTO as M } from '~~/shared/types'
+import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, ServerDTO as W, MemberDTO as M } from '~~/shared/types'
 import { Permission } from '~~/shared/permissions'
 import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
 
 type Mode = 'chat' | 'tasks' | 'mail' | 'databases' | 'gadgets'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const qc = useQueryClient()
 const toast = useToast()
@@ -20,18 +20,18 @@ const { copy } = useClipboard()
 const { api, serverUrl } = useApi()
 
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => api<{ members: M[] }>(`/api/workspaces/${props.workspaceId}/members`),
+  queryKey: computed(() => ['members', props.serverId]),
+  queryFn: () => api<{ members: M[] }>(`/api/servers/${props.serverId}/members`),
 })
 const { can } = usePermissions(computed(() => membersQ.data.value?.members))
 
-const workspaceQ = useQuery({
-  queryKey: computed(() => ['workspace', props.workspaceId]),
-  queryFn: () => api<{ workspace: W }>(`/api/workspaces/${props.workspaceId}`),
+const serverQ = useQuery({
+  queryKey: computed(() => ['server', props.serverId]),
+  queryFn: () => api<{ server: W }>(`/api/servers/${props.serverId}`),
 })
 const channelsQ = useQuery({
-  queryKey: computed(() => ['channels', props.workspaceId]),
-  queryFn: () => api<{ categories: Category[]; channels: Ch[] }>(`/api/workspaces/${props.workspaceId}/channels`),
+  queryKey: computed(() => ['channels', props.serverId]),
+  queryFn: () => api<{ categories: Category[]; channels: Ch[] }>(`/api/servers/${props.serverId}/channels`),
 })
 const dmsQ = useQuery({
   queryKey: ['dms'],
@@ -42,9 +42,9 @@ const mailboxesQ = useQuery({
   queryFn: () => api<{ mailboxes: MailboxDTO[] }>('/api/mail/mailboxes'),
   refetchInterval: 15_000,
 })
-const workspacesQ = useQuery({
-  queryKey: ['workspaces'],
-  queryFn: () => api<{ workspaces: W[] }>('/api/workspaces'),
+const serversQ = useQuery({
+  queryKey: ['servers'],
+  queryFn: () => api<{ servers: W[] }>('/api/servers'),
 })
 
 const channels = computed(() => channelsQ.data.value?.channels ?? [])
@@ -73,7 +73,7 @@ const mailUnread = computed(() => mailboxes.value.some(mailbox => mailbox.unread
 
 const chatTarget = computed(() => {
   const last = ui.last()
-  return last?.workspaceId === props.workspaceId ? channelPath(last.channelId) : '/channels'
+  return last?.serverId === props.serverId ? channelPath(last.channelId) : '/channels'
 })
 
 const mailTarget = computed(() => {
@@ -121,15 +121,15 @@ const categoryOptions = computed(() => [
   { label: 'Uncategorized', value: null },
   ...categories.value.map(category => ({ label: category.name, value: category.id })),
 ])
-const workspaceName = computed(() => workspaceQ.data.value?.workspace.name || '')
-const workspaceIconUrl = computed(() => {
-  const workspace = workspaceQ.data.value?.workspace
-  if (!workspace?.iconR2Key) return undefined
-  return serverUrl(`/api/workspaces/${props.workspaceId}/icon?v=${encodeURIComponent(workspace.updatedAt)}`)
+const serverName = computed(() => serverQ.data.value?.server.name || '')
+const serverIconUrl = computed(() => {
+  const server = serverQ.data.value?.server
+  if (!server?.iconR2Key) return undefined
+  return serverUrl(`/api/servers/${props.serverId}/icon?v=${encodeURIComponent(server.updatedAt)}`)
 })
-const otherWorkspaces = computed(() => (workspacesQ.data.value?.workspaces ?? []).filter(item => item.id !== props.workspaceId))
-const canOpenWorkspaceSettings = computed(() => [
-  Permission.manageWorkspace,
+const otherServers = computed(() => (serversQ.data.value?.servers ?? []).filter(item => item.id !== props.serverId))
+const canOpenServerSettings = computed(() => [
+  Permission.manageServer,
   Permission.manageChannels,
   Permission.manageRoles,
   Permission.invite,
@@ -147,10 +147,10 @@ const serverItems = computed<DropdownMenuItem[][]>(() => {
       { label: 'Create Category', icon: 'i-ph-folder-plus', onSelect: () => { nav.createCategoryOpen.value = true } },
     )
   }
-  if (canOpenWorkspaceSettings.value) {
-    manage.push({ label: 'Server settings', icon: 'i-ph-gear', onSelect: () => { nextTick(() => { nav.workspaceSettingsOpen.value = true }) } })
+  if (canOpenServerSettings.value) {
+    manage.push({ label: 'Server settings', icon: 'i-ph-gear', onSelect: () => { nextTick(() => { nav.serverSettingsOpen.value = true }) } })
   }
-  const switcher: DropdownMenuItem[] = otherWorkspaces.value.map(item => ({
+  const switcher: DropdownMenuItem[] = otherServers.value.map(item => ({
     label: item.name,
     icon: 'i-ph-hard-drives',
     to: '/channels',
@@ -162,17 +162,17 @@ async function createChannel() {
   if (!newName.value.trim()) return
   creating.value = true
   try {
-    const res = await api<{ channel: Ch }>(`/api/workspaces/${props.workspaceId}/channels`, {
+    const res = await api<{ channel: Ch }>(`/api/servers/${props.serverId}/channels`, {
       method: 'POST',
       body: {
         name: newName.value.trim().toLowerCase().replace(/\s+/g, '-'),
         type: 'text',
-        visibility: newPrivate.value ? 'private' : 'workspace',
+        visibility: newPrivate.value ? 'private' : 'server',
         categoryId: nav.createChannelCategoryId.value,
         memberIds: newPrivate.value ? newMemberIds.value : undefined,
       },
     })
-    await qc.invalidateQueries({ queryKey: ['channels', props.workspaceId] })
+    await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
     nav.createChannelOpen.value = false
     newName.value = ''
     newPrivate.value = false
@@ -189,11 +189,11 @@ async function createCategory() {
   if (!name) return
   creatingCategory.value = true
   try {
-    const res = await api<{ category: Category }>(`/api/workspaces/${props.workspaceId}/categories`, {
+    const res = await api<{ category: Category }>(`/api/servers/${props.serverId}/categories`, {
       method: 'POST',
       body: { name },
     })
-    await qc.invalidateQueries({ queryKey: ['channels', props.workspaceId] })
+    await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
     newCategoryName.value = ''
     nav.createCategoryOpen.value = false
     nav.openCreateChannel(res.category.id)
@@ -206,7 +206,7 @@ async function createCategory() {
 async function makeInvite() {
   inviting.value = true
   try {
-    const res = await api<{ invite: { code: string; url: string } }>(`/api/workspaces/${props.workspaceId}/invites`, { method: 'POST', body: {} })
+    const res = await api<{ invite: { code: string; url: string } }>(`/api/servers/${props.serverId}/invites`, { method: 'POST', body: {} })
     inviteUrl.value = serverUrl(res.invite.url)
   }
   catch (err) {
@@ -238,11 +238,11 @@ watch(nav.inviteOpen, (open) => {
       <button
         type="button"
         class="flex h-12 w-full shrink-0 items-center gap-1.5 px-3 shadow-[0_1px_0_var(--ui-border)] hover:bg-elevated/70"
-        :aria-label="workspaceName || 'Server menu'"
+        :aria-label="serverName || 'Server menu'"
       >
-        <UAvatar v-if="workspaceIconUrl" size="sm" :src="workspaceIconUrl" :alt="workspaceName" class="rounded-md" />
-        <BrandLogo v-else size="lg" :alt="workspaceName" class="rounded-md" />
-        <span v-if="workspaceName" class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-highlighted">{{ workspaceName }}</span>
+        <UAvatar v-if="serverIconUrl" size="sm" :src="serverIconUrl" :alt="serverName" class="rounded-md" />
+        <BrandLogo v-else size="lg" :alt="serverName" class="rounded-md" />
+        <span v-if="serverName" class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-highlighted">{{ serverName }}</span>
         <span v-else class="min-w-0 flex-1"><USkeleton class="h-3.5 w-24" /></span>
         <UIcon name="i-ph-caret-down" class="size-4 shrink-0 text-muted" />
       </button>
@@ -280,10 +280,10 @@ watch(nav.inviteOpen, (open) => {
     </nav>
 
     <div class="flex-1 overflow-y-auto pb-2">
-      <LayoutChatNav v-if="mode === 'chat'" :workspace-id="workspaceId" />
-      <LayoutTasksNav v-else-if="mode === 'tasks'" :workspace-id="workspaceId" />
-      <LayoutDatabasesNav v-else-if="mode === 'databases'" :workspace-id="workspaceId" />
-      <LayoutGadgetsNav v-else-if="mode === 'gadgets'" :workspace-id="workspaceId" />
+      <LayoutChatNav v-if="mode === 'chat'" :server-id="serverId" />
+      <LayoutTasksNav v-else-if="mode === 'tasks'" :server-id="serverId" />
+      <LayoutDatabasesNav v-else-if="mode === 'databases'" :server-id="serverId" />
+      <LayoutGadgetsNav v-else-if="mode === 'gadgets'" :server-id="serverId" />
       <LayoutMailNav v-else />
     </div>
 
@@ -300,7 +300,7 @@ watch(nav.inviteOpen, (open) => {
       <p class="truncate text-[11px] text-muted">{{ live.currentTitle || 'Live' }}</p>
     </button>
     <LayoutUserPanel />
-    <SettingsWorkspaceSettings v-if="canOpenWorkspaceSettings" v-model:open="nav.workspaceSettingsOpen.value" v-model:section="nav.workspaceSettingsSection.value" :workspace-id="workspaceId" />
+    <SettingsServerSettings v-if="canOpenServerSettings" v-model:open="nav.serverSettingsOpen.value" v-model:section="nav.serverSettingsSection.value" :server-id="serverId" />
 
     <UModal v-model:open="nav.createChannelOpen.value" title="Create Channel">
       <template #body>

@@ -5,7 +5,6 @@ import { createError } from './errors.js'
 import { durableObjectMigrations } from './migrations.js'
 import { randomBase64Url } from './random.js'
 import { ensureCloudflareAccess, ensureWorkersHostname } from './access.js'
-import { ensurePrimaryMail } from './primary-mail.js'
 
 export type ExistingWorkerBinding = {
   name: string
@@ -33,7 +32,6 @@ type ExistingWorker = {
   accessAudience?: string
   accessApplicationId?: string
   accessHealthApplicationId?: string
-  primary?: boolean
   lifecycleBindingNames?: string[]
   bindings?: ExistingWorkerBinding[]
 }
@@ -88,8 +86,8 @@ async function readDeploymentHealth(origin: string): Promise<DeploymentHealth | 
   }
 }
 
-export const installerMarker = 'llll.gg/v1'
-const bootstrapMarker = 'llll.gg/bootstrap/v1'
+export const installerMarker = 'llll.gg/server-v1'
+const bootstrapMarker = 'llll.gg/bootstrap/server-v1'
 
 /** Domain and mail routes already belong to a discovered server and are not part of a version upgrade. */
 export function requiresInitialInfrastructureProvisioning(existing: boolean): boolean {
@@ -117,10 +115,6 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
     }
     const text = (name: string) => bindings.find(binding => binding.name === name && binding.type === 'plain_text')?.text
     const lifecycleBindingNames = [
-      'LLLL_ADMIN',
-      'LLLL_CONTROL_ID',
-      'LLLL_CONTROL_ENDPOINT',
-      'LLLL_CONTROL_TOKEN',
       'LLLL_EMAIL_DOMAINS',
       'LLLL_APP_ZONE_ID',
       'LLLL_APP_ZONE_NAME',
@@ -128,8 +122,8 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
     return {
       exists: true,
       migrationTag: worker.migration_tag,
-      mailZoneId: text('MAIL_ZONE_ID'),
-      mailDomain: text('MAIL_DOMAIN'),
+      mailZoneId: JSON.parse(text('LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId,
+      mailDomain: JSON.parse(text('LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain,
       appHostname: text('LLLL_APP_HOSTNAME') || text('MAIL_APP_HOSTNAME'),
       customDomainEnabled: text('LLLL_CUSTOM_DOMAIN') === 'true',
       databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id,
@@ -140,24 +134,11 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
       accessAudience: text('CF_ACCESS_AUD'),
       accessApplicationId: text('CF_ACCESS_APP_ID'),
       accessHealthApplicationId: text('CF_ACCESS_HEALTH_APP_ID'),
-      primary: text('LLLL_PRIMARY') === 'true',
       lifecycleBindingNames,
       bindings,
     }
   }
   return { exists: false }
-}
-
-async function primaryWorker(client: Cloudflare, accountId: string): Promise<string | null> {
-  for await (const worker of client.workers.scripts.list({ account_id: accountId })) {
-    if (!worker.id) continue
-    const settings = await client.workers.scripts.scriptAndVersionSettings.get(worker.id, { account_id: accountId })
-    const bindings = settings.bindings as ExistingWorkerBinding[] || []
-    const marker = bindings.find(binding => binding.name === 'LLLL_SERVER_MARKER')
-    const primary = bindings.find(binding => binding.name === 'LLLL_PRIMARY')
-    if (marker?.type === 'plain_text' && marker.text === installerMarker && primary?.text === 'true') return worker.id
-  }
-  return null
 }
 
 export async function ensureD1(client: Cloudflare, accountId: string, name: string) {
@@ -187,7 +168,7 @@ async function ensureKv(client: Cloudflare, accountId: string, title: string) {
   return (await client.kv.namespaces.create({ account_id: accountId, title })).id
 }
 
-export async function provisionWorkspaceStorage(client: Cloudflare, request: Pick<DeployRequest, 'accountId' | 'workerName' | 'filesEnabled'>, existing: Pick<ExistingWorker, 'exists' | 'databaseId' | 'bucketName' | 'kvId'>) {
+export async function provisionServerStorage(client: Cloudflare, request: Pick<DeployRequest, 'accountId' | 'workerName' | 'filesEnabled'>, existing: Pick<ExistingWorker, 'exists' | 'databaseId' | 'bucketName' | 'kvId'>) {
   const [databaseId, bucketName, kvId] = existing.exists
     ? [existing.databaseId, existing.bucketName, existing.kvId]
     : await Promise.all([
@@ -269,14 +250,14 @@ async function attachAppDomain(accessToken: string, request: DeployRequest) {
   })
 }
 
-async function attachMailCatchAll(accessToken: string, request: DeployRequest, primaryWorkerName: string) {
+async function attachMailCatchAll(accessToken: string, request: DeployRequest, workerName: string) {
   await cloudflareApi(accessToken, `/zones/${request.zoneId}/email/routing/rules/catch_all`, {
     method: 'PUT',
     body: JSON.stringify({
-      name: `L4 primary workspace mail for ${request.zoneName}`,
+      name: `L4 Server mail for ${request.zoneName}`,
       enabled: true,
       matchers: [{ type: 'all' }],
-      actions: [{ type: 'worker', value: [primaryWorkerName] }],
+      actions: [{ type: 'worker', value: [workerName] }],
     }),
   })
 }
@@ -388,7 +369,6 @@ async function uploadWorker(
   existing: ExistingWorker,
   ownerSetupToken: string | null,
   access: { issuer: string, audience: string, applicationId: string, healthApplicationId: string } | null,
-  primary: boolean,
 ) {
   if (request.backupBucketName) {
     if (request.backupBucketName === resources.bucketName) throw createError({ statusCode: 400, statusMessage: 'Backup bucket must be separate from live files' })
@@ -403,7 +383,7 @@ async function uploadWorker(
     { type: 'assets', name: 'ASSETS' },
     { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: resources.origin },
     { type: 'plain_text', name: 'APP_NAME', text: request.appName },
-    { type: 'plain_text', name: 'APP_TITLE', text: 'One workspace for humans and agents.' },
+    { type: 'plain_text', name: 'APP_TITLE', text: 'One server for humans and agents.' },
     { type: 'plain_text', name: 'APP_SUBTITLE', text: 'Built on your Cloudflare stack.' },
     { type: 'plain_text', name: 'AUTH_REGISTRATION_MODE', text: request.registrationMode },
     { type: 'plain_text', name: 'AUTH_MODE', text: request.authMode },
@@ -425,7 +405,6 @@ async function uploadWorker(
       { type: 'plain_text', name: 'LLLL_APP_SUBDOMAIN', text: request.appSubdomain },
     )
   }
-  if (primary) bindings.push({ type: 'plain_text', name: 'LLLL_PRIMARY', text: 'true' })
   if (access) {
     bindings.push(
       { type: 'plain_text', name: 'CF_ACCESS_ISS', text: access.issuer },
@@ -437,9 +416,7 @@ async function uploadWorker(
   if (request.mailEnabled) {
     bindings.push(
       { type: 'send_email', name: 'MAIL_EMAIL' },
-      { type: 'plain_text', name: 'LLLL_MAIL_ROUTES', text: '[]' },
-      { type: 'plain_text', name: 'MAIL_DOMAIN', text: mailDomain(request) },
-      { type: 'plain_text', name: 'MAIL_ZONE_ID', text: request.zoneId },
+      { type: 'plain_text', name: 'LLLL_EMAIL_DOMAINS', text: JSON.stringify([{ id: crypto.randomUUID(), domain: mailDomain(request), zoneId: request.zoneId }]) },
       { type: 'plain_text', name: 'MAIL_APP_HOSTNAME', text: hostname },
       { type: 'plain_text', name: 'MAIL_DEFAULT_LOCAL_PART', text: request.mailLocalPart },
     )
@@ -453,17 +430,15 @@ async function uploadWorker(
   }
 
   const definedBindings = new Set(bindings.map(binding => String(binding.name)))
-  const dropped = new Set(RETIRED_BINDING_NAMES)
   for (const name of existing.lifecycleBindingNames || []) {
-    if (!definedBindings.has(name) && !dropped.has(name)) bindings.push({ type: 'inherit', name })
+    if (!definedBindings.has(name)) bindings.push({ type: 'inherit', name })
   }
 
   const migrations = durableObjectMigrations(manifest, existing)
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
     compatibility_date: manifest.compatibilityDate,
-    // Installed Servers validate socket sessions against their Instance over HTTP.
-    // Older immutable release manifests omit this required runtime flag.
+    // Every Server validates socket sessions against its own local database.
     compatibility_flags: [...new Set([...manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
     bindings,
     assets: { jwt: resources.assetsJwt, config: { html_handling: 'none' } },
@@ -486,9 +461,6 @@ async function uploadWorker(
   )
 }
 
-/** Removed from updates so installations never call the retired public control plane. */
-export const RETIRED_BINDING_NAMES = ['LLLL_ADMIN', 'LLLL_CONTROL_ID', 'LLLL_CONTROL_ENDPOINT', 'LLLL_CONTROL_TOKEN', 'LLLL_TELEMETRY_ID', 'LLLL_TELEMETRY_ENDPOINT', 'LLLL_TELEMETRY_TOKEN']
-
 export function updateWorkerBindings(
   current: ExistingWorkerBinding[],
   manifest: InstallerReleaseManifest,
@@ -498,7 +470,6 @@ export function updateWorkerBindings(
     'ASSETS',
     'LLLL_VERSION',
     ...durable.keys(),
-    ...RETIRED_BINDING_NAMES,
   ])
   const bindings: Array<Record<string, unknown>> = current
     .filter(binding => binding.name && !replaced.has(binding.name))
@@ -624,7 +595,7 @@ export async function verifyDeployment(
   }
   throw createError({
     statusCode: 502,
-    statusMessage: `L4 ${version} was deployed, but workspace health verification did not complete${lastFailure ? `: ${lastFailure}` : lastStatus ? ` (HTTP ${lastStatus})` : ''}`,
+    statusMessage: `L4 ${version} was deployed, but server health verification did not complete${lastFailure ? `: ${lastFailure}` : lastStatus ? ` (HTTP ${lastStatus})` : ''}`,
   })
 }
 
@@ -640,22 +611,14 @@ export async function deployL4(
     await report?.({ type: 'progress', step, state, detail })
   }
 
-  await progress('installation', 'active')
-  if (request.mailEnabled && !release.manifest.capabilities?.includes('primary-workspace-mail-v1')) {
-    throw createError({ statusCode: 409, statusMessage: `L4 ${release.manifest.version} does not support primary workspace mail` })
+  await progress('server', 'active')
+  if (request.mailEnabled && !release.manifest.capabilities?.includes('server-mail-v1')) {
+    throw createError({ statusCode: 409, statusMessage: `L4 ${release.manifest.version} does not support Server mail` })
   }
   if (request.filesEnabled === false && !release.manifest.capabilities?.includes('optional-r2')) {
     throw createError({ statusCode: 409, statusMessage: 'Update to a L4 release supporting optional R2 before installing without files' })
   }
   const existing = await inspectWorker(client, request.accountId, request.workerName)
-  const existingPrimary = await primaryWorker(client, request.accountId)
-  const primary = existing.exists ? existing.primary === true : existingPrimary === null
-  if (request.mailEnabled && !primary) {
-    throw createError({
-      statusCode: 409,
-      statusMessage: `Mail is owned by primary L4 Worker ${existingPrimary}. Multi-workspace mail routing is not enabled in this base release.`,
-    })
-  }
   if (existing.exists && existing.authMode !== request.authMode) {
     throw createError({ statusCode: 409, statusMessage: 'Changing authentication mode on an existing server requires a manual migration.' })
   }
@@ -680,7 +643,7 @@ export async function deployL4(
   if (existing.exists && Boolean(existing.mailZoneId) && !request.mailEnabled) {
     throw createError({
       statusCode: 409,
-      statusMessage: 'Disconnecting workspace email requires a manual migration.',
+      statusMessage: 'Disconnecting server email requires a manual migration.',
     })
   }
   if (request.mailEnabled && existing.mailZoneId && (
@@ -692,7 +655,7 @@ export async function deployL4(
       statusMessage: `This L4 server already owns ${existing.mailDomain} at ${existing.appHostname}. Domain moves require removing the old Cloudflare routes first.`,
     })
   }
-  await progress('installation', 'complete', existing.exists ? 'Existing installation found' : requestedHostname)
+  await progress('server', 'complete', existing.exists ? 'Existing server found' : requestedHostname)
   if (!existing.exists) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(request.adminEmail)) {
       throw createError({ statusCode: 400, statusMessage: 'Enter a valid owner email' })
@@ -700,7 +663,7 @@ export async function deployL4(
   }
   const ownerSetupToken = existing.exists || request.authMode === 'access' ? null : randomBase64Url(32)
   await progress('storage', 'active')
-  const { databaseId, bucketName, kvId } = await provisionWorkspaceStorage(client, request, existing)
+  const { databaseId, bucketName, kvId } = await provisionServerStorage(client, request, existing)
   await progress('storage', 'complete', bucketName ? 'D1, R2, and KV ready' : 'D1 and KV ready; files and backups disabled')
 
   await progress('database', 'active')
@@ -731,20 +694,13 @@ export async function deployL4(
   await progress('access', 'complete', request.authMode === 'access' ? 'Email code sign-in ready' : 'Using local accounts')
 
   await progress('worker', 'active')
-  const primaryMail = provisionMail
-    ? await ensurePrimaryMail(
-        client,
-        accessToken,
-        request,
-      )
-    : null
   await uploadWorker(accessToken, request.accountId, request, release.manifest, release.worker, {
     databaseId,
     bucketName,
     kvId,
     assetsJwt,
     origin,
-  }, existing, ownerSetupToken, access, primary)
+  }, existing, ownerSetupToken, access)
   await progress('worker', 'complete', `L4 ${release.manifest.version}`)
 
   await progress('domain', 'active')
@@ -762,7 +718,7 @@ export async function deployL4(
       ensureEmailRouting(accessToken, request),
       ensureEmailSending(accessToken, request),
     ])
-    await attachMailCatchAll(accessToken, request, primaryMail!.name)
+    await attachMailCatchAll(accessToken, request, request.workerName)
   }
   let mailDetail = 'Skipped'
   if (request.mailEnabled) mailDetail = provisionMail ? mailDomain(request) : 'Existing routes preserved'
@@ -783,7 +739,7 @@ export async function deployL4(
       requiresReadyVerification(existing.exists, request.authMode, previousHealth),
       report,
     )
-    await progress('verify', 'complete', 'Workspace health verified')
+    await progress('verify', 'complete', 'Server health verified')
   }
   return {
     url: origin,

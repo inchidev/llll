@@ -14,7 +14,7 @@ const ownerId = uuidv7()
 const memberId = uuidv7()
 const ownerAccountId = uuidv7()
 const memberAccountId = uuidv7()
-const workspaceId = randomUUID()
+const serverId = randomUUID()
 const ownerRole = uuidv7()
 const memberRole = uuidv7()
 const adminRole = uuidv7()
@@ -23,13 +23,13 @@ const now = new Date().toISOString()
 const authNow = Date.now()
 
 const sql = `
-INSERT INTO server_identity (id, singleton) VALUES ('${workspaceId}', 1) ON CONFLICT DO NOTHING;
+INSERT INTO server_identity (id, singleton) VALUES ('${serverId}', 1) ON CONFLICT DO NOTHING;
 INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at) VALUES
   ('${ownerId}', 'Owner', 'owner@local.test', 1, ${authNow}, ${authNow}),
   ('${memberId}', 'Member', 'member@local.test', 1, ${authNow}, ${authNow});
-INSERT INTO auth_accounts (id, issuer, account_id, provider_id, user_id, password, created_at, updated_at) VALUES
-  ('${ownerAccountId}', 'local:credential', '${ownerId}', 'credential', '${ownerId}', '${hash}', ${authNow}, ${authNow}),
-  ('${memberAccountId}', 'local:credential', '${memberId}', 'credential', '${memberId}', '${hash}', ${authNow}, ${authNow});
+INSERT INTO auth_accounts (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES
+  ('${ownerAccountId}', '${ownerId}', 'credential', '${ownerId}', '${hash}', ${authNow}, ${authNow}),
+  ('${memberAccountId}', '${memberId}', 'credential', '${memberId}', '${hash}', ${authNow}, ${authNow});
 INSERT INTO roles (id, key, name, permissions_bitmask, position, is_system, created_at, updated_at) VALUES
   ('${ownerRole}', 'owner', 'owner', 4095, 0, 1, '${now}', '${now}'),
   ('${adminRole}', 'admin', 'admin', 4095, 1, 1, '${now}', '${now}'),
@@ -37,9 +37,9 @@ INSERT INTO roles (id, key, name, permissions_bitmask, position, is_system, crea
 INSERT INTO users (id, handle, display_name, status, role_id, joined_at, created_at, updated_at) VALUES
   ('${ownerId}', 'owner', 'Owner', 'active', '${ownerRole}', '${now}', '${now}', '${now}'),
   ('${memberId}', 'member', 'Member', 'active', '${memberRole}', '${now}', '${now}', '${now}');
-INSERT INTO workspace (id, name, owner_id, created_at, updated_at) VALUES ((SELECT id FROM server_identity WHERE singleton = 1), 'Local', '${ownerId}', '${now}', '${now}');
+INSERT INTO server (id, name, owner_id, created_at, updated_at) VALUES ((SELECT id FROM server_identity WHERE singleton = 1), 'Local', '${ownerId}', '${now}', '${now}');
 INSERT INTO channels (id, name, topic, type, visibility, position, created_at, updated_at) VALUES
-  ('${generalId}', 'general', '', 'text', 'workspace', 0, '${now}', '${now}');
+  ('${generalId}', 'general', '', 'text', 'server', 0, '${now}', '${now}');
 `
 
 const file = 'scripts/.seed.sql'

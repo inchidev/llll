@@ -11,6 +11,6 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const canvas = await requireCanvas(env, id)
   await env.DB.prepare('DELETE FROM canvases WHERE id = ?').bind(id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas.delete', targetType: 'canvas', targetId: id, meta: { title: canvas.title } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas.delete', targetType: 'canvas', targetId: id, meta: { title: canvas.title } })
   return { ok: true }
 })

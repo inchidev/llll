@@ -37,6 +37,6 @@ export default defineEventHandler(async (event) => {
   }
   const placeholders = columns.map(() => '?').join(', ')
   await env.DB.prepare(`INSERT INTO database_items (${columns.join(', ')}) VALUES (${placeholders})`).bind(...values).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.create', targetType: 'database_item', targetId: id, meta: { databaseId, title: body.title } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.create', targetType: 'database_item', targetId: id, meta: { databaseId, title: body.title } })
   return { item: await loadDatabaseItem(env, id) }
 })

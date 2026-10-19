@@ -24,7 +24,7 @@ describe('release versions', () => {
     expect(compareStableVersions('0.1.3', 'v0.1.3')).toBe(0)
   })
 
-  it('counts and orders every published stable release after the installation', () => {
+  it('counts and orders every published stable release after the server', () => {
     const newer = newerStableReleases('0.0.3', [
       release('v0.1.2'),
       release('v0.0.2'),

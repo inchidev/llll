@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The 48px bar at the top of every workspace page. On phones it carries the
+ * The 48px bar at the top of every server page. On phones it carries the
  * button that opens the navigation drawer, so no page is a dead end.
  */
 defineProps<{

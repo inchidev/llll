@@ -27,11 +27,6 @@ const now = '2026-09-28T00:00:00.000Z'
 
 function seed(sqlite: DatabaseSync) {
   sqlite.exec(`
-    INSERT INTO identity_keys (id, name, email, email_verified, created_at, updated_at) VALUES
-      ('human', 'Ada', 'ada@example.test', 1, 0, 0),
-      ('removed', 'Gone', 'gone@example.test', 1, 0, 0),
-      ('agent', 'Helper', 'helper@example.test', 1, 0, 0),
-      ('paused', 'Sleepy', 'sleepy@example.test', 1, 0, 0);
     INSERT INTO roles (id, key, name, permissions_bitmask, position, is_system, created_at, updated_at) VALUES
       ('member-role', 'member', 'member', 112, 2, 1, '${now}', '${now}');
     INSERT INTO users (id, kind, display_name, status, role_id, joined_at, created_at, updated_at) VALUES

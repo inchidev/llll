@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     name: number ? `task-${number}` : 'task',
     topic: task.title,
     type: 'text',
-    visibility: 'workspace',
+    visibility: 'server',
     categoryId: null,
     position: 0,
     liveMeetingId: null,

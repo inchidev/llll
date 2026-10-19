@@ -5,7 +5,7 @@ description: Create or verify a standalone L4 Server on Cloudflare or celld for 
 
 # Create an L4 Server
 
-Read `docs/server.md` and `docs/deployment.md`. Each Server owns accounts, sessions, UUID identity, content and its independent resources. There is no Instance or master node.
+Read `docs/server.md` and `docs/deployment.md`. Each Server owns accounts, sessions, UUID identity, content and its independent resources.
 
 1. Verify the target checkout, Git remote, provider/account and existing state. Keep credentials, setup claims and targets in ignored private files; never print them.
 2. Cloudflare application code deploys only in Workers Builds from Git. Use the connected API for administrative configuration and cleanup, never application uploads. Feature PRs require isolated Preview proof; publish production only from a merged release PR and immutable verified assets. Local Wrangler is for types, dry runs and isolated development.

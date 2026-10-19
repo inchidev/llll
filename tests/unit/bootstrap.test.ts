@@ -18,7 +18,7 @@ describe('readAdminEnv', () => {
       password: 'test-password',
       handle: 'ada',
       displayName: 'Ada',
-      workspaceName: 'HQ',
+      serverName: 'HQ',
     })
     expect(readAdminEnv({
       ADMIN_EMAIL: 'admin@example.com',

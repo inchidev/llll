@@ -43,7 +43,7 @@ it('surfaces Cloudflare refusal reason on the deploy page instead of a generic c
 
 it('refuses to start when the grant cannot touch Workers scripts', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    if (String(url).endsWith('/llll-cloudflare-manifest.json')) return Response.json({version:new URL(String(url)).pathname.split('/').at(-2)!.slice(1),capabilities:['llll-standalone-server-v1']})
+    if (String(url).endsWith('/llll-cloudflare-manifest.json')) return Response.json({version:new URL(String(url)).pathname.split('/').at(-2)!.slice(1),capabilities:['llll-server-schema-v1']})
     if (String(url).endsWith('/oauth2/token')) return Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })
     if (String(url).includes('/workers/scripts')) return Response.json({ success: false, errors: [{ message: 'No access to the specified resource' }] }, { status: 403 })
     return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })
@@ -94,7 +94,7 @@ it('lists published releases for the deploy picker and pins the chosen version t
       { tag_name: 'v0.3.0', name: 'L4 0.3.0', draft: true, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })) },
       { tag_name: 'v0.2.3', name: 'L4 0.2.3', draft: false, prerelease: false, assets: ['llll-deployment.json', 'llll-cloudflare-manifest.json', 'SHA256SUMS'].map(name => ({ name })), published_at: '2026-10-16T10:45:52Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.3' },
     ])
-    if (String(url).endsWith('/llll-cloudflare-manifest.json')) return Response.json({version:new URL(String(url)).pathname.split('/').at(-2)!.slice(1),capabilities:['llll-standalone-server-v1']})
+    if (String(url).endsWith('/llll-cloudflare-manifest.json')) return Response.json({version:new URL(String(url)).pathname.split('/').at(-2)!.slice(1),capabilities:['llll-server-schema-v1']})
     if (String(url).endsWith('/oauth2/token')) return Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })
     return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })
   }))
@@ -117,7 +117,7 @@ it('lists published releases for the deploy picker and pins the chosen version t
   expect(state.grantExpiresIn).toBeGreaterThan(0)
 })
 
-it('requires an installation proof and prevents directory ownership replacement', async () => {
+it('requires an server proof and prevents directory ownership replacement', async () => {
   const id = crypto.randomUUID()
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json({ kind: 'server', id, origin: new URL(url).origin })))
   expect((await web.fetch(req('/api/servers/register', '', { id, origin: 'https://one.example.com' }), env)).status).toBe(200)

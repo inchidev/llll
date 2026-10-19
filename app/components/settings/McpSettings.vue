@@ -5,7 +5,7 @@ import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type
 import type { MemberDTO } from '~~/shared/types'
 import { formatDateTime } from '~~/shared/format'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const { api, serverUrl } = useApi()
 const toast = useToast()
 const queryClient = useQueryClient()
@@ -17,12 +17,12 @@ const created = shallowRef<CreatedMcpAccessTokenDTO | null>(null)
 const revokeTarget = shallowRef<McpAccessTokenDTO | null>(null)
 
 const tokensQ = useQuery({
-  queryKey: computed(() => ['mcp-tokens', props.workspaceId]),
-  queryFn: () => api<{ tokens: McpAccessTokenDTO[] }>(`/api/workspaces/${props.workspaceId}/mcp-tokens`),
+  queryKey: computed(() => ['mcp-tokens', props.serverId]),
+  queryFn: () => api<{ tokens: McpAccessTokenDTO[] }>(`/api/servers/${props.serverId}/mcp-tokens`),
 })
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${props.workspaceId}/members`),
+  queryKey: computed(() => ['members', props.serverId]),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`),
 })
 const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).map(member => ({
   label: `${member.user.displayName} · ${member.user.kind === 'agent' ? 'Agent' : member.role.name}`,
@@ -38,25 +38,25 @@ const scopeOptions: Array<{ value: McpScope; label: string }> = [
 ]
 
 const createToken = useMutation({
-  mutationFn: (input: { name: string; subjectId: string; scopes: McpScope[] }) => api<{ token: CreatedMcpAccessTokenDTO }>(`/api/workspaces/${props.workspaceId}/mcp-tokens`, {
+  mutationFn: (input: { name: string; subjectId: string; scopes: McpScope[] }) => api<{ token: CreatedMcpAccessTokenDTO }>(`/api/servers/${props.serverId}/mcp-tokens`, {
     method: 'POST',
     body: input,
   }),
   onSuccess: async ({ token }) => {
     created.value = token
-    await queryClient.invalidateQueries({ queryKey: ['mcp-tokens', props.workspaceId] })
+    await queryClient.invalidateQueries({ queryKey: ['mcp-tokens', props.serverId] })
     toast.add({ title: 'Access token created', color: 'success' })
   },
   onError: error => toast.add({ title: errorMessage(error), color: 'error' }),
 })
 
 const revokeToken = useMutation({
-  mutationFn: (tokenId: string) => api(`/api/workspaces/${props.workspaceId}/mcp-tokens/${tokenId}`, { method: 'DELETE' }),
+  mutationFn: (tokenId: string) => api(`/api/servers/${props.serverId}/mcp-tokens/${tokenId}`, { method: 'DELETE' }),
   onSuccess: async () => {
     const revokedId = revokeTarget.value?.id
     revokeTarget.value = null
     if (created.value?.id === revokedId) created.value = null
-    await queryClient.invalidateQueries({ queryKey: ['mcp-tokens', props.workspaceId] })
+    await queryClient.invalidateQueries({ queryKey: ['mcp-tokens', props.serverId] })
     toast.add({ title: 'Access token revoked', color: 'success' })
   },
   onError: error => toast.add({ title: errorMessage(error), color: 'error' }),

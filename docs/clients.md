@@ -1,9 +1,9 @@
 # L4 clients
 
-Open-source native clients for L4 installations.
+Open-source native clients for L4 servers.
 
 The native applications package the frontend built from this monorepo's root
-Nuxt app. A connected L4 installation
+Nuxt app. A connected L4 server
 is the remote backend; remote servers do not provide executable UI to the app.
 
 ## Repository
@@ -20,7 +20,7 @@ scripts/
 
 The shared frontend has web, native, and extension runtime modes. Web
 deployments keep same-origin API and WebSocket URLs. Bundled clients store a
-server list on-device and route API, WebSocket, attachment, workspace-icon,
+server list on-device and route API, WebSocket, attachment, server-icon,
 invite, and email-session traffic through the selected server.
 
 The packaged shells bridge realtime message activity to platform notifications
@@ -103,7 +103,7 @@ artifacts are under `apps/desktop/src-tauri/target/release/bundle`.
 
 Pushing a `desktop-v*` tag matching the desktop package version builds a universal
 macOS app and publishes its `.app` and `.dmg` bundles on this repository's
-GitHub Release without triggering a workspace product release:
+GitHub Release without triggering a server product release:
 
 ```bash
 git tag desktop-v0.0.1

@@ -4,7 +4,7 @@ import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { loadDataResources, requireDocument } from './data-resources'
 import { writeAudit } from './messages'
-import { authorize, WorkspaceAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 
 export type CreateDocumentInput = {
   title: string
@@ -21,7 +21,7 @@ export async function listAuthorizedDataResources(
   env: L4Env,
   authorization: AuthorizationContext,
 ): Promise<DataResourcesDTO> {
-  authorize(authorization, WorkspaceAction.readDocuments)
+  authorize(authorization, ServerAction.readDocuments)
   return loadDataResources(env, authorization.credential.kind === 'session' ? authorization.principal.id : undefined)
 }
 
@@ -30,7 +30,7 @@ export async function getDocument(
   authorization: AuthorizationContext,
   id: string,
 ): Promise<DocumentDTO> {
-  authorize(authorization, WorkspaceAction.readDocuments)
+  authorize(authorization, ServerAction.readDocuments)
   return requireDocument(env, id)
 }
 
@@ -39,8 +39,8 @@ export async function createDocument(
   authorization: AuthorizationContext,
   input: CreateDocumentInput,
 ): Promise<DocumentDTO> {
-  authorize(authorization, WorkspaceAction.writeDocuments)
-  const workspaceId = authorization.workspaceId
+  authorize(authorization, ServerAction.writeDocuments)
+  const serverId = authorization.serverId
   const actorId = authorization.principal.id
   if (await env.DB.prepare('SELECT id FROM documents WHERE lower(title) = lower(?) LIMIT 1').bind(input.title).first()) {
     fail(409, 'duplicate_name', 'A document with this title already exists')
@@ -54,7 +54,7 @@ export async function createDocument(
      VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
   ).bind(id, input.title, content, position?.value ?? 1024, actorId, now, now).run()
   await writeAudit(env, {
-    workspaceId,
+    serverId,
     actorId,
     action: 'document.create',
     targetType: 'document',
@@ -71,8 +71,8 @@ export async function updateDocument(
   id: string,
   input: UpdateDocumentInput,
 ): Promise<DocumentDTO> {
-  authorize(authorization, WorkspaceAction.writeDocuments)
-  const workspaceId = authorization.workspaceId
+  authorize(authorization, ServerAction.writeDocuments)
+  const serverId = authorization.serverId
   const actorId = authorization.principal.id
   const document = await requireDocument(env, id)
   if (document.version !== input.version) fail(409, 'stale_document', 'This document changed elsewhere. Reload and try again.')
@@ -90,7 +90,7 @@ export async function updateDocument(
   ).bind(...values, id, input.version).first<DocumentDTO>()
   if (!updated) fail(409, 'stale_document', 'This document changed elsewhere. Reload and try again.')
   await writeAudit(env, {
-    workspaceId,
+    serverId,
     actorId,
     action: 'document.update',
     targetType: 'document',

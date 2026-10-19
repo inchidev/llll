@@ -2,7 +2,7 @@ import type { McpScope } from './mcp'
 import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
 
-export const WorkspaceAction = {
+export const ServerAction = {
   readTasks: 'tasks:read',
   writeTasks: 'tasks:write',
   readDocuments: 'documents:read',
@@ -12,11 +12,11 @@ export const WorkspaceAction = {
   sendMessages: 'messages:send',
 } as const
 
-export type WorkspaceAction = typeof WorkspaceAction[keyof typeof WorkspaceAction]
+export type ServerAction = typeof ServerAction[keyof typeof ServerAction]
 export type CredentialKind = 'session' | 'mcp' | 'agent_runtime'
 
 export type AuthorizationContext = {
-  workspaceId: string
+  serverId: string
   principal: {
     id: string
     kind: UserKind
@@ -32,7 +32,7 @@ export type AuthorizationContext = {
   }
   delegation?: {
     by: string
-    actions?: WorkspaceAction[]
+    actions?: ServerAction[]
     permissions?: number
     isOwner?: boolean
     roleName?: string
@@ -41,14 +41,14 @@ export type AuthorizationContext = {
 
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
-const ACTION_RULES: Record<WorkspaceAction, ActionRule> = {
-  [WorkspaceAction.readTasks]: { permission: Permission.manageTasks, scope: 'tasks:read' },
-  [WorkspaceAction.writeTasks]: { permission: Permission.manageTasks, scope: 'tasks:write' },
-  [WorkspaceAction.readDocuments]: { permission: Permission.manageDatabases, scope: 'documents:read' },
-  [WorkspaceAction.writeDocuments]: { permission: Permission.manageDatabases, scope: 'documents:write' },
-  [WorkspaceAction.useGadgets]: { permission: Permission.useGadgets },
-  [WorkspaceAction.manageGadgets]: { permission: Permission.manageGadgets },
-  [WorkspaceAction.sendMessages]: { permission: Permission.sendMessages },
+const ACTION_RULES: Record<ServerAction, ActionRule> = {
+  [ServerAction.readTasks]: { permission: Permission.manageTasks, scope: 'tasks:read' },
+  [ServerAction.writeTasks]: { permission: Permission.manageTasks, scope: 'tasks:write' },
+  [ServerAction.readDocuments]: { permission: Permission.manageDatabases, scope: 'documents:read' },
+  [ServerAction.writeDocuments]: { permission: Permission.manageDatabases, scope: 'documents:write' },
+  [ServerAction.useGadgets]: { permission: Permission.useGadgets },
+  [ServerAction.manageGadgets]: { permission: Permission.manageGadgets },
+  [ServerAction.sendMessages]: { permission: Permission.sendMessages },
 }
 
 export class AuthorizationError extends Error {
@@ -64,8 +64,8 @@ export class AuthorizationError extends Error {
   }
 }
 
-/** The single workspace authorization boundary shared by HTTP, MCP, and Agents. */
-export function authorize(context: AuthorizationContext, action: WorkspaceAction): void {
+/** The single server authorization boundary shared by HTTP, MCP, and Agents. */
+export function authorize(context: AuthorizationContext, action: ServerAction): void {
   const rule = ACTION_RULES[action]
   const delegatedAuthority = context.credential.kind === 'agent_runtime' && context.delegation?.permissions !== undefined
     ? {

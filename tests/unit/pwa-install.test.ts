@@ -23,7 +23,7 @@ function generatedWorker() {
   return { handlers, stored, fetch }
 }
 
-describe('generated PWA installation', () => {
+describe('generated PWA server', () => {
   it('executes the generated script and precaches the complete public shell', async () => {
     const worker = generatedWorker()
     const pending: Promise<unknown>[] = []
@@ -40,7 +40,7 @@ describe('generated PWA installation', () => {
     expect(respondWith).not.toHaveBeenCalled()
   })
 
-  it.each(['/api/installation/session', '/s/alpha/api/messages', '/.well-known/llll', 'https://other.example.com/_nuxt/client.js'])('leaves private and cross-origin traffic on the network: %s', (path) => {
+  it.each(['/api/server/session', '/s/alpha/api/messages', '/.well-known/llll', 'https://other.example.com/_nuxt/client.js'])('leaves private and cross-origin traffic on the network: %s', (path) => {
     const worker = generatedWorker()
     const respondWith = vi.fn()
     worker.handlers.get('fetch')!({ request: new Request(new URL(path, origin)), respondWith })

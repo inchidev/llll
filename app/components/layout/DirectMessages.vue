@@ -9,7 +9,7 @@ type DmSearchMember = PublicUser & {
   nickname: string | null
 }
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const session = useSessionStore()
 const qc = useQueryClient()
@@ -26,8 +26,8 @@ const q = ref('')
 const picker = ref(false)
 const picked = ref<string[]>([])
 const searchQ = useQuery({
-  queryKey: computed(() => ['dm-search', props.workspaceId, q.value]),
-  queryFn: () => api<{ members: DmSearchMember[] }>(`/api/dms/search?workspaceId=${props.workspaceId}&q=${encodeURIComponent(q.value)}`),
+  queryKey: computed(() => ['dm-search', props.serverId, q.value]),
+  queryFn: () => api<{ members: DmSearchMember[] }>(`/api/dms/search?serverId=${props.serverId}&q=${encodeURIComponent(q.value)}`),
   enabled: computed(() => picker.value),
 })
 
@@ -50,7 +50,7 @@ function togglePick(id: string) {
 }
 
 async function openDm(userId: string) {
-  const res = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, workspaceId: props.workspaceId } })
+  const res = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, serverId: props.serverId } })
   await qc.invalidateQueries({ queryKey: ['dms'] })
   picker.value = false
   q.value = ''
@@ -62,7 +62,7 @@ async function startGroup() {
   if (picked.value.length < 2) return
   const res = await api<{ channel: ChannelDTO }>('/api/dms/group', {
     method: 'POST',
-    body: { userIds: picked.value, workspaceId: props.workspaceId },
+    body: { userIds: picked.value, serverId: props.serverId },
   })
   await qc.invalidateQueries({ queryKey: ['dms'] })
   picker.value = false

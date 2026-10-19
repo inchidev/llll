@@ -4,7 +4,7 @@ L4 runs as one Nuxt Worker. On Cloudflare that Worker uses Workers AI, Browser R
 
 For one VPS, [self-host/README.md](../../self-host/README.md) builds this application and runs that node under Docker Compose. `docker compose up -d` from `self-host/` is that path. The rest of this page is the same deployment without Docker.
 
-celld does not implement Workers AI, Browser Rendering, or Email Workers. It also rejects Wrangler keys that depend on Cloudflare's network, including `ai`, `browser`, `routes`, `placement`, `observability`, and `preview_urls`. `wrangler.celld.json` is `wrangler.jsonc` with those keys removed and with placeholder names only. Replace every placeholder before you deploy. Do not reuse another installation's database id, KV id, or hostname.
+celld does not implement Workers AI, Browser Rendering, or Email Workers. It also rejects Wrangler keys that depend on Cloudflare's network, including `ai`, `browser`, `routes`, `placement`, `observability`, and `preview_urls`. `wrangler.celld.json` is `wrangler.jsonc` with those keys removed and with placeholder names only. Replace every placeholder before you deploy. Do not reuse another server's database id, KV id, or hostname.
 
 `LLLL_RUNTIME=celld` tells the app this process is not on Cloudflare's network. Inbound mail arrives through a signed webhook, or through Postmark, Mailgun, or Amazon SES. Workers AI, Browser Run, outbound mail, and RealtimeKit calls can use a Cloudflare API token over REST when the matching binding is absent. Text chat, tasks, data, documents, files, and backups do not need that network.
 
@@ -30,7 +30,7 @@ No post-build patch is required. The Worker aliases `node:timers` to a shim (`se
 
 ## RustFS
 
-RustFS is the S3 bucket celld and the workspace R2 binding share. One local process is enough for a single node.
+RustFS is the S3 bucket celld and the server R2 binding share. One local process is enough for a single node.
 
 ```bash
 rustfs --address 127.0.0.1:9000 ./data
@@ -51,7 +51,7 @@ export AWS_SECRET_ACCESS_KEY=your-secret-key
 export AWS_REGION=us-east-1
 ```
 
-Workspace file objects land under `r2/<bucket_name>/` inside that same bucket. Deployment blobs and D1 state use it too.
+Server file objects land under `r2/<bucket_name>/` inside that same bucket. Deployment blobs and D1 state use it too.
 
 ## Build and deploy
 
@@ -66,8 +66,8 @@ Edit `wrangler.celld.json`:
 
 - `PUBLIC_ORIGIN` is the origin members open, such as `http://127.0.0.1:8080` before you add TLS.
 - `ADMIN_EMAIL` is the first owner's email.
-- `APP_NAME` is the workspace name shown during setup.
-- `database_name` is the D1 name you will pass to migrations. The example uses `llll`. `database_id` and the KV `id` only need to be stable for this installation.
+- `APP_NAME` is the server name shown during setup.
+- `database_name` is the D1 name you will pass to migrations. The example uses `llll`. `database_id` and the KV `id` only need to be stable for this server.
 
 `AUTH_SECRET` and `SETUP_TOKEN` in that file are the placeholders `invalid`. Both are shorter than 32 characters, so they do not pass validation: owner setup ignores the token, and session signing rejects the secret. Leave those placeholders in the tracked `wrangler.celld.json`. Each real value must be a random string of at least 32 characters.
 
@@ -102,7 +102,7 @@ A scoped API token lets this node call Cloudflare from outside Cloudflare's netw
 The account id is 32 hex characters. A placeholder such as `invalid` does not enable these calls.
 
 1. In the Cloudflare dashboard, open **Workers AI**, select **Use REST API**, and copy **Account ID**. The same id is the first path segment of `https://dash.cloudflare.com/<account_id>/`. See [Find account and zone IDs](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
-2. Open **My Profile → API Tokens → Create Token → Create Custom Token**, or create an account API token at `https://dash.cloudflare.com/?to=/:account/api-tokens`. Name it for this installation. Limit it to this one account.
+2. Open **My Profile → API Tokens → Create Token → Create Custom Token**, or create an account API token at `https://dash.cloudflare.com/?to=/:account/api-tokens`. Name it for this server. Limit it to this one account.
 3. Add only the account permissions for the services you want. Dashboard labels below are the ones in the current docs:
 
    | Service | Permission | What it calls |
@@ -110,7 +110,7 @@ The account id is 32 hex characters. A placeholder such as `invalid` does not en
    | Workers AI | **Workers AI - Read** and **Workers AI - Edit** | `POST /accounts/{account_id}/ai/run/{model}`. The [Workers AI REST API](https://developers.cloudflare.com/workers-ai/get-started/rest-api/) guide (updated Sep 15, 2026) requires both for a custom token. The [AI Gateway REST](https://developers.cloudflare.com/ai-gateway/usage/rest-api/) page says **Account → Workers AI → Read** covers `/accounts/{account_id}/ai/*`. Include Read and Edit. |
    | Browser Run | **Browser Run - Edit** | `POST /accounts/{account_id}/browser-run/markdown`, `/links`, and `/screenshot`. The [Quick Actions](https://developers.cloudflare.com/browser-run/quick-actions/) page names **Browser Run - Edit**. The [markdown](https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/) and screenshot pages still say **Browser Rendering - Edit**. Pick the label the token form shows. |
    | Email Sending | **Email Sending: Edit** | `POST /accounts/{account_id}/email/sending/send`. See the [Email Sending REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/). The sender domain must already be onboarded under **Email Service → Email Sending**. Inbound mail is a separate webhook, described below. |
-   | RealtimeKit | **Realtime Admin** | Creates this installation's RealtimeKit app and the host and participant presets on the first call. The [RealtimeKit quickstart](https://developers.cloudflare.com/realtime/realtimekit/quickstart/) accepts **Realtime** or **Realtime Admin**. The [FAQ](https://developers.cloudflare.com/realtime/realtimekit/faq/) says to select **Realtime → Realtime Admin** when creating the token. **Realtime** without Admin can run meetings on an app that already exists. |
+   | RealtimeKit | **Realtime Admin** | Creates this server's RealtimeKit app and the host and participant presets on the first call. The [RealtimeKit quickstart](https://developers.cloudflare.com/realtime/realtimekit/quickstart/) accepts **Realtime** or **Realtime Admin**. The [FAQ](https://developers.cloudflare.com/realtime/realtimekit/faq/) says to select **Realtime → Realtime Admin** when creating the token. **Realtime** without Admin can run meetings on an app that already exists. |
 
 4. Continue to the summary and create the token. Copy it once. It is shown only then.
 5. Add both values to `vars` in `wrangler.celld.local.json` and deploy that file again. They are stored in the bucket in plaintext, so the bucket stays private.
@@ -192,7 +192,7 @@ Set `PUBLIC_ORIGIN` to `https://chat.example.com` so cookies, links, and the set
 
 ## Inbound mail
 
-celld does not run the Worker's `email()` handler, and L4 does not open an SMTP port. Inbound mail uses the same mailbox ingest as Cloudflare Email Routing: the envelope recipient must be a mailbox in this workspace, the raw message and its attachments go to R2, and members with access see it in that mailbox. Messages larger than 25 MiB are rejected. Unsigned requests are rejected.
+celld does not run the Worker's `email()` handler, and L4 does not open an SMTP port. Inbound mail uses the same mailbox ingest as Cloudflare Email Routing: the envelope recipient must be a mailbox in this server, the raw message and its attachments go to R2, and members with access see it in that mailbox. Messages larger than 25 MiB are rejected. Unsigned requests are rejected.
 
 `/api/setup/health` reports `capabilities.emailInbound` as `bridge`, `postmark`, `mailgun`, or `ses`, in that order, for the first one you configure. On Cloudflare's network the value is `binding` even when a webhook secret is also set. With nothing configured it is `null`, and the mail settings screen says inbound mail is not configured. Every configured endpoint still accepts mail.
 
@@ -201,7 +201,7 @@ Put inbound secrets in `vars` of `wrangler.celld.local.json` and deploy that fil
 The default mailbox is created after an owner exists, and only when these vars are set:
 
 - `MAIL_DOMAIN` is the domain of the address, such as `example.com`.
-- `MAIL_APP_HOSTNAME` is this installation's hostname, such as `chat.example.com`.
+- `MAIL_APP_HOSTNAME` is this server's hostname, such as `chat.example.com`.
 - `MAIL_DEFAULT_LOCAL_PART` is the local part, such as `support`. The address is then `support@example.com`.
 
 On Cloudflare, `MAIL_ZONE_ID` is also required. Off Cloudflare, including celld, `MAIL_ZONE_ID` is optional. A `LLLL_EMAIL_DOMAINS` JSON entry still needs a non-empty `zoneId`. Without `MAIL_APP_HOSTNAME` nothing is written. Without `MAIL_DEFAULT_LOCAL_PART` the domain can be stored and no mailbox is created if none exists yet. Ingest looks up `email_mailboxes`. Mail for an address with no mailbox returns 404 `Unknown L4 mailbox`. Changing these vars takes effect on the next deploy.
@@ -210,7 +210,7 @@ The same RFC Message-ID is stored once per mailbox. A replayed signed request in
 
 ### Email Routing bridge
 
-`examples/email-bridge` is a separate Cloudflare Worker. It receives mail from Email Routing and POSTs the raw RFC822 message to this installation.
+`examples/email-bridge` is a separate Cloudflare Worker. It receives mail from Email Routing and POSTs the raw RFC822 message to this server.
 
 1. Set the same secret on both sides. On the self-hosted node, in `vars` of `wrangler.celld.local.json`, then deploy that file:
 
@@ -225,7 +225,7 @@ cd examples/email-bridge
 npx wrangler secret put INBOUND_EMAIL_SECRET
 ```
 
-2. In `examples/email-bridge/wrangler.jsonc`, set `LLLL_INBOUND_URL` to this installation's public origin plus `/api/email/inbound`. The file ships as `https://chat.example.com/api/email/inbound`. Replace that hostname. Deploy the bridge on its own, not as part of the L4 Worker, from that same directory:
+2. In `examples/email-bridge/wrangler.jsonc`, set `LLLL_INBOUND_URL` to this server's public origin plus `/api/email/inbound`. The file ships as `https://chat.example.com/api/email/inbound`. Replace that hostname. Deploy the bridge on its own, not as part of the L4 Worker, from that same directory:
 
 ```bash
 npx wrangler deploy
@@ -306,7 +306,7 @@ The value must look like `arn:aws:sns:<region>:<12-digit account>:<topic name>`.
 
 Inbound mail is the webhook above. This process does not receive SMTP. The mail settings screen says inbound mail is not configured when `capabilities.emailInbound` is `null`.
 
-Outbound mail still sends when an HTTP gateway is configured. L4 POSTs the same JSON a workspace email message already uses, with `Authorization: Bearer <token>`, and expects `{ "messageId": "..." }`.
+Outbound mail still sends when an HTTP gateway is configured. L4 POSTs the same JSON a server email message already uses, with `Authorization: Bearer <token>`, and expects `{ "messageId": "..." }`.
 
 An email binding is used first. Without one, Cloudflare Email Sending is used when `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are set. The sender domain must be onboarded for Email Sending. Health then reports `emailProvider: "cloudflare-rest"`.
 
@@ -330,7 +330,7 @@ or:
 
 ## Browser and calls
 
-A `BROWSER` binding is used first. Without one, the Cloudflare API token calls Browser Run. `BROWSER_CDP_URL` is the next choice: a Chromium DevTools HTTP base (`http://127.0.0.1:9222`) or a browser WebSocket (`ws://` or `wss://`). The agent reads a public http(s) URL, lists its links, or stores a screenshot. Private addresses and the workspace origin are rejected before navigation. Do not publish the DevTools port.
+A `BROWSER` binding is used first. Without one, the Cloudflare API token calls Browser Run. `BROWSER_CDP_URL` is the next choice: a Chromium DevTools HTTP base (`http://127.0.0.1:9222`) or a browser WebSocket (`ws://` or `wss://`). The agent reads a public http(s) URL, lists its links, or stores a screenshot. Private addresses and the server origin are rejected before navigation. Do not publish the DevTools port.
 
 Without a binding, the Cloudflare token, and `BROWSER_CDP_URL`, page reading is off and the agent settings explain that.
 

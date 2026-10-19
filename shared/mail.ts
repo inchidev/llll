@@ -1,6 +1,5 @@
 import type { MailboxPermission } from './types'
 
-export const MAIL_DOMAIN_ID = 'main'
 export const MAIL_EXTERNAL_USER_ID = 'mail-external'
 
 export function normalizeMailLocalPart(value: string): string {

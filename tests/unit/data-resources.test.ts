@@ -4,12 +4,11 @@ import { INIT_SQL } from '../../server/utils/db'
 import { loadDataResources } from '../../server/utils/data-resources'
 
 describe('documents and canvases', () => {
-  it('stores rich documents and connected canvas items in the installation database', async () => {
+  it('stores rich documents and connected canvas items in the server database', async () => {
     const sqlite = new DatabaseSync(':memory:')
     sqlite.exec(INIT_SQL)
     sqlite.exec(`
       INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 1023);
-      INSERT INTO identity_keys (id, name, email) VALUES ('user-1', 'Owner', 'owner@example.com');
       INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('user-1', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP);
       INSERT INTO database_definitions (id, name, created_by, archived_at) VALUES ('db-1', 'Archive', 'user-1', CURRENT_TIMESTAMP);
       INSERT INTO database_items (id, database_id, title, created_by, text_1) VALUES ('record-1', 'db-1', 'Acme', 'user-1', 'Private record body');

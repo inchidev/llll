@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     .where(and(eq(channelMembers.userId, me.id), eq(channels.type, 'dm'), isNull(channelMembers.hiddenAt)))
 
   let visible = mine
-  if (!member.isOwner && !hasPermission(member.perms, Permission.manageWorkspace) && mine.length) {
+  if (!member.isOwner && !hasPermission(member.perms, Permission.manageServer) && mine.length) {
     const agentDms = await db.select({ channelId: channelMembers.channelId }).from(channelMembers)
       .innerJoin(users, eq(users.id, channelMembers.userId))
       .where(and(inArray(channelMembers.channelId, mine.map(row => row.channel.id)), eq(users.kind, 'agent')))

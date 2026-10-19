@@ -88,9 +88,9 @@ export async function requireCurrentOnboardingAcceptance(
 ): Promise<PublicOnboardingConfig> {
   const current = await loadCurrentOnboarding(env)
   if (!current.acceptanceRequired) return current
-  if (!accepted) fail(400, 'acceptance_required', 'Accept the published workspace documents to continue')
+  if (!accepted) fail(400, 'acceptance_required', 'Accept the published server documents to continue')
   if (!revisionId || revisionId !== current.revisionId) {
-    fail(409, 'onboarding_changed', 'The workspace documents changed. Review the current version and try again.')
+    fail(409, 'onboarding_changed', 'The server documents changed. Review the current version and try again.')
   }
   return current
 }

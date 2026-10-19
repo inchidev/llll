@@ -4,9 +4,9 @@ import type { MailboxDTO, MemberDTO } from '~~/shared/types'
 import { mailPath } from '~~/shared/paths'
 import { Permission } from '~~/shared/permissions'
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 
-definePageMeta({ layout: 'workspace', middleware: ['auth'] })
+definePageMeta({ layout: 'server', middleware: ['auth'] })
 
 const { api } = useApi()
 
@@ -15,12 +15,12 @@ const mailboxesQ = useQuery({
   queryFn: () => api<{ mailboxes: MailboxDTO[] }>('/api/mail/mailboxes'),
 })
 const membersQ = useQuery({
-  queryKey: ['members', workspaceId.value],
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${workspaceId.value}/members`),
+  queryKey: ['members', serverId.value],
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
 })
 // People who manage mailboxes get the way to create one instead of "ask an admin".
 const { can } = usePermissions(computed(() => membersQ.data.value?.members))
-const canManageMail = computed(() => can(Permission.manageWorkspace))
+const canManageMail = computed(() => can(Permission.manageServer))
 
 watch(() => mailboxesQ.data.value?.mailboxes, (mailboxes) => {
   const first = mailboxes?.[0]
@@ -40,7 +40,7 @@ watch(() => mailboxesQ.data.value?.mailboxes, (mailboxes) => {
         ? 'Create an address like support@, or give yourself access to an existing one, in Email settings.'
         : 'Ask a server admin for access to a mailbox.'"
     >
-      <UButton v-if="canManageMail" icon="i-ph-gear" label="Set up email" :to="`/w/${workspaceId}/settings?section=email`" />
+      <UButton v-if="canManageMail" icon="i-ph-gear" label="Set up email" :to="`/server/${serverId}/settings?section=email`" />
     </LayoutEmptyState>
   </div>
 </template>

@@ -27,11 +27,11 @@ async function walk(path) {
 }
 await walk(resolve(root, '.output/public'))
 const migrations = {}
-for (const [kind, path] of Object.entries({ server: 'drizzle/migrations' })) {
+for (const [kind, path] of Object.entries({ server: 'drizzle/server-migrations' })) {
  const directory = resolve(root, path)
  migrations[kind] = await Promise.all((await readdir(directory)).filter(name => /^[0-9]{4}_[a-z0-9_]+\.sql$/.test(name)).sort().map(async name => ({ name, sql: await readFile(resolve(directory, name), 'utf8') })))
 }
-const bytes = Buffer.from(JSON.stringify({ schemaVersion: 2, version: JSON.parse(await readFile(resolve(root, 'package.json'))).version, modules, assets, migrations }))
+const bytes = Buffer.from(JSON.stringify({ schemaVersion: 3, version: JSON.parse(await readFile(resolve(root, 'package.json'))).version, modules, assets, migrations }))
 await writeFile(resolve(dir, 'llll-deployment.json'), bytes)
 let sums = `${digest(bytes)}  llll-deployment.json\n`
 try {

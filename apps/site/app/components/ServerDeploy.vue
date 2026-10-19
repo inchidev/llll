@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {
-  readDeployedInstallations,
-  recordDeployedInstallation,
-  type DeployedInstallation,
+  readDeployedServers,
+  recordDeployedServer,
+  type DeployedServer,
 } from '../../../../shared/deploy-recall'
 
 const route = useRoute()
@@ -37,7 +37,7 @@ const versions = ref<
 >([])
 const version = ref('')
 const releasesError = ref('')
-const remembered = ref<DeployedInstallation[]>([])
+const remembered = ref<DeployedServer[]>([])
 /** Set when the web session is gone and this browser deployed before: the page then says so instead of silently looking new. */
 const sessionEnded = ref(false)
 /** Deployments in flight navigate straight to the shell; returning later shows the completion screen again without redirecting. */
@@ -74,7 +74,7 @@ async function refresh() {
     error.value = session.value?.error || ''
     sessionEnded.value = false
     if (session.value?.completed && session.value.origin)
-      remembered.value = recordDeployedInstallation({
+      remembered.value = recordDeployedServer({
         origin: session.value.origin,
         name: session.value.name || '',
         completedAt: Date.now(),
@@ -123,7 +123,7 @@ async function deploy() {
   }
 }
 onMounted(async () => {
-  remembered.value = readDeployedInstallations()
+  remembered.value = readDeployedServers()
   config.value = await $fetch('/api/deploy/config')
   await refresh()
   setInterval(() => {

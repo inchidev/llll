@@ -3,10 +3,10 @@ import { z } from 'zod'
 import { users } from '../../../drizzle/schema'
 import { sessionUser } from '../../utils/auth'
 import { authFromEvent } from '../../utils/better-auth'
-import { provisionWorkspace } from '../../utils/bootstrap'
+import { provisionServer } from '../../utils/bootstrap'
 import { cf, fail } from '../../utils/cf'
-import { ensureMigrated, getDb, workspaceReady } from '../../utils/db'
-import { ensureWorkspaceMailFromEnv } from '../../utils/workspace-mail'
+import { ensureMigrated, getDb, serverReady } from '../../utils/db'
+import { ensureServerMailFromEnv } from '../../utils/server-mail'
 import { ownerSetupTokenMatches, readOwnerSetupEnv } from '../../utils/owner-setup'
 import { parseBody } from '../../utils/validate'
 
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   await ensureMigrated(env.DB, env)
-  if (await workspaceReady(env.DB)) fail(409, 'workspace_ready', 'Workspace setup is already complete')
+  if (await serverReady(env.DB)) fail(409, 'server_ready', 'Server setup is already complete')
 
   const setup = readOwnerSetupEnv(env)
   if (!setup) fail(503, 'setup_unavailable', 'Owner setup is not configured')
@@ -40,19 +40,19 @@ export default defineEventHandler(async (event) => {
   const handle = (setup.email.split('@')[0] || 'owner').slice(0, 32)
   let provisioned
   try {
-    provisioned = await provisionWorkspace(event, {
+    provisioned = await provisionServer(event, {
       email: setup.email,
       password: body.password,
       handle,
       displayName: body.name,
-      workspaceName: setup.workspaceName,
+      serverName: setup.serverName,
     })
   }
   catch (error) {
-    if (await workspaceReady(env.DB)) fail(409, 'workspace_ready', 'Workspace setup is already complete')
+    if (await serverReady(env.DB)) fail(409, 'server_ready', 'Server setup is already complete')
     throw error
   }
-  await ensureWorkspaceMailFromEnv(env)
+  await ensureServerMailFromEnv(env)
 
   const auth = await authFromEvent(event)
   const response = await auth.api.signInEmail({

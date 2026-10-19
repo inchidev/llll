@@ -53,7 +53,6 @@ export type CloudflareServer = {
   configuration: DeployRequest
   resources: {
     databaseId: string | null
-    primary: boolean
     bucketName: string | null
     kvId: string | null
     mailZoneId: string | null
@@ -67,7 +66,7 @@ export type CloudflareServer = {
 export type DeployProgressStep =
   | 'account'
   | 'release'
-  | 'installation'
+  | 'server'
   | 'storage'
   | 'database'
   | 'assets'

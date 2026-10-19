@@ -24,10 +24,10 @@ export function agentUserMessage(input: {
     parts: [{
       type: 'text',
       text: [
-        `${input.authorName} sent you this workspace message:`,
+        `${input.authorName} sent you this server message:`,
         input.content || '(No text)',
         input.metadata.hasImages ? 'The message includes one or more attached images. Inspect the visual input before responding.' : '',
-        'Respond as a helpful workspace participant. Use tools when concrete work is requested. Keep the chat reply under 2000 characters.',
+        'Respond as a helpful server participant. Use tools when concrete work is requested. Keep the chat reply under 2000 characters.',
       ].filter(Boolean).join('\n\n'),
     }],
   }

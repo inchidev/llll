@@ -14,7 +14,7 @@ const room: LiveState = {
 }
 
 describe('Live room hosts', () => {
-  it('makes the starter and Channel managers hosts in a workspace Channel', () => {
+  it('makes the starter and Channel managers hosts in a server Channel', () => {
     const channel = { directMessage: false, perms: MemberPermissions }
     expect(isLiveHost(room, 'starter', channel)).toBe(true)
     expect(isLiveHost(room, 'member', channel)).toBe(false)
@@ -39,12 +39,12 @@ describe('Live room lifecycle', () => {
   it('reads a room stored before the Live rename', () => {
     expect(normalizeLive({
       active: true,
-      huddleId: 'meeting',
+      liveId: 'meeting',
       meetingId: 'meeting',
       participantIds: ['a'],
       startedBy: 'a',
       startedAt: '2026-09-01T00:00:00.000Z',
-      kind: 'huddle',
+      kind: 'live',
       title: null,
     })).toEqual({
       active: true,

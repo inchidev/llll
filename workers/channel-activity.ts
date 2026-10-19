@@ -2,7 +2,7 @@ import { getServerId } from '../shared/server-id'
 import { notificationPreview } from '../shared/notifications'
 import { channelPath } from '../shared/paths'
 import type { PublicUser } from '../shared/types'
-import type { WorkspaceChannelActivityEvent, WorkspaceChannelReadEvent } from '../shared/workspace-realtime'
+import type { ServerChannelActivityEvent, ServerChannelReadEvent } from '../shared/server-realtime'
 import { asRpc, type L4Env } from './env'
 import { channelHasUnread } from './unread'
 
@@ -80,7 +80,7 @@ export async function signalChannelActivity(
     await env.DB.prepare('UPDATE channel_members SET hidden_at = NULL WHERE channel_id = ?').bind(audience.rootChannelId).run()
   }
   if (!audience.recipientIds.length) return
-  const event: WorkspaceChannelActivityEvent = {
+  const event: ServerChannelActivityEvent = {
     t: 'channel.activity',
     sourceChannelId: audience.sourceChannelId,
     rootChannelId: audience.rootChannelId,
@@ -96,8 +96,8 @@ export async function signalChannelActivity(
     },
   }
   const stub = asRpc<{
-    notifyChannelActivity: (event: WorkspaceChannelActivityEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
+    notifyChannelActivity: (event: ServerChannelActivityEvent, recipientIds: string[]) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
   await stub.notifyChannelActivity(event, audience.recipientIds)
 }
 
@@ -109,7 +109,7 @@ export async function signalChannelRead(
 ): Promise<void> {
   const root = await resolveChannelRoot(env.DB, channelId)
   if (!root) return
-  const event: WorkspaceChannelReadEvent = {
+  const event: ServerChannelReadEvent = {
     t: 'channel.read',
     sourceChannelId: channelId,
     rootChannelId: root.id,
@@ -117,7 +117,7 @@ export async function signalChannelRead(
     unread: await channelHasUnread(env.DB, userId, root.id),
   }
   const stub = asRpc<{
-    notifyChannelRead: (event: WorkspaceChannelReadEvent, userId: string) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
+    notifyChannelRead: (event: ServerChannelReadEvent, userId: string) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
   await stub.notifyChannelRead(event, userId)
 }

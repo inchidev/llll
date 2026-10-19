@@ -6,7 +6,7 @@ import { channelPath } from '~~/shared/paths'
 import { PENDING_THREAD_PREFIX } from '~/stores/ui'
 
 const props = defineProps<{
-  workspaceId: string
+  serverId: string
   members: MemberDTO[]
   canPin?: boolean
 }>()
@@ -29,7 +29,7 @@ const canSendMessages = computed(() => hasPermission(effectivePermissions.value,
 const canAttachFiles = computed(() => hasPermission(effectivePermissions.value, Permission.attachFiles))
 const presence = usePresenceStore()
 const agentBusy = computed(() => Boolean(threadId.value && presence.agentTurnsIn(threadId.value).length))
-const canApproveAgent = computed(() => hasPermission(effectivePermissions.value, Permission.manageWorkspace))
+const canApproveAgent = computed(() => hasPermission(effectivePermissions.value, Permission.manageServer))
 
 // The router's live route: the page-level route misses thread-only URL changes.
 const liveRoute = useRouter().currentRoute
@@ -102,7 +102,7 @@ defineShortcuts({
     />
     <ChatComposer
       :channel-id="threadId"
-      :workspace-id="props.workspaceId"
+      :server-id="props.serverId"
       :members="props.members"
       :send="send as (msg: ClientMsg) => void"
       :disabled="!canSendMessages"

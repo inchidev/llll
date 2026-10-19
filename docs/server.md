@@ -2,7 +2,7 @@
 
 Each Server is an independently operated deployment at one origin. It owns Accounts, authentication, sessions, Members, Roles, invitations, content, files and realtime. One Server uses one Worker on Cloudflare, one D1, its own live files bucket and Durable Object namespaces. Backup storage is separate. VPS deployments use a celld service and persistent object storage.
 
-The Server has one persistent UUIDv4 allocated in D1 before owner setup. The same UUID is used by `workspace.id`, APIs, storage prefixes, realtime coordination and public links. Discovery and repeated setup attempts preserve it; backup/restore preserves it. There is no `main` workspace ID. Accounts and membership on different Servers are independent.
+The Server has one persistent UUIDv4 allocated in D1 before owner setup. The same UUID is used by `server.id`, APIs, storage prefixes, realtime coordination and public links. Discovery and repeated setup attempts preserve it; backup/restore preserves it. There is no `main` server ID. Accounts and membership on different Servers are independent.
 
 ## Shell
 
@@ -24,4 +24,4 @@ RealtimeKit, mail and AI credentials belong to the Server. Deploying it does not
 
 The first journey is deploy Server → claim owner → invite member → chat. Cloudflare application code is deployed only by Workers Builds from Git and verified immutable release artifacts. VPS deployment uses the published portable image and operator-owned configuration. See [deployment](deployment.md).
 
-Restore the database, live files and original encryption secrets. Keep backup destinations separate and never delete them with a Server. This transition supports fresh standalone databases; Instance-bound accounts require a separate explicit migration and are not silently detached.
+The active Server schema is `server-v1`, beginning at `drizzle/server-migrations/0000_server_baseline.sql`. Create a fresh database; earlier schemas cannot be upgraded into this line. Published artifacts and Git history remain unchanged.

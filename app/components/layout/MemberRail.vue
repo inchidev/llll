@@ -9,7 +9,7 @@ import ChannelThreadsPanel from '~/features/threads/components/ChannelThreadsPan
 import ChannelPinsPanel from '~/features/pins/components/ChannelPinsPanel.vue'
 
 const props = defineProps<{
-  workspaceId: string
+  serverId: string
   channelId: string
   channelMembers?: PublicUser[]
   isGroupDm?: boolean
@@ -24,12 +24,12 @@ const { api } = useApi()
 const isMobile = useIsMobile()
 
 const { data, isPending, error, refetch } = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
+  queryKey: computed(() => ['members', props.serverId]),
   queryFn: ({ queryKey }) => {
     const id = String(queryKey[1] ?? '')
-    return id ? api<{ members: MemberDTO[] }>(`/api/workspaces/${id}/members`) : Promise.resolve({ members: [] })
+    return id ? api<{ members: MemberDTO[] }>(`/api/servers/${id}/members`) : Promise.resolve({ members: [] })
   },
-  enabled: computed(() => Boolean(props.workspaceId)),
+  enabled: computed(() => Boolean(props.serverId)),
 })
 const { can } = usePermissions(computed(() => data.value?.members))
 
@@ -39,7 +39,7 @@ const list = computed(() => {
       const m = data.value?.members.find((x) => x.user.id === u.id)
       return m ?? {
         user: u,
-        role: { id: '', workspaceId: props.workspaceId, key: 'member', name: 'member', permissions: 0, position: 99, isSystem: true },
+        role: { id: '', serverId: props.serverId, key: 'member', name: 'member', permissions: 0, position: 99, isSystem: true },
         nickname: null,
         status: presence.statusOf(u.id),
       } satisfies MemberDTO
@@ -68,14 +68,14 @@ const kickId = ref<string | null>(null)
 
 async function confirmKick() {
   if (!kickId.value) return
-  await api(`/api/workspaces/${props.workspaceId}/members/${kickId.value}`, { method: 'DELETE' })
-  await qc.invalidateQueries({ queryKey: ['members', props.workspaceId] })
+  await api(`/api/servers/${props.serverId}/members/${kickId.value}`, { method: 'DELETE' })
+  await qc.invalidateQueries({ queryKey: ['members', props.serverId] })
   toast.add({ title: 'Member kicked', color: 'success' })
   kickId.value = null
 }
 
 async function message(userId: string) {
-  const res = await api<{ channel: { id: string } }>('/api/dms', { method: 'POST', body: { userId, workspaceId: props.workspaceId } })
+  const res = await api<{ channel: { id: string } }>('/api/dms', { method: 'POST', body: { userId, serverId: props.serverId } })
   await qc.invalidateQueries({ queryKey: ['dms'] })
   await navigateTo(channelPath(res.channel))
 }

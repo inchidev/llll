@@ -52,7 +52,7 @@ describe('message search SQL', () => {
   })
 
   it('keeps the FTS index derived and transactionally synchronized', () => {
-    const path = fileURLToPath(new URL('../../drizzle/migrations/0000_server_baseline.sql', import.meta.url))
+    const path = fileURLToPath(new URL('../../drizzle/server-migrations/0000_server_baseline.sql', import.meta.url))
     const migration = readFileSync(path, 'utf8')
     expect(migration).toContain('CREATE VIRTUAL TABLE `message_search` USING fts5')
     expect(migration).toContain('AFTER INSERT ON `messages`')

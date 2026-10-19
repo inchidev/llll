@@ -7,7 +7,7 @@ import type { L4Env } from '../../workers/env'
 import { signalTasksChanged } from '../../workers/task-events'
 import { getDb } from './db'
 import { writeAudit } from './messages'
-import { authorize, WorkspaceAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { loadTaskBoards, loadTaskDetail } from './task-data'
 import { nextTaskPosition, requireBoard, requireTask, validateTaskAssignee, validateTaskChannel, validateTaskDependencies, validateTaskLabels } from './task-policy'
 
@@ -44,7 +44,7 @@ export async function listTasks(
   authorization: AuthorizationContext,
   includeArchived = false,
 ): Promise<TaskBoardDTO[]> {
-  authorize(authorization, WorkspaceAction.readTasks)
+  authorize(authorization, ServerAction.readTasks)
   return loadTaskBoards(env, includeArchived)
 }
 
@@ -53,7 +53,7 @@ export async function getTask(
   authorization: AuthorizationContext,
   taskReference: string | number,
 ): Promise<TaskDetailDTO | null> {
-  authorize(authorization, WorkspaceAction.readTasks)
+  authorize(authorization, ServerAction.readTasks)
   return loadTaskDetail(env, taskReference)
 }
 
@@ -64,7 +64,7 @@ export async function createTask(
   input: CreateTaskInput,
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
-  authorize(authorization, WorkspaceAction.writeTasks)
+  authorize(authorization, ServerAction.writeTasks)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
   await Promise.all([
@@ -86,7 +86,7 @@ export async function createTask(
     priority: input.priority,
     dueAt: input.dueAt,
     position: await nextTaskPosition(env, boardId, status),
-    assigneeUserId: input.assigneeId,
+    assigneeId: input.assigneeId,
     channelId: input.channelId,
     createdBy: actorId,
     resultSummary: null,
@@ -101,7 +101,7 @@ export async function createTask(
     ...[...new Set(input.labelIds)].map(labelId => db.insert(taskLabelLinks).values({ taskId: id, labelId })),
     ...[...new Set(input.dependencyIds)].map(dependsOnTaskId => db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId, createdAt: now })),
   ])
-  await writeAudit(env, { workspaceId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
+  await writeAudit(env, { serverId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
   schedule(signalTasksChanged(env, boardId, id))
   return (await loadTaskDetail(env, id))!
 }
@@ -113,7 +113,7 @@ export async function updateTask(
   input: UpdateTaskInput,
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
-  authorize(authorization, WorkspaceAction.writeTasks)
+  authorize(authorization, ServerAction.writeTasks)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
   const task = await requireTask(env, taskReference)
@@ -142,7 +142,7 @@ export async function updateTask(
     dueAt: input.dueAt === undefined ? task.dueAt : input.dueAt,
     position,
     boardId,
-    assigneeUserId: input.assigneeId === undefined ? task.assigneeUserId : input.assigneeId,
+    assigneeId: input.assigneeId === undefined ? task.assigneeId : input.assigneeId,
     channelId: input.channelId === undefined ? task.channelId : input.channelId,
     archivedAt: input.archived === undefined ? task.archivedAt : input.archived ? updatedAt : null,
     lastError: status === 'failed' ? task.lastError : null,
@@ -167,7 +167,7 @@ export async function updateTask(
     if (dependencyIds.length) await db.insert(taskDependencies).values(dependencyIds.map(dependsOnTaskId => ({ taskId: id, dependsOnTaskId, createdAt: updatedAt })))
   }
   await writeAudit(env, {
-    workspaceId: (await getServerId(env.DB)),
+    serverId: (await getServerId(env.DB)),
     actorId,
     action: input.archived === true ? 'task.archive' : input.archived === false ? 'task.restore' : 'task.update',
     targetType: 'task',

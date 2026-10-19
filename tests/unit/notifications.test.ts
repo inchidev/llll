@@ -100,9 +100,9 @@ describe('notification helpers', () => {
 })
 
 describe('notification recipients', () => {
-  it('enqueues only active mentions for a workspace channel', async () => {
+  it('enqueues only active mentions for a server channel', async () => {
     const fake = env([
-      { id: 'channel', name: 'general', type: 'text', visibility: 'workspace', parent_id: null },
+      { id: 'channel', name: 'general', type: 'text', visibility: 'server', parent_id: null },
       [{ id: 'mentioned' }],
     ])
     const statement = await messageNotificationStatement(fake.env, {
@@ -146,9 +146,9 @@ describe('notification recipients', () => {
     })
   })
 
-  it('notifies the other active people in a workspace Channel when it goes live', async () => {
+  it('notifies the other active people in a server Channel when it goes live', async () => {
     const fake = env([
-      { id: 'general', name: 'general', type: 'text', visibility: 'workspace', parent_id: null },
+      { id: 'general', name: 'general', type: 'text', visibility: 'server', parent_id: null },
       [{ id: 'other' }],
     ])
     const statement = await liveNotificationStatement(fake.env, 'general', 'meeting', actor, 'live') as unknown as FakeStatement

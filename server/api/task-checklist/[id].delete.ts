@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   if (!item) fail(404, 'not_found', 'Checklist item not found')
   const task = await requireTask(env, item.taskId)
   await db.delete(taskChecklistItems).where(eq(taskChecklistItems.id, id))
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.delete', targetType: 'task', targetId: task.id, meta: { itemId: id } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.delete', targetType: 'task', targetId: task.id, meta: { itemId: id } })
   waitUntil(signalTasksChanged(env, task.boardId, task.id))
   return { ok: true }
 })

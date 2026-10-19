@@ -29,4 +29,4 @@ See [deployment artifacts](installer-releases.md) for the release contract. Cust
 
 A release updates llll.gg and publishes matching standalone Server artifacts. Operators keep their selected Server version pinned. Back up its D1, live files and original encryption secrets to separate storage. Cloudflare updates run through its Git-connected Build and preserve resource bindings, secrets and DO namespaces; VPS operators apply the verified portable image. Verify local owner/member login, permissions, files, realtime and the same UUID before considering the update complete.
 
-The standalone transition installs fresh Server databases. Instance runtime is retired and its immutable migration baseline remains in the repository; no running Instances need migration. Old release tags/assets are never changed or offered as standalone bundles.
+The active Server schema is `server-v1`, beginning at `drizzle/server-migrations/0000_server_baseline.sql`. Create a fresh database; earlier schemas cannot be upgraded into this line. Published artifacts and Git history remain unchanged.

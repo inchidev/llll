@@ -3,7 +3,7 @@ import { useSafeLocalStorage } from '../composables/useSafeLocalStorage'
 import { ref } from 'vue'
 import type { RightPanelTab } from '~~/shared/types'
 
-type LastChannel = { workspaceId: string; channelId: string }
+type LastChannel = { serverId: string; channelId: string }
 
 /** Marks `threadId` while a new thread is being created and has no id yet. */
 export const PENDING_THREAD_PREFIX = 'pending:'
@@ -12,9 +12,9 @@ export function isLastChannel(value: unknown): value is LastChannel {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<LastChannel>
   return Boolean(
-    candidate.workspaceId
-    && candidate.workspaceId !== 'undefined'
-    && candidate.workspaceId !== 'null'
+    candidate.serverId
+    && candidate.serverId !== 'undefined'
+    && candidate.serverId !== 'null'
     && candidate.channelId
     && candidate.channelId !== 'undefined'
     && candidate.channelId !== 'null',
@@ -88,9 +88,9 @@ export const useUiStore = defineStore('ui', () => {
     navCollapsed.value = { ...navCollapsed.value, [key]: value }
   }
 
-  function remember(workspaceId: string, channelId: string) {
-    if (!workspaceId || workspaceId === 'undefined' || !channelId || channelId === 'undefined') return
-    lastChannel.value = { workspaceId, channelId }
+  function remember(serverId: string, channelId: string) {
+    if (!serverId || serverId === 'undefined' || !channelId || channelId === 'undefined') return
+    lastChannel.value = { serverId, channelId }
   }
 
   function last(): LastChannel | null {

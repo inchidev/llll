@@ -12,13 +12,13 @@ import { parseBody } from '../../utils/validate'
 
 const bodySchema = z.object({
   userIds: z.array(z.string().min(8)).min(2).max(DM_GROUP_MAX),
-  workspaceId: z.string().uuid().optional(),
+  serverId: z.string().uuid().optional(),
 })
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event)
   const body = parseBody(bodySchema, await readBody(event))
-  if (body.workspaceId && body.workspaceId !== await getServerId(cf(event).env.DB)) fail(404, 'not_found', 'Server not found')
+  if (body.serverId && body.serverId !== await getServerId(cf(event).env.DB)) fail(404, 'not_found', 'Server not found')
   const { env } = cf(event)
   const db = getDb(env.DB)
   const ids = [...new Set([me.id, ...body.userIds])]
@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
 
   const memberRows = await db.select({ userId: users.id }).from(users)
     .where(and(inArray(users.id, ids), eq(users.status, 'active')))
-  if (memberRows.length !== ids.length) fail(403, 'forbidden', 'Every participant must be in the workspace')
+  if (memberRows.length !== ids.length) fail(403, 'forbidden', 'Every participant must be in the server')
 
   const id = newId()
   const created = nowIso()

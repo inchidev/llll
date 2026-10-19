@@ -7,14 +7,14 @@ import {
 } from './cloudflare-rest'
 import type { L4Env } from './env'
 
-export type WorkspaceEmailAddress = string | { email: string, name: string }
+export type ServerEmailAddress = string | { email: string, name: string }
 
-export type WorkspaceEmailMessage = {
-  from: WorkspaceEmailAddress
-  to: WorkspaceEmailAddress | WorkspaceEmailAddress[]
-  cc?: WorkspaceEmailAddress | WorkspaceEmailAddress[]
-  bcc?: WorkspaceEmailAddress | WorkspaceEmailAddress[]
-  replyTo?: WorkspaceEmailAddress
+export type ServerEmailMessage = {
+  from: ServerEmailAddress
+  to: ServerEmailAddress | ServerEmailAddress[]
+  cc?: ServerEmailAddress | ServerEmailAddress[]
+  bcc?: ServerEmailAddress | ServerEmailAddress[]
+  replyTo?: ServerEmailAddress
   subject: string
   text?: string
   html?: string
@@ -75,7 +75,7 @@ export function emailProvider(env: L4Env): EmailProviderName {
   return null
 }
 
-export function workspaceEmailAvailable(env: L4Env): boolean {
+export function serverEmailAvailable(env: L4Env): boolean {
   if (env.MAIL_EMAIL) return true
   if (cloudflareRestConfigured(env)) return true
   if (gatewayConfigured(env)) return true
@@ -87,7 +87,7 @@ export function authEmailAvailable(env: L4Env): boolean {
   return emailProvider(env) !== null
 }
 
-async function postJsonGateway(url: string, token: string, message: WorkspaceEmailMessage, label: string): Promise<{ messageId: string }> {
+async function postJsonGateway(url: string, token: string, message: ServerEmailMessage, label: string): Promise<{ messageId: string }> {
   let response: Response
   try {
     response = await fetch(url, {
@@ -109,7 +109,7 @@ async function postJsonGateway(url: string, token: string, message: WorkspaceEma
   return { messageId: payload.messageId }
 }
 
-function emailApiBody(message: WorkspaceEmailMessage) {
+function emailApiBody(message: ServerEmailMessage) {
   return {
     from: message.from,
     to: message.to,
@@ -136,7 +136,7 @@ function emailMessageId(result: unknown): string | null {
   return null
 }
 
-async function sendCloudflareEmail(env: L4Env, message: WorkspaceEmailMessage): Promise<{ messageId: string }> {
+async function sendCloudflareEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
   const accountId = cloudflareAccountId(env)
   const token = cloudflareApiToken(env)
   if (!accountId || !token) throw new Error('Cloudflare API credentials are missing')
@@ -162,7 +162,7 @@ async function sendCloudflareEmail(env: L4Env, message: WorkspaceEmailMessage): 
   return { messageId }
 }
 
-export async function sendWorkspaceEmail(env: L4Env, message: WorkspaceEmailMessage): Promise<{ messageId: string }> {
+export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
   if (env.MAIL_EMAIL) return env.MAIL_EMAIL.send(message)
   if (cloudflareRestConfigured(env)) return sendCloudflareEmail(env, message)
   const fetcher = mailGatewayFetcher(env)
@@ -177,7 +177,7 @@ export async function sendWorkspaceEmail(env: L4Env, message: WorkspaceEmailMess
     }))
     const payload = await response.json().catch(() => null) as MailGatewayResponse | null
     if (!response.ok || !payload?.messageId) {
-      throw new Error(payload?.error || `Primary workspace mail rejected the message (${response.status})`)
+      throw new Error(payload?.error || `Primary server mail rejected the message (${response.status})`)
     }
     return { messageId: payload.messageId }
   }
@@ -189,10 +189,10 @@ export async function sendWorkspaceEmail(env: L4Env, message: WorkspaceEmailMess
   if (smtpUrl && env.SMTP_GATEWAY_TOKEN) {
     return postJsonGateway(smtpUrl, env.SMTP_GATEWAY_TOKEN, message, 'SMTP gateway')
   }
-  throw new Error('Workspace email sending is not configured')
+  throw new Error('Server email sending is not configured')
 }
 
-export async function sendAuthEmail(env: L4Env, message: WorkspaceEmailMessage): Promise<{ messageId: string }> {
+export async function sendAuthEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
   if (env.EMAIL) return env.EMAIL.send(message)
-  return sendWorkspaceEmail(env, message)
+  return sendServerEmail(env, message)
 }

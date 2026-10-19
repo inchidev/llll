@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { requireMailboxPermission } from '../../../../utils/workspace-mail'
+import { requireMailboxPermission } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
 

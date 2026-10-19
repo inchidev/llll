@@ -16,4 +16,4 @@ for (const [key, name] of [['worker', 'llll-worker.mjs'], ['assets', 'llll-asset
 }
 if (JSON.stringify((await json('llll-assets.json')).migrations) !== JSON.stringify(bundle.migrations.server)) throw new Error('Installer migrations differ from the deployment bundle')
 await writeReleaseManifest(resolve('.installer/release'), { version: process.env.RELEASE_VERSION, commit: process.env.RELEASE_COMMIT, releasePr: Number(process.env.RELEASE_PR) })
-console.log('Verified complete llll / Server / Instance / Docs release bundle')
+console.log('Verified complete llll / Server / Docs release bundle')

@@ -28,9 +28,9 @@ describe('assertPublicHttpUrl', () => {
     expect(() => assertPublicHttpUrl(url)).toThrow()
   })
 
-  it('rejects the workspace origin', () => {
+  it('rejects the server origin', () => {
     expect(() => assertPublicHttpUrl('https://chat.example.com/api/me', ['chat.example.com']))
-      .toThrow('workspace origin')
+      .toThrow('server origin')
   })
 })
 

@@ -21,8 +21,8 @@ function base64UrlToBuffer(value: string): ArrayBuffer {
   return copy.buffer
 }
 
-async function encryptionKey(installationSecret: string): Promise<CryptoKey> {
-  const material = await crypto.subtle.importKey('raw', encoder.encode(installationSecret), 'HKDF', false, ['deriveKey'])
+async function encryptionKey(serverSecret: string): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey('raw', encoder.encode(serverSecret), 'HKDF', false, ['deriveKey'])
   return crypto.subtle.deriveKey({
     name: 'HKDF',
     hash: 'SHA-256',
@@ -37,13 +37,13 @@ export type EncryptedSecret = {
   version: number
 }
 
-export async function encryptSecret(installationSecret: string, scope: string, value: string): Promise<EncryptedSecret> {
+export async function encryptSecret(serverSecret: string, scope: string, value: string): Promise<EncryptedSecret> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const encrypted = await crypto.subtle.encrypt({
     name: 'AES-GCM',
     iv,
     additionalData: encoder.encode(`llll:${scope}:${VERSION}`),
-  }, await encryptionKey(installationSecret), encoder.encode(value))
+  }, await encryptionKey(serverSecret), encoder.encode(value))
   return {
     ciphertext: bytesToBase64Url(new Uint8Array(encrypted)),
     iv: bytesToBase64Url(iv),
@@ -51,12 +51,12 @@ export async function encryptSecret(installationSecret: string, scope: string, v
   }
 }
 
-export async function decryptSecret(installationSecret: string, scope: string, value: EncryptedSecret): Promise<string> {
+export async function decryptSecret(serverSecret: string, scope: string, value: EncryptedSecret): Promise<string> {
   if (value.version !== VERSION) throw new Error(`Unsupported encrypted secret version: ${value.version}`)
   const decrypted = await crypto.subtle.decrypt({
     name: 'AES-GCM',
     iv: base64UrlToBuffer(value.iv),
     additionalData: encoder.encode(`llll:${scope}:${value.version}`),
-  }, await encryptionKey(installationSecret), base64UrlToBuffer(value.ciphertext))
+  }, await encryptionKey(serverSecret), base64UrlToBuffer(value.ciphertext))
   return new TextDecoder().decode(decrypted)
 }

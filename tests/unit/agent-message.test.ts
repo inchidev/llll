@@ -25,7 +25,7 @@ describe('agent user message', () => {
     })])
   })
 
-  it('tells the agent when the workspace message includes images', () => {
+  it('tells the agent when the server message includes images', () => {
     const metadata: AgentTurnMetadata = {
       kind: 'message',
       submissionId: 'submission-image',

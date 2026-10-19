@@ -49,7 +49,7 @@ beforeEach(() => {
 
     INSERT INTO channels VALUES
       ('dm', 'DM', '', 'dm', 'private', 0, NULL, NULL, NULL, 'now', 'now'),
-      ('general', 'general', '', 'text', 'workspace', 0, NULL, NULL, NULL, 'now', 'now');
+      ('general', 'general', '', 'text', 'server', 0, NULL, NULL, NULL, 'now', 'now');
     INSERT INTO channel_members VALUES ('dm', 'human'), ('dm', 'agent');
     INSERT INTO messages VALUES
       ('dm-message', 'dm', 'Please inspect the build'),
@@ -73,7 +73,7 @@ describe('agent reply target', () => {
     ])
   })
 
-  it('keeps workspace-channel replies flat', async () => {
+  it('keeps server-channel replies flat', async () => {
     await expect(ensureAgentReplyTarget(db, 'general', 'general-message')).resolves.toEqual({
       channelId: 'general',
       parentChannelId: null,

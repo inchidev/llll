@@ -2,7 +2,7 @@
 import type { AuthCredentialProvider, AuthSettingsAdminDTO, RegistrationMode } from '~~/shared/types'
 const { api } = useApi()
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const loading = ref(true)
 const saving = ref(false)
@@ -43,7 +43,7 @@ function apply(value: AuthSettingsAdminDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`)
+    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/servers/${props.serverId}/auth`)
     apply(response.auth)
   }
   catch (error) {
@@ -57,7 +57,7 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/workspaces/${props.workspaceId}/auth`, {
+    const response = await api<{ auth: AuthSettingsAdminDTO }>(`/api/servers/${props.serverId}/auth`, {
       method: 'PATCH',
       body: {
         registrationMode: registrationMode.value,
@@ -107,7 +107,7 @@ onMounted(load)
       color="neutral"
       variant="subtle"
       title="Managed by Cloudflare Access"
-      description="Cloudflare sends the sign-in code and controls which email addresses may reach this workspace. Change the Access application policy in your Cloudflare account."
+      description="Cloudflare sends the sign-in code and controls which email addresses may reach this server. Change the Access application policy in your Cloudflare account."
     />
     <template v-else-if="auth">
       <UFormField label="Registration" class="mt-6 max-w-sm">

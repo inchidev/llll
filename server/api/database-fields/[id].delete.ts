@@ -28,6 +28,6 @@ export default defineEventHandler(async (event) => {
     ...viewRepairs,
     env.DB.prepare('DELETE FROM database_fields WHERE id = ?').bind(id),
   ])
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.delete', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, name: field.name, type: field.type } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.delete', targetType: 'database_field', targetId: id, meta: { databaseId: field.databaseId, name: field.name, type: field.type } })
   return { ok: true }
 })

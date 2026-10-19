@@ -4,7 +4,7 @@ import { onKeyStroke } from '@vueuse/core'
 import type { ChannelDTO, MemberDTO, MessageDTO, PublicUser } from '~~/shared/types'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
 import type { RealtimeConnection } from '../../composables/useChannelSocket'
-import { workspaceConnectionKey } from '../../composables/useWorkspaceSocket'
+import { serverConnectionKey } from '../../composables/useServerSocket'
 import { dmTitle, isDmType } from '~~/shared/dm'
 import { channelPath } from '~~/shared/paths'
 import { hasPermission, Permission } from '~~/shared/permissions'
@@ -20,7 +20,7 @@ const presence = usePresenceStore()
 const live = useLiveStore()
 const qc = useQueryClient()
 const toast = useToast()
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const { api } = useApi()
 const channelId = computed(() => String(route.params.channel || route.params.channelId || ''))
 
@@ -34,20 +34,20 @@ onKeyStroke(
 )
 
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', workspaceId.value]),
+  queryKey: computed(() => ['members', serverId.value]),
   queryFn: ({ queryKey }) => {
     const id = String(queryKey[1] ?? '')
-    return id ? api<{ members: MemberDTO[] }>(`/api/workspaces/${id}/members`) : Promise.resolve({ members: [] })
+    return id ? api<{ members: MemberDTO[] }>(`/api/servers/${id}/members`) : Promise.resolve({ members: [] })
   },
-  enabled: computed(() => Boolean(workspaceId.value)),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const channelsQ = useQuery({
-  queryKey: computed(() => ['channels', workspaceId.value]),
+  queryKey: computed(() => ['channels', serverId.value]),
   queryFn: ({ queryKey }) => {
     const id = String(queryKey[1] ?? '')
-    return id ? api<{ channels: ChannelDTO[] }>(`/api/workspaces/${id}/channels`) : Promise.resolve({ channels: [] })
+    return id ? api<{ channels: ChannelDTO[] }>(`/api/servers/${id}/channels`) : Promise.resolve({ channels: [] })
   },
-  enabled: computed(() => Boolean(workspaceId.value)),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const dmsQ = useQuery({
   queryKey: ['dms'],
@@ -102,11 +102,11 @@ const composerPlaceholder = computed(() => {
 })
 
 const { send, retry, connection: channelConnection } = useChannelSocket(channelId)
-const workspaceConnection = inject(workspaceConnectionKey, ref<RealtimeConnection>('connected'))
+const serverConnection = inject(serverConnectionKey, ref<RealtimeConnection>('connected'))
 const connection = computed(() => {
-  if (channelConnection.value === 'offline' || workspaceConnection.value === 'offline') return 'offline'
-  if (channelConnection.value === 'connected' && workspaceConnection.value === 'connected') return 'connected'
-  if (channelConnection.value === 'reconnecting' || workspaceConnection.value === 'reconnecting') return 'reconnecting'
+  if (channelConnection.value === 'offline' || serverConnection.value === 'offline') return 'offline'
+  if (channelConnection.value === 'connected' && serverConnection.value === 'connected') return 'connected'
+  if (channelConnection.value === 'reconnecting' || serverConnection.value === 'reconnecting') return 'reconnecting'
   return 'connecting'
 })
 // The live connection only carries new events; content loads over HTTP. So say
@@ -167,8 +167,8 @@ async function endLive() {
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
 }
 
-watch([workspaceId, channelId], () => {
-  ui.remember(workspaceId.value, channelId.value)
+watch([serverId, channelId], () => {
+  ui.remember(serverId.value, channelId.value)
   live.view(channelId.value)
 }, { immediate: true })
 
@@ -210,7 +210,7 @@ const typingNames = computed(() => presence.typingIn(channelId.value)
       || channel.value?.participants?.find(u => u.id === id)?.displayName || 'Someone'
   }))
 const agentBusy = computed(() => presence.agentTurnsIn(channelId.value).length > 0)
-const canApproveAgent = computed(() => can(Permission.manageWorkspace))
+const canApproveAgent = computed(() => can(Permission.manageServer))
 
 function onReply(id: string) {
   ui.startReply(channelId.value, id)
@@ -298,8 +298,8 @@ async function onThread(msg: MessageDTO) {
 const addOpen = ref(false)
 const addQ = ref('')
 const addSearch = useQuery({
-  queryKey: computed(() => ['dm-add', workspaceId.value, addQ.value]),
-  queryFn: () => api<{ members: PublicUser[] }>(`/api/dms/search?workspaceId=${workspaceId.value}&q=${encodeURIComponent(addQ.value)}`),
+  queryKey: computed(() => ['dm-add', serverId.value, addQ.value]),
+  queryFn: () => api<{ members: PublicUser[] }>(`/api/dms/search?serverId=${serverId.value}&q=${encodeURIComponent(addQ.value)}`),
   enabled: computed(() => addOpen.value),
 })
 
@@ -325,7 +325,7 @@ const liveMembers = computed<MemberDTO[]>(() => {
   if (!isDm.value) return members.value
   return (channel.value?.participants ?? []).map((u) => ({
     user: u,
-    role: { id: '', workspaceId: workspaceId.value, key: 'member', name: 'member', permissions: 0, position: 0, isSystem: true },
+    role: { id: '', serverId: serverId.value, key: 'member', name: 'member', permissions: 0, position: 0, isSystem: true },
     nickname: null,
     status: presence.statusOf(u.id),
   }))
@@ -509,7 +509,7 @@ defineShortcuts({
         <ChatComposer
           ref="composer"
           :channel-id="channelId"
-          :workspace-id="workspaceId"
+          :server-id="serverId"
           :members="members"
           :send="send"
           :disabled="!permissionsKnown || !canSendMessages"
@@ -540,14 +540,14 @@ defineShortcuts({
       <ChatThreadPanel
         v-if="ui.rightPanelOpen && ui.rightPanelTab === 'threads' && ui.threadId"
         key="thread"
-        :workspace-id="workspaceId"
+        :server-id="serverId"
         :members="members"
         :can-pin="canPin"
       />
       <LayoutMemberRail
         v-else-if="(!isMobile && ui.rightPanelOpen) || (isMobile && ui.mobilePane === 'members')"
         key="details"
-        :workspace-id="workspaceId"
+        :server-id="serverId"
         :channel-id="channelId"
         :channel-members="isDm ? channel?.participants : undefined"
         :is-group-dm="isGroup"

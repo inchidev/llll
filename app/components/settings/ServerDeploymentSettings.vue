@@ -5,8 +5,8 @@
  * `?section=backups` still land on the right tab.
  */
 const props = defineProps<{
-  workspaceId: string
-  workspaceName: string
+  serverId: string
+  serverName: string
   updatesBehind?: number
 }>()
 
@@ -26,16 +26,16 @@ const tabs = computed(() => [
     <LayoutSegmentedTabs v-model="section" :items="tabs" label="Server deployment settings" class="mb-8" />
     <SettingsCloudflareSettings
       v-if="section === 'cloudflare' || section === 'domains'"
-      :workspace-id="workspaceId"
+      :server-id="serverId"
       :view="section === 'domains' ? 'domains' : 'overview'"
       @navigate="section = $event"
     />
-    <SettingsBackupSettings v-else-if="section === 'backups'" :workspace-id="workspaceId" />
-    <SettingsUpdateSettings v-else-if="section === 'updates'" :workspace-id="workspaceId" />
+    <SettingsBackupSettings v-else-if="section === 'backups'" :server-id="serverId" />
+    <SettingsUpdateSettings v-else-if="section === 'updates'" :server-id="serverId" />
     <SettingsDangerZoneSettings
       v-else-if="section === 'danger'"
-      :workspace-id="workspaceId"
-      :workspace-name="workspaceName"
+      :server-id="serverId"
+      :server-name="serverName"
       @backups="section = 'backups'"
     />
   </div>

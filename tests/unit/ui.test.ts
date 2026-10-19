@@ -19,20 +19,20 @@ describe('keyboard shortcuts', () => {
 
 describe('last channel persistence', () => {
   it('rejects stale undefined route values', () => {
-    expect(isLastChannel({ workspaceId: 'main', channelId: 'undefined' })).toBe(false)
-    expect(isLastChannel({ workspaceId: 'undefined', channelId: 'channel-1' })).toBe(false)
-    expect(isLastChannel({ workspaceId: 'main', channelId: 'channel-1' })).toBe(true)
+    expect(isLastChannel({ serverId: 'main', channelId: 'undefined' })).toBe(false)
+    expect(isLastChannel({ serverId: 'undefined', channelId: 'channel-1' })).toBe(false)
+    expect(isLastChannel({ serverId: 'main', channelId: 'channel-1' })).toBe(true)
   })
 
   it('round-trips through storage as JSON', () => {
-    const last = { workspaceId: 'main', channelId: 'channel-1' }
+    const last = { serverId: 'main', channelId: 'channel-1' }
     expect(lastChannelSerializer.read(lastChannelSerializer.write(last))).toEqual(last)
   })
 
   it('reads the old String() value and other junk as nothing remembered', () => {
     expect(lastChannelSerializer.read('[object Object]')).toBeNull()
     expect(lastChannelSerializer.read('null')).toBeNull()
-    expect(lastChannelSerializer.read('{"workspaceId":"main","channelId":"undefined"}')).toBeNull()
+    expect(lastChannelSerializer.read('{"serverId":"main","channelId":"undefined"}')).toBeNull()
   })
 })
 

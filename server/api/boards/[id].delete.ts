@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   ).bind(id).all<{ r2Key: string }>()
   await getDb(env.DB).delete(taskBoards).where(eq(taskBoards.id, id))
   if (blobs.results?.length) waitUntil(Promise.all(blobs.results.map(row => env.FILES?.delete(row.r2Key))))
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'board.delete', targetType: 'task_board', targetId: id, meta: { name: board.name } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'board.delete', targetType: 'task_board', targetId: id, meta: { name: board.name } })
   waitUntil(signalTasksChanged(env, id))
   return { ok: true }
 })

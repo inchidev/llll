@@ -23,8 +23,8 @@ describe('backup destination settings', () => {
   })
 
   it('decrypts the saved secret but never includes it in the admin DTO', async () => {
-    const installationSecret = 'stable installation secret'
-    const encrypted = await encryptSecret(installationSecret, BACKUP_S3_SECRET_SCOPE, 's3-secret')
+    const serverSecret = 'stable server secret'
+    const encrypted = await encryptSecret(serverSecret, BACKUP_S3_SECRET_SCOPE, 's3-secret')
     const env = {
       DB: {
         prepare: () => ({
@@ -46,7 +46,7 @@ describe('backup destination settings', () => {
       },
     } as unknown as L4Env
 
-    const loaded = await loadBackupDestination(env, installationSecret)
+    const loaded = await loadBackupDestination(env, serverSecret)
     expect(loaded.secretAccessKey).toBe('s3-secret')
     expect(loaded.secretReadable).toBe(true)
     expect(backupDestinationDto(loaded)).not.toHaveProperty('secretAccessKey')

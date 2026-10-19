@@ -55,10 +55,10 @@ Contents
 - summary.json is written last and records the completed table, row, and R2 object counts. If it is missing, discard the incomplete archive.
 
 Security
-This archive contains workspace messages, authentication records, and attachment bytes. Store it as sensitive data. Environment secrets such as AUTH_SECRET are not included and must be preserved separately.
+This archive contains server messages, authentication records, and attachment bytes. Store it as sensitive data. Environment secrets such as AUTH_SECRET are not included and must be preserved separately.
 
 Scope
-Durable Object live state, KV tickets, running Agent turns, and external RealtimeKit data are not included. Keep the workspace idle while downloading for the most consistent snapshot.
+Durable Object live state, KV tickets, running Agent turns, and external RealtimeKit data are not included. Keep the server idle while downloading for the most consistent snapshot.
 `
 }
 

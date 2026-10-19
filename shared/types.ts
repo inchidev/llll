@@ -5,7 +5,7 @@ export type PresenceStatus = 'online' | 'idle' | 'offline'
 export type UserStatus = 'pending' | 'active' | 'removed'
 export type UserKind = 'human' | 'agent'
 export type ChannelType = 'text' | 'thread' | 'dm'
-export type ChannelVisibility = 'workspace' | 'private'
+export type ChannelVisibility = 'server' | 'private'
 
 export type PublicUser = {
   id: string
@@ -422,7 +422,7 @@ export type ReplyPreviewDTO = {
 export type MessageDTO = {
   id: string
   channelId: string
-  workspaceId: string
+  serverId: string
   author: PublicUser
   content: string
   replyTo: ReplyPreviewDTO | null
@@ -485,7 +485,7 @@ export type LiveState = {
   ringing: boolean
 }
 
-export type WorkspaceDTO = {
+export type ServerDTO = {
   id: string
   name: string
   iconR2Key: string | null
@@ -528,7 +528,7 @@ export type ChannelFileDTO = AttachmentDTO & {
 
 export type ChannelDTO = {
   id: string
-  workspaceId: string
+  serverId: string
   name: string
   topic: string
   type: ChannelType
@@ -563,7 +563,7 @@ export type SidebarThreadDTO = {
 
 export type RoleDTO = {
   id: string
-  workspaceId: string
+  serverId: string
   key: string
   name: string
   permissions: number
@@ -581,7 +581,7 @@ export type MemberDTO = {
 
 export type AuditEntryDTO = {
   id: string
-  workspaceId: string
+  serverId: string
   actorId: string
   actorName: string
   action: string
@@ -593,8 +593,8 @@ export type AuditEntryDTO = {
 
 export type InvitePreviewDTO = {
   code: string
-  workspaceId: string
-  workspaceName: string
+  serverId: string
+  serverName: string
   expiresAt: string | null
   uses: number
   maxUses: number
@@ -639,7 +639,7 @@ export type SetupHealth = {
     r2: boolean
     kv: boolean
     channelDo: boolean
-    workspaceDo: boolean
+    serverDo: boolean
     rateLimitDo: boolean
     notificationDo: boolean
     agentDo: boolean
@@ -685,9 +685,9 @@ export type ServerMsg =
   | { t: 'error'; code: string; message: string; clientId?: string }
   | { t: 'ack'; clientId: string; id: string }
 
-export type WorkspaceClientMsg = { t: 'auth'; token: string; visible?: boolean } | { t: 'activity'; visible?: boolean }
+export type ServerClientMsg = { t: 'auth'; token: string; visible?: boolean } | { t: 'activity'; visible?: boolean }
 
-export type WorkspaceServerMsg =
-  | { t: 'hello'; workspaceId: string }
+export type ServerServerMsg =
+  | { t: 'hello'; serverId: string }
   | { t: 'presence'; users: Array<{ userId: string; status: PresenceStatus }> }
   | { t: 'error'; code: string; message: string }

@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
     await requireFiles(env).delete(key)
     throw error
   }
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.create', targetType: 'task', targetId: taskId, meta: { attachmentId: id, filename: safeName } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.create', targetType: 'task', targetId: taskId, meta: { attachmentId: id, filename: safeName } })
   waitUntil(signalTasksChanged(env, task.boardId, taskId))
   return { attachment: { id, taskId, uploaderId: actor.user.id, filename: safeName, contentType: mime, sizeBytes: file.data.byteLength, width: null, height: null, createdAt: row.createdAt, url: `/api/task-files/${id}` } }
 })

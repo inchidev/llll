@@ -12,7 +12,7 @@ export type GadgetDatabaseViewSource = {
   viewId: string
 }
 
-/** A bounded capability from a Gadget to one workspace resource. */
+/** A bounded capability from a Gadget to one server resource. */
 export type GadgetBinding = {
   id: string
   label: string

@@ -15,7 +15,7 @@ export type SettingsGroup = { label?: string; items: SettingsItem[] }
 
 const props = defineProps<{
   groups: SettingsGroup[]
-  /** Shown above the nav — the account name or the workspace name. */
+  /** Shown above the nav — the account name or the server name. */
   title: string
   /** The section list depends on data that is still loading. */
   loading?: boolean

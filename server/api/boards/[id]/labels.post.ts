@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   catch {
     throw createError({ statusCode: 409, statusMessage: 'A label with that name already exists' })
   }
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_label.create', targetType: 'task_label', targetId: label.id, meta: { boardId, name: label.name } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_label.create', targetType: 'task_label', targetId: label.id, meta: { boardId, name: label.name } })
   waitUntil(signalTasksChanged(env, boardId))
   return { label }
 })

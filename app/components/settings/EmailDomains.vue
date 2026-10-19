@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailSettingsDTO } from '~~/shared/types'
-import type { InstallationDomainSettingsDTO } from '~~/shared/releases'
+import type { ServerDomainSettingsDTO } from '~~/shared/releases'
 
 /**
  * Email Domains live where people look for them: next to the mailboxes that
  * use them. Only the owner can connect or disconnect; everyone else sees the list.
  */
 const props = defineProps<{
-  workspaceId: string
+  serverId: string
   isOwner: boolean
   mail: MailSettingsDTO
 }>()
@@ -18,8 +18,8 @@ const qc = useQueryClient()
 const toast = useToast()
 
 const domainsQ = useQuery({
-  queryKey: computed(() => ['installation-domains', props.workspaceId]),
-  queryFn: () => api<InstallationDomainSettingsDTO>(`/api/workspaces/${props.workspaceId}/domains`),
+  queryKey: computed(() => ['server-domains', props.serverId]),
+  queryFn: () => api<ServerDomainSettingsDTO>(`/api/servers/${props.serverId}/domains`),
   enabled: computed(() => props.isOwner),
   staleTime: 5 * 60_000,
 })
@@ -49,8 +49,8 @@ function mailboxCount(domain: string) {
 async function refresh() {
   await Promise.all([
     domainsQ.refetch(),
-    qc.invalidateQueries({ queryKey: ['mail-settings', props.workspaceId] }),
-    qc.invalidateQueries({ queryKey: ['installation-management', props.workspaceId] }),
+    qc.invalidateQueries({ queryKey: ['mail-settings', props.serverId] }),
+    qc.invalidateQueries({ queryKey: ['server-management', props.serverId] }),
   ])
 }
 
@@ -79,7 +79,7 @@ async function addDomain() {
   if (!domain || fieldError.value) return
   adding.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/email-domains`, { method: 'POST', body: { zoneId: zoneId.value, domain } })
+    await api(`/api/servers/${props.serverId}/email-domains`, { method: 'POST', body: { zoneId: zoneId.value, domain } })
     await refresh()
     toast.add({ title: `${domain} connected`, color: 'success' })
     addOpen.value = false
@@ -99,7 +99,7 @@ async function repairSending(row: Row) {
   if (!row.zoneId) return
   repairing.value = row.domain
   try {
-    const result = await api<{ sendingEnabled?: boolean }>(`/api/workspaces/${props.workspaceId}/email-domains`, {
+    const result = await api<{ sendingEnabled?: boolean }>(`/api/servers/${props.serverId}/email-domains`, {
       method: 'POST',
       body: { zoneId: row.zoneId, domain: row.domain },
     })
@@ -119,7 +119,7 @@ async function disconnect() {
   if (!row?.id) return
   removeBusy.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/email-domains/${row.id}`, { method: 'DELETE' })
+    await api(`/api/servers/${props.serverId}/email-domains/${row.id}`, { method: 'DELETE' })
     await refresh()
     toast.add({ title: `${row.domain} disconnected`, color: 'success' })
     removing.value = null
@@ -180,10 +180,10 @@ async function disconnect() {
       </li>
     </ul>
     <p v-if="isOwner && !domainsQ.isPending.value && !managed" class="mt-3 text-sm text-muted">
-      This workspace was deployed from the repository. Add email domains in its deployment configuration.
+      This server was deployed from the repository. Add email domains in its deployment configuration.
     </p>
 
-    <UModal v-model:open="addOpen" title="Add email domain" description="Mail for this domain is routed to this workspace.">
+    <UModal v-model:open="addOpen" title="Add email domain" description="Mail for this domain is routed to this server.">
       <template #body>
         <UFormField label="Domain" :error="fieldError">
           <SettingsDomainInput

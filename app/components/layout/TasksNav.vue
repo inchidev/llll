@@ -3,16 +3,16 @@ import { useQuery } from '@tanstack/vue-query'
 import type { TaskBoardDTO } from '~~/shared/types'
 import { boardPath } from '~~/shared/paths'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const { api } = useApi()
 const nav = useNavActions()
 
 const archived = computed(() => route.query.archived === '1')
 const boardsQ = useQuery({
-  queryKey: computed(() => ['boards', props.workspaceId, archived.value]),
-  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/workspaces/${props.workspaceId}/boards`, { query: { archived: archived.value } }),
-  enabled: computed(() => Boolean(props.workspaceId)),
+  queryKey: computed(() => ['boards', props.serverId, archived.value]),
+  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${props.serverId}/boards`, { query: { archived: archived.value } }),
+  enabled: computed(() => Boolean(props.serverId)),
 })
 const boards = computed(() => {
   const list = boardsQ.data.value?.boards ?? []

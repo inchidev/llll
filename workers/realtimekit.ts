@@ -8,7 +8,7 @@ import {
   type RealtimeKitConnectionTestResult,
 } from '../packages/deployment-core/src/realtimekit'
 
-// The REST client is shared with the installation deployment library.
+// The REST client is shared with the server deployment library.
 export {
   addParticipant,
   connectRealtimeKit,
@@ -65,31 +65,23 @@ function blankConfig(): RealtimeKitRuntimeConfig {
   }
 }
 
-/**
- * Presets named by the deployment. Installs made before hosts and participants
- * were split name only `REALTIMEKIT_PRESET_AV`, and their app may have no
- * default presets, so everyone keeps sharing that one until it is reconnected.
- */
 function deploymentPresets(env: L4Env): { hostPreset: string, participantPreset: string } {
   const host = env.REALTIMEKIT_PRESET_HOST?.trim()
   const participant = env.REALTIMEKIT_PRESET_PARTICIPANT?.trim()
-  const legacy = env.REALTIMEKIT_PRESET_AV?.trim()
   if (host || participant) {
     return { hostPreset: host || participant!, participantPreset: participant || host! }
   }
-  if (legacy) return { hostPreset: legacy, participantPreset: legacy }
   return { hostPreset: DEFAULT_HOST_PRESET, participantPreset: DEFAULT_PARTICIPANT_PRESET }
 }
 
 /**
  * One source at a time: complete deployment variables override everything the
- * owner saved in Workspace Settings, including presets.
+ * owner saved in Server Settings, including presets.
  */
 export async function loadRealtimeKitConfig(env: L4Env): Promise<RealtimeKitRuntimeConfig> {
   const accountId = env.REALTIMEKIT_ACCOUNT_ID?.trim() || ''
   const appId = env.REALTIMEKIT_APP_ID?.trim() || ''
-  // REALTIMEKIT_API_KEY and REALTIMEKIT_PRESET_AV are the pre-Live names.
-  const apiToken = env.REALTIMEKIT_API_TOKEN?.trim() || env.REALTIMEKIT_API_KEY?.trim() || ''
+  const apiToken = env.REALTIMEKIT_API_TOKEN?.trim() || ''
   if (accountId && appId && apiToken) {
     return {
       accountId,
@@ -107,7 +99,7 @@ export async function loadRealtimeKitConfig(env: L4Env): Promise<RealtimeKitRunt
     row = await env.DB.prepare(
       `SELECT account_id, app_id, api_token_ciphertext, api_token_iv, api_token_version,
               host_preset, participant_preset
-       FROM realtimekit_settings WHERE id = 'main'`,
+       FROM realtimekit_settings WHERE id = 1`,
     ).first<RealtimeKitSettingsRow>()
   }
   catch {
@@ -126,13 +118,13 @@ export async function loadRealtimeKitConfig(env: L4Env): Promise<RealtimeKitRunt
     apiTokenConfigured: Boolean(row.api_token_ciphertext),
     secretReadable: true,
   }
-  const installationSecret = env.AUTH_SECRET?.trim()
-  if (!installationSecret) {
+  const serverSecret = env.AUTH_SECRET?.trim()
+  if (!serverSecret) {
     config.secretReadable = false
     return config
   }
   try {
-    config.apiToken = await decryptSecret(installationSecret, REALTIMEKIT_SECRET_SCOPE, {
+    config.apiToken = await decryptSecret(serverSecret, REALTIMEKIT_SECRET_SCOPE, {
       ciphertext: row.api_token_ciphertext,
       iv: row.api_token_iv,
       version: row.api_token_version,
@@ -148,7 +140,7 @@ export function realtimekitConfigured(config: RealtimeKitRuntimeConfig): boolean
   return Boolean(config.accountId && config.appId && config.apiToken)
 }
 
-/** Whether Live rooms can start. Health, installation status, and telemetry all use this one answer. */
+/** Whether Live rooms can start. Health, server status, and telemetry all use this one answer. */
 export async function liveAvailable(env: L4Env): Promise<boolean> {
   if (realtimekitConfigured(await loadRealtimeKitConfig(env))) return true
   // Off Cloudflare, the shared API token provisions an app on the first call.

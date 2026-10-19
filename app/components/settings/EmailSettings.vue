@@ -2,7 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailSettingsDTO, MailboxPermission, MemberDTO } from '~~/shared/types'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const qc = useQueryClient()
 const { api } = useApi()
@@ -23,12 +23,12 @@ const enabled = ref(true)
 const grants = reactive<Record<string, 'none' | MailboxPermission>>({})
 
 const mailQ = useQuery({
-  queryKey: computed(() => ['mail-settings', props.workspaceId]),
-  queryFn: () => api<{ mail: MailSettingsDTO }>(`/api/workspaces/${props.workspaceId}/mail`),
+  queryKey: computed(() => ['mail-settings', props.serverId]),
+  queryFn: () => api<{ mail: MailSettingsDTO }>(`/api/servers/${props.serverId}/mail`),
 })
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', props.workspaceId]),
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${props.workspaceId}/members`),
+  queryKey: computed(() => ['members', props.serverId]),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`),
 })
 const mail = computed(() => mailQ.data.value?.mail)
 const mailboxes = computed(() => mail.value?.mailboxes ?? [])
@@ -44,7 +44,7 @@ const outboundDescription = computed(() => {
   const provider = session.health?.capabilities.emailProvider
   const inbound = 'Mail from the internet does not arrive until you set INBOUND_EMAIL_SECRET, or a Postmark, Mailgun, or Amazon SES webhook secret.'
   if (provider === 'cloudflare-rest') return `${inbound} Outbound mail uses Cloudflare Email Sending. The sender domain must be onboarded for Email Sending.`
-  if (provider === 'binding') return `${inbound} Outbound mail uses the email binding configured for this installation.`
+  if (provider === 'binding') return `${inbound} Outbound mail uses the email binding configured for this server.`
   if (provider === 'gateway' || provider === 'smtp') return `${inbound} Outbound mail uses the configured HTTP gateway. An SMTP gateway is an HTTP service that relays the same JSON message over SMTP.`
   return `${inbound} Outbound mail sends through Cloudflare Email Sending when CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are set, or through MAIL_GATEWAY_URL or SMTP_GATEWAY_URL with its token.`
 })
@@ -112,7 +112,7 @@ async function createMailbox() {
   if (!localPart.value.trim() || !domainId.value) return
   creating.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/mailboxes`, {
+    await api(`/api/servers/${props.serverId}/mailboxes`, {
       method: 'POST',
       body: { domainId: domainId.value, localPart: localPart.value, displayName: localPart.value, access: [] },
     })
@@ -132,7 +132,7 @@ async function deleteMailbox() {
   if (!selected.value) return
   deleting.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/mailboxes/${selected.value.channelId}`, { method: 'DELETE' })
+    await api(`/api/servers/${props.serverId}/mailboxes/${selected.value.channelId}`, { method: 'DELETE' })
     deleteOpen.value = false
     selectedId.value = null
     await Promise.all([
@@ -149,7 +149,7 @@ async function saveMailbox() {
   if (!selected.value || !displayName.value.trim()) return
   saving.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/mailboxes/${selected.value.channelId}`, {
+    await api(`/api/servers/${props.serverId}/mailboxes/${selected.value.channelId}`, {
       method: 'PATCH',
       body: { displayName: displayName.value.trim(), enabled: enabled.value, access: accessPayload() },
     })
@@ -253,7 +253,7 @@ async function saveMailbox() {
           </template>
         </SettingsList>
 
-        <SettingsEmailDomains v-else ref="domainsPanel" class="mt-5" :workspace-id="workspaceId" :is-owner="isOwner" :mail="mail" />
+        <SettingsEmailDomains v-else ref="domainsPanel" class="mt-5" :server-id="serverId" :is-owner="isOwner" :mail="mail" />
       </template>
     </template>
 

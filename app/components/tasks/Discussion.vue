@@ -10,7 +10,7 @@ import type { ClientMsg, MemberDTO } from '~~/shared/types'
 const props = defineProps<{
   taskId: string
   channelId: string | null
-  workspaceId: string
+  serverId: string
   members: MemberDTO[]
 }>()
 
@@ -65,7 +65,7 @@ function onReply(id: string) {
         />
         <ChatComposer
           :channel-id="channelId"
-          :workspace-id="workspaceId"
+          :server-id="serverId"
           :members="members"
           :send="send as (msg: ClientMsg) => void"
           placeholder="Write about this task"

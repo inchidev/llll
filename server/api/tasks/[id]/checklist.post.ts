@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   const position = body.position ?? Date.now()
   const item = { id, taskId, title: body.title, completed: false, position, createdBy: actor.user.id, createdAt: now, updatedAt: now }
   await getDb(env.DB).insert(taskChecklistItems).values(item)
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.create', targetType: 'task', targetId: taskId, meta: { itemId: id } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.create', targetType: 'task', targetId: taskId, meta: { itemId: id } })
   waitUntil(signalTasksChanged(env, task.boardId, taskId))
   return { item }
 })

@@ -107,7 +107,7 @@ async function createRecord(
   }
   await env.DB.prepare(`INSERT INTO database_items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).bind(...values).run()
   await writeAudit(env, {
-    workspaceId: actor.workspaceId,
+    serverId: actor.serverId,
     actorId: actor.user.id,
     action: 'gadget.record.create',
     targetType: 'database_item',
@@ -157,7 +157,7 @@ async function updateRecord(
   ).bind(...values, input.recordId, input.version).first<Parameters<typeof databaseItemDto>[0]>()
   if (!updated) fail(409, 'stale_record', 'This Record changed elsewhere. Reload and try again.')
   await writeAudit(env, {
-    workspaceId: actor.workspaceId,
+    serverId: actor.serverId,
     actorId: actor.user.id,
     action: 'gadget.record.update',
     targetType: 'database_item',

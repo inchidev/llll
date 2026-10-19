@@ -28,10 +28,10 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
     `SELECT r.permissions_bitmask as permissions, w.owner_id as ownerId
      FROM users u
      JOIN roles r ON r.id = u.role_id
-     CROSS JOIN workspace w
+     CROSS JOIN server w
      WHERE u.id = ? AND u.status = 'active'`,
   ).bind(message.authorId).first<{ permissions: number; ownerId: string }>()
-  if (!actor || (actor.ownerId !== message.authorId && !hasPermission(actor.permissions, Permission.manageWorkspace))) return
+  if (!actor || (actor.ownerId !== message.authorId && !hasPermission(actor.permissions, Permission.manageServer))) return
 
   const channel = await env.DB.prepare(
     'SELECT type, visibility, parent_id as parentId FROM channels WHERE id = ?',

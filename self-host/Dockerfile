@@ -43,7 +43,7 @@ RUN apt-get update \
 COPY --from=celld /usr/local/bin/celld /usr/local/bin/celld
 COPY --from=build /out/esbuild /usr/local/bin/esbuild
 COPY --from=build /src/.output /opt/llll/.output
-COPY --from=build /src/drizzle/migrations /opt/llll/drizzle/migrations
+COPY --from=build /src/drizzle/server-migrations /opt/llll/drizzle/server-migrations
 COPY --from=build /src/wrangler.celld.json /opt/llll/wrangler.celld.json
 COPY self-host/entrypoint.sh /usr/local/bin/llll-entrypoint
 COPY self-host/healthcheck.sh /usr/local/bin/llll-healthcheck

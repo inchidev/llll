@@ -22,20 +22,20 @@ Landing, Shell, Docs and `/deploy` (Server installer) share the official Worker 
 
 ## Working rules
 
-- Each standalone Server owns its Accounts, login, sessions, Worker, D1 database, private files bucket and Durable Objects. There is no Instance runtime or master Server.
+- Each standalone Server owns its Accounts, login, sessions, Worker, D1 database, private files bucket and Durable Objects.
 - The official web/PWA/Telegram Shell embeds each Server's own Client through a small postMessage protocol.
 - Server authorization, removals and roles stay local. Any future external identity provider must link explicitly; never grant access by email matching.
-- Accounts and login stay local to each Server. Its persistent UUIDv4 is also the internal workspace ID; there is no `main` workspace alias. Shell bookmarks and directory metadata grant no membership.
+- Accounts and login stay local to each Server. Its persistent UUIDv4 is its only Server ID. Shell bookmarks and directory metadata grant no membership.
 - DM stays inside a server. Gitrew and cross-product integrations are later work.
 - Keep backup destinations separate from live file buckets. Never delete backup buckets with servers.
-- Merged migration SQL is immutable, including the retired Instance baseline kept as historical evidence. Append Server migrations. The standalone transition is for fresh databases; there are no running Instances to migrate. Published tags/assets remain immutable.
+- The active Server schema starts at `drizzle/server-migrations/0000_server_baseline.sql` with schema marker `server-v1`. It accepts fresh databases only. Append migrations within this lineage; merged SQL and published tags/assets are immutable. Earlier schema histories remain in Git and existing releases only.
 - Keep personal targets and credentials in ignored files. Verify the target checkout and Git remote before mutations.
 - Preserve unrelated work. Changes after the initial bootstrap go through focused PRs to main with local and isolated deployment verification. Published release tags/assets are immutable.
 - Never deploy application code from this machine, including through Wrangler or a direct API upload. Application deployments run only in Cloudflare Workers Builds from Git: PR -> Worker Preview -> protected main. Ordinary merges never change production. Only a merged PR labelled release that increases the shared package version may publish all components and trigger production from immutable release artifacts. There is one main and no production branch. The connected Cloudflare API tool is for administrative configuration and cleanup. Local Wrangler is limited to types, dry runs and isolated development.
 
 ## Guides
 
-- [Product language](CONTEXT.md): canonical terms and compatibility spellings.
+- [Product language](CONTEXT.md): canonical terms.
 - [Releases](docs/releases.md): shared version, release PR, publication, production promotion and retries.
 - [Deployment](docs/deployment.md): official web, customer Server boundaries, domains and credentials.
 - [Preview verification](docs/worker-previews.md): required checks, isolated fixtures and Preview data cleanup.

@@ -94,7 +94,7 @@ function blankDestination(): BackupDestinationRuntimeConfig {
 
 export async function loadBackupDestination(
   env: L4Env,
-  installationSecret = env.AUTH_SECRET?.trim() || '',
+  serverSecret = env.AUTH_SECRET?.trim() || '',
 ): Promise<BackupDestinationRuntimeConfig> {
   const fallback = async () => env.BACKUPS ? { ...blankDestination(), bucketBinding: env.BACKUPS, bucket: env.BACKUP_BUCKET_NAME || 'deployment-backups', prefix: `servers/${await getServerId(env.DB)}` } : blankDestination()
   let row: BackupDestinationRow | null
@@ -103,7 +103,7 @@ export async function loadBackupDestination(
       `SELECT endpoint, region, bucket, prefix, access_key_id,
               secret_access_key_ciphertext, secret_access_key_iv, secret_access_key_version,
               last_backup_key, last_backup_at, last_backup_size_bytes, updated_at
-       FROM backup_destinations WHERE id = 'main'`,
+       FROM backup_destinations WHERE id = 1`,
     ).first<BackupDestinationRow>()
   }
   catch {
@@ -125,12 +125,12 @@ export async function loadBackupDestination(
     lastBackupSizeBytes: row.last_backup_size_bytes,
     updatedAt: row.updated_at,
   }
-  if (!installationSecret) {
+  if (!serverSecret) {
     config.secretReadable = false
     return config
   }
   try {
-    config.secretAccessKey = await decryptSecret(installationSecret, BACKUP_S3_SECRET_SCOPE, {
+    config.secretAccessKey = await decryptSecret(serverSecret, BACKUP_S3_SECRET_SCOPE, {
       ciphertext: row.secret_access_key_ciphertext,
       iv: row.secret_access_key_iv,
       version: row.secret_access_key_version,

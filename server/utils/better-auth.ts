@@ -92,9 +92,6 @@ export async function createAuth(
         verification: authVerifications,
       },
     }),
-    databaseHooks: {
-      account: { create: { before: async account => ({ data: { ...account, issuer: account.providerId === 'credential' ? 'local:credential' : `oauth:${account.providerId}` } }) } },
-    },
     account: { accountLinking: { disableImplicitLinking: true, allowDifferentEmails: true } },
     emailAndPassword: {
       enabled: config.enabled.email,
@@ -240,7 +237,7 @@ export async function authFromEvent(event: H3Event) {
   return createAuth(env, resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin), waitUntil)
 }
 
-/** Auth instance for reading the current session; uses the briefly cached runtime config. */
+/** Auth engine for reading the current session; uses the briefly cached runtime config. */
 export async function sessionAuthFromEvent(event: H3Event) {
   const { env, waitUntil } = cf(event)
   const baseURL = resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin)

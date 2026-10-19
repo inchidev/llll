@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { authMode, readCloudflareAccessConfig, verifyCloudflareAccessToken } from '../../server/utils/cloudflare-access'
 
 describe('Cloudflare Access configuration', () => {
-  it('keeps builtin auth as the backwards-compatible default', () => {
+  it('keeps builtin auth as the default', () => {
     expect(authMode({})).toBe('builtin')
     expect(authMode({ AUTH_MODE: 'access' })).toBe('access')
   })

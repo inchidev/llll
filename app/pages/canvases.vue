@@ -4,9 +4,9 @@ import { canvasPath } from '~~/shared/paths'
 import type { CanvasDTO, CanvasEdgeDTO, CanvasNodeColor, CanvasNodeDTO, DataResourcesDTO } from '~~/shared/types'
 import { createCanvasNodeEditor, type CanvasNodePatch } from '~/utils/canvas-node-editor'
 
-definePageMeta({ layout: 'workspace', middleware: ['auth', 'manage-databases'] })
+definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const { api } = useApi()
 const route = useRoute()
 const nav = useNavActions()
@@ -14,9 +14,9 @@ const qc = useQueryClient()
 const toast = useToast()
 const viewport = useTemplateRef<HTMLDivElement>('viewport')
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', workspaceId.value]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${workspaceId.value}/data-resources`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['data-resources', serverId.value]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${serverId.value}/data-resources`),
+  enabled: computed(() => Boolean(serverId.value)),
   refetchInterval: 10_000,
 })
 const canvases = computed(() => resourcesQ.data.value?.canvases ?? [])
@@ -324,7 +324,7 @@ function retryLoad() {
       <UInput v-if="activeCanvas" v-model="canvasTitle" variant="none" aria-label="Canvas title" class="min-w-0 flex-1 sm:flex-none" :disabled="saving" :ui="{ base: 'px-1 font-semibold' }" @change="renameCanvas" />
       <span v-else class="font-semibold">Canvases</span>
       <div class="ml-auto flex max-w-full flex-wrap items-center gap-1">
-        <DataBookmarkButton v-if="activeCanvas" :workspace-id="workspaceId" target-type="canvas" :target-id="activeCanvas.id" />
+        <DataBookmarkButton v-if="activeCanvas" :server-id="serverId" target-type="canvas" :target-id="activeCanvas.id" />
         <UButton color="neutral" variant="soft" icon="i-ph-note" label="Note" :disabled="!activeCanvas" @click="addNode('note')" />
         <UButton color="neutral" variant="soft" icon="i-ph-text-t" label="Text" :disabled="!activeCanvas" @click="addNode('text')" />
         <UButton :color="connecting ? 'primary' : 'neutral'" :variant="connecting ? 'soft' : 'ghost'" icon="i-ph-path" label="Connect" :disabled="!activeCanvas || nodes.length < 2" @click="toggleConnecting" />

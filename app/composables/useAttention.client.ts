@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { ChannelDTO } from '~~/shared/types'
-import type { WorkspaceChannelActivityEvent } from '~~/shared/workspace-realtime'
+import type { ServerChannelActivityEvent } from '~~/shared/server-realtime'
 import { unreadChannelCount } from '../utils/attention'
 
 type ChannelList = { channels: ChannelDTO[] }
@@ -61,7 +61,7 @@ export function useAttention() {
     }
   }
 
-  function notifyActivity(event: WorkspaceChannelActivityEvent) {
+  function notifyActivity(event: ServerChannelActivityEvent) {
     const count = Math.max(1, sync())
     if (delivered.has(event.messageId)) return
     delivered.add(event.messageId)

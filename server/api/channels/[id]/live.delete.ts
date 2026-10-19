@@ -10,6 +10,6 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const result = await liveRoom(env, channelId).endLive(access.user.id)
   if (!result.ok) failLive(result)
-  await writeAudit(env, { workspaceId: access.workspaceId, actorId: access.user.id, action: 'live.end', targetType: 'channel', targetId: channelId })
+  await writeAudit(env, { serverId: access.serverId, actorId: access.user.id, action: 'live.end', targetType: 'channel', targetId: channelId })
   return { live: result.live }
 })

@@ -25,7 +25,7 @@ const productGroups = [
 const freedoms = [
   { title: 'Invite everyone.', description: 'No seat fees. Your team can grow without buying access for each person.' },
   { title: 'Keep your history.', description: 'No retention tier. Conversations stay searchable until you choose to delete them.' },
-  { title: 'Own your workspace.', description: 'MIT software. Run independent servers on Cloudflare or your VPS.' },
+  { title: 'Own your server.', description: 'MIT software. Run independent servers on Cloudflare or your VPS.' },
 ]
 
 useSeoMeta({
@@ -72,7 +72,7 @@ useHead({
         'Five built-in apps: Chat, Tasks, Mail, Data, Apps',
         'AI agents in chat who can read and create Tasks',
         'Optional voice, video, and screen sharing through RealtimeKit',
-        'Unlimited customer-owned workspaces, members, and message history',
+        'Unlimited customer-owned servers, members, and message history',
         'Independent servers with local accounts',
       ],
     }),

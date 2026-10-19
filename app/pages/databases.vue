@@ -5,9 +5,9 @@ import { DatabaseColumnWidth, DatabaseFieldTypes, DatabaseSlotCounts, DatabaseVi
 import { databasePath } from '~~/shared/paths'
 import type { DataResourcesDTO, DatabaseDTO, DatabaseFieldDTO, DatabaseItemDTO, DatabasePageDTO, DatabaseViewDTO } from '~~/shared/types'
 
-definePageMeta({ layout: 'workspace', middleware: ['auth', 'manage-databases'] })
+definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const route = useRoute()
@@ -28,9 +28,9 @@ const selectedViewId = computed({
   set: value => void navigateTo(databasePath(selectedDatabaseId.value, showArchived.value, value)),
 })
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', workspaceId.value]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${workspaceId.value}/data-resources`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['data-resources', serverId.value]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${serverId.value}/data-resources`),
+  enabled: computed(() => Boolean(serverId.value)),
   refetchInterval: 10_000,
 })
 const allDatabases = computed(() => resourcesQ.data.value?.databases ?? [])
@@ -360,13 +360,13 @@ function openRenameDatabase() {
 
 async function saveDatabase() {
   const name = databaseName.value.trim()
-  if (!name || !workspaceId.value) return
+  if (!name || !serverId.value) return
   const editing = editingDatabaseId.value
   let createdId: string | null = null
   const ok = await mutate(async () => {
     if (editing) await api(`/api/databases/${editing}`, { method: 'PATCH', body: { name } })
     else {
-      const result = await api<{ database: DatabaseDTO }>(`/api/workspaces/${workspaceId.value}/databases`, { method: 'POST', body: { name } })
+      const result = await api<{ database: DatabaseDTO }>(`/api/servers/${serverId.value}/databases`, { method: 'POST', body: { name } })
       createdId = result.database.id
     }
   }, editing ? 'Database renamed' : 'Database created')
@@ -771,7 +771,7 @@ function retryLoad() {
           <UBadge v-if="showArchived" label="Archived" color="neutral" variant="subtle" size="sm" />
         </template>
         <template #actions>
-          <DataBookmarkButton v-if="activeView" :workspace-id="workspaceId" target-type="database_view" :target-id="activeView.id" />
+          <DataBookmarkButton v-if="activeView" :server-id="serverId" target-type="database_view" :target-id="activeView.id" />
           <UDropdownMenu v-if="activeDatabase" :items="databaseMenu">
             <UButton color="neutral" variant="ghost" icon="i-ph-dots-three" aria-label="Database actions" />
           </UDropdownMenu>

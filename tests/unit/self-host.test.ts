@@ -15,10 +15,10 @@ import {
   cloudflareNetwork,
   resolveAgentModelId,
 } from '../../workers/env'
-import { containersAvailable, installationCapabilities } from '../../workers/installation-capabilities'
+import { containersAvailable, serverCapabilities } from '../../workers/server-capabilities'
 import { modelForAgent } from '../../workers/ai-runtime'
 import { liveMedia } from '../../workers/live-media'
-import { emailProvider, sendWorkspaceEmail, workspaceEmailAvailable } from '../../workers/mail-transport'
+import { emailProvider, sendServerEmail, serverEmailAvailable } from '../../workers/mail-transport'
 import { liveAvailable } from '../../workers/realtimekit'
 
 const CLOUDFLARE_ACCOUNT_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -224,8 +224,8 @@ describe('mail gateways', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const env = { MAIL_GATEWAY_URL: 'https://mail.example.com/send', MAIL_GATEWAY_TOKEN: 'mail-token' } as never
-    await expect(sendWorkspaceEmail(env, message)).resolves.toEqual({ messageId: 'http-message' })
-    expect(workspaceEmailAvailable(env)).toBe(true)
+    await expect(sendServerEmail(env, message)).resolves.toEqual({ messageId: 'http-message' })
+    expect(serverEmailAvailable(env)).toBe(true)
   })
 
   it('accepts a string MAIL_GATEWAY and an SMTP gateway that relays the same JSON', async () => {
@@ -239,15 +239,15 @@ describe('mail gateways', () => {
       SMTP_GATEWAY_TOKEN: 'smtp-token',
       MAIL_GATEWAY_TOKEN: 'mail-token',
     } as never
-    await expect(sendWorkspaceEmail(env, message)).resolves.toEqual({ messageId: 'http-message' })
+    await expect(sendServerEmail(env, message)).resolves.toEqual({ messageId: 'http-message' })
     expect(fetchMock).toHaveBeenCalledWith('https://mail.example.com/send', expect.anything())
 
     const smtpOnly = { SMTP_GATEWAY_URL: 'https://smtp.example.com/send', SMTP_GATEWAY_TOKEN: 'smtp-token' } as never
-    await expect(sendWorkspaceEmail(smtpOnly, message)).resolves.toEqual({ messageId: 'smtp-message' })
+    await expect(sendServerEmail(smtpOnly, message)).resolves.toEqual({ messageId: 'smtp-message' })
     expect(fetchMock).toHaveBeenLastCalledWith('https://smtp.example.com/send', expect.objectContaining({
       headers: expect.objectContaining({ Authorization: 'Bearer smtp-token' }),
     }))
-    expect(workspaceEmailAvailable({ SMTP_GATEWAY_URL: 'https://smtp.example.com/send' } as never)).toBe(false)
+    expect(serverEmailAvailable({ SMTP_GATEWAY_URL: 'https://smtp.example.com/send' } as never)).toBe(false)
   })
 
   it('uses Cloudflare Email Sending before an HTTP gateway and after a send binding', async () => {
@@ -258,12 +258,12 @@ describe('mail gateways', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const env = restEnv({ MAIL_GATEWAY_URL: 'https://mail.example.com/send', MAIL_GATEWAY_TOKEN: 'mail-token' }) as never
-    await expect(sendWorkspaceEmail(env, message)).resolves.toEqual({ messageId: 'cloudflare:person@example.net' })
+    await expect(sendServerEmail(env, message)).resolves.toEqual({ messageId: 'cloudflare:person@example.net' })
     expect(emailProvider(env)).toBe('cloudflare-rest')
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     const send = vi.fn(async () => ({ messageId: 'bound' }))
-    await expect(sendWorkspaceEmail(restEnv({ MAIL_EMAIL: { send } }) as never, message)).resolves.toEqual({ messageId: 'bound' })
+    await expect(sendServerEmail(restEnv({ MAIL_EMAIL: { send } }) as never, message)).resolves.toEqual({ messageId: 'bound' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -274,7 +274,7 @@ describe('runtime capabilities', () => {
     expect(cloudflareNetwork({ LLLL_RUNTIME: 'cloudflare' } as never)).toBe(true)
     expect(cloudflareNetwork({ LLLL_RUNTIME: 'celld' } as never)).toBe(false)
     expect(containersAvailable()).toBe(false)
-    const capabilities = installationCapabilities({
+    const capabilities = serverCapabilities({
       LLLL_RUNTIME: 'celld',
       AI_BASE_URL: 'https://llm.example.com/v1',
       AI_API_KEY: 'secret',
@@ -292,7 +292,7 @@ describe('runtime capabilities', () => {
       emailProvider: 'smtp',
       callsProvider: null,
     })
-    expect(installationCapabilities(restEnv() as never)).toEqual({
+    expect(serverCapabilities(restEnv() as never)).toEqual({
       calls: true,
       containers: false,
       browser: 'cloudflare-rest',

@@ -7,7 +7,7 @@ const { api } = useApi()
 
 const filesEnabled = computed(() => useSessionStore().health?.bindings.r2 !== false)
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const loading = ref(true)
 const saving = ref(false)
@@ -56,7 +56,7 @@ const destinationDirty = computed(() => {
     || state.accessKeyId !== (saved.accessKeyId ?? '') || Boolean(state.secretAccessKey)
 })
 
-const downloadUrl = computed(() => `/api/workspaces/${encodeURIComponent(props.workspaceId)}/backup`)
+const downloadUrl = computed(() => `/api/servers/${encodeURIComponent(props.serverId)}/backup`)
 const destinationStatus = computed(() => {
   if (destination.value?.configured) return 'Configured'
   if (destination.value?.secretConfigured && !destination.value.secretReadable) return 'Replace secret'
@@ -78,7 +78,7 @@ function apply(value: BackupDestinationDTO) {
 async function load() {
   loading.value = true
   try {
-    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`)
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/servers/${props.serverId}/backup-destination`)
     apply(response.destination)
   }
   catch (error) {
@@ -92,7 +92,7 @@ async function load() {
 async function save(event: FormSubmitEvent<Schema>) {
   saving.value = true
   try {
-    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/servers/${props.serverId}/backup-destination`, {
       method: 'PATCH',
       body: event.data,
     })
@@ -121,7 +121,7 @@ async function testConnection() {
   if (!data) return
   testing.value = true
   try {
-    await api(`/api/workspaces/${props.workspaceId}/backup-destination/test`, {
+    await api(`/api/servers/${props.serverId}/backup-destination/test`, {
       method: 'POST',
       body: data,
     })
@@ -139,7 +139,7 @@ async function backupToBucket() {
   if (destinationDirty.value || uploading.value || saving.value || testing.value) return
   uploading.value = true
   try {
-    const result = await api<BucketBackupResultDTO>(`/api/workspaces/${props.workspaceId}/backup-to-bucket`, { method: 'POST' })
+    const result = await api<BucketBackupResultDTO>(`/api/servers/${props.serverId}/backup-to-bucket`, { method: 'POST' })
     await load()
     toast.add({
       title: 'Backup saved to bucket',
@@ -158,7 +158,7 @@ async function backupToBucket() {
 async function remove() {
   saving.value = true
   try {
-    const response = await api<{ destination: BackupDestinationDTO }>(`/api/workspaces/${props.workspaceId}/backup-destination`, {
+    const response = await api<{ destination: BackupDestinationDTO }>(`/api/servers/${props.serverId}/backup-destination`, {
       method: 'PATCH',
       body: { remove: true },
     })
@@ -340,7 +340,7 @@ onMounted(load)
           </div>
           <p v-if="destinationDirty" class="mt-3 text-sm text-muted">Save credentials before starting a bucket backup.</p>
           <p v-if="uploading" class="mt-3 text-sm text-muted">
-            Keep this tab open. Large workspaces can take several minutes to upload.
+            Keep this tab open. Large servers can take several minutes to upload.
           </p>
         </div>
       </template>

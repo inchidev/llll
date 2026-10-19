@@ -29,6 +29,6 @@ export default defineEventHandler(async (event) => {
      (id, canvas_id, kind, content, x, y, width, height, color, version, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 240, 144, ?, 1, ?, ?, ?)`,
   ).bind(id, canvasId, body.kind, body.content, body.x, body.y, body.color, actor.user.id, now, now).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.create', targetType: 'canvas_node', targetId: id, meta: { canvasId, kind: body.kind } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.create', targetType: 'canvas_node', targetId: id, meta: { canvasId, kind: body.kind } })
   return { node: await loadCanvasNode(env, id) }
 })

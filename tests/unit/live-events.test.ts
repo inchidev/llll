@@ -27,7 +27,7 @@ function fakeEnv(results: unknown[]) {
     notifyLiveChanged,
     env: {
       DB: { prepare: (sql: string) => new Statement(sql.includes('server_identity') ? { id: '00000000-0000-4000-8000-000000000001' } : results.shift()) },
-      WORKSPACE_DO: {
+      SERVER_DO: {
         getByName: () => ({ notifyLiveChanged }),
       },
     } as never,
@@ -46,7 +46,7 @@ const activeCall: LiveState = {
 
 const caller = { id: 'caller', kind: 'human' as const, displayName: 'Alice', avatarR2Key: null }
 
-describe('workspace Live events', () => {
+describe('server Live events', () => {
   it('rings only the other participant when a 1:1 Call starts', async () => {
     const fake = fakeEnv([
       { id: 'dm', name: 'dm', type: 'dm', visibility: 'private' },
@@ -63,7 +63,7 @@ describe('workspace Live events', () => {
 
   it('announces a Channel going live once, without ringing', async () => {
     const fake = fakeEnv([
-      { id: 'general', name: 'general', type: 'text', visibility: 'workspace' },
+      { id: 'general', name: 'general', type: 'text', visibility: 'server' },
       [{ id: 'bob' }, { id: 'caller' }],
     ])
 

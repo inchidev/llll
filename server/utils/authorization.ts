@@ -1,6 +1,6 @@
 import { getServerId } from '../../shared/server-id'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
-import type { AuthorizationContext, CredentialKind, WorkspaceAction } from '../../shared/authorization'
+import type { AuthorizationContext, CredentialKind, ServerAction } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
 import type { L4Env } from '../../workers/env'
 
@@ -10,7 +10,7 @@ export async function loadAuthorizationContext(
     principalId: string
     credential: { kind: CredentialKind; id?: string; scopes?: McpScope[] }
     delegatedBy?: string
-    delegatedActions?: WorkspaceAction[]
+    delegatedActions?: ServerAction[]
   },
 ): Promise<AuthorizationContext | null> {
   const row = await env.DB.prepare(
@@ -18,7 +18,7 @@ export async function loadAuthorizationContext(
      r.permissions_bitmask as permissions, w.owner_id as ownerId
      FROM users u
      JOIN roles r ON r.id = u.role_id
-     JOIN workspace w ON w.id = ?
+     JOIN server w ON w.id = ?
      WHERE u.id = ? AND u.status = 'active'`,
   ).bind((await getServerId(env.DB)), input.principalId).first<{
     id: string
@@ -35,7 +35,7 @@ export async function loadAuthorizationContext(
         `SELECT r.name as roleName, r.permissions_bitmask as permissions, w.owner_id as ownerId
          FROM users u
          JOIN roles r ON r.id = u.role_id
-         JOIN workspace w ON w.id = ?
+         JOIN server w ON w.id = ?
          WHERE u.id = ? AND u.kind = 'human' AND u.status = 'active'`,
       ).bind((await getServerId(env.DB)), input.delegatedBy).first<{
         roleName: string
@@ -45,7 +45,7 @@ export async function loadAuthorizationContext(
     : null
   if (input.delegatedBy && !delegated) return null
   return {
-    workspaceId: (await getServerId(env.DB)),
+    serverId: (await getServerId(env.DB)),
     principal: {
       id: row.id,
       kind: row.kind,

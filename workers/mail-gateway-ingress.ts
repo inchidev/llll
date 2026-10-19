@@ -1,5 +1,5 @@
 import type { L4Env } from './env'
-import { ingestWorkspaceEmail } from './mail-ingress'
+import { ingestServerEmail } from './mail-ingress'
 
 const encoder = new TextEncoder()
 
@@ -32,7 +32,7 @@ export async function receiveMailGatewayRequest(request: Request, env: L4Env): P
   const to = request.headers.get('X-L4-Mail-To')?.trim()
   if (!from || !to || !request.body) return new Response('Invalid mail envelope', { status: 400 })
   const size = Number(request.headers.get('Content-Length'))
-  const result = await ingestWorkspaceEmail({ from, to, raw: request.body, rawSize: Number.isFinite(size) && size > 0 ? size : undefined }, env)
+  const result = await ingestServerEmail({ from, to, raw: request.body, rawSize: Number.isFinite(size) && size > 0 ? size : undefined }, env)
   if (!result.accepted) return new Response(result.reason, { status: 404 })
   return new Response(null, { status: 202 })
 }

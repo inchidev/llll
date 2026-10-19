@@ -104,7 +104,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
   return rows.map((row) => ({
     id: row.id,
     channelId: row.channelId,
-    workspaceId: serverId,
+    serverId: serverId,
     author: authors.get(row.authorId) ?? { id: row.authorId, kind: 'human', displayName: 'Unknown', avatarR2Key: null },
     content: row.deletedAt ? '' : row.content,
     replyTo: row.replyToId ? replies.get(row.replyToId) ?? null : null,
@@ -121,7 +121,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
 
 export async function writeAudit(
   env: L4Env,
-  input: { workspaceId: string; actorId: string; action: string; targetType: string; targetId: string; meta?: Record<string, unknown>; authorization?: import('../../shared/authorization').AuthorizationContext },
+  input: { serverId: string; actorId: string; action: string; targetType: string; targetId: string; meta?: Record<string, unknown>; authorization?: import('../../shared/authorization').AuthorizationContext },
 ) {
   const { newId, nowIso } = await import('../../shared/ids')
   const { auditAttribution } = await import('../../shared/authorization')

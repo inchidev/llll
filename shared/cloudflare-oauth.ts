@@ -6,7 +6,7 @@ export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
 // anything outside the client's registered set fails the whole consent with
 // invalid_scope. Groups: provisioning (accounts, Workers, D1, KV, R2),
 // custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
-// and Discoflare-parity headroom the installation grant carries for later
+// and Discoflare-parity headroom the server grant carries for later
 // use (browser rendering, containers, realtime, queues). workers-scripts.admin
 // is the new-model Admin role: the legacy Workers Scripts Write group
 // (discoflare's workers-scripts.write) is not registered on this client, and

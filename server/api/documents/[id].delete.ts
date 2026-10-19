@@ -11,6 +11,6 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const document = await requireDocument(env, id)
   await env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'document.delete', targetType: 'document', targetId: id, meta: { title: document.title } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'document.delete', targetType: 'document', targetId: id, meta: { title: document.title } })
   return { ok: true }
 })

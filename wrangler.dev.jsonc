@@ -11,7 +11,7 @@
       "binding": "DB",
       "database_name": "llll",
       "database_id": "local-llll",
-      "migrations_dir": "drizzle/migrations"
+      "migrations_dir": "drizzle/server-migrations"
     }
   ],
   "r2_buckets": [
@@ -29,14 +29,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "CHANNEL_DO", "class_name": "ChannelDurableObject" },
-      { "name": "WORKSPACE_DO", "class_name": "WorkspaceDurableObject" },
+      { "name": "SERVER_DO", "class_name": "ServerDurableObject" },
       { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
       { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
       { "name": "AGENT_DO", "class_name": "L4Agent" },
       { "name": "AGENT_THINK", "class_name": "L4Think" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChannelDurableObject", "WorkspaceDurableObject", "RateLimitDurableObject", "NotificationDurableObject", "L4Agent", "L4Think"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChannelDurableObject", "ServerDurableObject", "RateLimitDurableObject", "NotificationDurableObject", "L4Agent", "L4Think"] }],
   "vars": {
     "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
   }

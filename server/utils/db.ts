@@ -1,7 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import { drizzle } from 'drizzle-orm/d1'
-import baselineSql from '../../drizzle/migrations/0000_server_baseline.sql?raw'
-import standaloneSql from '../../drizzle/migrations/0001_standalone_server.sql?raw'
+import baselineSql from '../../drizzle/server-migrations/0000_server_baseline.sql?raw'
 import { schema } from '../../drizzle/schema'
 
 export function getDb(d1: D1Database) {
@@ -25,7 +24,6 @@ export function d1ExecSql(sql: string): string {
 
 export const INIT_SQL = d1ExecSql([
   baselineSql,
-  standaloneSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */
@@ -40,17 +38,14 @@ function celldRuntime(env?: { LLLL_RUNTIME?: string }): boolean {
 
 export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: string }): Promise<boolean> {
   if (migratedDatabases.has(db)) return true
-  // celld records schema in d1_migrations. Applying INIT_SQL here creates the
-  // same tables without that bookkeeping, and `celld d1 migrations apply` then
-  // stops on "table already exists".
-  if (!celldRuntime(env)) {
-    try {
-      await db.prepare('SELECT id FROM workspace LIMIT 1').first()
-    }
-    catch {
-      await db.exec(INIT_SQL)
-    }
+  const marker = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='server_schema'").first()
+  if (!marker) {
+    const existing = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('d1_migrations', '_cf_KV') LIMIT 1").first()
+    if (existing || celldRuntime(env)) throw new Error('This Server requires a fresh server-v1 database')
+    await db.exec(INIT_SQL)
   }
+  const schemaVersion = await db.prepare('SELECT version FROM server_schema WHERE id = 1').first<{ version: string }>()
+  if (schemaVersion?.version !== 'server-v1') throw new Error('Unsupported Server schema')
   await Promise.all([
     db.prepare('SELECT kind FROM users LIMIT 1').first(),
     db.prepare('SELECT user_id FROM agents LIMIT 1').first(),
@@ -69,9 +64,9 @@ export async function userCount(db: D1Database): Promise<number> {
   }
 }
 
-export async function workspaceReady(db: D1Database): Promise<boolean> {
+export async function serverReady(db: D1Database): Promise<boolean> {
   try {
-    return Boolean(await db.prepare("SELECT id FROM workspace LIMIT 1").first())
+    return Boolean(await db.prepare("SELECT id FROM server LIMIT 1").first())
   }
   catch {
     return false

@@ -2,7 +2,7 @@ import { getServerId } from '../shared/server-id'
 import { channelPath } from '../shared/paths'
 import { liveNotificationTitle } from '../shared/live'
 import type { LiveState, PublicUser } from '../shared/types'
-import type { WorkspaceLiveChangedEvent } from '../shared/workspace-realtime'
+import type { ServerLiveChangedEvent } from '../shared/server-realtime'
 import { asRpc, type L4Env } from './env'
 
 type LiveChannel = {
@@ -34,7 +34,7 @@ async function audience(env: L4Env, channelId: string) {
 }
 
 /**
- * Tell the workspace a Live room changed. `started` carries the person who
+ * Tell the server a Live room changed. `started` carries the person who
  * started it: their start rings the other side of a Call and announces a Live
  * session to everyone else once.
  */
@@ -42,14 +42,14 @@ export async function signalLiveChanged(
   env: L4Env,
   channelId: string,
   live: LiveState,
-  opts: { started?: PublicUser, outcome?: WorkspaceLiveChangedEvent['outcome'] } = {},
+  opts: { started?: PublicUser, outcome?: ServerLiveChangedEvent['outcome'] } = {},
 ): Promise<void> {
   const target = await audience(env, channelId)
   if (!target) return
   const starterId = opts.started?.id
   const recipientIds = starterId ? target.recipientIds.filter(id => id !== starterId) : target.recipientIds
   if (!recipientIds.length) return
-  const event: WorkspaceLiveChangedEvent = {
+  const event: ServerLiveChangedEvent = {
     t: 'live.changed',
     channelId,
     live,
@@ -66,7 +66,7 @@ export async function signalLiveChanged(
       : {}),
   }
   const stub = asRpc<{
-    notifyLiveChanged: (event: WorkspaceLiveChangedEvent, recipientIds: string[]) => Promise<void>
-  }>(env.WORKSPACE_DO.getByName(`workspace:${(await getServerId(env.DB))}`))
+    notifyLiveChanged: (event: ServerLiveChangedEvent, recipientIds: string[]) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
   await stub.notifyLiveChanged(event, recipientIds)
 }

@@ -3,7 +3,7 @@ import { unreadChannelCount } from '../../app/utils/attention'
 import { applyReactionChange } from '../../app/utils/message-reactions'
 import { createTypingActivity, TYPING_IDLE_MS, TYPING_REFRESH_MS } from '../../app/utils/typing-activity'
 import type { ChannelDTO } from '../../shared/types'
-import { PRESENCE_IDLE_MS, workspacePresence } from '../../workers/workspace-presence'
+import { PRESENCE_IDLE_MS, serverPresence } from '../../workers/server-presence'
 
 describe('typing activity', () => {
   beforeEach(() => vi.useFakeTimers())
@@ -62,13 +62,13 @@ describe('unread attention', () => {
   })
 })
 
-describe('workspace presence', () => {
+describe('server presence', () => {
   it('hides invisible sockets and uses the freshest visible tab', () => {
     const socket = (userId: string, lastActive: number, visible: boolean) => ({
       deserializeAttachment: () => ({ userId, lastActive, visible }),
     })
     const now = 10_000_000
-    expect(workspacePresence([
+    expect(serverPresence([
       socket('hidden', now, false),
       socket('member', now - PRESENCE_IDLE_MS - 1, true),
       socket('member', now - 1000, true),

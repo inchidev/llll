@@ -5,9 +5,9 @@ import { formatDateTime } from '~~/shared/format'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
 import { withMailboxUnread, withMessage, withoutMessage, withoutThread, withThreadActivity, withThreadFirst, withThreadRead, type MailThreadDetail, type MailThreadPages } from '~/utils/mail-cache'
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 
-definePageMeta({ layout: 'workspace', middleware: ['auth'] })
+definePageMeta({ layout: 'server', middleware: ['auth'] })
 
 const { api, serverUrl } = useApi()
 const route = useRoute()
@@ -40,7 +40,7 @@ function openThread(threadId: string | null) {
   void navigateTo({ query: threadId ? { thread: threadId } : {} })
 }
 
-// New mail arrives over the workspace connection; polling is only a fallback.
+// New mail arrives over the server connection; polling is only a fallback.
 const mailboxesQ = useQuery({
   queryKey: ['mailboxes'],
   queryFn: () => api<{ mailboxes: MailboxDTO[] }>('/api/mail/mailboxes'),
@@ -127,7 +127,7 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
   return {
     id: `tmp:${key}`,
     channelId: threadId,
-    workspaceId: workspaceId.value,
+    serverId: serverId.value,
     author: { id: user.id, kind: user.kind, displayName: user.displayName, avatarR2Key: user.avatarR2Key },
     content,
     replyTo: null,

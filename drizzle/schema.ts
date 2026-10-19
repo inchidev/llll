@@ -17,16 +17,6 @@ function authTimestamps() {
   }
 }
 
-/** Stable participant keys preserve legacy foreign keys without creating login identities for Agents. */
-export const identityKeys = sqliteTable('identity_keys', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  email: text('email').notNull(),
-  emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
-  image: text('image'),
-  ...authTimestamps(),
-})
-
 /** Better Auth owns the auth_* tables. L4's domain identity lives in users. */
 export const authUsers = sqliteTable('auth_users', {
   id: text('id').primaryKey(),
@@ -44,17 +34,16 @@ export const authSessions = sqliteTable('auth_sessions', {
   ...authTimestamps(),
   ipAddress: text('ip_address'),
   userAgent: text('user_agent'),
-  userId: text('user_id').notNull().references(() => identityKeys.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
 }, table => [
   index('auth_sessions_user_id_idx').on(table.userId),
 ])
 
 export const authAccounts = sqliteTable('auth_accounts', {
   id: text('id').primaryKey(),
-  issuer: text('issuer').notNull().default('local:credential'),
   accountId: text('account_id').notNull(),
   providerId: text('provider_id').notNull(),
-  userId: text('user_id').notNull().references(() => identityKeys.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
   accessToken: text('access_token'),
   refreshToken: text('refresh_token'),
   idToken: text('id_token'),
@@ -64,7 +53,7 @@ export const authAccounts = sqliteTable('auth_accounts', {
   password: text('password'),
   ...authTimestamps(),
 }, table => [
-  uniqueIndex('auth_accounts_issuer_account_idx').on(table.issuer, table.accountId),
+  uniqueIndex('auth_accounts_provider_account_idx').on(table.providerId, table.accountId),
   index('auth_accounts_user_id_idx').on(table.userId),
 ])
 
@@ -77,9 +66,9 @@ export const authVerifications = sqliteTable('auth_verifications', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).default(sql`(cast(unixepoch() * 1000 as integer))`),
 })
 
-/** Installation-wide admission policy and login-method switches. */
+/** Server-wide admission policy and login-method switches. */
 export const authSettings = sqliteTable('auth_settings', {
-  id: text('id').primaryKey().default('main'),
+  id: integer('id').primaryKey().default(1),
   registrationMode: text('registration_mode', { enum: ['open', 'invite_only'] }).notNull().default('invite_only'),
   emailEnabled: integer('email_enabled', { mode: 'boolean' }).notNull().default(true),
   githubEnabled: integer('github_enabled', { mode: 'boolean' }).notNull().default(false),
@@ -92,7 +81,7 @@ export const authSettings = sqliteTable('auth_settings', {
   emailFromName: text('email_from_name'),
   ...isoTimestamps(),
 }, table => [
-  check('auth_settings_singleton_check', sql`${table.id} = 'main'`),
+  check('auth_settings_singleton_check', sql`${table.id} = 1`),
   check('auth_settings_registration_mode_check', sql`${table.registrationMode} in ('open', 'invite_only')`),
 ])
 
@@ -108,14 +97,14 @@ export const authProviderCredentials = sqliteTable('auth_provider_credentials', 
   check('auth_provider_credentials_provider_check', sql`${table.provider} in ('github', 'google', 'twitter', 'telegram', 'linkedin', 'turnstile')`),
 ])
 
-/** Immutable published Privacy, Terms, and workspace Rules bundle. */
+/** Immutable published Privacy, Terms, and server Rules bundle. */
 export const onboardingRevisions = sqliteTable('onboarding_revisions', {
   id: text('id').primaryKey(),
   version: integer('version').notNull(),
   privacyJson: text('privacy_json').notNull(),
   termsJson: text('terms_json').notNull(),
   rulesJson: text('rules_json').notNull(),
-  createdBy: text('created_by').notNull().references(() => identityKeys.id),
+  createdBy: text('created_by').notNull().references(() => authUsers.id),
   createdAt: text('created_at').notNull(),
 }, table => [
   uniqueIndex('onboarding_revisions_version_unique').on(table.version),
@@ -123,7 +112,7 @@ export const onboardingRevisions = sqliteTable('onboarding_revisions', {
 
 /** The exact published onboarding bundle accepted by an authentication identity. */
 export const onboardingAcceptances = sqliteTable('onboarding_acceptances', {
-  userId: text('user_id').notNull().references(() => identityKeys.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
   revisionId: text('revision_id').notNull().references(() => onboardingRevisions.id, { onDelete: 'cascade' }),
   acceptedAt: text('accepted_at').notNull(),
 }, table => [
@@ -131,9 +120,9 @@ export const onboardingAcceptances = sqliteTable('onboarding_acceptances', {
   index('onboarding_acceptances_revision_idx').on(table.revisionId),
 ])
 
-/** Installation-wide RealtimeKit credentials entered by the owner. The API token is AES-GCM encrypted. */
+/** Server-wide RealtimeKit credentials entered by the owner. The API token is AES-GCM encrypted. */
 export const realtimekitSettings = sqliteTable('realtimekit_settings', {
-  id: text('id').primaryKey().default('main'),
+  id: integer('id').primaryKey().default(1),
   accountId: text('account_id').notNull(),
   appId: text('app_id').notNull(),
   apiTokenCiphertext: text('api_token_ciphertext').notNull(),
@@ -143,7 +132,7 @@ export const realtimekitSettings = sqliteTable('realtimekit_settings', {
   participantPreset: text('participant_preset').notNull(),
   ...isoTimestamps(),
 }, table => [
-  check('realtimekit_settings_singleton_check', sql`${table.id} = 'main'`),
+  check('realtimekit_settings_singleton_check', sql`${table.id} = 1`),
 ])
 
 export const roles = sqliteTable('roles', {
@@ -156,9 +145,9 @@ export const roles = sqliteTable('roles', {
   ...isoTimestamps(),
 })
 
-/** Workspace participants. Humans map to Better Auth identities; agents do not log in. */
+/** Server participants. Humans map to Better Auth identities; agents do not log in. */
 export const users = sqliteTable('users', {
-  id: text('id').primaryKey().references(() => identityKeys.id, { onDelete: 'cascade' }),
+  id: text('id').primaryKey(),
   kind: text('kind', { enum: ['human', 'agent'] }).notNull().default('human'),
   handle: text('handle').unique(),
   displayName: text('display_name').notNull(),
@@ -183,8 +172,6 @@ export const agents = sqliteTable('agents', {
   model: text('model').notNull().default('@cf/moonshotai/kimi-k2.7-code'),
   instructions: text('instructions').notNull().default(''),
   status: text('status', { enum: ['active', 'paused'] }).notNull().default('active'),
-  // Retained for compatibility with existing databases; no external runtime is provisioned.
-  legacyRuntimeId: text('computer_id').notNull().unique(),
   createdBy: text('created_by').notNull().references(() => users.id),
   lastActiveAt: text('last_active_at'),
   ...isoTimestamps(),
@@ -193,7 +180,7 @@ export const agents = sqliteTable('agents', {
   check('agents_status_check', sql`${table.status} in ('active', 'paused')`),
 ])
 
-/** Workspace-visible state for active conversational turns. Think remains authoritative for execution. */
+/** Server-visible state for active conversational turns. Think remains authoritative for execution. */
 export const agentTurns = sqliteTable('agent_turns', {
   submissionId: text('submission_id').primaryKey(),
   agentId: text('agent_id').notNull().references(() => agents.userId, { onDelete: 'cascade' }),
@@ -212,6 +199,11 @@ export const agentTurns = sqliteTable('agent_turns', {
   check('agent_turns_status_check', sql`${table.status} in ('queued', 'thinking', 'tool', 'waiting_approval')`),
 ])
 
+export const serverSchema = sqliteTable('server_schema', {
+  id: integer('id').primaryKey().default(1),
+  version: text('version').notNull(),
+}, table => [check('server_schema_id_check', sql`${table.id} = 1`), check('server_schema_version_check', sql`${table.version} = 'server-v1'`)])
+
 export const serverIdentity = sqliteTable('server_identity', {
   singleton: integer('singleton').notNull().unique(),
   id: text('id').primaryKey(),
@@ -225,7 +217,7 @@ export const accountRecovery = sqliteTable('account_recovery', {
 })
 
 /** One independent Server; its permanent UUID also identifies its community. */
-export const workspace = sqliteTable('workspace', {
+export const server = sqliteTable('server', {
   id: text('id').primaryKey().references(() => serverIdentity.id),
   singleton: integer('singleton').notNull().default(1),
   name: text('name').notNull(),
@@ -233,8 +225,8 @@ export const workspace = sqliteTable('workspace', {
   ownerId: text('owner_id').notNull().references(() => users.id),
   ...isoTimestamps(),
 }, table => [
-  uniqueIndex('workspace_singleton_idx').on(table.singleton),
-  check('workspace_singleton_check', sql`${table.singleton} = 1`),
+  uniqueIndex('server_singleton_idx').on(table.singleton),
+  check('server_singleton_check', sql`${table.singleton} = 1`),
 ])
 
 /** Revocable MCP credentials. Only their SHA-256 digests are retained. */
@@ -256,18 +248,18 @@ export const mcpAccessTokens = sqliteTable('mcp_access_tokens', {
   index('mcp_access_tokens_active_idx').on(table.revokedAt, table.createdAt),
 ])
 
-/** Owner-controlled anonymous project heartbeat. No workspace data is included. */
+/** Owner-controlled anonymous project heartbeat. No server data is included. */
 export const telemetrySettings = sqliteTable('telemetry_settings', {
-  id: text('id').primaryKey().default('main'),
+  id: integer('id').primaryKey().default(1),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   updatedAt: text('updated_at').notNull(),
 }, table => [
-  check('telemetry_settings_singleton_check', sql`${table.id} = 'main'`),
+  check('telemetry_settings_singleton_check', sql`${table.id} = 1`),
 ])
 
 /** Owner-configured S3-compatible destination for manual off-site backups. */
 export const backupDestinations = sqliteTable('backup_destinations', {
-  id: text('id').primaryKey().default('main'),
+  id: integer('id').primaryKey().default(1),
   endpoint: text('endpoint').notNull(),
   region: text('region').notNull().default('auto'),
   bucket: text('bucket').notNull(),
@@ -281,7 +273,7 @@ export const backupDestinations = sqliteTable('backup_destinations', {
   lastBackupSizeBytes: integer('last_backup_size_bytes'),
   ...isoTimestamps(),
 }, table => [
-  check('backup_destinations_singleton_check', sql`${table.id} = 'main'`),
+  check('backup_destinations_singleton_check', sql`${table.id} = 1`),
 ])
 
 export const channelCategories = sqliteTable('channel_categories', {
@@ -298,7 +290,7 @@ export const channels = sqliteTable('channels', {
   name: text('name').notNull(),
   topic: text('topic').notNull().default(''),
   type: text('type', { enum: ['text', 'thread', 'dm'] }).notNull(),
-  visibility: text('visibility', { enum: ['workspace', 'private'] }).notNull().default('workspace'),
+  visibility: text('visibility', { enum: ['server', 'private'] }).notNull().default('server'),
   categoryId: text('category_id').references(() => channelCategories.id, { onDelete: 'set null' }),
   position: integer('position').notNull().default(0),
   /** The active Live room's RealtimeKit meeting. */
@@ -313,7 +305,7 @@ export const channels = sqliteTable('channels', {
   index('channels_parent_id_idx').on(table.parentId),
   uniqueIndex('channels_thread_root_unique').on(table.parentMessageId).where(sql`${table.type} = 'thread'`),
   check('channels_type_check', sql`${table.type} in ('text', 'thread', 'dm')`),
-  check('channels_visibility_check', sql`${table.visibility} in ('workspace', 'private')`),
+  check('channels_visibility_check', sql`${table.visibility} in ('server', 'private')`),
   check('channels_dm_private_check', sql`${table.type} <> 'dm' or ${table.visibility} = 'private'`),
   check('channels_thread_parent_check', sql`
     (${table.type} = 'thread' and ${table.parentId} is not null and ${table.parentMessageId} is not null)
@@ -321,7 +313,7 @@ export const channels = sqliteTable('channels', {
   `),
 ])
 
-/** Per-role send/attach/start-live exceptions for workspace channels. Threads inherit their parent. */
+/** Per-role send/attach/start-live exceptions for server channels. Threads inherit their parent. */
 export const channelRoleOverrides = sqliteTable('channel_role_overrides', {
   channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
   roleId: text('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
@@ -463,9 +455,9 @@ export const notificationOutbox = sqliteTable('notification_outbox', {
   check('notification_outbox_kind_check', sql`${table.kind} in ('mention', 'dm_message', 'live_started')`),
 ])
 
-/** Cloudflare-managed mail domains attached to this single-workspace installation. */
+/** Cloudflare-managed mail domains attached to this single-server server. */
 export const emailDomains = sqliteTable('email_domains', {
-  id: text('id').primaryKey().default('main'),
+  id: text('id').primaryKey(),
   zoneId: text('zone_id').notNull(),
   domain: text('domain').notNull(),
   appHostname: text('app_hostname').notNull(),
@@ -555,7 +547,7 @@ export const auditLog = sqliteTable('audit_log', {
   index('audit_log_actor_id_idx').on(table.actorId),
 ])
 
-/** User-created databases are logical collections inside the installation D1. */
+/** User-created databases are logical collections inside the server D1. */
 export const databaseDefinitions = sqliteTable('database_definitions', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -665,7 +657,7 @@ export const databaseViews = sqliteTable('database_views', {
   check('database_views_version_check', sql`${table.version} > 0`),
 ])
 
-/** Rich-text documents are durable workspace data. */
+/** Rich-text documents are durable server data. */
 export const documents = sqliteTable('documents', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -807,10 +799,8 @@ export const tasks = sqliteTable('tasks', {
   priority: text('priority', { enum: ['low', 'normal', 'high', 'urgent'] }).notNull().default('normal'),
   dueAt: text('due_at'),
   position: integer('position').notNull().default(0),
-  /** Retired in migration 0027: it references agents only. Always NULL; use `assigneeUserId`. */
-  assigneeId: text('assignee_id').references(() => agents.userId, { onDelete: 'set null' }),
   /** The member responsible for the task, human or agent. */
-  assigneeUserId: text('assignee_user_id').references(() => users.id, { onDelete: 'set null' }),
+  assigneeId: text('assignee_id').references(() => users.id, { onDelete: 'set null' }),
   channelId: text('channel_id').references(() => channels.id, { onDelete: 'set null' }),
   /** Hidden channel holding the task's discussion, created on first use. */
   discussionChannelId: text('discussion_channel_id').references(() => channels.id, { onDelete: 'set null' }),
@@ -823,7 +813,6 @@ export const tasks = sqliteTable('tasks', {
 }, table => [
   index('tasks_board_status_position_idx').on(table.boardId, table.status, table.position),
   index('tasks_assignee_id_idx').on(table.assigneeId),
-  index('tasks_assignee_user_id_idx').on(table.assigneeUserId),
   uniqueIndex('tasks_discussion_channel_unique').on(table.discussionChannelId).where(sql`${table.discussionChannelId} is not null`),
   check('tasks_status_check', sql`${table.status} in ('backlog', 'ready', 'review', 'done', 'failed')`),
   check('tasks_priority_check', sql`${table.priority} in ('low', 'normal', 'high', 'urgent')`),
@@ -903,10 +892,10 @@ export const taskAttachments = sqliteTable('task_attachments', {
 ])
 
 export const schema = {
+  serverSchema,
   serverIdentity,
   connectionGrants,
   accountRecovery,
-  identityKeys,
   authUsers,
   authSessions,
   authAccounts,
@@ -918,7 +907,7 @@ export const schema = {
   users,
   agents,
   agentTurns,
-  workspace,
+  server,
   mcpAccessTokens,
   roles,
   channelCategories,

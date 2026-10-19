@@ -44,6 +44,6 @@ export default defineEventHandler(async (event) => {
      created_by as createdBy, created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, id, body.version).first<Parameters<typeof parseDatabaseView>[0]>()
   if (!updated) fail(409, 'stale_database_view', 'This view changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_view.update', targetType: 'database_view', targetId: id, meta: { databaseId: current.databaseId, fields: Object.keys(body).filter(key => key !== 'version') } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_view.update', targetType: 'database_view', targetId: id, meta: { databaseId: current.databaseId, fields: Object.keys(body).filter(key => key !== 'version') } })
   return { view: parseDatabaseView(updated, fields) }
 })

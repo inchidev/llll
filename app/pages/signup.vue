@@ -31,7 +31,7 @@ const schema = computed(() => z.object({
 }).superRefine((value, context) => {
   if (value.password !== value.confirm) context.addIssue({ code: 'custom', path: ['confirm'], message: 'Passwords do not match' })
   if (onboarding.value?.acceptanceRequired && !value.accepted) {
-    context.addIssue({ code: 'custom', path: ['accepted'], message: 'Accept the published workspace documents' })
+    context.addIssue({ code: 'custom', path: ['accepted'], message: 'Accept the published server documents' })
   }
 }))
 type Schema = { name: string; email: string; password: string; confirm: string; accepted: boolean }
@@ -91,7 +91,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 async function signUpWith(provider: Exclude<AuthLoginMethod, 'email'>) {
   if (onboarding.value?.acceptanceRequired && !state.accepted) {
-    error.value = 'Accept the published workspace documents'
+    error.value = 'Accept the published server documents'
     return
   }
   socialBusy.value = provider

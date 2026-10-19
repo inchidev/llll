@@ -24,11 +24,11 @@ describe('readAppBranding', () => {
   it('normalizes the name and subtitle and supports an escaped title line break', () => {
     expect(readAppBranding({
       APP_NAME: '  Campfire   Club  ',
-      APP_TITLE: '  One workspace.\\nEvery kind of teammate.  ',
+      APP_TITLE: '  One server.\\nEvery kind of teammate.  ',
       APP_SUBTITLE: '  Built   on your Cloudflare stack.  ',
     })).toEqual({
       appName: 'Campfire Club',
-      appTitle: 'One workspace.\nEvery kind of teammate.',
+      appTitle: 'One server.\nEvery kind of teammate.',
       appSubtitle: 'Built on your Cloudflare stack.',
     })
   })

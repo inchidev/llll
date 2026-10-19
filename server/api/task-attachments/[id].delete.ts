@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const task = await requireTask(env, attachment.taskId)
   await requireFiles(env).delete(attachment.r2Key)
   await db.delete(taskAttachments).where(eq(taskAttachments.id, id))
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.delete', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename: attachment.filename } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.delete', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename: attachment.filename } })
   waitUntil(signalTasksChanged(env, task.boardId, task.id))
   return { ok: true }
 })

@@ -29,6 +29,6 @@ export default defineEventHandler(async (event) => {
   await env.DB.prepare(
     'INSERT INTO canvas_edges (id, canvas_id, from_node_id, to_node_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   ).bind(id, canvasId, from.id, to.id, actor.user.id, createdAt).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.create', targetType: 'canvas_edge', targetId: id, meta: { canvasId, fromNodeId: from.id, toNodeId: to.id } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.create', targetType: 'canvas_edge', targetId: id, meta: { canvasId, fromNodeId: from.id, toNodeId: to.id } })
   return { edge: { id, canvasId, fromNodeId: from.id, toNodeId: to.id, createdBy: actor.user.id, createdAt } }
 })

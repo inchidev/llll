@@ -103,7 +103,7 @@ Object.assign(config, {
       binding: 'DB',
       database_name: name,
       database_id: db.uuid,
-      migrations_dir: resolve(root, 'drizzle/migrations'),
+      migrations_dir: resolve(root, 'drizzle/server-migrations'),
     },
   ],
   r2_buckets: [

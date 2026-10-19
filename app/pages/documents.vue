@@ -3,9 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { documentPath } from '~~/shared/paths'
 import type { DataResourcesDTO, DocumentDTO } from '~~/shared/types'
 
-definePageMeta({ layout: 'workspace', middleware: ['auth', 'manage-databases'] })
+definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const route = useRoute()
@@ -13,9 +13,9 @@ const nav = useNavActions()
 const qc = useQueryClient()
 const toast = useToast()
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', workspaceId.value]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${workspaceId.value}/data-resources`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['data-resources', serverId.value]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${serverId.value}/data-resources`),
+  enabled: computed(() => Boolean(serverId.value)),
   refetchInterval: 10_000,
 })
 const documents = computed(() => resourcesQ.data.value?.documents ?? [])
@@ -95,7 +95,7 @@ function retryLoad() {
     <LayoutPageHeader icon="i-ph-file-text" :title="activeDocument ? (title || 'Untitled') : 'Docs'">
       <template #actions>
         <span v-if="activeDocument" class="text-xs text-dimmed">{{ saving ? 'Saving…' : saveError ? 'Not saved' : dirty ? 'Unsaved' : 'Saved' }}</span>
-        <DataBookmarkButton v-if="activeDocument" :workspace-id="workspaceId" target-type="document" :target-id="activeDocument.id" />
+        <DataBookmarkButton v-if="activeDocument" :server-id="serverId" target-type="document" :target-id="activeDocument.id" />
         <UButton color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete document" :disabled="!activeDocument || saving || deleting" @click="showDelete = true" />
         <UButton icon="i-ph-plus" :label="isMobile ? undefined : 'Document'" aria-label="New document" @click="nav.createDocumentOpen.value = true" />
       </template>

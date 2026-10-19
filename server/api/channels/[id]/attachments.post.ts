@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
 
   const id = newId()
   const safeName = (file.filename || 'file').replace(/[^\w.-]+/g, '_').slice(0, 80)
-  const key = `${member.workspaceId}/${channelId}/${id}-${safeName}`
+  const key = `${member.serverId}/${channelId}/${id}-${safeName}`
   await requireFiles(env).put(key, file.data, { httpMetadata: { contentType: mime } })
 
   const db = getDb(env.DB)

@@ -158,7 +158,6 @@ export async function liveNotificationStatement(
   const recipientIds = await liveRecipients(env, channels.channel, actor.id)
   return outboxStatement(env, {
     eventId: `live:${meetingId}`,
-    // The stored outbox kind keeps its pre-Live name.
     kind: 'live_started',
     channelId,
     recipientIds,

@@ -30,7 +30,6 @@ function fixture() {
   sqlite.exec(INIT_SQL)
   sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 1023);
-    INSERT INTO identity_keys (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com');
     INSERT INTO users (id, kind, display_name, status, role_id, joined_at) VALUES ('owner', 'human', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP);
     INSERT INTO database_definitions (id, name, created_by) VALUES ('leads', 'Leads', 'owner');
     INSERT INTO database_fields (id, database_id, name, type, slot, config_json, created_by) VALUES

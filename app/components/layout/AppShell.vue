@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import { useMounted } from '@vueuse/core'
-import { workspaceConnectionKey } from '../../composables/useWorkspaceSocket'
+import { serverConnectionKey } from '../../composables/useServerSocket'
 
 const ui = useUiStore()
 const props = defineProps<{
-  workspaceId?: string
+  serverId?: string
 }>()
-const { workspaceId: defaultWorkspaceId } = useWorkspace()
+const { serverId: defaultServerId } = useServer()
 
 const isMobile = useIsMobile()
-const workspaceId = computed(() => props.workspaceId || defaultWorkspaceId.value || ui.last()?.workspaceId)
+const serverId = computed(() => props.serverId || defaultServerId.value || ui.last()?.serverId)
 
 // Presence, unread dots, and incoming calls must keep working on every page, not
-// only while a conversation is open, so the workspace connection lives here.
+// only while a conversation is open, so the server connection lives here.
 const session = useSessionStore()
 const presence = usePresenceStore()
 watch(() => session.user?.id, id => presence.setSelf(id ?? null), { immediate: true })
-const { connection: workspaceConnection } = useWorkspaceSocket(() => workspaceId.value || '')
-provide(workspaceConnectionKey, workspaceConnection)
+const { connection: serverConnection } = useServerSocket(() => serverId.value || '')
+provide(serverConnectionKey, serverConnection)
 const open = computed(() => ui.mobilePane === 'channels')
 
 // Follow the router's live route: page-level routes miss child-only changes,
@@ -52,7 +52,7 @@ function scrollsHorizontally(target: EventTarget | null) {
 }
 
 function onTouchStart(event: TouchEvent) {
-  if (!isMobile.value || !workspaceId.value || event.touches.length !== 1) return
+  if (!isMobile.value || !serverId.value || event.touches.length !== 1) return
   if (ui.mobilePane === 'members') return
   const touch = event.touches[0]!
   const target = event.target
@@ -135,7 +135,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     @touchcancel.passive="onTouchEnd"
   >
     <aside
-      v-if="workspaceId"
+      v-if="serverId"
       id="channel-navigation"
       ref="drawer"
       class="channel-drawer flex min-h-0 shrink-0 flex-col bg-muted pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
@@ -143,7 +143,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       :aria-hidden="isMobile && !open && dragOffset === null ? 'true' : undefined"
       :inert="isMobile && !open && dragOffset === null ? true : undefined"
     >
-      <LayoutNavShell :workspace-id="workspaceId" />
+      <LayoutNavShell :server-id="serverId" />
       <LayoutResizeHandle
         v-if="!isMobile"
         v-model="ui.channelPaneWidth"
@@ -154,7 +154,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       />
     </aside>
     <button
-      v-if="workspaceId"
+      v-if="serverId"
       type="button"
       class="channel-backdrop absolute inset-0 z-20 bg-black/60 md:hidden"
       :class="open || dragOffset !== null ? '' : 'pointer-events-none'"

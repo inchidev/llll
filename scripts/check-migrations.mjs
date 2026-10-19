@@ -5,7 +5,7 @@ import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const root = resolve(import.meta.dirname, '..')
-const migrationsDirectory = join(root, 'drizzle/migrations')
+const migrationsDirectory = join(root, 'drizzle/server-migrations')
 const bootstrapPath = join(root, 'server/utils/db.ts')
 const migrationPattern = /^(?<number>[0-9]{4})_(?<slug>[a-z0-9]+(?:_[a-z0-9]+)*)\.sql$/u
 
@@ -43,7 +43,7 @@ export function validateMigrationFileNames(fileNames) {
 
 export function validateBootstrapRegistry(source, migrations) {
   const imports = [...source.matchAll(
-    /^import\s+([A-Za-z_$][\w$]*)\s+from\s+'\.\.\/\.\.\/drizzle\/migrations\/([^']+\.sql)\?raw'$/gmu,
+    /^import\s+([A-Za-z_$][\w$]*)\s+from\s+'\.\.\/\.\.\/drizzle\/server-migrations\/([^']+\.sql)\?raw'$/gmu,
   )].map(match => ({ identifier: match[1], fileName: match[2] }))
   const expectedFiles = migrations.map(migration => migration.fileName)
   const importedFiles = imports.map(migration => migration.fileName)
@@ -69,69 +69,22 @@ function git(args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
 }
 
-function isMigrationPath(filePath) {
-  return /^(?:drizzle\/migrations|apps\/(?:instance|installation)\/migrations|apps\/site\/migrations)\/[^/]+\.sql$/u.test(filePath)
+function migrationFilesAt(revision, directory) {
+  return git(['ls-tree', '-r', '--name-only', revision, '--', directory])
+    .split('\n').filter(path => path.endsWith('.sql')).map(path => basename(path))
 }
 
-function migrationFilesAt(revision, directory = 'drizzle/migrations') {
-  const output = git(['ls-tree', '-r', '--name-only', revision, '--', directory])
-  return output.split('\n').filter(isMigrationPath).map(filePath => basename(filePath))
-}
-
-export function validateWebBaselineRename(directory, status, paths, previous, current) {
-  if (directory !== 'apps/site/migrations' || status !== 'R100' || paths.length !== 2
-    || !/^apps\/site\/migrations\/0000_[a-z0-9_]+\.sql$/.test(paths[0])
-    || paths[0] === paths[1] || paths[1] !== 'apps/site/migrations/0000_web_baseline.sql') return false
-  if (!previous.equals(current)) throw new Error('Merged migration SQL is immutable')
-  return true
-}
-
-function verifyImmutableHistory(baseRevision, currentMigrations, directory = 'drizzle/migrations') {
-  try {
-    execFileSync('git', ['merge-base', '--is-ancestor', baseRevision, 'HEAD'], { cwd: root, stdio: 'ignore' })
+function verifyImmutableHistory(baseRevision, currentMigrations, directory) {
+  execFileSync('git', ['merge-base', '--is-ancestor', baseRevision, 'HEAD'], { cwd: root, stdio: 'ignore' })
+  const previous = validateMigrationFileNames(migrationFilesAt(baseRevision, directory))
+  for (const migration of previous) {
+    const before = execFileSync('git', ['show', `${baseRevision}:${directory}/${migration.fileName}`], { cwd: root })
+    const after = readFileSync(join(root, directory, migration.fileName))
+    if (!before.equals(after)) throw new Error(`Merged migration SQL is immutable: ${directory}/${migration.fileName}`)
   }
-  catch {
-    throw new Error(`Migration base ${baseRevision} is not an ancestor of HEAD; update the branch from current main`)
-  }
-
-  const baseDirectory = directory === 'apps/instance/migrations' && !migrationFilesAt(baseRevision, directory).length
-    ? 'apps/installation/migrations' : directory
-  const baseMigrations = validateMigrationFileNames(migrationFilesAt(baseRevision, baseDirectory))
-  if (baseDirectory !== directory) {
-    for (const migration of baseMigrations) {
-      const previous = execFileSync('git', ['show', `${baseRevision}:${baseDirectory}/${migration.fileName}`], { cwd: root })
-      const current = readFileSync(join(root, directory, migration.fileName))
-      if (!previous.equals(current)) throw new Error(`Merged migration SQL is immutable: ${migration.fileName}`)
-    }
-  }
-  const changes = git([
-    'diff', '--name-status', '--find-renames', `${baseRevision}...HEAD`, '--', directory,
-  ])
-
-  const renamedBaselines = new Map()
-  for (const line of changes.split('\n').filter(Boolean)) {
-    const [status, ...paths] = line.split('\t')
-    if (directory === 'apps/site/migrations' && status === 'R100' && baseMigrations.length === 1) {
-      const previous = execFileSync('git', ['show', `${baseRevision}:${paths[0]}`], { cwd: root })
-      const current = readFileSync(join(root, paths[1]))
-      if (validateWebBaselineRename(directory, status, paths, previous, current)) {
-        renamedBaselines.set(basename(paths[0]), basename(paths[1]))
-        continue
-      }
-    }
-    if (baseDirectory === directory && status !== 'A' && paths.some(isMigrationPath)) {
-      throw new Error(`Merged migration SQL is immutable; ${status} ${paths.join(' -> ')}`)
-    }
-  }
-
-  const baseNames = new Set(baseMigrations.map(migration => renamedBaselines.get(migration.fileName) || migration.fileName))
-  const added = currentMigrations.filter(migration => !baseNames.has(migration.fileName))
-  const expectedFirst = baseMigrations.length
-  added.forEach((migration, index) => {
-    const expected = expectedFirst + index
-    if (migration.number !== expected) {
-      throw new Error(`New migrations must start after main at ${String(expected).padStart(4, '0')}`)
-    }
+  const previousNames = new Set(previous.map(migration => migration.fileName))
+  currentMigrations.filter(migration => !previousNames.has(migration.fileName)).forEach((migration, index) => {
+    if (migration.number !== previous.length + index) throw new Error('New migrations must append to the current schema lineage')
   })
 }
 
@@ -149,17 +102,13 @@ export async function checkMigrations({ baseRevision = '' } = {}) {
   const migrations = validateMigrationFileNames(fileNames)
   validateBootstrapRegistry(await readFile(bootstrapPath, 'utf8'), migrations)
 
-  const installationFiles = (await readdir(join(root, 'apps/instance/migrations'))).filter(name => name.endsWith('.sql'))
-  const installation = validateMigrationFileNames(installationFiles)
   const webFiles = (await readdir(join(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql'))
   const web = validateMigrationFileNames(webFiles)
   if (baseRevision) {
     verifyImmutableHistory(baseRevision, web, 'apps/site/migrations')
-    verifyImmutableHistory(baseRevision, migrations)
-    verifyImmutableHistory(baseRevision, installation, 'apps/instance/migrations')
+    verifyImmutableHistory(baseRevision, migrations, 'drizzle/server-migrations')
   }
   console.log(`Validated ${web.length} web migrations`)
-  console.log(`Validated ${installation.length} installation migrations`)
 
   const first = migrations.at(0)?.fileName.slice(0, 4) || 'none'
   const last = migrations.at(-1)?.fileName.slice(0, 4) || 'none'

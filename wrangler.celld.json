@@ -17,7 +17,7 @@
       "binding": "DB",
       "database_name": "llll",
       "database_id": "00000000-0000-4000-8000-000000000001",
-      "migrations_dir": "drizzle/migrations"
+      "migrations_dir": "drizzle/server-migrations"
     }
   ],
   "r2_buckets": [
@@ -39,8 +39,8 @@
         "class_name": "ChannelDurableObject"
       },
       {
-        "name": "WORKSPACE_DO",
-        "class_name": "WorkspaceDurableObject"
+        "name": "SERVER_DO",
+        "class_name": "ServerDurableObject"
       },
       {
         "name": "RATE_LIMIT_DO",
@@ -65,7 +65,7 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "ChannelDurableObject",
-        "WorkspaceDurableObject",
+        "ServerDurableObject",
         "RateLimitDurableObject",
         "NotificationDurableObject",
         "L4Agent",

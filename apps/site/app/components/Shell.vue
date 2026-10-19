@@ -17,19 +17,19 @@ const queryClaim = computed(() =>
 )
 const checkingAddress = ref('')
 async function openGroup(origin: string) {
-  const installation = shell.servers.value.find(
+  const server = shell.servers.value.find(
     (item) => item.origin === origin,
   )
-  if (installation) {
-    await shell.open(installation)
+  if (server) {
+    await shell.open(server)
     await navigateTo('/open')
   }
 }
 function openServer(origin: string, id: string) {
-  const installation = shell.servers.value.find(
+  const server = shell.servers.value.find(
     (item) => item.origin === origin,
   )
-  if (installation) shell.open(installation, id)
+  if (server) shell.open(server, id)
 }
 function connect() {
   shell.selected.value = ''
@@ -46,9 +46,9 @@ async function connectQuery(
   attempt = 0,
 ) {
   try {
-    const installation = await shell.connect(origin, claim)
+    const server = await shell.connect(origin, claim)
     error.value = ''
-    return installation
+    return server
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'Could not connect'
     if (!attempt && message === SERVER_UNREACHABLE) {
@@ -65,11 +65,11 @@ async function handleQuery(queryOrigin: string, claim: string | undefined) {
   lastAutoOrigin = queryOrigin
   if (!queryOrigin) return
   checkingAddress.value = queryOrigin
-  const installation = await connectQuery(queryOrigin, claim).finally(() => {
+  const server = await connectQuery(queryOrigin, claim).finally(() => {
     checkingAddress.value = ''
   })
   // Only after a successful connect may the one-time claim leave the address bar.
-  if (installation && route.query.claim)
+  if (server && route.query.claim)
     history.replaceState(history.state, '', '/open')
 }
 function selectFrame(element: unknown, origin: string) {
@@ -173,14 +173,14 @@ async function mountServer() {
           />
           <ul v-if="shell.servers.value.length" class="mt-8 space-y-2">
             <li
-              v-for="installation in shell.servers.value"
-              :key="installation.origin"
+              v-for="server in shell.servers.value"
+              :key="server.origin"
             >
               <UButton
-                :label="installation.name"
+                :label="server.name"
                 color="neutral"
                 variant="outline"
-                @click="openGroup(installation.origin)"
+                @click="openGroup(server.origin)"
               />
             </li>
           </ul>

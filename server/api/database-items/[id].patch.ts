@@ -40,6 +40,6 @@ export default defineEventHandler(async (event) => {
      created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, id, body.version).first<Parameters<typeof databaseItemDto>[0]>()
   if (!updated) fail(409, 'stale_record', 'This record changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.update', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, fields: [...Object.keys(body.values ?? {}), ...(body.title !== undefined ? ['title'] : [])] } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.update', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, fields: [...Object.keys(body.values ?? {}), ...(body.title !== undefined ? ['title'] : [])] } })
   return { item: databaseItemDto(updated, fields) }
 })

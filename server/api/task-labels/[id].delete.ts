@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
   const label = (await db.select().from(taskLabels).where(eq(taskLabels.id, id)).limit(1))[0]
   if (!label) fail(404, 'not_found', 'Label not found')
   await db.delete(taskLabels).where(eq(taskLabels.id, id))
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_label.delete', targetType: 'task_label', targetId: id, meta: { name: label.name } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_label.delete', targetType: 'task_label', targetId: id, meta: { name: label.name } })
   waitUntil(signalTasksChanged(env, label.boardId))
   return { ok: true }
 })

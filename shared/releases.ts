@@ -16,11 +16,10 @@ export type UpdateStatusDTO = {
   checkFailed: boolean
 }
 
-export type InstallationManagementStatusDTO = {
+export type ServerManagementStatusDTO = {
   available: boolean
   workerName: string | null
   hostname: string | null
-  primary: boolean
   customDomainEnabled: boolean
   liveEnabled: boolean
   emailEnabled: boolean
@@ -28,7 +27,7 @@ export type InstallationManagementStatusDTO = {
   emailEligible: boolean
 }
 
-export type InstallationDomainSettingsDTO = {
+export type ServerDomainSettingsDTO = {
   managed: boolean
   zones: Array<{ id: string, name: string, status: string }>
   appDomain: null | { hostname: string, zoneId: string, zoneName: string }

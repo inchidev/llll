@@ -2,9 +2,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { mailAddress, mailPermissionAllows, normalizeMailLocalPart } from '../../shared/mail'
-import { workspaceMailDomains } from '../../server/utils/workspace-mail'
+import { serverMailDomains } from '../../server/utils/server-mail'
 
-describe('workspace mail model', () => {
+describe('server mail model', () => {
   it('normalizes mailbox addresses and rejects unsafe local parts', () => {
     expect(normalizeMailLocalPart(' Support ')).toBe('support')
     expect(mailAddress('support', 'example.com')).toBe('support@example.com')
@@ -19,36 +19,12 @@ describe('workspace mail model', () => {
     expect(mailPermissionAllows('manage', 'send')).toBe(true)
   })
 
-  it('accepts MAIL_DOMAIN without a zone id off Cloudflare', () => {
-    expect(workspaceMailDomains({
-      LLLL_RUNTIME: 'celld',
-      MAIL_DOMAIN: 'Chat.Example.com',
-    } as never)).toEqual([
-      { id: 'main', zoneId: '', domain: 'chat.example.com' },
-    ])
-  })
-
-  it('keeps requiring MAIL_ZONE_ID for the legacy domain on Cloudflare', () => {
-    expect(workspaceMailDomains({
-      LLLL_RUNTIME: 'cloudflare',
-      MAIL_DOMAIN: 'chat.example.com',
-    } as never)).toEqual([])
-    expect(workspaceMailDomains({
-      MAIL_DOMAIN: 'chat.example.com',
-      MAIL_ZONE_ID: 'zone-1',
-    } as never)).toEqual([
-      { id: 'main', zoneId: 'zone-1', domain: 'chat.example.com' },
-    ])
-  })
-
-  it('reads multiple deployment-managed email domains and preserves legacy bindings', () => {
-    expect(workspaceMailDomains({
+  it('reads multiple deployment-managed email domains', () => {
+    expect(serverMailDomains({
       LLLL_EMAIL_DOMAINS: JSON.stringify([
         { id: 'main', zoneId: 'zone-1', domain: 'afterprompt.example.com' },
         { id: 'second', zoneId: 'zone-2', domain: 'analflare.example.net' },
       ]),
-      MAIL_DOMAIN: 'afterprompt.example.com',
-      MAIL_ZONE_ID: 'zone-1',
     } as never)).toEqual([
       { id: 'main', zoneId: 'zone-1', domain: 'afterprompt.example.com' },
       { id: 'second', zoneId: 'zone-2', domain: 'analflare.example.net' },

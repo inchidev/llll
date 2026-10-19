@@ -64,7 +64,7 @@ const result = await installL4(process.env.CLOUDFLARE_API_TOKEN, {
   authMode: 'builtin',
   registrationMode: 'invite_only',
   filesEnabled: true,
-  backupBucketName: workerName + '-backups',
+  backupBucketName: process.env.LLLL_SERVER_BACKUP_BUCKET || workerName + '-backups',
   customDomainEnabled: Boolean(zoneId),
   zoneId,
   zoneName,

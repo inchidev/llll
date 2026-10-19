@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DataBookmarkTargetType, DataResourcesDTO } from '~~/shared/types'
 
 const props = defineProps<{
-  workspaceId: string
+  serverId: string
   targetType: DataBookmarkTargetType
   targetId: string
 }>()
@@ -13,9 +13,9 @@ const qc = useQueryClient()
 const toast = useToast()
 const saving = ref(false)
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', props.workspaceId]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${props.workspaceId}/data-resources`),
-  enabled: computed(() => Boolean(props.workspaceId && props.targetId)),
+  queryKey: computed(() => ['data-resources', props.serverId]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${props.serverId}/data-resources`),
+  enabled: computed(() => Boolean(props.serverId && props.targetId)),
 })
 const bookmarked = computed(() => resourcesQ.data.value?.bookmarks.some(bookmark => bookmark.targetType === props.targetType && bookmark.targetId === props.targetId) ?? false)
 

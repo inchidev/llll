@@ -15,7 +15,7 @@ export async function guardMemberPermission(flags: PermissionFlag[]) {
   const requestFetch = useRequestFetch()
   const serverId = useServers().activeServer.value?.id
   if (!serverId) return navigateTo('/login')
-  const url = `/api/workspaces/${serverId}/members`
+  const url = `/api/servers/${serverId}/members`
   const load = (): Promise<{ members: MemberDTO[] }> => import.meta.client && native
     ? api<{ members: MemberDTO[] }>(url)
     : requestFetch<{ members: MemberDTO[] }>(url)

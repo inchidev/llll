@@ -2,13 +2,13 @@ import { getServerId } from '../../shared/server-id'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils.js'
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
-import { authUsers, roles, users, workspace } from '../../drizzle/schema'
+import { authUsers, roles, users, server } from '../../drizzle/schema'
 import type { PublicUser, SessionUser } from '../../shared/types'
 import { nowIso } from '../../shared/ids'
 import { sessionAuthFromEvent } from './better-auth'
 import { loadAuthRuntimeConfig } from './auth-config'
 import { authMode, cloudflareAccessIdentity, type CloudflareAccessIdentity } from './cloudflare-access'
-import { provisionWorkspace } from './bootstrap'
+import { provisionServer } from './bootstrap'
 import { cf, fail } from './cf'
 import { getDb } from './db'
 import { writeAudit } from './messages'
@@ -60,7 +60,7 @@ export async function ensureDomainUser(event: H3Event, identity: AuthIdentity) {
   row = (await db.select().from(users).where(eq(users.id, identity.id)).limit(1))[0]!
   if (active) {
     await writeAudit(env, {
-      workspaceId: await getServerId(env.DB),
+      serverId: await getServerId(env.DB),
       actorId: identity.id,
       action: 'member.join',
       targetType: 'user',
@@ -113,7 +113,7 @@ export async function activateOpenMember(event: H3Event, userId: string) {
     updatedAt: joinedAt,
   }).where(eq(users.id, userId))
   await writeAudit(env, {
-    workspaceId: await getServerId(env.DB),
+    serverId: await getServerId(env.DB),
     actorId: userId,
     action: 'member.join',
     targetType: 'user',
@@ -157,21 +157,21 @@ async function resolveCurrentUser(event: H3Event): Promise<SessionUser | null> {
 async function ensureAccessIdentity(event: H3Event, identity: CloudflareAccessIdentity): Promise<AuthIdentity> {
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const existingWorkspace = (await db.select({ id: workspace.id }).from(workspace).limit(1))[0]
-  if (!existingWorkspace) {
+  const existingServer = (await db.select({ id: server.id }).from(server).limit(1))[0]
+  if (!existingServer) {
     const ownerEmail = env.ADMIN_EMAIL?.trim().toLowerCase()
-    if (!ownerEmail || identity.email !== ownerEmail) fail(403, 'forbidden', 'The workspace owner must sign in first')
+    if (!ownerEmail || identity.email !== ownerEmail) fail(403, 'forbidden', 'The server owner must sign in first')
     try {
-      await provisionWorkspace(event, {
+      await provisionServer(event, {
         userId: identity.id,
         email: identity.email,
         handle: (identity.email.split('@')[0] || 'owner').slice(0, 32),
         displayName: identity.name,
-        workspaceName: (env.ADMIN_WORKSPACE?.trim() || env.APP_NAME?.trim() || 'L4').slice(0, 80),
+        serverName: (env.ADMIN_SERVER?.trim() || env.APP_NAME?.trim() || 'L4').slice(0, 80),
       })
     }
     catch (error) {
-      const raced = (await db.select({ id: workspace.id }).from(workspace).limit(1))[0]
+      const raced = (await db.select({ id: server.id }).from(server).limit(1))[0]
       if (!raced) throw error
     }
     return identity

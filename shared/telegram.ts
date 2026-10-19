@@ -24,7 +24,7 @@ export async function verifyMiniAppData(raw: string, botToken: string, now = Dat
   return telegramUser.parse(JSON.parse(params.get('user') || 'null'))
 }
 
-/** Third-party installations verify Telegram itself; they never receive the bot secret. */
+/** Third-party servers verify Telegram itself; they never receive the bot secret. */
 export async function verifyTelegramPublicData(raw: string, botId: string, now = Date.now(), publicKey = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d') {
   if (!/^[1-9]\d{0,15}$/.test(botId)) throw new Error('Invalid Telegram bot ID')
   const params = new URLSearchParams(raw)

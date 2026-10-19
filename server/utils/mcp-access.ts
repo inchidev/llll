@@ -1,5 +1,5 @@
 import { getServerId } from '../../shared/server-id'
-import { authorize, WorkspaceAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
@@ -24,7 +24,7 @@ type TokenRow = Omit<McpAccessTokenDTO, 'scopes' | 'subject' | 'createdBy'> & {
 export type McpPrincipal = {
   tokenId: string
   userId: string
-  workspaceId: string
+  serverId: string
   roleId: string
   roleName: string
   perms: number
@@ -97,7 +97,7 @@ export async function issueMcpAccessToken(
   const creator = await env.DB.prepare(
     "SELECT id, kind, display_name as displayName, avatar_r2_key as avatarR2Key FROM users WHERE id = ? AND status = 'active'",
   ).bind(input.createdBy).first<PublicUser>()
-  if (!subject || !creator) throw new Error('Token subject and creator must be active workspace members')
+  if (!subject || !creator) throw new Error('Token subject and creator must be active server members')
   const scopes = [...new Set(input.scopes)].filter(scope => MCP_SCOPES.includes(scope))
   if (!scopes.length) throw new Error('Choose at least one MCP scope')
 
@@ -140,7 +140,7 @@ export async function authenticateMcpRequest(
      FROM mcp_access_tokens t
      JOIN users u ON u.id = COALESCE(t.subject_id, t.created_by) AND u.status = 'active'
      JOIN roles r ON r.id = u.role_id
-     JOIN workspace w ON w.id = ?
+     JOIN server w ON w.id = ?
      WHERE t.token_hash = ? AND t.revoked_at IS NULL
      LIMIT 1`,
   ).bind((await getServerId(env.DB)), tokenHash).first<{
@@ -165,7 +165,7 @@ export async function authenticateMcpRequest(
   const scopes = parseScopes(row.scopesJson)
   const delegatedBy = row.createdBy === row.userId ? null : row.createdBy
   const authorization: AuthorizationContext = {
-    workspaceId: (await getServerId(env.DB)),
+    serverId: (await getServerId(env.DB)),
     principal: { id: row.userId, kind: row.userKind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner },
     credential: { kind: 'mcp', id: row.tokenId, scopes },
     ...(delegatedBy ? { delegation: { by: delegatedBy } } : {}),
@@ -173,7 +173,7 @@ export async function authenticateMcpRequest(
   return {
     tokenId: row.tokenId,
     userId: row.userId,
-    workspaceId: (await getServerId(env.DB)),
+    serverId: (await getServerId(env.DB)),
     roleId: row.roleId,
     roleName: row.roleName,
     perms,
@@ -185,9 +185,9 @@ export async function authenticateMcpRequest(
 }
 
 export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void {
-  const action = scope === 'tasks:read' ? WorkspaceAction.readTasks
-    : scope === 'tasks:write' ? WorkspaceAction.writeTasks
-      : scope === 'documents:read' ? WorkspaceAction.readDocuments
-        : WorkspaceAction.writeDocuments
+  const action = scope === 'tasks:read' ? ServerAction.readTasks
+    : scope === 'tasks:write' ? ServerAction.writeTasks
+      : scope === 'documents:read' ? ServerAction.readDocuments
+        : ServerAction.writeDocuments
   authorize(principal.authorization, action)
 }

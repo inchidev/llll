@@ -15,7 +15,7 @@ type BrowserBinding = {
   quickAction: (action: 'markdown' | 'screenshot' | 'links', options: { url: string }) => Promise<Response>
 }
 
-function workspaceHostsFrom(env: { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string }): string[] {
+function serverHostsFrom(env: { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string }): string[] {
   const hosts: string[] = []
   const origin = env.PUBLIC_ORIGIN?.trim()
   if (origin) {
@@ -61,8 +61,8 @@ function isPrivateIpv6(host: string): boolean {
   return false
 }
 
-/** Rejects non-public, credentialed, or workspace-origin URLs before Browser Run. */
-export function assertPublicHttpUrl(raw: string, workspaceHosts: string[] = []): URL {
+/** Rejects non-public, credentialed, or server-origin URLs before Browser Run. */
+export function assertPublicHttpUrl(raw: string, serverHosts: string[] = []): URL {
   const trimmed = raw.trim()
   if (!trimmed) throw new Error('Enter a URL')
   let parsed: URL
@@ -89,8 +89,8 @@ export function assertPublicHttpUrl(raw: string, workspaceHosts: string[] = []):
   ) {
     throw new Error('That address is not a public website')
   }
-  if (workspaceHosts.some(workspaceHost => host === workspaceHost.toLowerCase())) {
-    throw new Error('Agents cannot browse the workspace origin')
+  if (serverHosts.some(serverHost => host === serverHost.toLowerCase())) {
+    throw new Error('Agents cannot browse the server origin')
   }
   if (isIpv4(host) && isPrivateIpv4(host)) throw new Error('That address is not a public website')
   if (host.includes(':') && isPrivateIpv6(host)) throw new Error('That address is not a public website')
@@ -137,7 +137,7 @@ export async function readBrowserMarkdown(
   env: BrowserEnv & { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string },
   url: string,
 ): Promise<{ url: string, markdown: string }> {
-  const parsed = assertPublicHttpUrl(url, workspaceHostsFrom(env))
+  const parsed = assertPublicHttpUrl(url, serverHostsFrom(env))
   const response = await (await requireBrowser(env)).quickAction('markdown', { url: parsed.toString() })
   if (!response.ok) await readError(response)
   const payload = await response.json() as { result?: string }
@@ -153,7 +153,7 @@ export async function listBrowserLinks(
   env: BrowserEnv & { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string },
   url: string,
 ): Promise<{ url: string, links: string[] }> {
-  const parsed = assertPublicHttpUrl(url, workspaceHostsFrom(env))
+  const parsed = assertPublicHttpUrl(url, serverHostsFrom(env))
   const response = await (await requireBrowser(env)).quickAction('links', { url: parsed.toString() })
   if (!response.ok) await readError(response)
   const payload = await response.json() as { result?: string[] }
@@ -166,7 +166,7 @@ export async function captureBrowserScreenshot(
   url: string,
   objectKey: string,
 ): Promise<{ url: string, r2Key: string | null, contentType: string, sizeBytes: number }> {
-  const parsed = assertPublicHttpUrl(url, workspaceHostsFrom(env))
+  const parsed = assertPublicHttpUrl(url, serverHostsFrom(env))
   const response = await (await requireBrowser(env)).quickAction('screenshot', { url: parsed.toString() })
   if (!response.ok) await readError(response)
   const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png'

@@ -30,10 +30,9 @@ beforeEach(() => {
   sqlite.exec("INSERT INTO server_identity(singleton,id) VALUES (1,'00000000-0000-4000-8000-000000000001')")
   sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 0);
-    INSERT INTO identity_keys (id, name, email) VALUES ('owner-user', 'Owner', 'owner@example.com');
     INSERT INTO users (id, display_name, status, role_id, joined_at)
       VALUES ('owner-user', 'Owner', 'active', 'owner-role', '2026-09-06T00:00:00.000Z');
-    INSERT INTO workspace (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001', 'L4', 'owner-user');
+    INSERT INTO server (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001', 'L4', 'owner-user');
   `)
   env = { DB: d1(sqlite) } as L4Env
 })
@@ -48,7 +47,7 @@ describe('MCP access tokens', () => {
     scopes: [...MCP_SCOPES],
   })
 
-  it('stores only a digest and authenticates the issuing member with current workspace access', async () => {
+  it('stores only a digest and authenticates the issuing member with current server access', async () => {
     const issued = await issueOwnerToken()
     const stored = sqlite.prepare('SELECT token_hash as tokenHash, token_prefix as tokenPrefix FROM mcp_access_tokens WHERE id = ?').get(issued.id) as { tokenHash: string; tokenPrefix: string }
 
@@ -57,11 +56,11 @@ describe('MCP access tokens', () => {
     expect(stored.tokenHash).not.toBe(issued.token)
     expect(stored.tokenPrefix).toBe(issued.tokenPrefix)
 
-    const principal = await authenticateMcpRequest(env, new Request('https://workspace.example/mcp', {
+    const principal = await authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))
 
-    expect(principal).toMatchObject({ userId: 'owner-user', workspaceId: '00000000-0000-4000-8000-000000000001', isOwner: true })
+    expect(principal).toMatchObject({ userId: 'owner-user', serverId: '00000000-0000-4000-8000-000000000001', isOwner: true })
     expect(principal?.scopes).toEqual(['tasks:read', 'tasks:write', 'documents:read', 'documents:write'])
     expect(sqlite.prepare('SELECT last_used_at as lastUsedAt FROM mcp_access_tokens WHERE id = ?').get(issued.id)).toMatchObject({ lastUsedAt: expect.any(String) })
   })
@@ -69,9 +68,9 @@ describe('MCP access tokens', () => {
   it('rejects malformed and revoked credentials', async () => {
     const issued = await issueOwnerToken()
 
-    await expect(authenticateMcpRequest(env, new Request('https://workspace.example/mcp'))).resolves.toBeNull()
+    await expect(authenticateMcpRequest(env, new Request('https://server.example/mcp'))).resolves.toBeNull()
     expect(await revokeMcpAccessToken(env, issued.id)).toBe(true)
-    await expect(authenticateMcpRequest(env, new Request('https://workspace.example/mcp', {
+    await expect(authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))).resolves.toBeNull()
   })
@@ -80,7 +79,7 @@ describe('MCP access tokens', () => {
     const issued = await issueOwnerToken()
     sqlite.exec("UPDATE users SET status = 'removed', role_id = NULL, joined_at = NULL WHERE id = 'owner-user'")
 
-    await expect(authenticateMcpRequest(env, new Request('https://workspace.example/mcp', {
+    await expect(authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))).resolves.toBeNull()
   })
@@ -88,7 +87,6 @@ describe('MCP access tokens', () => {
   it('acts as an Agent with the intersection of its current role and token scopes', async () => {
     sqlite.exec(`
       INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'agent', 'Task Agent', ${Permission.manageTasks | Permission.manageDatabases});
-      INSERT INTO identity_keys (id, name, email) VALUES ('agent-user', 'Release Agent', 'agent-user@llll.invalid');
       INSERT INTO users (id, kind, display_name, status, role_id, joined_at)
         VALUES ('agent-user', 'agent', 'Release Agent', 'active', 'agent-role', '2026-09-06T00:00:00.000Z');
     `)
@@ -98,7 +96,7 @@ describe('MCP access tokens', () => {
       name: 'Release Agent',
       scopes: ['documents:read', 'documents:write'],
     })
-    const principal = await authenticateMcpRequest(env, new Request('https://workspace.example/mcp', {
+    const principal = await authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))
 
@@ -107,7 +105,7 @@ describe('MCP access tokens', () => {
     expect(() => requireMcpAccess(principal!, 'tasks:read')).toThrow('tasks:read scope')
 
     sqlite.exec("UPDATE roles SET permissions_bitmask = 0 WHERE id = 'agent-role'")
-    const downgraded = await authenticateMcpRequest(env, new Request('https://workspace.example/mcp', {
+    const downgraded = await authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))
     expect(() => requireMcpAccess(downgraded!, 'documents:write')).toThrow('Task Agent role')

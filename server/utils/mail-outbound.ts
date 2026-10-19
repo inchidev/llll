@@ -1,5 +1,5 @@
 import type { L4Env } from '../../workers/env'
-import { sendWorkspaceEmail } from '../../workers/mail-transport'
+import { sendServerEmail } from '../../workers/mail-transport'
 import { mailAddressList, mergeMailAddresses } from '../../shared/mail'
 
 type OutboundRow = {
@@ -54,7 +54,7 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string): Promi
   const isReply = row.messageChannelId === row.threadChannelId
   const references = parseReferences(row.referencesJson)
   try {
-    const result = await sendWorkspaceEmail(env, {
+    const result = await sendServerEmail(env, {
       from: row.fromName ? { email: row.fromAddress, name: row.fromName } : row.fromAddress,
       to: mailAddressList(row.toJson),
       subject: isReply && !/^re:/iu.test(row.subject) ? `Re: ${row.subject}` : row.subject,

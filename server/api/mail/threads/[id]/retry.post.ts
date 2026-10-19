@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import type { MailMessageDTO } from '../../../../../shared/types'
-import { requireMailboxPermission } from '../../../../utils/workspace-mail'
+import { requireMailboxPermission } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage } from '../../../../utils/mail-data'
 import { deliverOutboundEmail } from '../../../../utils/mail-outbound'
-import { workspaceEmailAvailable } from '../../../../../workers/mail-transport'
+import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({ messageId: z.string().min(8).max(80) })
@@ -17,7 +17,7 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
   if (access.channel.type !== 'thread') fail(404, 'not_found', 'Email conversation not found')
   const body = parseBody(schema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  if (!workspaceEmailAvailable(env)) fail(503, 'mail_unavailable', 'Workspace email sending is not bound')
+  if (!serverEmailAvailable(env)) fail(503, 'mail_unavailable', 'Server email sending is not bound')
   const row = await env.DB.prepare(
     `SELECT delivery_status as deliveryStatus FROM email_messages
      WHERE message_id = ? AND thread_channel_id = ? AND direction = 'outbound'`,

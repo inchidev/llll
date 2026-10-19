@@ -3,16 +3,16 @@ import { useQuery } from '@tanstack/vue-query'
 import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
 import type { DataResourcesDTO } from '~~/shared/types'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const { api } = useApi()
 const nav = useNavActions()
 
 const archived = computed(() => route.path === '/databases' && route.query.archived === '1')
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', props.workspaceId]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${props.workspaceId}/data-resources`),
-  enabled: computed(() => Boolean(props.workspaceId)),
+  queryKey: computed(() => ['data-resources', props.serverId]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${props.serverId}/data-resources`),
+  enabled: computed(() => Boolean(props.serverId)),
   refetchInterval: 10_000,
 })
 const databases = computed(() => {

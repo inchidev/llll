@@ -18,7 +18,7 @@ import {
 /**
  * The media plane behind a Live room. The Channel Durable Object decides who
  * may join and who is a host; this only creates meetings and seats in them.
- * Today it talks to RealtimeKit with the installation's own credential.
+ * Today it talks to RealtimeKit with the server's own credential.
  */
 export type LiveMedia = {
   createMeeting: (title: string) => Promise<{ id: string }>
@@ -28,7 +28,7 @@ export type LiveMedia = {
 }
 
 /**
- * The media plane for this installation, or null when Live is not connected.
+ * The media plane for this server, or null when Live is not connected.
  * Credentials come from server deployment bindings or encrypted server settings.
  */
 function mediaFor(config: Pick<RealtimeKitRuntimeConfig, 'accountId' | 'appId' | 'apiToken' | 'hostPreset' | 'participantPreset'>): LiveMedia {

@@ -1,7 +1,7 @@
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { H3Event } from 'h3'
-import { channelRoleOverrides, channels, channelMembers, emailMailboxAccess, emailMailboxes, roles, tasks, users, workspace } from '../../drizzle/schema'
+import { channelRoleOverrides, channels, channelMembers, emailMailboxAccess, emailMailboxes, roles, tasks, users, server } from '../../drizzle/schema'
 import { resolveChannelPermissions } from '../../shared/channel-permissions'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
 import { mailPermissionAllows } from '../../shared/mail'
@@ -14,7 +14,7 @@ import { toPublicUser } from './messages'
 
 export type Membership = {
   user: PublicUser
-  workspaceId: string
+  serverId: string
   roleId: string
   roleName: string
   perms: number
@@ -32,8 +32,8 @@ export type ChannelAccess = Membership & {
   mailPermission: MailboxPermission | null
 }
 
-export async function requireMember(event: H3Event, workspaceId: string, flag?: PermissionFlag): Promise<Membership> {
-  if (workspaceId !== (await getServerId(cf(event).env.DB))) fail(404, 'not_found', 'Workspace not found')
+export async function requireMember(event: H3Event, serverId: string, flag?: PermissionFlag): Promise<Membership> {
+  if (serverId !== (await getServerId(cf(event).env.DB))) fail(404, 'not_found', 'Server not found')
   const user = await requireUser(event)
   const { env } = cf(event)
   const db = getDb(env.DB)
@@ -46,20 +46,20 @@ export async function requireMember(event: H3Event, workspaceId: string, flag?: 
       .innerJoin(roles, eq(roles.id, users.roleId))
       .where(and(eq(users.id, user.id), eq(users.status, 'active')))
       .limit(1),
-    db.select({ ownerId: workspace.ownerId }).from(workspace).where(eq(workspace.id, (await getServerId(cf(event).env.DB)))).limit(1),
+    db.select({ ownerId: server.ownerId }).from(server).where(eq(server.id, (await getServerId(cf(event).env.DB)))).limit(1),
   ])
 
   const row = rows[0]
-  if (!row) fail(403, 'forbidden', 'Not a member of this workspace')
+  if (!row) fail(403, 'forbidden', 'Not a member of this server')
   const home = homes[0]
-  if (!home) fail(404, 'not_found', 'Workspace not found')
+  if (!home) fail(404, 'not_found', 'Server not found')
   const isOwner = home.ownerId === user.id
   const perms = isOwner ? ALL_PERMISSIONS : row.perms
   if (flag !== undefined && !hasPermission(perms, flag)) {
     fail(403, 'forbidden', 'Missing permission')
   }
   const authorization: AuthorizationContext = {
-    workspaceId,
+    serverId,
     principal: {
       id: user.id,
       kind: user.kind,
@@ -72,7 +72,7 @@ export async function requireMember(event: H3Event, workspaceId: string, flag?: 
   }
   return {
     user,
-    workspaceId,
+    serverId,
     roleId: row.roleId!,
     roleName: row.roleName,
     perms,
@@ -147,7 +147,7 @@ export async function requireChannelAccess(event: H3Event, channelId: string, fl
     const parts = await db.select().from(channelMembers).where(eq(channelMembers.channelId, accessRoot.id))
     const userRows = await db.select().from(users).where(inArray(users.id, parts.map((p) => p.userId)))
     const participants = userRows.map(toPublicUser)
-    const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.manageWorkspace)
+    const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.manageServer)
     if (participants.some(participant => participant.kind === 'agent') && !canManageAgents) {
       fail(404, 'not_found', 'Channel not found')
     }
@@ -161,7 +161,7 @@ export async function requireChannelAccess(event: H3Event, channelId: string, fl
     if (flag === Permission.sendMessages && frozen) fail(403, 'forbidden', 'You can no longer send messages to this user')
     return {
       user,
-      workspaceId: (await getServerId(cf(event).env.DB)),
+      serverId: (await getServerId(cf(event).env.DB)),
       roleId: '',
       roleName: 'member',
       perms,

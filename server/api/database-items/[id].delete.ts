@@ -12,6 +12,6 @@ export default defineEventHandler(async (event) => {
   const item = await requireDatabaseItem(env, id)
   await requireDatabase(env, item.databaseId, true)
   await env.DB.prepare('DELETE FROM database_items WHERE id = ?').bind(id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.delete', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, title: item.title } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_item.delete', targetType: 'database_item', targetId: id, meta: { databaseId: item.databaseId, title: item.title } })
   return { ok: true }
 })

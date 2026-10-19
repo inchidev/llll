@@ -43,7 +43,8 @@ export function authSecret(env: L4Env, baseURL?: string): string {
 
 export function installedMailboxSender(env: L4Env): string | null {
   const localPart = env.MAIL_DEFAULT_LOCAL_PART?.trim().toLowerCase()
-  const domain = env.MAIL_DOMAIN?.trim().toLowerCase()
+  let domain = ''
+  try { domain = JSON.parse(env.LLLL_EMAIL_DOMAINS || '[]')[0]?.domain?.trim().toLowerCase() || '' } catch { /* No configured domain. */ }
   return localPart && domain ? `${localPart}@${domain}` : null
 }
 
@@ -68,11 +69,11 @@ function registrationDefault(env: L4Env): RegistrationMode {
 
 async function ensureSettings(env: L4Env) {
   const db = getDb(env.DB)
-  const existing = (await db.select().from(authSettings).where(eq(authSettings.id, 'main')).limit(1))[0]
+  const existing = (await db.select().from(authSettings).where(eq(authSettings.id, 1)).limit(1))[0]
   if (existing) return existing
   const created = nowIso()
   await db.insert(authSettings).values({
-    id: 'main',
+    id: 1,
     registrationMode: registrationDefault(env),
     emailEnabled: true,
     githubEnabled: Boolean(envCredential(env, 'github')),
@@ -86,7 +87,7 @@ async function ensureSettings(env: L4Env) {
     createdAt: created,
     updatedAt: created,
   }).onConflictDoNothing()
-  return (await db.select().from(authSettings).where(eq(authSettings.id, 'main')).limit(1))[0]!
+  return (await db.select().from(authSettings).where(eq(authSettings.id, 1)).limit(1))[0]!
 }
 
 // Session checks run on every API request. Reading two settings rows from a

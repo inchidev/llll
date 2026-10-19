@@ -1,6 +1,6 @@
 /**
  * Sidebar actions that live in one component but are triggered from another —
- * the workspace dropdown and the `+` on each nav section header both open
+ * the server dropdown and the `+` on each nav section header both open
  * modals that are mounted by NavShell or by the page currently on screen.
  */
 export function useNavActions() {
@@ -8,8 +8,8 @@ export function useNavActions() {
   const createChannelCategoryId = useState<string | null>('nav:create-channel-category', () => null)
   const createCategoryOpen = useState('nav:create-category', () => false)
   const inviteOpen = useState('nav:invite', () => false)
-  const workspaceSettingsOpen = useState('nav:workspace-settings', () => false)
-  const workspaceSettingsSection = useState('nav:workspace-settings-section', () => 'overview')
+  const serverSettingsOpen = useState('nav:server-settings', () => false)
+  const serverSettingsSection = useState('nav:server-settings-section', () => 'overview')
   const createBoardOpen = useState('nav:create-board', () => false)
   const createDatabaseOpen = useState('nav:create-database', () => false)
   const createDocumentOpen = useState('nav:create-document', () => false)
@@ -17,9 +17,9 @@ export function useNavActions() {
   const createGadgetOpen = useState('nav:create-gadget', () => false)
   const composeOpen = useState('nav:compose', () => false)
 
-  function openWorkspaceSettings(section: string) {
-    workspaceSettingsSection.value = section
-    workspaceSettingsOpen.value = true
+  function openServerSettings(section: string) {
+    serverSettingsSection.value = section
+    serverSettingsOpen.value = true
   }
 
   function openCreateChannel(categoryId: string | null = null) {
@@ -32,8 +32,8 @@ export function useNavActions() {
     createChannelCategoryId,
     createCategoryOpen,
     inviteOpen,
-    workspaceSettingsOpen,
-    workspaceSettingsSection,
+    serverSettingsOpen,
+    serverSettingsSection,
     createBoardOpen,
     createDatabaseOpen,
     createDocumentOpen,
@@ -41,6 +41,6 @@ export function useNavActions() {
     createGadgetOpen,
     composeOpen,
     openCreateChannel,
-    openWorkspaceSettings,
+    openServerSettings,
   }
 }

@@ -9,10 +9,10 @@ describe('auth provider secret encryption', () => {
     await expect(decryptAuthSecret('a sufficiently long auth secret', 'github', encrypted)).resolves.toBe('oauth-secret')
   })
 
-  it('binds ciphertext to the installation key and provider', async () => {
-    const encrypted = await encryptAuthSecret('first installation secret', 'twitter', 'oauth-secret')
+  it('binds ciphertext to the server key and provider', async () => {
+    const encrypted = await encryptAuthSecret('first server secret', 'twitter', 'oauth-secret')
 
-    await expect(decryptAuthSecret('another installation secret', 'twitter', encrypted)).rejects.toThrow()
-    await expect(decryptAuthSecret('first installation secret', 'github', encrypted)).rejects.toThrow()
+    await expect(decryptAuthSecret('another server secret', 'twitter', encrypted)).rejects.toThrow()
+    await expect(decryptAuthSecret('first server secret', 'github', encrypted)).rejects.toThrow()
   })
 })

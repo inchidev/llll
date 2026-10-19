@@ -69,7 +69,7 @@ describe('published installer core integration', () => {
     expect(() => hostnameInsideZone(zone, 'inchi.example.com')).toThrow('Enter a hostname inside the selected active Cloudflare zone')
   })
 
-  it('preserves server secrets and drops retired public control bindings during an update', () => {
+  it('preserves Server secrets and domain configuration during an update', () => {
     const manifest = {
       version: '0.1.1',
       durableObjects: [{ binding: 'CHANNEL_DO', className: 'ChannelDurableObject', migration: 'v1' }],
@@ -77,10 +77,6 @@ describe('published installer core integration', () => {
     const bindings = updateWorkerBindings([
       { type: 'plain_text', name: 'LLLL_VERSION', text: '0.1.0' },
       { type: 'plain_text', name: 'LLLL_EMAIL_DOMAINS', text: '[{"domain":"afterprompt.games"}]' },
-      { type: 'secret_text', name: 'LLLL_CONTROL_TOKEN' },
-      { type: 'service', name: 'LLLL_ADMIN' },
-      { type: 'plain_text', name: 'LLLL_TELEMETRY_ENDPOINT' },
-      { type: 'secret_text', name: 'LLLL_SERVER_MARKER_KEY' },
       { type: 'secret_text', name: 'AUTH_SECRET' },
       { type: 'send_email', name: 'MAIL_EMAIL' },
       { type: 'assets', name: 'ASSETS' },
@@ -88,11 +84,7 @@ describe('published installer core integration', () => {
     ], manifest)
 
     expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_EMAIL_DOMAINS' })
-    expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_SERVER_MARKER_KEY' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'AUTH_SECRET' })
-    expect(bindings.map(binding => binding.name)).not.toContain('LLLL_CONTROL_TOKEN')
-    expect(bindings.map(binding => binding.name)).not.toContain('LLLL_ADMIN')
-    expect(bindings.map(binding => binding.name)).not.toContain('LLLL_TELEMETRY_ENDPOINT')
     expect(bindings).toContainEqual({ type: 'inherit', name: 'MAIL_EMAIL' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'CHANNEL_DO' })
     expect(bindings).toContainEqual({ type: 'plain_text', name: 'LLLL_VERSION', text: '0.1.1' })
@@ -121,7 +113,7 @@ describe('published installer core integration', () => {
       releasedAt: '2026-09-20T00:00:00.000Z',
       compatibilityDate: '2026-09-02',
       compatibilityFlags: ['nodejs_compat'],
-      capabilities: [],
+      capabilities: ['llll-server-schema-v1'],
       worker: { url: './llll-worker.mjs', sha256: await digest(worker), size: worker.byteLength },
       assets: { url: './llll-assets.json', sha256: await digest(assets), size: assets.byteLength },
       durableObjects: [],
@@ -140,7 +132,7 @@ describe('published installer core integration', () => {
     })
   })
 
-  it('deploys release Durable Objects on a fresh installation', () => {
+  it('deploys release Durable Objects on a fresh server', () => {
     const manifest = {
       durableObjects: [
         { binding: 'AGENT_DO', className: 'L4Agent', migration: 'v3' },

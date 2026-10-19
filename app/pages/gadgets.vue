@@ -8,9 +8,9 @@ import { hasPermission, Permission } from '~~/shared/permissions'
 import { gadgetPath } from '~~/shared/paths'
 import type { DataResourcesDTO, DatabaseFieldDTO, DatabaseItemDTO, DatabasePageDTO, RoleDTO } from '~~/shared/types'
 
-definePageMeta({ layout: 'workspace', middleware: ['auth', 'use-gadgets'] })
+definePageMeta({ layout: 'server', middleware: ['auth', 'use-gadgets'] })
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const { api } = useApi()
 const route = useRoute()
 const nav = useNavActions()
@@ -20,9 +20,9 @@ const session = useSessionStore()
 const workersAi = computed(() => !session.health || session.health.aiProvider === 'workers-ai')
 
 const gadgetsQ = useQuery({
-  queryKey: computed(() => ['gadgets', workspaceId.value]),
-  queryFn: () => api<GadgetListDTO>(`/api/workspaces/${workspaceId.value}/gadgets`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['gadgets', serverId.value]),
+  queryFn: () => api<GadgetListDTO>(`/api/servers/${serverId.value}/gadgets`),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const gadgets = computed(() => gadgetsQ.data.value?.gadgets ?? [])
 const canManage = computed(() => Boolean(gadgetsQ.data.value?.canManage))
@@ -47,14 +47,14 @@ const runtimeQ = useQuery({
   refetchInterval: 10_000,
 })
 const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', workspaceId.value]),
-  queryFn: () => api<DataResourcesDTO>(`/api/workspaces/${workspaceId.value}/data-resources`),
-  enabled: computed(() => Boolean(workspaceId.value && editing.value)),
+  queryKey: computed(() => ['data-resources', serverId.value]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${serverId.value}/data-resources`),
+  enabled: computed(() => Boolean(serverId.value && editing.value)),
 })
 const rolesQ = useQuery({
-  queryKey: computed(() => ['roles', workspaceId.value]),
-  queryFn: () => api<{ roles: RoleDTO[] }>(`/api/workspaces/${workspaceId.value}/roles`),
-  enabled: computed(() => Boolean(workspaceId.value && editing.value)),
+  queryKey: computed(() => ['roles', serverId.value]),
+  queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${serverId.value}/roles`),
+  enabled: computed(() => Boolean(serverId.value && editing.value)),
 })
 
 const createSchema = z.object({
@@ -69,7 +69,7 @@ const creating = ref(false)
 async function createGadget(event: FormSubmitEvent<CreateSchema>) {
   creating.value = true
   try {
-    const result = await api<{ gadget: GadgetDetailDTO }>(`/api/workspaces/${workspaceId.value}/gadgets`, {
+    const result = await api<{ gadget: GadgetDetailDTO }>(`/api/servers/${serverId.value}/gadgets`, {
       method: 'POST',
       body: {
         name: event.data.name,
@@ -81,7 +81,7 @@ async function createGadget(event: FormSubmitEvent<CreateSchema>) {
     createState.name = ''
     createState.description = ''
     createState.prompt = ''
-    await qc.invalidateQueries({ queryKey: ['gadgets', workspaceId.value] })
+    await qc.invalidateQueries({ queryKey: ['gadgets', serverId.value] })
     qc.setQueryData(['gadget-detail', result.gadget.id], { gadget: result.gadget })
     await navigateTo(gadgetPath(result.gadget.id, true))
     toast.add({ title: event.data.prompt ? 'Draft generated' : 'App created', color: 'success' })
@@ -223,7 +223,7 @@ async function saveDraft(): Promise<GadgetDetailDTO | null> {
     })
     draftRevision.value = result.gadget.draftRevision
     qc.setQueryData(['gadget-detail', selectedId.value], result)
-    await qc.invalidateQueries({ queryKey: ['gadgets', workspaceId.value] })
+    await qc.invalidateQueries({ queryKey: ['gadgets', serverId.value] })
     toast.add({ title: 'Draft saved', color: 'success' })
     return result.gadget
   }
@@ -246,7 +246,7 @@ async function publish() {
       method: 'POST', body: { revision: saved.draftRevision },
     })
     qc.setQueryData(['gadget-detail', saved.id], result)
-    await qc.invalidateQueries({ queryKey: ['gadgets', workspaceId.value] })
+    await qc.invalidateQueries({ queryKey: ['gadgets', serverId.value] })
     await navigateTo(gadgetPath(saved.id))
     await qc.invalidateQueries({ queryKey: ['gadget-runtime', saved.id] })
     toast.add({ title: `Version ${result.gadget.publishedVersion} published`, color: 'success' })

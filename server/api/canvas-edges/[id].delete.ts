@@ -13,6 +13,6 @@ export default defineEventHandler(async (event) => {
   ).bind(id).first<{ id: string; canvasId: string; fromNodeId: string; toNodeId: string }>()
   if (!edge) fail(404, 'not_found', 'Canvas connection not found')
   await env.DB.prepare('DELETE FROM canvas_edges WHERE id = ?').bind(id).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.delete', targetType: 'canvas_edge', targetId: id, meta: { canvasId: edge.canvasId } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.delete', targetType: 'canvas_edge', targetId: id, meta: { canvasId: edge.canvasId } })
   return { ok: true }
 })

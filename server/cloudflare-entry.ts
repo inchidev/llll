@@ -7,11 +7,11 @@ import '#nitro-internal-pollyfills'
 import { useNitroApp } from 'nitropack/runtime'
 import { isPublicAssetURL } from '#nitro-internal-virtual/public-assets'
 import type { L4Env } from '../workers/env'
-import { receivePrimaryMailSend, routeWorkspaceEmail } from '../workers/primary-mail-router'
+import { routeServerEmail } from '../workers/server-mail-router'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 
 export { ChannelDurableObject } from '../workers/channel-do'
-export { WorkspaceDurableObject } from '../workers/workspace-do'
+export { ServerDurableObject } from '../workers/server-do'
 export { RateLimitDurableObject } from '../workers/rate-limit-do'
 export { NotificationDurableObject } from '../workers/notification-do'
 export { L4Agent, L4Think } from '../workers/llll-agent'
@@ -22,16 +22,15 @@ export default {
   async fetch(request: Request, env: L4Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     if (url.pathname === '/.llll/mail/inbound') return receiveMailGatewayRequest(request, env)
-    if (url.pathname === '/.llll/mail/send') return receivePrimaryMailSend(request, env)
     if (request.headers.get('Upgrade') === 'websocket') {
       const channel = url.pathname.match(/^\/ws\/channel\/([^/]+)/)
       if (channel?.[1]) {
         return env.CHANNEL_DO.getByName(`channel:${channel[1]}`).fetch(request)
       }
-      const workspace = url.pathname.match(/^\/ws\/workspace\/([^/]+)/)
-      if (workspace?.[1]) {
-        if (workspace[1] !== await getServerId(env.DB)) return new Response('Server not found', { status: 404 })
-        return env.WORKSPACE_DO.getByName(`workspace:${workspace[1]}`).fetch(request)
+      const server = url.pathname.match(/^\/ws\/server\/([^/]+)/)
+      if (server?.[1]) {
+        if (server[1] !== await getServerId(env.DB)) return new Response('Server not found', { status: 404 })
+        return env.SERVER_DO.getByName(`server:${server[1]}`).fetch(request)
       }
     }
 
@@ -61,7 +60,7 @@ export default {
     } as Parameters<typeof nitroApp.localFetch>[1])
   },
   async email(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
-    await routeWorkspaceEmail(message, env)
+    await routeServerEmail(message, env)
   },
   async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
     if (env.BACKUPS && env.FILES) {

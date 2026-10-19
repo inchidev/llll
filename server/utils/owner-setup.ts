@@ -3,17 +3,17 @@ import type { L4Env } from '../../workers/env'
 export type OwnerSetup = {
   email: string
   token: string
-  workspaceName: string
+  serverName: string
 }
 
-export function readOwnerSetupEnv(env: Pick<L4Env, 'ADMIN_EMAIL' | 'SETUP_TOKEN' | 'ADMIN_WORKSPACE' | 'APP_NAME'>): OwnerSetup | null {
+export function readOwnerSetupEnv(env: Pick<L4Env, 'ADMIN_EMAIL' | 'SETUP_TOKEN' | 'ADMIN_SERVER' | 'APP_NAME'>): OwnerSetup | null {
   const email = env.ADMIN_EMAIL?.trim().toLowerCase() || ''
   const token = env.SETUP_TOKEN?.trim() || ''
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || token.length < 32) return null
   return {
     email,
     token,
-    workspaceName: (env.ADMIN_WORKSPACE?.trim() || env.APP_NAME?.trim() || 'L4').slice(0, 80),
+    serverName: (env.ADMIN_SERVER?.trim() || env.APP_NAME?.trim() || 'L4').slice(0, 80),
   }
 }
 

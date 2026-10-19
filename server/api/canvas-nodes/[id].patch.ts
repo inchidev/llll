@@ -40,6 +40,6 @@ export default defineEventHandler(async (event) => {
      created_by as createdBy, created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, id, body.version).first<CanvasNodeDTO>()
   if (!updated) fail(409, 'stale_canvas_item', 'This canvas item changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.update', targetType: 'canvas_node', targetId: id, meta: { canvasId: node.canvasId, fields: Object.keys(body).filter(key => key !== 'version') } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.update', targetType: 'canvas_node', targetId: id, meta: { canvasId: node.canvasId, fields: Object.keys(body).filter(key => key !== 'version') } })
   return { node: updated }
 })

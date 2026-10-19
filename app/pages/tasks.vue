@@ -13,9 +13,9 @@ import type {
 } from '~~/shared/types'
 import { boardPath } from '~~/shared/paths'
 
-definePageMeta({ layout: 'workspace', middleware: ['auth', 'manage-tasks'] })
+definePageMeta({ layout: 'server', middleware: ['auth', 'manage-tasks'] })
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const qc = useQueryClient()
@@ -47,24 +47,24 @@ const confirmAction = shallowRef<null | (() => Promise<void>)>(null)
 const confirmTitle = ref('')
 
 const agentsQ = useQuery({
-  queryKey: computed(() => ['agents', workspaceId.value]),
-  queryFn: () => api<{ agents: TaskAgentDTO[] }>(`/api/workspaces/${workspaceId.value}/task-agents`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['agents', serverId.value]),
+  queryFn: () => api<{ agents: TaskAgentDTO[] }>(`/api/servers/${serverId.value}/task-agents`),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const membersQ = useQuery({
-  queryKey: computed(() => ['members', workspaceId.value]),
-  queryFn: () => api<{ members: MemberDTO[] }>(`/api/workspaces/${workspaceId.value}/members`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['members', serverId.value]),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const boardsQ = useQuery({
-  queryKey: computed(() => ['boards', workspaceId.value, showArchived.value]),
-  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/workspaces/${workspaceId.value}/boards`, { query: { archived: showArchived.value } }),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['boards', serverId.value, showArchived.value]),
+  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${serverId.value}/boards`, { query: { archived: showArchived.value } }),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const channelsQ = useQuery({
-  queryKey: computed(() => ['channels', workspaceId.value]),
-  queryFn: () => api<{ channels: ChannelDTO[] }>(`/api/workspaces/${workspaceId.value}/channels`),
-  enabled: computed(() => Boolean(workspaceId.value)),
+  queryKey: computed(() => ['channels', serverId.value]),
+  queryFn: () => api<{ channels: ChannelDTO[] }>(`/api/servers/${serverId.value}/channels`),
+  enabled: computed(() => Boolean(serverId.value)),
 })
 const taskQ = useQuery({
   queryKey: computed(() => ['task', selectedTaskId.value]),
@@ -90,7 +90,7 @@ const activeTasks = computed(() => {
     .some(value => value.toLocaleLowerCase().includes(query)))
 })
 const agents = computed(() => agentsQ.data.value?.agents ?? [])
-const channels = computed(() => (channelsQ.data.value?.channels ?? []).filter(channel => channel.type === 'text' && channel.visibility === 'workspace'))
+const channels = computed(() => (channelsQ.data.value?.channels ?? []).filter(channel => channel.type === 'text' && channel.visibility === 'server'))
 const selectedTask = computed(() => taskQ.data.value?.task ?? null)
 
 /** A board id that no longer resolves (deleted, archived away) falls back to the first one. */
@@ -295,8 +295,8 @@ async function saveBoard() {
   const action = editing
     ? async () => { await api(`/api/boards/${editing}`, { method: 'PATCH', body: { name: boardName.value } }) }
     : async () => {
-        const res = await api<{ board: TaskBoardDTO }>(`/api/workspaces/${workspaceId.value}/boards`, { method: 'POST', body: { name: boardName.value } })
-        qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', workspaceId.value, false] }, old => old ? { boards: [...old.boards, res.board] } : old)
+        const res = await api<{ board: TaskBoardDTO }>(`/api/servers/${serverId.value}/boards`, { method: 'POST', body: { name: boardName.value } })
+        qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', serverId.value, false] }, old => old ? { boards: [...old.boards, res.board] } : old)
         selectedBoardId.value = res.board.id
       }
   const ok = await mutate(action, editing ? 'Board renamed' : 'Board created')
@@ -311,7 +311,7 @@ async function moveBoard(direction: -1 | 1) {
   const target = index + direction
   if (target < 0 || target >= ids.length) return
   ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
-  await mutate(() => api(`/api/workspaces/${workspaceId.value}/boards/reorder`, { method: 'PATCH', body: { boardIds: ids } }))
+  await mutate(() => api(`/api/servers/${serverId.value}/boards/reorder`, { method: 'PATCH', body: { boardIds: ids } }))
 }
 
 function askConfirm(title: string, action: () => Promise<void>) {
@@ -358,7 +358,7 @@ async function createTask() {
       body: { ...newTask, dueAt: toIso(newTask.dueAt) },
     })
     const { checklist: _checklist, attachments: _attachments, ...task } = res.task
-    qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', workspaceId.value, false] }, old => old
+    qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', serverId.value, false] }, old => old
       ? { boards: old.boards.map(board => board.id === boardId ? { ...board, tasks: [...board.tasks, task] } : board) }
       : old)
   }, 'Task created')
@@ -719,7 +719,7 @@ const boardMenu = computed(() => [[
           <TasksDiscussion
             :task-id="selectedTask.id"
             :channel-id="selectedTask.discussionChannelId"
-            :workspace-id="workspaceId"
+            :server-id="serverId"
             :members="members"
           />
 

@@ -1,4 +1,4 @@
-export const SERVER_API_VERSION = 1
+export const SERVER_API_VERSION = 2
 export type ServerDiscovery = {
   product: 'llll'
   kind: 'server'

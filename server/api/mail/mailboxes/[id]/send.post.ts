@@ -2,13 +2,13 @@ import { z } from 'zod'
 import { newId, nowIso } from '../../../../../shared/ids'
 import type { MailMessageDTO, MailThreadDTO } from '../../../../../shared/types'
 import { mergeMailAddresses } from '../../../../../shared/mail'
-import { requireMailboxPermission } from '../../../../utils/workspace-mail'
+import { requireMailboxPermission } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage, mailThreadDto } from '../../../../utils/mail-data'
 import { deliverOutboundEmail } from '../../../../utils/mail-outbound'
 import { findOutboundRequest, isUniqueViolation } from '../../../../utils/mail-requests'
-import { workspaceEmailAvailable } from '../../../../../workers/mail-transport'
+import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
   if (access.channel.type !== 'text') fail(404, 'not_found', 'Mailbox not found')
   const body = parseBody(schema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  if (!workspaceEmailAvailable(env)) fail(503, 'mail_unavailable', 'Workspace email sending is not bound')
+  if (!serverEmailAvailable(env)) fail(503, 'mail_unavailable', 'Server email sending is not bound')
 
   const existing = body.clientId ? await findOutboundRequest(env, mailboxId, body.clientId) : null
   let messageId = existing?.messageId ?? null

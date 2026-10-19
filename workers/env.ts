@@ -9,7 +9,7 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 }
 
 export type L4Env = {
-  /** The installation that may introduce an explicitly admitted member. */
+  /** Additional origins allowed to embed this Server client. */
   EMBED_ORIGINS?: string
   TELEGRAM_TRUSTED_BOT_ID?: string
   TELEGRAM_BOT_TOKEN?: string
@@ -19,7 +19,7 @@ export type L4Env = {
   FILES?: R2Bucket
   TICKETS: KVNamespace
   CHANNEL_DO: DurableObjectNamespace
-  WORKSPACE_DO: DurableObjectNamespace
+  SERVER_DO: DurableObjectNamespace
   RATE_LIMIT_DO: DurableObjectNamespace
   NOTIFICATION_DO: DurableObjectNamespace
   AGENT_DO: DurableObjectNamespace
@@ -61,8 +61,6 @@ export type L4Env = {
    * Any other value, including `celld`, turns them off.
    */
   LLLL_RUNTIME?: string
-  LLLL_PRIMARY?: string
-  LLLL_MAIL_ROUTES?: string
   LLLL_EMAIL_DOMAINS?: string
   ASSETS?: { fetch: (request: Request) => Promise<Response> }
   REALTIMEKIT_ACCOUNT_ID?: string
@@ -70,9 +68,6 @@ export type L4Env = {
   REALTIMEKIT_API_TOKEN?: string
   REALTIMEKIT_PRESET_HOST?: string
   REALTIMEKIT_PRESET_PARTICIPANT?: string
-  /** Pre-Live names, still read when the new ones are unset. */
-  REALTIMEKIT_API_KEY?: string
-  REALTIMEKIT_PRESET_AV?: string
   AUTH_SECRET?: string
   AUTH_MODE?: string
   CF_ACCESS_ISS?: string
@@ -92,8 +87,6 @@ export type L4Env = {
   TURNSTILE_SECRET_KEY?: string
   EMAIL_FROM?: string
   EMAIL_FROM_NAME?: string
-  MAIL_DOMAIN?: string
-  MAIL_ZONE_ID?: string
   MAIL_APP_HOSTNAME?: string
   MAIL_DEFAULT_LOCAL_PART?: string
   AUTH_REGISTRATION_MODE?: string
@@ -108,7 +101,7 @@ export type L4Env = {
   ADMIN_PASSWORD?: string
   ADMIN_NAME?: string
   ADMIN_HANDLE?: string
-  ADMIN_WORKSPACE?: string
+  ADMIN_SERVER?: string
   AGENT_MODEL?: string
   LLLL_ACCOUNT_ID?: string
   LLLL_WORKER_NAME?: string

@@ -18,7 +18,7 @@ it('keeps same-account transport enabled when updating from an older immutable m
     if (path === '/client/v4/accounts/account') result = { id: 'account' }
     else if (path.endsWith('/workers/scripts')) result = [{ id: 'community', migration_tag: 'v1' }]
     else if (path.endsWith('/settings')) result = { bindings: [
-      { name: 'LLLL_SERVER_MARKER', type: 'plain_text', text: 'llll.gg/v1' },
+      { name: 'LLLL_SERVER_MARKER', type: 'plain_text', text: 'llll.gg/server-v1' },
       { name: 'LLLL_APP_HOSTNAME', type: 'plain_text', text: 'community.example.com' },
       { name: 'DB', type: 'd1', database_id: 'original-database' },
       { name: 'CHANNEL_DO', type: 'durable_object_namespace', class_name: 'ChannelDurableObject' },

@@ -5,7 +5,7 @@ import { MemberPermissions, Permission } from '../../shared/permissions'
 import { canManageMessagePins, INSERT_MESSAGE_PIN_SQL } from '../../server/utils/message-pins'
 
 describe('message pin authorization', () => {
-  it('uses manageChannels for workspace channels and inherited threads', () => {
+  it('uses manageChannels for server channels and inherited threads', () => {
     expect(canManageMessagePins({ accessRootType: 'text', frozen: false, perms: Permission.manageChannels })).toBe(true)
     expect(canManageMessagePins({ accessRootType: 'text', frozen: false, perms: MemberPermissions })).toBe(false)
   })
@@ -23,7 +23,7 @@ describe('message pin persistence', () => {
   })
 
   it('cascades pins when their message is physically deleted', () => {
-    const path = fileURLToPath(new URL('../../drizzle/migrations/0000_server_baseline.sql', import.meta.url))
+    const path = fileURLToPath(new URL('../../drizzle/server-migrations/0000_server_baseline.sql', import.meta.url))
     const migration = readFileSync(path, 'utf8')
     expect(migration).toContain('`message_id` text PRIMARY KEY NOT NULL')
     expect(migration).toContain('REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade')

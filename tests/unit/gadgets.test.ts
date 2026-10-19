@@ -39,14 +39,14 @@ function d1(sqlite: DatabaseSync): D1Database {
 function actor(overrides: Partial<Membership> = {}): Membership {
   const base: Membership = {
     user: { id: 'owner', kind: 'human', displayName: 'Owner', avatarR2Key: null },
-    workspaceId: '00000000-0000-4000-8000-000000000001',
+    serverId: '00000000-0000-4000-8000-000000000001',
     roleId: 'owner-role',
     roleName: 'Owner',
     perms: ALL_PERMISSIONS,
     ownerId: 'owner',
     isOwner: true,
     authorization: {
-      workspaceId: '00000000-0000-4000-8000-000000000001',
+      serverId: '00000000-0000-4000-8000-000000000001',
       principal: { id: 'owner', kind: 'human', roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true },
       credential: { kind: 'session' },
     },
@@ -63,13 +63,10 @@ function fixture() {
       ('owner-role', 'owner', 'Owner', ${ALL_PERMISSIONS}),
       ('member-role', 'member', 'Member', ${Permission.useGadgets}),
       ('reviewer-role', 'custom', 'Reviewer', ${Permission.useGadgets});
-    INSERT INTO identity_keys (id, name, email) VALUES
-      ('owner', 'Owner', 'owner@example.com'),
-      ('member', 'Member', 'member@example.com');
     INSERT INTO users (id, kind, display_name, status, role_id, joined_at) VALUES
       ('owner', 'human', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP),
       ('member', 'human', 'Member', 'active', 'member-role', CURRENT_TIMESTAMP);
-    INSERT INTO workspace (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001', 'Workspace', 'owner');
+    INSERT INTO server (id, name, owner_id) VALUES ('00000000-0000-4000-8000-000000000001', 'Server', 'owner');
     INSERT INTO database_definitions (id, name, created_by) VALUES
       ('leads', 'Leads', 'owner'),
       ('companies', 'Companies', 'owner');
@@ -149,7 +146,7 @@ describe('Gadgets', () => {
       user: { id: 'member', kind: 'human', displayName: 'Member', avatarR2Key: null },
       roleId: 'member-role', roleName: 'Member', perms: Permission.useGadgets, isOwner: false,
       authorization: {
-        workspaceId: '00000000-0000-4000-8000-000000000001',
+        serverId: '00000000-0000-4000-8000-000000000001',
         principal: { id: 'member', kind: 'human', roleId: 'member-role', roleName: 'Member', permissions: Permission.useGadgets, isOwner: false },
         credential: { kind: 'session' },
       },

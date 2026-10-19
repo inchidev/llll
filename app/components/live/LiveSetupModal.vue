@@ -4,18 +4,18 @@ import type { MemberDTO } from '~~/shared/types'
 
 const ui = useUiStore()
 const nav = useNavActions()
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const members = useQuery({
-  queryKey: computed(() => ['members', workspaceId.value]),
-  queryFn: () => $fetch<{ members: MemberDTO[] }>(`/api/workspaces/${workspaceId.value}/members`),
-  enabled: computed(() => ui.liveSetupOpen && Boolean(workspaceId.value)),
+  queryKey: computed(() => ['members', serverId.value]),
+  queryFn: () => $fetch<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
+  enabled: computed(() => ui.liveSetupOpen && Boolean(serverId.value)),
 })
 const { mine } = usePermissions(() => members.data.value?.members)
 const isOwner = computed(() => mine.value?.role.key === 'owner')
 
 function openSettings() {
   ui.liveSetupOpen = false
-  nav.openWorkspaceSettings('live')
+  nav.openServerSettings('live')
 }
 </script>
 

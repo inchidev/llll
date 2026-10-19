@@ -30,14 +30,14 @@ describe('public auth config', () => {
     expect(publicAuthConfig(config).methods[provider]).toBe(false)
   })
 
-  it('uses an installed workspace mailbox for auth email delivery', () => {
+  it('uses an installed server mailbox for auth email delivery', () => {
     const mailEmail = { send: () => Promise.resolve() } as unknown as SendEmail
-    const legacyEmail = { send: () => Promise.resolve() } as unknown as SendEmail
+    const email = { send: () => Promise.resolve() } as unknown as SendEmail
 
     expect(authEmailAvailable({ MAIL_EMAIL: mailEmail } as never)).toBe(true)
-    expect(authEmailAvailable({ EMAIL: legacyEmail, MAIL_EMAIL: mailEmail } as never)).toBe(true)
+    expect(authEmailAvailable({ EMAIL: email, MAIL_EMAIL: mailEmail } as never)).toBe(true)
     expect(authEmailAvailable({ MAIL_GATEWAY: { fetch: () => Promise.resolve(new Response()) }, MAIL_GATEWAY_TOKEN: 'token' } as never)).toBe(true)
-    expect(installedMailboxSender({ MAIL_DEFAULT_LOCAL_PART: 'Inbox', MAIL_DOMAIN: 'Chat.Example.com' } as never)).toBe('inbox@chat.example.com')
+    expect(installedMailboxSender({ MAIL_DEFAULT_LOCAL_PART: 'Inbox', LLLL_EMAIL_DOMAINS: JSON.stringify([{ id: 'mail', zoneId: '', domain: 'Chat.Example.com' }]) } as never)).toBe('inbox@chat.example.com')
   })
 
   it('requires both credentials and the owner switch for social login', () => {

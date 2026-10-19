@@ -4,7 +4,7 @@ import { invites } from '../../../drizzle/schema'
 import { loadAuthRuntimeConfig, publicAuthConfig } from '../../utils/auth-config'
 import { authFromEvent } from '../../utils/better-auth'
 import { cf, fail } from '../../utils/cf'
-import { ensureMigrated, getDb, workspaceReady } from '../../utils/db'
+import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { parseBody } from '../../utils/validate'
 import { createSocialOnboardingTicket, requireCurrentOnboardingAcceptance } from '../../utils/onboarding'
 
@@ -26,8 +26,8 @@ export default defineEventHandler(async (event): Promise<{ url: string | null }>
     fail(400, 'invalid_callback', 'Authentication callbacks must use this origin')
   }
   await ensureMigrated(env.DB, env)
-  if (body.mode === 'signup' && !(await workspaceReady(env.DB))) {
-    fail(409, 'workspace_not_ready', 'The workspace owner must complete setup first')
+  if (body.mode === 'signup' && !(await serverReady(env.DB))) {
+    fail(409, 'server_not_ready', 'The server owner must complete setup first')
   }
   const runtime = await loadAuthRuntimeConfig(env, requestOrigin)
   if (!publicAuthConfig(runtime).methods[body.provider]) fail(403, 'method_disabled', 'Login method is not available')

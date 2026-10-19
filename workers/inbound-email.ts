@@ -8,7 +8,7 @@ import {
   verifyInboundEmailSignature,
   verifyMailgunSignature,
 } from './inbound-email-signature'
-import { ingestWorkspaceEmail, type WorkspaceEmailIngressResult } from './mail-ingress'
+import { ingestServerEmail, type ServerEmailIngressResult } from './mail-ingress'
 import { secureTokenEqual } from './mail-gateway-ingress'
 import { allowedSnsSubscribeUrl, verifySnsMessage, type SnsMessage } from './sns-signature'
 
@@ -76,9 +76,9 @@ async function deliver(env: L4Env, from: string, recipients: string[], raw: Uint
   let failure = 422
   let failureBody = 'Rejected'
   for (const to of recipients) {
-    let result: WorkspaceEmailIngressResult
+    let result: ServerEmailIngressResult
     try {
-      result = await ingestWorkspaceEmail({ from, to, raw: rawStream(raw), rawSize: raw.byteLength }, env)
+      result = await ingestServerEmail({ from, to, raw: rawStream(raw), rawSize: raw.byteLength }, env)
     }
     catch {
       return new Response('Inbound email failed', { status: 500 })

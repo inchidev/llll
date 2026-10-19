@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
   const existing = (await db.select().from(users).where(eq(users.id, user.id)).limit(1))[0]
   if (existing?.status !== 'active') {
     if (!(await hasAcceptedCurrentOnboarding(env, user.id))) {
-      fail(403, 'acceptance_required', 'Accept the published workspace documents before joining')
+      fail(403, 'acceptance_required', 'Accept the published server documents before joining')
     }
     const memberRole = (await db.select().from(roles).where(eq(roles.key, 'member')).limit(1))[0]
     if (!memberRole) fail(500, 'internal', 'Member role missing')
@@ -34,11 +34,11 @@ export default defineEventHandler(async (event) => {
       updatedAt: nowIso(),
     }).where(eq(users.id, user.id))
     await db.update(invites).set({ uses: invite.uses + 1 }).where(eq(invites.code, code))
-    await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: user.id, action: 'member.join', targetType: 'user', targetId: user.id })
+    await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: user.id, action: 'member.join', targetType: 'user', targetId: user.id })
     waitUntil(signalMembersChanged(env, (await getServerId(cf(event).env.DB))))
   }
 
   const general = (await db.select().from(channels).where(eq(channels.name, 'general')).limit(1))[0]
   const first = general ?? (await db.select().from(channels).limit(1))[0]
-  return { workspaceId: (await getServerId(cf(event).env.DB)), channelId: first?.id ?? null }
+  return { serverId: (await getServerId(cf(event).env.DB)), channelId: first?.id ?? null }
 })

@@ -1,6 +1,6 @@
 /**
- * RealtimeKit over its REST API, shared by the workspace (a pasted token) and
- * the installation deployment library (the operator credential). It has no imports so both
+ * RealtimeKit over its REST API, shared by the server (a pasted token) and
+ * the server deployment library (the operator credential). It has no imports so both
  * bundles can use it directly.
  */
 
@@ -120,7 +120,7 @@ export type RealtimeKitConnection = {
 
 /**
  * Turn one Cloudflare API token into a working connection: pick its account,
- * reuse or create this installation's RealtimeKit app, and provision the host
+ * reuse or create this server's RealtimeKit app, and provision the host
  * and participant presets. Returns the accounts to choose from when the token
  * reaches more than one and none was named.
  */

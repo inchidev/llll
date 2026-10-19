@@ -15,7 +15,7 @@ import { createTypingActivity } from '~/utils/typing-activity'
 
 const props = defineProps<{
   channelId: string
-  workspaceId: string
+  serverId: string
   members: MemberDTO[]
   send: (msg: ClientMsg) => void
   placeholder?: string
@@ -371,7 +371,7 @@ async function submit() {
   const optimistic: MessageDTO = {
     id: `tmp:${clientId}`,
     channelId,
-    workspaceId: props.workspaceId,
+    serverId: props.serverId,
     author: session.user!,
     content,
     replyTo: replyTo

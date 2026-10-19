@@ -5,7 +5,7 @@ const { api } = useApi()
 
 type DocumentKind = 'terms' | 'privacy' | 'rules'
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 const toast = useToast()
 const loading = ref(true)
 const saving = ref(false)
@@ -69,7 +69,7 @@ function apply(value: PublicOnboardingConfig) {
 async function load() {
   loading.value = true
   try {
-    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`)
+    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/servers/${props.serverId}/onboarding`)
     apply(response.onboarding)
   }
   catch (error) {
@@ -83,7 +83,7 @@ async function load() {
 async function publish() {
   saving.value = true
   try {
-    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/workspaces/${props.workspaceId}/onboarding`, {
+    const response = await api<{ onboarding: PublicOnboardingConfig }>(`/api/servers/${props.serverId}/onboarding`, {
       method: 'PUT',
       body: documents,
     })

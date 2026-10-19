@@ -49,7 +49,7 @@ export async function toDmDto(
   }
   return {
     id: ch.id,
-    workspaceId: (await getServerId(env.DB)),
+    serverId: (await getServerId(env.DB)),
     name: ch.name,
     topic: ch.topic,
     type: 'dm',
@@ -124,7 +124,7 @@ export async function fanoutDm(env: L4Env, channelId: string, msg: unknown) {
   catch { /* local without DO */ }
 }
 
-export async function requireWorkspaceUser(env: L4Env, userId: string): Promise<boolean> {
+export async function requireServerUser(env: L4Env, userId: string): Promise<boolean> {
   const db = getDb(env.DB)
   const row = (await db.select().from(users).where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1))[0]
   return Boolean(row)

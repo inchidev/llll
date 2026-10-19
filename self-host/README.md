@@ -89,11 +89,11 @@ docker run --rm -v llll_celld-data:/from -v "$PWD":/to alpine:3.22 \
 docker compose start
 ```
 
-`rustfs-data` is the fleet bucket: D1, Durable Object storage, KV, workspace files, and the deployment, including plaintext Worker variables. `celld-data` is the node's local work directory. `.env` holds `AUTH_SECRET` and the RustFS keys. Store all three as private data.
+`rustfs-data` is the fleet bucket: D1, Durable Object storage, KV, server files, and the deployment, including plaintext Worker variables. `celld-data` is the node's local work directory. `.env` holds `AUTH_SECRET` and the RustFS keys. Store all three as private data.
 
 Restore by stopping the stack, extracting those archives back onto empty volumes with the same names, and starting again. Keep the same `.env`.
 
-Workspace Settings → Backups can also download a TAR of D1 SQL and R2 objects. That archive does not include the celld deployment, KV, or live Durable Object state. To load its SQL into this node while the stack is up, copy `restore.sql` into the L4 container and run:
+Server Settings → Backups can also download a TAR of D1 SQL and R2 objects. That archive does not include the celld deployment, KV, or live Durable Object state. To load its SQL into this node while the stack is up, copy `restore.sql` into the L4 container and run:
 
 ```bash
 docker compose exec llll \
@@ -102,7 +102,7 @@ docker compose exec llll \
   --bucket s3://cells
 ```
 
-The database argument is the `database_name` (`llll` unless you set `DATABASE_NAME`). Concatenate the archive's `database/*.sql` files in order before importing. See [Manual workspace backups](../docs/deployment.md#manual-workspace-backups).
+The database argument is the `database_name` (`llll` unless you set `DATABASE_NAME`). Concatenate the archive's `database/*.sql` files in order before importing. See [Manual server backups](../docs/deployment.md#manual-server-backups).
 
 ## Coolify
 

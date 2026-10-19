@@ -14,7 +14,7 @@ const presence = usePresenceStore()
 const toast = useToast()
 const qc = useQueryClient()
 const { api } = useApi()
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const note = ref('')
 const opening = ref(false)
 const isMe = computed(() => props.user.id === session.user?.id)
@@ -33,7 +33,7 @@ async function openDm() {
   if (isMe.value || props.user.kind === 'agent' || opening.value) return
   opening.value = true
   try {
-    const res = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId: props.user.id, workspaceId: workspaceId.value } })
+    const res = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId: props.user.id, serverId: serverId.value } })
     await qc.invalidateQueries({ queryKey: ['dms'] })
     const text = note.value.trim()
     if (text) useUiStore().setComposerDraft(res.channel.id, text)

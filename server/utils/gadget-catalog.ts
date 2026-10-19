@@ -101,7 +101,7 @@ export async function createGadget(
      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)`,
   ).bind(id, input.name, input.description ?? '', JSON.stringify(spec), position?.value ?? 1024, actor.user.id, now, now).run()
   await replaceRoleAccess(env, id, roleIds)
-  await writeAudit(env, { workspaceId: actor.workspaceId, actorId: actor.user.id, action: 'gadget.create', targetType: 'gadget', targetId: id, meta: { name: input.name }, authorization: actor.authorization })
+  await writeAudit(env, { serverId: actor.serverId, actorId: actor.user.id, action: 'gadget.create', targetType: 'gadget', targetId: id, meta: { name: input.name }, authorization: actor.authorization })
   return { id, name: input.name, description: input.description ?? '', position: position?.value ?? 1024, draftRevision: 1, publishedVersion: null, createdBy: actor.user.id, createdAt: now, updatedAt: now, draftSpec: spec, roleIds }
 }
 
@@ -125,7 +125,7 @@ export async function updateGadget(
   ).bind(input.name ?? current.name, input.description ?? current.description, JSON.stringify(spec), nowIso(), id, input.revision).run()
   if (!updated.meta.changes) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')
   if (roleIds) await replaceRoleAccess(env, id, roleIds)
-  await writeAudit(env, { workspaceId: actor.workspaceId, actorId: actor.user.id, action: 'gadget.update', targetType: 'gadget', targetId: id, meta: { fields: Object.keys(input).filter(key => key !== 'revision') }, authorization: actor.authorization })
+  await writeAudit(env, { serverId: actor.serverId, actorId: actor.user.id, action: 'gadget.update', targetType: 'gadget', targetId: id, meta: { fields: Object.keys(input).filter(key => key !== 'revision') }, authorization: actor.authorization })
   return getGadgetDetail(env, actor, id)
 }
 
@@ -153,6 +153,6 @@ export async function publishGadget(env: L4Env, actor: Membership, id: string, r
       .bind(version, now, id, revision),
   ])
   if (!results[0]?.meta.changes) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')
-  await writeAudit(env, { workspaceId: actor.workspaceId, actorId: actor.user.id, action: 'gadget.publish', targetType: 'gadget', targetId: id, meta: { version }, authorization: actor.authorization })
+  await writeAudit(env, { serverId: actor.serverId, actorId: actor.user.id, action: 'gadget.publish', targetType: 'gadget', targetId: id, meta: { version }, authorization: actor.authorization })
   return getGadgetDetail(env, actor, id)
 }

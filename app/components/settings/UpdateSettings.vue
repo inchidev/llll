@@ -4,11 +4,11 @@ import type { UpdateStatusDTO } from '~~/shared/releases'
 import { formatDateTime } from '~~/shared/format'
 const { api } = useApi()
 
-const props = defineProps<{ workspaceId: string }>()
+const props = defineProps<{ serverId: string }>()
 
 const updateQ = useQuery({
-  queryKey: computed(() => ['updates', props.workspaceId]),
-  queryFn: () => api<UpdateStatusDTO>(`/api/workspaces/${props.workspaceId}/updates`),
+  queryKey: computed(() => ['updates', props.serverId]),
+  queryFn: () => api<UpdateStatusDTO>(`/api/servers/${props.serverId}/updates`),
   staleTime: 6 * 60 * 60 * 1000,
 })
 

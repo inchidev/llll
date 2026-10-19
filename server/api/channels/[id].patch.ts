@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const db = getDb(env.DB)
   if (body.categoryId !== undefined && (member.channel.type === 'dm' || member.channel.type === 'thread')) {
-    fail(400, 'bad_request', 'Only workspace channels can belong to categories')
+    fail(400, 'bad_request', 'Only server channels can belong to categories')
   }
   if (body.categoryId) {
     const category = await db.select({ id: channelCategories.id }).from(channelCategories)
@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
   if (Object.keys(patch).length > 1) {
     await db.update(channels).set(patch).where(eq(channels.id, id))
     await writeAudit(env, {
-      workspaceId: member.workspaceId,
+      serverId: member.serverId,
       actorId: member.user.id,
       action: 'channel.update',
       targetType: 'channel',

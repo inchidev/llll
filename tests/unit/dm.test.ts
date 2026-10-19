@@ -38,7 +38,7 @@ describe('canAccessAgentConversation', () => {
     expect(canAccessAgentConversation('human', false, true)).toBe(false)
   })
 
-  it('lets workspace managers open Agent DMs', () => {
+  it('lets server managers open Agent DMs', () => {
     expect(canAccessAgentConversation('human', true, true)).toBe(true)
   })
 })

@@ -38,6 +38,6 @@ export default defineEventHandler(async (event) => {
      (id, database_id, name, type, slot, config_json, position, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(id, databaseId, body.name, body.type, slot, JSON.stringify({ options }), position, actor.user.id, now, now).run()
-  await writeAudit(env, { workspaceId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.create', targetType: 'database_field', targetId: id, meta: { databaseId, name: body.name, type: body.type } })
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'database_field.create', targetType: 'database_field', targetId: id, meta: { databaseId, name: body.name, type: body.type } })
   return { field: { id, databaseId, name: body.name, type: body.type, options, position, createdAt: now, updatedAt: now } }
 })

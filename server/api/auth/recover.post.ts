@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
   const password = await hashPassword(body.password)
   const results = await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO auth_accounts(id,issuer,account_id,provider_id,user_id,password,created_at,updated_at) SELECT ?,'local:credential',user_id,'credential',user_id,?,?,? FROM account_recovery WHERE code_hash=? AND user_id=? ON CONFLICT(issuer,account_id) DO UPDATE SET password=excluded.password,updated_at=excluded.updated_at",
+      "INSERT INTO auth_accounts(id,account_id,provider_id,user_id,password,created_at,updated_at) SELECT ?,user_id,'credential',user_id,?,?,? FROM account_recovery WHERE code_hash=? AND user_id=? ON CONFLICT(provider_id,account_id) DO UPDATE SET password=excluded.password,updated_at=excluded.updated_at",
     ).bind(crypto.randomUUID(), password, now, now, digest, row.user_id),
     env.DB.prepare(
       'DELETE FROM auth_sessions WHERE user_id IN (SELECT user_id FROM account_recovery WHERE code_hash=? AND user_id=?)',

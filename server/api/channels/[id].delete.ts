@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   const remaining = (await db.select().from(channels)).filter((channel) => channel.type !== 'dm' && channel.type !== 'thread')
   if (remaining.length <= 1) fail(400, 'bad_request', 'Cannot delete the last channel')
   await db.delete(channels).where(eq(channels.id, id))
-  await writeAudit(env, { workspaceId: member.workspaceId, actorId: member.user.id, action: 'channel.delete', targetType: 'channel', targetId: id })
+  await writeAudit(env, { serverId: member.serverId, actorId: member.user.id, action: 'channel.delete', targetType: 'channel', targetId: id })
   // A deleted conversation's Live room ends.
   waitUntil(revalidateLiveRooms(env, [id]))
   return { ok: true }

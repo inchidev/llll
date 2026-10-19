@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
 import type { CanvasDTO, DatabaseDTO, DocumentDTO } from '~~/shared/types'
 
-const { workspaceId } = useWorkspace()
+const { serverId } = useServer()
 const { api } = useApi()
 const nav = useNavActions()
 const route = useRoute()
@@ -20,10 +20,10 @@ watch(nav.createCanvasOpen, open => { if (open) canvasTitle.value = '' })
 
 async function createDatabase() {
   const name = databaseName.value.trim()
-  if (!name || !workspaceId.value || saving.value) return
+  if (!name || !serverId.value || saving.value) return
   saving.value = true
   try {
-    const result = await api<{ database: DatabaseDTO }>(`/api/workspaces/${workspaceId.value}/databases`, { method: 'POST', body: { name } })
+    const result = await api<{ database: DatabaseDTO }>(`/api/servers/${serverId.value}/databases`, { method: 'POST', body: { name } })
     // Close as soon as it exists; open it once the list includes it.
     nav.createDatabaseOpen.value = false
     await Promise.all([qc.invalidateQueries({ queryKey: ['databases'] }), qc.invalidateQueries({ queryKey: ['data-resources'] })])
@@ -35,10 +35,10 @@ async function createDatabase() {
 
 async function createDocument() {
   const title = documentTitle.value.trim()
-  if (!title || !workspaceId.value || saving.value) return
+  if (!title || !serverId.value || saving.value) return
   saving.value = true
   try {
-    const result = await api<{ document: DocumentDTO }>(`/api/workspaces/${workspaceId.value}/documents`, { method: 'POST', body: { title } })
+    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title } })
     nav.createDocumentOpen.value = false
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     await navigateTo(documentPath(result.document.id))
@@ -49,10 +49,10 @@ async function createDocument() {
 
 async function createCanvas() {
   const title = canvasTitle.value.trim()
-  if (!title || !workspaceId.value || saving.value) return
+  if (!title || !serverId.value || saving.value) return
   saving.value = true
   try {
-    const result = await api<{ canvas: CanvasDTO }>(`/api/workspaces/${workspaceId.value}/canvases`, { method: 'POST', body: { title } })
+    const result = await api<{ canvas: CanvasDTO }>(`/api/servers/${serverId.value}/canvases`, { method: 'POST', body: { title } })
     nav.createCanvasOpen.value = false
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     await navigateTo(canvasPath(result.canvas.id))
