@@ -242,7 +242,8 @@ export function useShell() {
         send(server.origin, { type: 'theme', theme: 'dark' })
         if (
           server.origin === selected.value &&
-          route.params.serverId === server.id
+          route.params.serverId === server.id &&
+          requestedPath() !== stripDeploymentClaim(starts.value[server.origin] || '/')
         )
           send(server.origin, {
             type: 'open',

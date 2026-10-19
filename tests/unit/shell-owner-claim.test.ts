@@ -84,7 +84,7 @@ it('can hand a claim to an already loaded unclaimed Server', async () => {
   expect(frameClaim(shell)).toBe('#claim=' + claim)
 })
 
-it('waits for Client readiness before sending initial navigation', async () => {
+it('keeps the initial setup fragment intact and waits for readiness before navigation', async () => {
   bookmark()
   const shell = useShell()
   shell.initialize()
@@ -96,7 +96,9 @@ it('waits for Client readiness before sending initial navigation', async () => {
   await shell.resolveServer()
   expect(post).not.toHaveBeenCalled()
   listener(new MessageEvent('message', { origin, source: child, data: { llll: EMBED_VERSION, type: 'ready', version: EMBED_VERSION, name: 'Fixture' } }))
-  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'open', serverId: id, path: '/setup' }), origin)
+  expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'open' }), origin)
+  shell.open(shell.servers.value[0]!, id, '/channels/general')
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'open', serverId: id, path: '/channels/general' }), origin)
   frame.remove()
 })
 
