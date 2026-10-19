@@ -166,6 +166,8 @@ try {
     )
     assert.equal(discovery.payload.kind, 'server')
     assert.equal(discovery.payload.apiVersion, 2)
+    await api(name, '/api/unknown-endpoint', { expected: 404 })
+    await api(name, '/api/workspaces', { expected: 404 })
     assert.equal(discovery.payload.ready, false)
     await api(name, '/api/setup/owner', {
       method: 'POST',
