@@ -174,8 +174,8 @@ try {
       cookies[name + '-owner'],
       'Owner setup must establish a local session',
     )
-    const home = await api(name, '/api/servers')
-    assert.equal(home.payload.servers[0].id, ids[name])
+    const home = await api(name, '/api/server')
+    assert.equal(home.payload.server.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.ready, true)
     await api(name, '/api/servers/main/members', { expected: 404 })

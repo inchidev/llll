@@ -42,10 +42,6 @@ const mailboxesQ = useQuery({
   queryFn: () => api<{ mailboxes: MailboxDTO[] }>('/api/mail/mailboxes'),
   refetchInterval: 15_000,
 })
-const serversQ = useQuery({
-  queryKey: ['servers'],
-  queryFn: () => api<{ servers: W[] }>('/api/servers'),
-})
 
 const channels = computed(() => channelsQ.data.value?.channels ?? [])
 const categories = computed(() => channelsQ.data.value?.categories ?? [])
@@ -127,7 +123,6 @@ const serverIconUrl = computed(() => {
   if (!server?.iconR2Key) return undefined
   return serverUrl(`/api/servers/${props.serverId}/icon?v=${encodeURIComponent(server.updatedAt)}`)
 })
-const otherServers = computed(() => (serversQ.data.value?.servers ?? []).filter(item => item.id !== props.serverId))
 const canOpenServerSettings = computed(() => [
   Permission.manageServer,
   Permission.manageChannels,
@@ -150,12 +145,7 @@ const serverItems = computed<DropdownMenuItem[][]>(() => {
   if (canOpenServerSettings.value) {
     manage.push({ label: 'Server settings', icon: 'i-ph-gear', onSelect: () => { nextTick(() => { nav.serverSettingsOpen.value = true }) } })
   }
-  const switcher: DropdownMenuItem[] = otherServers.value.map(item => ({
-    label: item.name,
-    icon: 'i-ph-hard-drives',
-    to: '/channels',
-  }))
-  return [invite, manage, switcher].filter(group => group.length)
+  return [invite, manage].filter(group => group.length)
 })
 
 async function createChannel() {

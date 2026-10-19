@@ -3,13 +3,12 @@ import type { ServerDTO } from '~~/shared/types'
 
 export function useServer() {
   const { api } = useApi()
-  const serversQ = useQuery({
-    queryKey: ['servers'],
-    queryFn: () => api<{ servers: ServerDTO[] }>('/api/servers'),
+  const serverQ = useQuery({
+    queryKey: ['server'],
+    queryFn: () => api<{ server: ServerDTO }>('/api/server'),
   })
-  const server = computed(() => serversQ.data.value?.servers[0] ?? null)
-  // One server holds exactly one server, so its id is known before the
-  // list loads; the layout can render immediately instead of popping in.
+  const server = computed(() => serverQ.data.value?.server ?? null)
+  // Discovery supplies the ID while the authenticated Server metadata loads.
   const serverId = computed(() => server.value?.id ?? useServers().activeServer.value?.id ?? '')
-  return { serversQ, server, serverId }
+  return { serverQ, server, serverId }
 }
