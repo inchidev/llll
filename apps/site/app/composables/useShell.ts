@@ -5,6 +5,7 @@ import {
   safeEmbedPath,
   uuidSchema,
 } from '../../../../shared/embed'
+import { SERVER_API_VERSION } from '../../../../shared/server'
 import type { ServerDiscovery } from '../../../../shared/server'
 export type ShellServer = {
   id: string
@@ -101,7 +102,7 @@ export function useShell() {
       !response.ok ||
       d.product !== 'llll' ||
       d.kind !== 'server' ||
-      d.apiVersion !== 1 ||
+      d.apiVersion !== SERVER_API_VERSION ||
       d.origin !== origin ||
       !uuidSchema.safeParse(d.id).success
     )
