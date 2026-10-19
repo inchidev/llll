@@ -7,6 +7,7 @@ import {
 } from '../../../../shared/embed'
 import { SERVER_API_VERSION } from '../../../../shared/server'
 import type { ServerDiscovery } from '../../../../shared/server'
+import { readDeploymentClaim, stripDeploymentClaim } from '../../../../shared/deploy-handoff'
 export type ShellServer = {
   id: string
   origin: string
@@ -26,6 +27,7 @@ export function useShell() {
   )
   const selected = useState('shell-selected', () => '')
   const loaded = useState<string[]>('shell-loaded', () => [])
+  const ready = useState<Record<string, boolean>>('shell-ready', () => ({}))
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
   const initialized = useState('shell-initialized', () => false)
   const frames = useState<Record<string, HTMLIFrameElement>>(
@@ -51,21 +53,39 @@ export function useShell() {
     }
   }
   function send(origin: string, data: object) {
+    if (!ready.value[origin]) return
     frames.value[origin]?.contentWindow?.postMessage(
       { llll: EMBED_VERSION, ...data },
       origin,
     )
   }
   function requestedPath() {
-    return safeEmbedPath(
-      route.params.serverId
-        ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/'
-        : '/',
-    )
-      ? route.params.serverId
-        ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/'
-        : '/'
+    const path = route.params.serverId
+      ? route.fullPath.slice(String(route.params.serverId).length + 1) || '/'
       : '/'
+    return safeEmbedPath(path) ? stripDeploymentClaim(path) : '/'
+  }
+  async function restoreClaim(origin: string, explicit?: string) {
+    let claim = explicit && readDeploymentClaim('#' + new URLSearchParams({ claim: explicit }))
+    if (!claim && claims.value[origin]) return
+    if (!claim) {
+      try {
+        const state = await $fetch<{ completed?: boolean; origin?: string; claim?: string }>('/api/deploy/session')
+        if (state.completed && state.origin === origin && state.claim) {
+          const setup = new URL(state.claim)
+          if (setup.origin === origin && setup.pathname === '/setup')
+            claim = readDeploymentClaim(setup.hash)
+        }
+      } catch {
+        /* A normal connection requires local login. */
+      }
+    }
+    if (claim && claim !== claims.value[origin]) {
+      claims.value[origin] = claim
+      // Changing the iframe URL starts a new Client. Do not navigate it before
+      // its setup page has consumed the fragment and published readiness.
+      ready.value[origin] = false
+    }
   }
   function open(server: ShellServer, id = server.id, path = '/') {
     if (id !== server.id) return
@@ -125,28 +145,14 @@ export function useShell() {
       }
       servers.value.push(server)
     }
-    if (!loaded.value.includes(origin)) {
-      if (claim && /^[A-Za-z0-9_-]{20,300}$/.test(claim))
-        claims.value[origin] = claim
-      else
-        try {
-          const state = await $fetch<{
-            completed?: boolean
-            origin?: string
-            claim?: string
-          }>('/api/deploy/session')
-          if (state.completed && state.origin === origin && state.claim)
-            claims.value[origin] = state.claim.split('#claim=')[1] || ''
-        } catch {
-          /* A normal connection requires local login. */
-        }
-      starts.value[origin] = claims.value[origin]
-        ? '/setup'
-        : url.pathname.startsWith('/invite/')
-          ? url.pathname
-          : d.ready
-            ? '/'
-            : '/setup'
+    if (claim || !loaded.value.includes(origin)) await restoreClaim(origin, claim)
+    if (claims.value[origin]) starts.value[origin] = '/setup'
+    else if (!loaded.value.includes(origin)) {
+      starts.value[origin] = url.pathname.startsWith('/invite/')
+        ? url.pathname
+        : d.ready
+          ? '/'
+          : '/setup'
     }
     persist()
     open(server, server.id, starts.value[origin] || '/')
@@ -173,19 +179,22 @@ export function useShell() {
     const id = String(route.params.serverId || '')
     if (!uuidSchema.safeParse(id).success) return
     const path = requestedPath()
+    const claim = readDeploymentClaim(route.hash)
     let server = servers.value.find((s) => s.id === id)
     if (!server) {
       const resolved = await $fetch<{ origin: string }>(
         '/api/servers/' + encodeURIComponent(id),
       )
-      server = await connect(resolved.origin)
+      server = await connect(resolved.origin, claim)
       if (server.id !== id)
         throw new Error('Server identity did not match the link')
     }
+    if (/^\/setup(?:\/|\?|#|$)/.test(path)) await restoreClaim(server.origin, claim)
     selected.value = server.origin
+    if (!loaded.value.includes(server.origin) || (claims.value[server.origin] && !ready.value[server.origin]))
+      starts.value[server.origin] = path
     await router.replace('/' + id + (path === '/' ? '' : path))
     if (!loaded.value.includes(server.origin)) {
-      starts.value[server.origin] = path
       loaded.value.push(server.origin)
     }
     send(server.origin, { type: 'open', serverId: id, path })
@@ -229,6 +238,7 @@ export function useShell() {
       if (!parsed.success) return
       const m = parsed.data
       if (m.type === 'ready') {
+        ready.value[server.origin] = true
         send(server.origin, { type: 'theme', theme: 'dark' })
         if (
           server.origin === selected.value &&
@@ -261,7 +271,7 @@ export function useShell() {
         m.serverId === server.id &&
         safeEmbedPath(m.path)
       )
-        void router.replace('/' + server.id + (m.path === '/' ? '' : m.path))
+        void router.replace('/' + server.id + (m.path === '/' ? '' : stripDeploymentClaim(m.path)))
       if (m.type === 'session' && !m.authenticated) {
         server.unread = 0
         persist()
@@ -277,6 +287,7 @@ export function useShell() {
     Reflect.deleteProperty(frames.value, origin)
     Reflect.deleteProperty(starts.value, origin)
     Reflect.deleteProperty(claims.value, origin)
+    Reflect.deleteProperty(ready.value, origin)
     Reflect.deleteProperty(calls.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()

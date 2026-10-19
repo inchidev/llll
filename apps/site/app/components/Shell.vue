@@ -30,6 +30,7 @@ const showCreate = computed(() => path.value === '/create')
  * When the deploy completion screen or a saved Server link navigates to /create?server=…,
  * connect here (with one bounded retry: a freshly deployed Server may not answer right away). */
 let lastAutoOrigin = ''
+let lastAutoClaim: string | undefined
 async function connectQuery(
   origin: string,
   claim: string | undefined,
@@ -51,8 +52,9 @@ async function connectQuery(
   }
 }
 async function handleQuery(queryOrigin: string, claim: string | undefined) {
-  if (queryOrigin === lastAutoOrigin) return
+  if (queryOrigin === lastAutoOrigin && claim === lastAutoClaim) return
   lastAutoOrigin = queryOrigin
+  lastAutoClaim = claim
   if (!queryOrigin) return
   checkingAddress.value = queryOrigin
   await connectQuery(queryOrigin, claim).finally(() => {
