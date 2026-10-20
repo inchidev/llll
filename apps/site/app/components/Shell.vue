@@ -25,7 +25,15 @@ function connect() {
   shell.selected.value = ''
   void navigateTo('/create')
 }
+function home(event: MouseEvent) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  shell.selected.value = ''
+  void navigateTo('/servers')
+}
 const showCreate = computed(() => path.value === '/create')
+const showHome = computed(() => path.value === '/servers')
+const showNavigation = computed(() => showCreate.value || showHome.value)
 /** The shell survives route changes as a v-show'd component, and its connect-on-mount check cannot run again.
  * When the deploy completion screen or a saved Server link navigates to /create?server=…,
  * connect here (with one bounded retry: a freshly deployed Server may not answer right away). */
@@ -67,12 +75,14 @@ function selectFrame(element: unknown, origin: string) {
 onMounted(async () => {
   ownOrigin.value = location.origin
   shell.initialize()
-  if (queryOrigin.value) await handleQuery(queryOrigin.value, queryClaim.value)
+  if (showNavigation.value) shell.selected.value = ''
+  if (showCreate.value && queryOrigin.value) await handleQuery(queryOrigin.value, queryClaim.value)
   else if (route.params.serverId) await mountServer()
 })
 watch(
   () => route.fullPath,
   async () => {
+    if (showNavigation.value) shell.selected.value = ''
     if (path.value === '/create' && queryOrigin.value)
       await handleQuery(queryOrigin.value, queryClaim.value)
     else if (route.params.serverId) await mountServer()
@@ -92,20 +102,24 @@ async function mountServer() {
   <main class="flex h-dvh overflow-hidden bg-default">
     <CommunityRail
       :groups="shell.groups.value"
-      :active-origin="showCreate ? undefined : shell.selected.value"
+      home-href="/servers"
+      home-label="My servers"
+      :home-active="showHome"
+      :active-origin="showNavigation ? undefined : shell.selected.value"
       :active-server-id="
-        !showCreate && typeof route.params.serverId === 'string'
+        !showNavigation && typeof route.params.serverId === 'string'
           ? route.params.serverId
           : undefined
       "
       :add-active="showCreate"
+      @home="home"
       @server="openServer"
       @connect="connect"
     />
     <section class="relative min-w-0 flex-1">
       <iframe
         v-for="origin in shell.loaded.value"
-        v-show="shell.selected.value === origin && !showCreate"
+        v-show="shell.selected.value === origin && !showNavigation"
         :key="origin"
         :ref="(element) => selectFrame(element, origin)"
         :src="shell.frameSrc(origin, ownOrigin)"
@@ -123,6 +137,12 @@ async function mountServer() {
         <p class="text-sm">
           Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…
         </p>
+      </div>
+      <div
+        v-else-if="showHome"
+        class="absolute inset-0 overflow-y-auto bg-default"
+      >
+        <ShellServers />
       </div>
       <div
         v-else-if="showCreate || !shell.selected.value"

@@ -270,6 +270,7 @@ export function useShell() {
       if (
         m.type === 'navigate' &&
         server.origin === selected.value &&
+        route.params.serverId === server.id &&
         m.serverId === server.id &&
         safeEmbedPath(m.path)
       )

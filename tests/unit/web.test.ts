@@ -97,11 +97,22 @@ it('redirects old entry links on the current origin and preserves connection par
     ['/open/?server=https%3A%2F%2Fchat.example.com', '/create?server=https%3A%2F%2Fchat.example.com'],
     ['/deploy/', '/create?tab=cloudflare'],
     ['/deploy?method=vps', '/create?tab=vps'],
-    ['/servers', '/create'],
+    ['/servers?server=https%3A%2F%2Fchat.example.com', '/create?server=https%3A%2F%2Fchat.example.com'],
   ]) {
     const response = await web.fetch(req(path), env)
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe(origin + expected)
+  }
+})
+
+it('serves My servers directly rather than redirecting it to the installer', async () => {
+  for (const path of ['/servers', '/servers/']) {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await web.fetch(new Request(origin + path, { method }), env)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('location')).toBeNull()
+      expect(await response.text()).toBe('static')
+    }
   }
 })
 

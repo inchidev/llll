@@ -111,6 +111,24 @@ it('never recovers a different Server’s installer claim', async () => {
   expect(frameClaim(shell)).toBe('')
 })
 
+it('ignores Client navigation on My servers even if a selected origin remains temporarily', () => {
+  bookmark()
+  const shell = useShell()
+  shell.initialize()
+  const frame = document.createElement('iframe')
+  document.body.append(frame)
+  shell.frames.value[origin] = frame
+  shell.selected.value = origin
+  route.params = {}; route.fullPath = '/servers'
+  const message = new MessageEvent('message', { origin, source: frame.contentWindow!, data: { llll: EMBED_VERSION, type: 'navigate', serverId: id, path: '/channels/general' } })
+  listener(message)
+  expect(replace).not.toHaveBeenCalled()
+  route.params = { serverId: id }; route.fullPath = '/' + id
+  listener(message)
+  expect(replace).toHaveBeenCalledWith('/' + id + '/channels/general')
+  frame.remove()
+})
+
 it('recovers an earlier setup handoff while a second Server is being deployed', async () => {
   bookmark()
   installer.mockResolvedValue({ completed: false, deployments: [{ origin, claim: origin + '/setup#claim=' + claim }] })

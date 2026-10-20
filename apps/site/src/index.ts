@@ -30,7 +30,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   if (new URL(request.url).pathname === '/api/health') return json({ ok: true, component: 'web', commit: env.BUILD_COMMIT || 'development', version: env.BUILD_VERSION || 'development' })
   const url = new URL(request.url); const path = url.pathname
   const legacyPath = path.replace(/\/+$/, '')
-  if (['GET', 'HEAD'].includes(request.method) && ['/open', '/deploy', '/servers'].includes(legacyPath)) {
+  const legacyEntry = ['/open', '/deploy'].includes(legacyPath) || (legacyPath === '/servers' && url.searchParams.has('server'))
+  if (['GET', 'HEAD'].includes(request.method) && legacyEntry) {
     const target = new URL(request.url)
     target.pathname = '/create'
     if (legacyPath === '/deploy') {

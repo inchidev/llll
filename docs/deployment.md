@@ -4,7 +4,9 @@ Deploy one Server, claim its owner, then invite members. Accounts, files and con
 
 ## Cloudflare
 
-The Shell's plus button opens `/create`, with three tabs: **Connect**, **Cloudflare** and **VPS**. Connecting by address, configuring a Cloudflare deployment and reading VPS setup all stay on that page. Tab links use `?tab=cloudflare` or `?tab=vps`. The Shell logo opens `/` on the current origin, including in Previews. Existing `/open`, `/deploy` and `/servers` links redirect to `/create` while preserving connection parameters; old `/deploy?method=vps` links select VPS.
+The Shell logo opens **My servers** at `/servers` on the current origin, including in Previews. This device-local list opens saved Server connections and can remove their bookmarks; removing a bookmark does not delete the Server or its Account. The logo is highlighted on this page. Each Server continues to own its login and membership.
+
+The Shell's plus button opens `/create`, with three tabs: **Connect**, **Cloudflare** and **VPS**, and is highlighted while that page is open. Connecting by address, configuring a Cloudflare deployment and reading VPS setup all stay on that page. Tab links use `?tab=cloudflare` or `?tab=vps`. Existing `/open` and `/deploy` links redirect to `/create` while preserving connection parameters; old `/deploy?method=vps` links select VPS. Legacy `/servers?server=…` connection links also continue to open `/create`.
 
 The Cloudflare tab selects an account, Server name, admin email and published standalone release, then configures a Git-connected Workers Build. A new Server starts on the customer's `workers.dev` hostname; domain selection is not part of this installer. The PWA starts at `/create`; its existing manifest ID remains stable for already installed copies.
 
