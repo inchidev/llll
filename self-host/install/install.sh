@@ -219,7 +219,7 @@ health() {
     if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$origin/.well-known/llll" -o "$stage/health.json" 2>/dev/null && jq -e --arg version "${1:-$pinned_version}" --arg origin "$origin" '.product == "llll" and .kind == "server" and .version == $version and .origin == $origin and (.id | test("^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"))' "$stage/health.json" >/dev/null; then return; fi
     sleep 2
   done
-  fail 'Gateway discovery failed (check DNS, firewall, Caddy certificates and llll logs).'
+  fail "Gateway discovery failed. Check DNS/firewall/certificates; inspect with: LLLL_DIR=$dir $dir/llll logs"
 }
 print_result() {
   say "Server $pinned_version: $(get_env PUBLIC_ORIGIN)"
@@ -238,22 +238,23 @@ backup_stack() {
   docker image inspect alpine:3.22 >/dev/null 2>&1 || docker pull alpine:3.22 >/dev/null
   mkdir -p "$backup_dir"; chmod 700 "$backup_dir"
   work=$(mktemp -d "$backup_dir/.partial-XXXXXXXX")
-  archive="$backup_dir/llll-backup-$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4).tar.gz"
+  archive="$backup_dir/llll-backup-$project-$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4).tar.gz"
   restart_needed=true
   compose stop >/dev/null
   for file in .env .llll-managed llll-compose.yml compose.vps.yml Caddyfile Caddyfile.vps llll-release.json llll; do cp -p "$dir/$file" "$work/$file"; done
   for key in rustfs-data celld-data caddy-data caddy-config; do
     docker run --rm --network none --read-only --mount "type=volume,src=${project}_$key,dst=/source,readonly" alpine:3.22 tar -C /source -cf - . > "$work/$key.tar"
   done
-  (cd "$work"; sha256sum .env .llll-managed llll-compose.yml compose.vps.yml Caddyfile Caddyfile.vps llll-release.json llll ./*.tar > SHA256SUMS; tar -czf "$archive" .)
-  chmod 600 "$archive"
+  (cd "$work"; sha256sum .env .llll-managed llll-compose.yml compose.vps.yml Caddyfile Caddyfile.vps llll-release.json llll ./*.tar > SHA256SUMS; tar -czf "$archive.partial" .)
+  chmod 600 "$archive.partial"
+  mv "$archive.partial" "$archive"
   rm -rf -- "$work"
   compose up -d --wait --wait-timeout 600 >/dev/null
   restart_needed=false
   backup_result=$archive
   say "Backup: $archive"
   # Rotation is explicit, restricted to this installation's separate backup directory.
-  mapfile -t old_backups < <(find "$backup_dir" -maxdepth 1 -type f -name 'llll-backup-*.tar.gz' | sort -r | tail -n "+$((keep + 1))")
+  mapfile -t old_backups < <(find "$backup_dir" -maxdepth 1 -type f -name "llll-backup-$project-*.tar.gz" | sort -r | tail -n "+$((keep + 1))")
   if [[ ${#old_backups[@]} -gt 0 ]]; then rm -- "${old_backups[@]}"; fi
 }
 unpack_backup() {
@@ -317,6 +318,7 @@ install_server() {
   fi
   [[ ! -e $dir || ( -d $dir && -z $(ls -A "$dir") ) ]] || fail 'LLLL_DIR exists and is not an empty directory or a managed installation.'
   [[ $pinned_version != *-* || $channel == prerelease ]] || fail 'This is a prerelease. Review it and explicitly set LLLL_CHANNEL=prerelease.'
+  say "Verifying release $pinned_version before installation."
   verified_payload
   ensure_prerequisites
   validate_payload_metadata
@@ -334,9 +336,10 @@ install_server() {
   [[ $(docker image inspect "llll:$pinned_version" --format '{{.Os}}/{{.Architecture}}') == linux/amd64 ]] || fail 'Runtime image architecture mismatch'
   install -m 700 -d "$dir"
   apply_files
+  install -m 700 "$dir/llll" /usr/local/bin/llll
+  say 'Starting standalone Server and checking its public origin.'
   compose up -d --wait --wait-timeout 600 >/dev/null
   health
-  install -m 700 "$dir/llll" /usr/local/bin/llll
   print_result
 }
 upgrade_server() {

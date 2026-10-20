@@ -180,7 +180,7 @@ jobs:
         with:
           node-version-file: .node-version
       - name: Install the prebuilt Server and verify a cold restore
-        run: sudo --preserve-env=GITHUB_ACTIONS,PATH node scripts/test-vps-live.mjs
+        run: sudo env "PATH=$PATH" GITHUB_ACTIONS=true "$(command -v node)" scripts/test-vps-live.mjs
 
       - name: Show Compose logs
         if: failure()

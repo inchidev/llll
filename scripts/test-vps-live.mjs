@@ -1,7 +1,7 @@
 // Real Docker/Compose installation and cold restore of the prebuilt Server.
 // Run only on an ephemeral amd64 Linux CI runner, after self-host/smoke.sh.
 import assert from 'node:assert/strict'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
@@ -20,10 +20,20 @@ const runtime = join(fixture, 'runtime.tar')
 const origin = 'http://127.0.0.1:38090'
 const env = { ...process.env, PATH: bin + ':' + process.env.PATH, LLLL_DIR: target, LLLL_BACKUP_DIR: join(fixture, 'backups'), LLLL_DOMAIN: '127.0.0.1', LLLL_ADMIN_EMAIL: 'owner@example.com', LLLL_CHANNEL: 'prerelease', LLLL_NO_TLS: 'true', LLLL_HTTP_PORT: '38090', LLLL_HTTPS_PORT: '38443', LLLL_SKIP_DOCKER_INSTALL: 'true' }
 const docker = args => execFileSync('docker', ['--host', 'unix:///var/run/docker.sock', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-function run(script, args = [], overrides = {}) {
-  const result = spawnSync('bash', [script, ...args], { env: { ...env, ...overrides }, encoding: 'utf8', timeout: 900000 })
-  assert.equal(result.status, 0, `Installer failed: ${result.error || ''}\n${result.stderr}\n${result.stdout?.replace(/claim=[^\s]+/g, 'claim=REDACTED')}`)
-  return result.stdout
+async function run(script, args = [], overrides = {}) {
+  // Keep the event loop running during Server restarts so Undici observes closed
+  // keepalive connections instead of reusing a stale socket after cold restore.
+  return new Promise((resolve, reject) => {
+    const child = spawn('bash', [script, ...args], { env: { ...env, ...overrides }, timeout: 900000, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = '', stderr = ''
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.once('error', reject)
+    child.once('close', (code, signal) => {
+      if (code !== 0) reject(new Error(`Installer failed (${code ?? signal}):\n${stderr}\n${stdout.replace(/claim=[^\s]+/g, 'claim=REDACTED')}`))
+      else resolve(stdout)
+    })
+  })
 }
 let cookie = '', socket
 async function api(path, { method = 'GET', body } = {}) {
@@ -55,7 +65,7 @@ if(url){copyFileSync(${JSON.stringify(directory)}+'/'+url.split('/').at(-1),args
 else{const r=spawnSync(${JSON.stringify(realCurl)},args,{stdio:'inherit'});process.exit(r.status??1);}
 `, { mode: 0o755 })
   const installer = join(directory, 'install.sh')
-  run(installer)
+  await run(installer)
   const firstEnv = readFileSync(join(target, '.env'), 'utf8'), config = dotenv(join(target, '.env'))
   const discovery = await (await api('/.well-known/llll')).json()
   const password = randomBytes(24).toString('hex')
@@ -78,13 +88,13 @@ else{const r=spawnSync(${JSON.stringify(realCurl)},args,{stdio:'inherit'});proce
   const upload = await fetch(origin + `/api/channels/${general.id}/attachments`, { method: 'POST', headers: { Origin: origin, Cookie: cookie }, body: form })
   assert.equal(upload.status, 200, await upload.clone().text())
   const attachment = (await upload.json()).attachment
-  assert.ok(!run(installer).includes('claim='))
+  assert.ok(!(await run(installer)).includes('claim='))
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), firstEnv)
-  run(join(target, 'llll'), ['backup'])
+  await run(join(target, 'llll'), ['backup'])
   const backup = readdirSync(env.LLLL_BACKUP_DIR).find(name => name.endsWith('.tar.gz'))
-  run(join(target, 'llll'), ['uninstall', '--yes', '--purge', '--no-backup'])
+  await run(join(target, 'llll'), ['uninstall', '--yes', '--purge', '--no-backup'])
   assert.ok(existsSync(join(env.LLLL_BACKUP_DIR, backup)))
-  run(join(target, 'llll'), ['restore', join(env.LLLL_BACKUP_DIR, backup)], { LLLL_DIR: restored })
+  await run(join(target, 'llll'), ['restore', join(env.LLLL_BACKUP_DIR, backup)], { LLLL_DIR: restored })
   assert.equal((await (await api('/.well-known/llll')).json()).id, discovery.id)
   assert.ok((await (await api(`/api/channels/${general.id}/messages`)).json()).messages.some(item => item.id === message.message.id))
   assert.equal(await (await api('/api/files/' + attachment.id)).text(), 'private VPS backup file')

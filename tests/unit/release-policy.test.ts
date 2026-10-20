@@ -49,6 +49,13 @@ describe('release artifact provenance', () => {
     for (const path of ['/tmp/file', '.output/public/../../bad', '.bundle/../../../bad', 'scripts/web-deploy.mjs']) expect(() => validateArchivePaths([path], '-rw-r--r-- file')).toThrow()
     expect(() => validateArchivePaths(['.bundle/index.mjs'], 'lrwxr-xr-x link -> /etc/passwd')).toThrow()
   })
+  it('requires every VPS asset only on releases declaring the installer capability', () => {
+    const vpsFiles = Object.fromEntries(['install.sh', 'llll', 'llll-compose.yml', 'compose.vps.yml', 'Caddyfile', 'Caddyfile.vps'].map(name => [name, { sha256: 'd'.repeat(64), size: 100 }]))
+    const vps = { ...manifest, vpsInstaller: 1, files: { ...files, ...vpsFiles } }
+    expect(() => validateReleaseManifest(vps, 'v0.1.0-alpha.2', commit)).not.toThrow()
+    expect(() => validateReleaseManifest({ ...vps, files }, 'v0.1.0-alpha.2', commit)).toThrow('Incomplete VPS')
+    expect(() => validateReleaseManifest(manifest, 'v0.1.0-alpha.2', commit)).not.toThrow()
+  })
   it('rejects a corrupt component and missing migration chain', () => {
     const content = 'export default {}'
     const bundle = { schemaVersion: 3, version: next.version, modules: Object.fromEntries(['site', 'client', 'server'].map(name => [name, { content, size: content.length, sha256: sha256(content) }])), assets: [{ path: '/index.html', contentBase64: 'aGVsbG8=', size: 5, hash: '5d41402abc4b2a76b9719d911017c592' }], migrations: { server: [{ name: '0000_server_baseline.sql', sql: 'CREATE TABLE users(id);' }] } }

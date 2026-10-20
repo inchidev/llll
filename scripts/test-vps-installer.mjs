@@ -99,6 +99,7 @@ if (cmd === 'run') {
   if (!exists(path)) die('Missing volume');
   if (args.includes('sh')) { if (ls(path).length) process.exit(1); process.exit(); }
   const extracting = args.includes('-xf');
+  if (!extracting && get('fail-next-backup')) { save('fail-next-backup', ''); die('Forced archive failure'); }
   if (extracting) execFileSync('tar', ['-C', path, '-xf', '-'], { stdio: ['inherit', 'inherit', 'inherit'] });
   else execFileSync('tar', ['-C', path, '-cf', '-', '.'], { stdio: ['ignore', 'inherit', 'inherit'] });
   process.exit();
@@ -143,6 +144,10 @@ try {
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), secrets)
   assert.ok(!rerun.stdout.includes('claim='), 'claimed Servers never print a setup token')
   const cli = join(target, 'llll')
+  writeFileSync(join(state, 'fail-next-backup'), 'yes')
+  run(cli, ['backup'], {}, false)
+  assert.equal(readFileSync(join(state, 'running'), 'utf8'), 'yes', 'an interrupted backup must restart the Server')
+  assert.equal(JSON.parse(readFileSync(live)).id, server.id)
   run(cli, ['backup'])
   const backup = readdirSync(env.LLLL_BACKUP_DIR).find(name => name.endsWith('.tar.gz'))
   run(cli, ['upgrade', next])
