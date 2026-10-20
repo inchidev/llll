@@ -6,7 +6,7 @@ import { uuidSchema } from '../../../../shared/embed'
 import { SERVER_API_VERSION } from '../../../../shared/server'
 
 const phases = ['Configure your Server', 'Start deployment', 'Wait for Cloudflare verification', 'Ready']
-type Deployment = { origin: string; name: string; accountId: string; version?: string; claim?: string }
+type Deployment = { origin: string; name: string; accountId: string; version?: string | null; claim?: string }
 type Session = {
   authorized: boolean; accounts: { id: string; name: string }[]; accountId?: string
   sessionExpiresAt: number; grantExpiresAt?: number; step?: number; completed?: boolean
