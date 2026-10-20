@@ -128,15 +128,30 @@ async function waitFor(check, description, timeout = 180000) {
 async function shutdown() {
   if (closing) return
   closing = true
-  for (const child of children) {
-    try { process.kill(-child.pid, 'SIGTERM') } catch { /* Already exited. */ }
+  const groups = [...children].map(child => child.pid).filter(Boolean)
+  for (const pid of groups) {
+    try { process.kill(-pid, 'SIGTERM') } catch { /* Already exited. */ }
   }
+  await Promise.all(groups.map(async (pid) => {
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      try { process.kill(-pid, 0) } catch { return }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    // A Rollup watcher can be busy finishing a failed build when closed. Do
+    // not leave an orphan compiler writing into the next session's output.
+    try { process.kill(-pid, 'SIGKILL') } catch { /* Already exited. */ }
+  }))
   const unlock = () => { if (ownsLock) { unlinkSync(lockFile); ownsLock = false } }
   if (!managesContainers) { unlock(); return }
   // Stop only services started by this invocation. A second dev command that
   // fails its port preflight must not stop the already running Server.
-  const stopped = spawnSync('docker', [...composeArgs, 'stop'], { cwd: root, env, stdio: 'inherit', timeout: 55000 })
-  if (stopped.status !== 0) console.error('Could not stop the local stack; run pnpm stack -- stop.')
+  const stopped = await new Promise(resolve => {
+    const child = spawn('docker', [...composeArgs, 'stop'], { cwd: root, env, stdio: 'inherit', timeout: 55000 })
+    child.once('error', () => resolve(false))
+    child.once('exit', code => resolve(code === 0))
+  })
+  if (!stopped) console.error('Could not stop the local stack; run pnpm stack -- stop.')
   unlock()
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {

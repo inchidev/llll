@@ -67,7 +67,9 @@ origins; this does not enable local origins in production.
 
 The first backend compile is heavier than subsequent edits. Neither a Client
 edit nor an API edit rebuilds the runtime Docker image. No frontend bundle is
-built for backend development. Node, pnpm and Vite run on the host; the Linux
+built for backend development. Backend development source maps are disabled to
+keep Rollup's retained graph small; Client HMR and production source-map
+settings are unchanged. Node, pnpm and Vite run on the host; the Linux
 celld runtime image is built natively for the Docker host's architecture.
 Vite's internal Client port binds to the host's interfaces so the Caddy
 container can reach it; the public gateway and Shell bind to loopback. Use

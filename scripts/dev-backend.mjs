@@ -14,11 +14,15 @@ const nuxt = await loadNuxt({
   dotenv: false,
   overrides: {
     _prepare: true,
+    // Rollup retains the large agent graph between edits. Server source maps
+    // make error recovery spend most of its time collecting mapping objects.
+    sourcemap: { server: false },
     buildDir: resolve(root, '.deployment/dev-stack/nuxt-backend'),
     nitro: {
       output: { dir: output, serverDir: resolve(output, 'server'), publicDir: resolve(output, 'public') },
       logLevel: 2,
       minify: false,
+      sourceMap: false,
     },
     hooks: {
       'nitro:config'(config) {
@@ -50,6 +54,7 @@ await build(nitro)
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, async () => {
+    setTimeout(() => process.exit(0), 2500).unref()
     await nuxt.close()
     process.exit(0)
   })
