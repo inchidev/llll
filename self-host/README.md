@@ -1,6 +1,6 @@
 # Self-host with Docker
 
-The common Compose runs L4 on a single [celld](https://celld.dev) node, with private [RustFS](https://github.com/rustfs/rustfs) storage and a Caddy gateway. For convenient local development from the repository root, use `pnpm dev:stack`; see [local development](../docs/local-development.md). The VPS installer will reuse this stack in a later change. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
+The common Compose runs L4 on a single [celld](https://celld.dev) node, with private [RustFS](https://github.com/rustfs/rustfs) storage and a Caddy gateway. For convenient local development from the repository root, use `pnpm dev:stack`; see [local development](../docs/local-development.md). The [VPS installer](../docs/vps-installer.md) reuses this stack with a small public-HTTPS override; it first ships in the next release containing these changes. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
 
 celld 0.6.2 has no secrets store. On startup the container writes `self-host/.env` into a gitignored `wrangler.celld.local.json` and `celld deploy` stores that `vars` object in the bucket as plaintext. Keep the RustFS volume private. Do not publish port 9000.
 
@@ -62,13 +62,13 @@ server {
 }
 ```
 
-To expose the gateway on every interface instead of loopback, set `LLLL_BIND=0.0.0.0` in `.env`. Configure public TLS before inviting anyone. Container-managed public TLS and its installation flow are follow-up work.
+To expose the gateway on every interface instead of loopback, set `LLLL_BIND=0.0.0.0` in `.env`. Configure public TLS before inviting anyone. The [managed VPS flow](../docs/vps-installer.md) adds `compose.vps.yml` and `Caddyfile.vps` for container-managed public TLS.
 
 ## Upgrade
 
 Take and verify a private backup first. Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then run `docker load --input llll-runtime-linux-amd64.tar.gz`. It loads `llll:<version>` locally. Set `LLLL_IMAGE=llll:<version>` in `.env`, then run `docker compose up -d --wait`. The common Compose has no build block and uses `pull_policy: never`. The published image is currently `linux/amd64`; local source/development builds use the Docker host's native architecture.
 
-The new container deploys that image and runs `celld d1 migrations apply <database_name>` again. Recorded migrations are skipped. Expect a short outage while the single node restarts. Automatic backup, upgrade and rollback commands are not implemented yet. For local source verification only, use the `compose.build.yml` override with `--build`.
+The new container deploys that image and runs `celld d1 migrations apply <database_name>` again. Recorded migrations are skipped. Expect a short outage while the single node restarts. Managed VPS installations use `llll backup`, `llll upgrade` and `llll restore`; see the [installer operations](../docs/vps-installer.md#operations). The raw Compose commands here remain manual. For local source verification only, use the `compose.build.yml` override with `--build`.
 
 Do not change `AUTH_SECRET` during an upgrade. It signs sessions, and backup credentials stored by the app are encrypted with it.
 

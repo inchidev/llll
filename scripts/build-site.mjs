@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { readdir, readFile, writeFile, copyFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { build } from 'esbuild'
@@ -7,6 +7,9 @@ const root = resolve(import.meta.dirname, '..')
 const generated = spawnSync('pnpm', ['exec', 'nuxt', 'generate', 'apps/site'], { cwd: root, stdio: 'inherit' })
 if (generated.status !== 0) process.exit(generated.status || 1)
 const output = resolve(root, 'apps/site/.output/public')
+// Only the release workflow provides a pinned VPS installer. Feature Previews
+// return 404 here rather than offering unreleased code to root shells.
+if (process.env.LLLL_VPS_INSTALLER) await copyFile(resolve(process.env.LLLL_VPS_INSTALLER), resolve(output, 'install.sh'))
 async function paths(directory, prefix = '') {
   const result = []
   for (const entry of await readdir(directory, { withFileTypes: true })) {

@@ -163,6 +163,18 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   }
   if (path === '/.well-known/llll') return json({ product: 'llll', kind: 'client', origin: env.PUBLIC_ORIGIN, id: 'client', name: 'L4', apiVersion: 1 })
   if (path.startsWith('/api/')) fail(404, 'API route not found')
+  // Never pipe the SPA's HTML fallback into a shell. Assets are available only
+  // in a release archive; a missing installer on a feature Preview is a 404.
+  if (path.startsWith('/install') || /\.(?:sh|json)$/i.test(path)) {
+    if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405 })
+    const asset = await env.ASSETS.fetch(request)
+    const type = asset.headers.get('Content-Type') || ''
+    if (!asset.ok || type.includes('text/html')) return new Response('Not found', { status: 404 })
+    const response = new Response(asset.body, asset)
+    if (path.endsWith('.sh')) response.headers.set('Content-Type', 'text/plain; charset=utf-8')
+    response.headers.set('Cache-Control', 'no-cache')
+    return response
+  }
   // Static Assets' SPA fallback is index.html, which is the prerendered landing
   // page. UUID routes need Nuxt's client-only entry to preserve their URL.
   const serverPath = /^\/([a-f0-9-]{36})(?:\/|$)/i.exec(path)

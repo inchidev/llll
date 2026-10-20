@@ -33,6 +33,21 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); sqlite.close() })
 
+it('serves a release installer as text and rejects SPA fallback for scripts and JSON', async () => {
+  env.ASSETS = { fetch: async (request: Request) => new URL(request.url).pathname === '/install.sh'
+    ? new Response('#!/bin/bash\nmain "$@"\n', { headers: { 'Content-Type': 'application/octet-stream' } })
+    : new Response('<html>landing fallback</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }) } as Fetcher
+  const installer = await web.fetch(req('/install.sh'), env)
+  expect(installer.status).toBe(200)
+  expect(installer.headers.get('Content-Type')).toBe('text/plain; charset=utf-8')
+  expect(await installer.text()).toBe('#!/bin/bash\nmain "$@"\n')
+  for (const path of ['/install-typo', '/install/missing', '/missing.sh', '/missing.SH', '/missing.json']) {
+    const missing = await web.fetch(req(path), env)
+    expect(missing.status).toBe(404)
+    expect(await missing.text()).not.toContain('<html>')
+  }
+})
+
 it('surfaces Cloudflare refusal reason on the deploy page instead of a generic cancellation', async () => {
   const start = await web.fetch(req('/api/deploy/oauth'), env)
   const cookie = start.headers.get('set-cookie')!.split(';')[0]!

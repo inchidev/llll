@@ -1,0 +1,12 @@
+# VPS exposure only; the services and storage come from docker-compose.yml.
+# Requires Compose >= 2.24.4 for !override.
+services:
+  gateway:
+    environment:
+      LLLL_ACME_EMAIL: ${LLLL_ACME_EMAIL:?set LLLL_ACME_EMAIL}
+    ports: !override
+      - "${LLLL_BIND:-0.0.0.0}:${LLLL_HTTP_PORT:-80}:80"
+      - "${LLLL_BIND:-0.0.0.0}:${LLLL_HTTPS_PORT:-443}:443"
+      - "${LLLL_BIND:-0.0.0.0}:${LLLL_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./Caddyfile.vps:/etc/caddy/Caddyfile:ro

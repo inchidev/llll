@@ -12,6 +12,10 @@ export function validateReleaseManifest(manifest, tag, commit) {
   for (const name of ['llll.tgz', 'llll-deployment.json', 'llll-cloudflare-manifest.json', 'llll-runtime-linux-amd64.tar.gz', 'llll-docs.tgz', 'llll-worker.mjs', 'llll-assets.json', `llll-deployment-core-${manifest.version}.tgz`]) {
     if (!/^[a-f0-9]{64}$/.test(manifest.files?.[name]?.sha256) || !Number.isSafeInteger(manifest.files[name].size) || manifest.files[name].size <= 0) throw new Error(`Incomplete release: ${name}`)
   }
+  // Older immutable schema-3 releases remain valid Cloudflare install targets.
+  if (manifest.vpsInstaller === 1) for (const name of ['install.sh', 'llll', 'llll-compose.yml', 'compose.vps.yml', 'Caddyfile', 'Caddyfile.vps']) {
+    if (!/^[a-f0-9]{64}$/.test(manifest.files?.[name]?.sha256) || !Number.isSafeInteger(manifest.files[name].size) || manifest.files[name].size <= 0) throw new Error(`Incomplete VPS release: ${name}`)
+  }
 }
 export function validateArchivePaths(paths, listing) {
   if (paths.some(path => path.startsWith('/') || path.split('/').includes('..') || !/^(?:\.bundle\/|\.output\/public(?:\/|$)|migrations(?:\/|$)|wrangler\.jsonc$)/.test(path))
@@ -46,7 +50,7 @@ export async function writeReleaseManifest(directory, { version, commit, release
     const bytes = await readFile(resolve(directory, name))
     files[name] = { sha256: sha256(bytes), size: bytes.length }
   }
-  const manifest = { schemaVersion: 3, version, commit, releasePr, components: ['llll', 'server', 'docs'], files }
+  const manifest = { schemaVersion: 3, version, commit, releasePr, components: ['llll', 'server', 'docs'], files, ...(files['install.sh'] ? { vpsInstaller: 1 } : {}) }
   validateReleaseManifest(manifest, `v${version}`, commit)
   await writeFile(resolve(directory, 'llll-release.json'), JSON.stringify(manifest, null, 2) + '\n')
   let sums = ''

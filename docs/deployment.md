@@ -22,7 +22,7 @@ Application code may only deploy in Workers Builds from Git. Local Wrangler is l
 
 ## VPS / celld
 
-`self-host/docker-compose.yml` is the common celld/RustFS/Caddy stack. It runs an already loaded portable image; `compose.build.yml` adds a local source build and `compose.dev.yml` adds source watching and Client HMR. See [self-host setup](../self-host/README.md) and [local development](local-development.md). A one-command VPS installer is follow-up work. The Coolify standalone template uses Coolify's own proxy instead.
+`self-host/docker-compose.yml` is the common celld/RustFS/Caddy stack. It runs an already loaded portable image; `compose.build.yml` adds a local source build and `compose.dev.yml` adds source watching and Client HMR. See [self-host setup](../self-host/README.md) and [local development](local-development.md). The release-pinned [VPS installer](vps-installer.md) adds public HTTPS, repeatable setup and backup/restore/upgrade commands through `compose.vps.yml`. It becomes available only when a release containing it is published. The Coolify standalone template uses Coolify's own proxy instead.
 
 Configure `PUBLIC_ORIGIN`, `AUTH_SECRET`, `ADMIN_EMAIL`, private `SETUP_TOKEN` and persistent storage credentials in ignored/private operator configuration. Configure public TLS before inviting users; the local launcher defaults to loopback HTTP. Open `/setup#claim=…`, set the owner password and invite another person.
 
