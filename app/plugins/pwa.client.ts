@@ -14,6 +14,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
   function update() {
     if (!registration?.waiting || updating.value) return
+    if (document.querySelector('[data-update-blocked="true"]')) { error.value = 'Save or reset your changes and finish recording before updating.'; return }
     if (document.querySelector('[data-uploading="true"]') || document.querySelector('[aria-busy="true"]')) { error.value = 'Finish sending and uploading before updating.'; return }
     try { localStorage.setItem('llll.storage-check', '1'); localStorage.removeItem('llll.storage-check') }
     catch { error.value = 'Copy your draft before reloading: browser storage is unavailable.'; return }

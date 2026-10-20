@@ -12,5 +12,5 @@ const tabs: Array<{ value: RightPanelTab; label: string }> = [
 </script>
 
 <template>
-  <LayoutSegmentedTabs v-model="model" :items="tabs" label="Right panel views" block class="w-full" />
+  <LayoutSegmentedTabs v-model="model" :items="tabs" label="Right panel views" class="flex-1" />
 </template>

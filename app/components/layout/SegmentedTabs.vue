@@ -16,6 +16,13 @@ const props = withDefaults(defineProps<{
 
 const buttons = ref<HTMLButtonElement[]>([])
 
+function revealSelected() {
+  const index = props.items.findIndex(item => item.value === model.value)
+  buttons.value[index]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+}
+watch(model, () => nextTick(revealSelected))
+onMounted(revealSelected)
+
 function focusAt(index: number) {
   const count = props.items.length
   const next = props.items[(index + count) % count]
@@ -53,7 +60,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
       :tabindex="model === item.value ? 0 : -1"
       class="l4-segmented-item flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium"
       :class="size === 'md' ? 'h-9 px-3 text-sm' : 'h-8 px-2.5 text-xs md:h-7'"
-      @click="model = item.value"
+      @click="model = item.value; revealSelected()"
       @keydown="onKeydown($event, index)"
     >
       <UIcon v-if="item.icon" :name="item.icon" class="size-4 shrink-0" />

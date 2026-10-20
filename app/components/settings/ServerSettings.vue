@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { publicIconPath } from '~~/shared/server-appearance'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import * as z from 'zod'
-import type { FormSubmitEvent, TableColumn } from '@nuxt/ui'
+import type { TableColumn } from '@nuxt/ui'
 import type { AuditEntryDTO, ChannelCategoryDTO, ChannelDTO, ChannelRoleOverrideDTO, ServerDTO, MemberDTO, RoleDTO } from '~~/shared/types'
 import type { UpdateStatusDTO } from '~~/shared/releases'
 import { channelPermissionMasks, channelPermissionMode, ChannelPermissionGrants, type ChannelPermissionGrantKey, type ChannelPermissionMode } from '~~/shared/channel-permissions'
@@ -22,9 +21,6 @@ const { copy } = useClipboard()
 /** Exposed so `/server/:id/settings?section=…` can deep-link, and so the section survives reopening. */
 const section = defineModel<string>('section', { default: 'overview' })
 
-const schema = z.object({ name: z.string().min(1).max(80) })
-type Schema = z.output<typeof schema>
-const state = reactive<Partial<Schema>>({ name: '' })
 const saving = ref(false)
 const permissionChannelId = ref<string | null>(null)
 const permissionRoleId = ref<string | null>(null)
@@ -79,7 +75,6 @@ const updatesQ = useQuery({
   staleTime: 6 * 60 * 60 * 1000,
 })
 
-watch(() => serverQ.data.value?.server.name, (n) => { if (n) state.name = n }, { immediate: true })
 
 const serverNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'overview' as const, label: 'Overview', icon: 'i-ph-house', keywords: ['name', 'icon', 'rename'] }] : []),
@@ -216,10 +211,11 @@ const serverIconUrl = computed(() => {
   return serverUrl(`${publicIconPath}?v=${encodeURIComponent(server.updatedAt)}`)
 })
 
-async function onSave(event: FormSubmitEvent<Schema>) {
+async function onSave(name: string) {
+  if (saving.value || name === serverQ.data.value?.server.name) return
   saving.value = true
   try {
-    await api(`/api/servers/${props.serverId}`, { method: 'PATCH', body: event.data })
+    await api(`/api/servers/${props.serverId}`, { method: 'PATCH', body: { name } })
     await qc.invalidateQueries({ queryKey: ['server', props.serverId] })
     toast.add({ title: 'Server updated', color: 'success' })
   }
@@ -464,7 +460,7 @@ function roleLabel(name: string) {
   <SettingsOverlay v-model:open="open" v-model:section="section" :groups="groups" :title="serverName" :loading="membersQ.isPending.value">
     <template v-if="section === 'overview'">
       <h1 class="text-xl font-semibold text-highlighted">Server Overview</h1>
-      <div class="mt-8 flex items-start gap-6">
+      <div class="mt-8 flex flex-col items-start gap-6 sm:flex-row">
         <div class="flex shrink-0 flex-col items-center gap-2">
           <UAvatar size="3xl" :src="serverIconUrl" :text="serverInitial" :alt="serverName" />
           <input
@@ -497,12 +493,7 @@ function roleLabel(name: string) {
             </UTooltip>
           </div>
         </div>
-        <UForm :schema="schema" :state="state" class="flex-1 max-w-md space-y-4" @submit="onSave">
-          <UFormField name="name" label="Server name">
-            <UInput v-model="state.name" class="w-full" :disabled="!can(Permission.manageServer)" />
-          </UFormField>
-          <UButton v-if="can(Permission.manageServer)" type="submit" label="Save Changes" :loading="saving" />
-        </UForm>
+        <SettingsServerOverviewForm v-if="serverQ.data.value" :name="serverQ.data.value.server.name" :saving="saving" :editable="can(Permission.manageServer)" @save="onSave" />
       </div>
       <div class="mt-10 grid grid-cols-2 gap-4 max-w-md">
         <div class="rounded-lg bg-elevated p-4">

@@ -123,7 +123,7 @@ defineShortcuts({
           class="min-w-0 flex-1 justify-end bg-muted md:flex md:min-w-[192px] md:flex-none"
           :class="isMobile && mobileView === 'detail' ? 'hidden' : 'flex'"
         >
-          <aside class="flex w-full flex-col overflow-y-auto px-2 pb-6 pe-1.5 pt-6 md:w-[192px] md:py-[60px] lg:w-[218px]">
+          <aside class="flex w-full flex-col overflow-y-auto px-2 pb-6 pe-1.5 pt-6 *:shrink-0 md:w-[192px] md:py-[60px] lg:w-[218px]">
             <div class="flex items-center gap-1 px-1 pb-3 md:hidden">
               <h1 class="min-w-0 flex-1 truncate text-lg font-semibold text-highlighted">Settings</h1>
               <UButton icon="i-ph-x" color="neutral" variant="ghost" square aria-label="Close settings" @click="close" />

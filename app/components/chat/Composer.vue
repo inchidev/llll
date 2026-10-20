@@ -29,6 +29,10 @@ const props = defineProps<{
 
 const MAX_LENGTH = 2000
 const MAX_FILES = 8
+const isMobile = useIsMobile()
+const messageLabel = computed(() => props.disabled
+  ? (props.disabledPlaceholder || 'You cannot send messages in this channel')
+  : (props.placeholder || 'Message'))
 
 const ui = useUiStore()
 const session = useSessionStore()
@@ -445,7 +449,7 @@ defineExpose({ addFiles, focus })
 </script>
 
 <template>
-  <form class="relative px-4 pb-6 pt-2" @submit.prevent="submit">
+  <form class="relative px-2 pb-4 pt-2 sm:px-4 sm:pb-6" :data-update-blocked="recording" @submit.prevent="submit">
     <div
       v-if="suggestions.length"
       class="absolute inset-x-4 bottom-full z-30 mb-1 overflow-hidden rounded-lg bg-default shadow-xl ring ring-default"
@@ -536,9 +540,10 @@ defineExpose({ addFiles, focus })
           :maxrows="12"
           variant="none"
           color="neutral"
-          class="flex-1 self-stretch"
+          class="min-w-0 flex-1 self-stretch"
           :ui="{ base: () => 'w-full bg-transparent px-1 py-2.5 text-base leading-snug text-default placeholder:text-muted resize-none focus:outline-none' }"
-          :placeholder="disabled ? (disabledPlaceholder || 'You cannot send messages in this channel') : (placeholder || 'Message')"
+          :placeholder="isMobile ? (disabled ? 'Read only' : 'Message') : messageLabel"
+          :aria-label="messageLabel"
           :disabled="disabled"
           :aria-autocomplete="'list'"
           :aria-expanded="suggestions.length > 0"

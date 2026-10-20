@@ -25,17 +25,19 @@ const shell = {
   frameSrc: () => 'about:blank', initialize, forget,
   refreshMetadata: vi.fn(async () => {}),
   resolveServer: vi.fn(async () => { selected.value = origin }),
+  open: vi.fn(),
 }
 let view: ReturnType<typeof mount> | undefined
 function go(path: string) {
   route.path = path; route.fullPath = path
   route.params = path === '/' + id ? { serverId: id } : {}
 }
-const Button = defineComponent({ props: ['label', 'to'], setup: (props, { attrs }) => () => h(props.to ? 'a' : 'button', { ...attrs, href: props.to }, props.label) })
+const Button = defineComponent({ props: ['label', 'to'], setup: (props, { attrs, slots }) => () => h(props.to ? 'a' : 'button', { ...attrs, href: props.to }, props.label || slots.default?.()) })
 const Link = defineComponent({ props: ['to'], setup: (props, { attrs, slots }) => () => h('a', { ...attrs, href: props.to }, slots.default?.()) })
 const Alert = defineComponent({ props: ['description'], setup: props => () => h('p', props.description) })
 const Slot = { template: '<div><slot /></div>' }
-const stubs = { UButton: Button, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a server</h1>' } }
+const Slideover = defineComponent({ props: ['open'], emits: ['update:open'], template: '<div><div @click="$emit(\'update:open\', !open)"><slot /></div><div v-if="open" role="dialog"><slot name="body" /></div></div>' })
+const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a server</h1>' } }
 
 beforeEach(() => {
   go('/' + id)
@@ -43,6 +45,7 @@ beforeEach(() => {
   selected.value = origin; loaded.value = [origin]; error.value = ''
   forget.mockReset().mockImplementation(() => { servers.value = [] })
   initialize.mockReset(); shell.resolveServer.mockClear()
+  shell.open.mockReset()
   navigate.mockReset().mockImplementation(async (path: string) => { go(path) })
   for (const [name, fn] of Object.entries({ computed, ref, watch, onMounted, onUnmounted })) vi.stubGlobal(name, fn)
   vi.stubGlobal('useShell', () => shell)
@@ -52,6 +55,25 @@ beforeEach(() => {
   vi.stubGlobal('useHead', headConfig)
 })
 afterEach(() => { view?.unmount(); view = undefined; vi.unstubAllGlobals() })
+
+it('opens the mobile server menu and selects a Server without remounting its Client', async () => {
+  view = mount(Shell, { attachTo: document.body, global: { stubs } })
+  await flushPromises()
+  const frame = view.get('iframe').element
+  await view.get('[aria-label="Open server menu"]').trigger('click')
+  expect(view.get('[role="dialog"]').text()).toContain('Fixture community')
+  await view.get('[role="dialog"] button[aria-current="page"]').trigger('click')
+  expect(shell.open).toHaveBeenCalledWith(servers.value[0], id)
+  expect(view.find('[role="dialog"]').exists()).toBe(false)
+  expect(view.get('iframe').element).toBe(frame)
+  await view.get('[aria-label="Open server menu"]').trigger('click')
+  const add = view.findAll('[role="dialog"] button').find(button => button.text() === 'Add a server')!
+  await add.trigger('click')
+  await flushPromises()
+  expect(route.path).toBe('/create')
+  expect(view.find('[role="dialog"]').exists()).toBe(false)
+  expect(view.get('iframe').element).toBe(frame)
+})
 
 it('opens My servers through the logo without unloading the Client, and keeps + for Add a server', async () => {
   view = mount(Shell, { attachTo: document.body, global: { stubs } })
