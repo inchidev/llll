@@ -151,7 +151,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
       </UPopover>
       <time
         v-else
-        class="text-[10px] text-muted leading-[1.375rem] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 tabular-nums"
+        class="text-[11px] text-muted leading-[1.375rem] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 tabular-nums"
         :datetime="message.createdAt"
         :title="formatFullDateTime(message.createdAt)"
       >{{ formatTime(message.createdAt) }}</time>
@@ -166,7 +166,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             <ChatUserCard :user="message.author" :member="member" @close="nameProfileOpen = false" />
           </template>
         </UPopover>
-        <UBadge v-if="message.author.kind === 'agent'" label="AI" size="sm" color="primary" variant="subtle" class="self-center px-1 py-0 text-[10px]" />
+        <UBadge v-if="message.author.kind === 'agent'" label="AI" size="sm" color="primary" variant="subtle" class="self-center px-1 py-0 text-[11px]" />
         <time class="text-xs text-muted" :datetime="message.createdAt" :title="formatFullDateTime(message.createdAt)">{{ formatMessageTime(message.createdAt) }}</time>
       </div>
       <p v-if="message.deletedAt" class="text-muted italic">Message deleted</p>
@@ -184,7 +184,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
       >
         <ChatMarkdownView :content="message.content" :names="names" />
         <span v-if="streaming" class="inline-block h-4 w-0.5 animate-pulse bg-primary align-text-bottom" aria-label="Streaming" />
-        <span v-if="message.editedAt" class="ms-1 select-none text-[10px] text-muted" :title="formatFullDateTime(message.editedAt)">(edited)</span>
+        <span v-if="message.editedAt" class="ms-1 select-none text-[11px] text-muted" :title="formatFullDateTime(message.editedAt)">(edited)</span>
       </div>
       <AttachmentGallery v-if="message.attachments.length" :attachments="message.attachments" />
       <!-- A message on its way is only dimmed, as in Discord; uploads say so because they can take a while. -->

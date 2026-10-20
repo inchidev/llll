@@ -411,7 +411,7 @@ defineShortcuts({
           >
             <UIcon name="i-ph-magnifying-glass" class="size-3.5" />
             <span class="flex-1 text-start">Search</span>
-            <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[10px] text-toned">⌘ K</kbd>
+            <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[11px] text-toned">⌘ K</kbd>
           </button>
           <UTooltip
             v-if="isConversation"

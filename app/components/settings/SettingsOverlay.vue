@@ -188,7 +188,7 @@ defineShortcuts({
           class="min-w-0 flex-1 bg-default md:flex md:flex-[1_1_800px]"
           :class="isMobile && mobileView === 'nav' ? 'hidden' : 'flex'"
         >
-          <div class="min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
+          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
             <div class="mb-4 flex items-center gap-1 md:hidden">
               <UButton
                 icon="i-ph-arrow-left"

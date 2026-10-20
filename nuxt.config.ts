@@ -147,8 +147,9 @@ export default defineNuxtConfig({
       htmlAttrs: { lang: 'en' },
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
-        { name: 'color-scheme', content: 'dark' },
-        { name: 'theme-color', content: '#F6821F' },
+        { name: 'color-scheme', content: 'dark light' },
+        { name: 'theme-color', content: '#000000', media: '(prefers-color-scheme: dark)' },
+        { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
         { name: 'description', content: 'Chat that lives on your Cloudflare account.' },
         { name: 'application-name', content: 'L4' },
         { name: 'apple-mobile-web-app-title', content: 'L4' },

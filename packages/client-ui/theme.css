@@ -1,0 +1,124 @@
+@font-face {
+  font-family: Geist;
+  src: url("/fonts/geist-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-brand: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* The Shell and independent Clients share the same surfaces and controls. */
+:root {
+  color-scheme: light;
+  --ui-radius: 0.375rem;
+  --ui-primary: #171717;
+  --ui-error: #b91c1c;
+  --ui-bg: #ffffff;
+  --ui-bg-muted: #fafafa;
+  --ui-bg-elevated: #ffffff;
+  --ui-bg-accented: #f5f5f5;
+  --ui-bg-inverted: #171717;
+  --ui-text-dimmed: #707070;
+  --ui-text-muted: #525252;
+  --ui-text-toned: #404040;
+  --ui-text: #171717;
+  --ui-text-highlighted: #000000;
+  --ui-text-inverted: #fafafa;
+  --ui-border: #e5e5e5;
+  --ui-border-muted: #f5f5f5;
+  --ui-border-accented: #d4d4d4;
+  --ui-border-inverted: #171717;
+}
+
+.dark {
+  color-scheme: dark;
+  --ui-primary: #ededed;
+  --ui-error: #f87171;
+  --ui-bg: #000000;
+  --ui-bg-muted: #0a0a0a;
+  --ui-bg-elevated: #0a0a0a;
+  --ui-bg-accented: #171717;
+  --ui-bg-inverted: #fafafa;
+  --ui-text-dimmed: #8a8a8a;
+  --ui-text-muted: #a3a3a3;
+  --ui-text-toned: #d4d4d4;
+  --ui-text: #e5e5e5;
+  --ui-text-highlighted: #fafafa;
+  --ui-text-inverted: #0a0a0a;
+  --ui-border: #262626;
+  --ui-border-muted: #171717;
+  --ui-border-accented: #404040;
+  --ui-border-inverted: #fafafa;
+}
+
+::selection { background: #d4d4d4; color: #000; }
+.dark ::selection { background: #404040; color: #fafafa; }
+
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+.l4-segmented-track {
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--ui-radius);
+  background: var(--ui-bg-accented);
+}
+
+.l4-segmented-item {
+  border-radius: calc(var(--ui-radius) - 2px);
+  color: var(--ui-text-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.l4-segmented-item:hover { color: var(--ui-text-highlighted); }
+.l4-segmented-item:is([aria-selected="true"], [aria-current="page"], [data-state="active"]) {
+  color: var(--ui-text-inverted);
+  background: var(--ui-bg-inverted);
+}
+
+/* Keep phone text entry legible and avoid focus zoom on iOS. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"]), textarea, select {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  button, [role="tab"], a[role="button"] { border: 1px solid ButtonText; }
+  .iconify { forced-color-adjust: none; color: ButtonText; }
+  input, textarea, select { outline: 1px solid FieldText; outline-offset: -1px; }
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .l4-segmented-item:is([aria-selected="true"], [aria-current="page"], [data-state="active"]) {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  [role="switch"] {
+    forced-color-adjust: none;
+    background: Canvas;
+    border: 2px solid ButtonText;
+  }
+  [role="switch"] [data-slot="thumb"] { background: ButtonText; }
+  [role="switch"][aria-checked="true"] { background: Highlight; border-color: Highlight; }
+  [role="switch"][aria-checked="true"] [data-slot="thumb"] { background: HighlightText; }
+}

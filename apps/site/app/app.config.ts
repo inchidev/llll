@@ -1,1 +1,3 @@
-export default defineAppConfig({ ui: { colors: { primary: 'neutral', neutral: 'neutral' } } })
+import { clientUiTheme } from '../../../packages/client-ui/theme'
+
+export default defineAppConfig({ ui: clientUiTheme })
