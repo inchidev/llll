@@ -1,6 +1,6 @@
 # Self-host with Docker
 
-The common Compose runs L4 on a single [celld](https://celld.dev) node, with private [RustFS](https://github.com/rustfs/rustfs) storage and a Caddy gateway. For convenient local development from the repository root, use `pnpm dev:stack`; see [local development](../docs/local-development.md). The [VPS installer](../docs/vps-installer.md) reuses this stack with a small public-HTTPS override; it first ships in the next release containing these changes. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
+The common Compose runs L4 on a single [celld](https://celld.dev) node, with private [RustFS](https://github.com/rustfs/rustfs) storage and a Caddy gateway. For convenient local development from the repository root, use `pnpm dev:stack`; see [local development](../docs/local-development.md). The [VPS installer](../docs/vps-installer.md) reuses this stack with a small public-HTTPS override; it first ships in `0.2.0-alpha.7`. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
 
 celld 0.6.2 has no secrets store. On startup the container writes `self-host/.env` into a gitignored `wrangler.celld.local.json` and `celld deploy` stores that `vars` object in the bucket as plaintext. Keep the RustFS volume private. Do not publish port 9000.
 

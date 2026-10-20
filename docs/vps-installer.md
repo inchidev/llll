@@ -2,7 +2,7 @@
 
 The installer runs the [common Compose](../self-host/docker-compose.yml): one standalone Server on celld, a private RustFS bucket and Caddy. `compose.vps.yml` exposes only Caddy's HTTP/HTTPS ports. The local development override uses the same services with source watching instead of a release image. Accounts, UUID, files and realtime remain local to this Server; mail, AI and other external providers are optional additions in its private `.env`.
 
-This installer first ships in the next release containing these changes. Existing published releases, including `0.2.0-alpha.6`, do **not** contain it. Feature Previews intentionally return 404 for `/install.sh`; merging this feature does not publish it or change production. VPS/celld remains experimental until fresh-VM HTTPS and browser acceptance have been recorded.
+This installer first ships in `0.2.0-alpha.7`. Earlier published releases, including `0.2.0-alpha.6`, do **not** contain it. Feature Previews intentionally return 404 for `/install.sh`; merging this feature does not publish it or change production. VPS/celld remains experimental until fresh-VM HTTPS and browser acceptance have been recorded.
 
 ## Requirements
 
