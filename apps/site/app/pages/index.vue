@@ -2,14 +2,17 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const shellUrl = '/create'
+const connectUrl = '/create?tab=connect'
+// Restore these sections once the Server styling and product screenshots are ready.
+const showProductPreview = false
+const showAppsSection = false
 const siteUrl = 'https://llll.gg/'
 const pageTitle = 'L4 — Chat and work together. Run it yourself.'
 const pageDescription = 'Bring team chat, tasks, shared email, knowledge, and internal tools together. AI teammates, custom internal apps, and no seat fees. Run on your Cloudflare account or VPS.'
 
 const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Product', to: '#product' },
-  { label: 'Apps', to: '#app-apps' },
+  ...(showAppsSection ? [{ label: 'Apps', to: '#app-apps' }] : []),
   { label: 'Ways to run', to: '#run' },
   { label: 'Docs', to: '/docs' },
 ])
@@ -100,11 +103,11 @@ useHead({
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. Independent servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
             </div>
             <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
-          <div class="mx-auto mt-10 max-w-5xl sm:mt-12">
+          <div v-if="showProductPreview" class="mx-auto mt-10 max-w-5xl sm:mt-12">
             <HeroPreview />
           </div>
         </UContainer>
@@ -133,7 +136,7 @@ useHead({
         </UContainer>
       </section>
 
-      <section id="app-apps" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
+      <section v-if="showAppsSection" id="app-apps" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
         <UContainer>
           <div class="max-w-3xl">
             <p class="mb-3 text-sm font-medium text-primary">Apps</p>
@@ -202,7 +205,7 @@ useHead({
             <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="shellUrl" label="Open L4" icon="i-ph-play-circle" color="neutral" variant="outline" size="xl" />
+              <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
         </UContainer>
@@ -217,7 +220,7 @@ useHead({
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
             <ul class="space-y-3 text-sm text-muted">
               <li v-for="app in productGroups" :key="app.name"><a :href="`#app-${app.name.toLowerCase()}`" class="hover:text-highlighted">{{ app.name }}</a></li>
-              <li><a href="#app-apps" class="hover:text-highlighted">Apps</a></li>
+              <li v-if="showAppsSection"><a href="#app-apps" class="hover:text-highlighted">Apps</a></li>
               <li><a href="#run" class="hover:text-highlighted">Ways to run</a></li>
             </ul>
           </nav>
@@ -226,7 +229,7 @@ useHead({
             <ul class="space-y-3 text-sm text-muted">
               <li><NuxtLink to="/docs" class="hover:text-highlighted">Documentation</NuxtLink></li>
               <li><NuxtLink to="/create?tab=cloudflare" class="hover:text-highlighted">Setup guide</NuxtLink></li>
-              <li><ULink :to="shellUrl" class="hover:text-highlighted">Open L4</ULink></li>
+              <li><ULink :to="connectUrl" class="hover:text-highlighted">Connect a server</ULink></li>
               <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
             </ul>
           </nav>
