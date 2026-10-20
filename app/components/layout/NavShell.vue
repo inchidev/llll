@@ -239,7 +239,7 @@ watch(nav.inviteOpen, (open) => {
     </UDropdownMenu>
 
     <nav
-      class="m-2 grid shrink-0 grid-flow-col auto-cols-fr gap-0.5 rounded-lg bg-elevated/60 p-0.5"
+      class="l4-segmented-track m-2 grid shrink-0 grid-flow-col auto-cols-fr"
       aria-label="App"
     >
       <!-- Which apps show depends on permissions; hold their place until they are known. -->
@@ -254,8 +254,7 @@ watch(nav.inviteOpen, (open) => {
           v-for="item in modes"
           :key="item.value"
           :to="item.to"
-          class="relative flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[11px]"
-          :class="mode === item.value ? 'bg-default text-highlighted shadow-sm' : 'text-muted hover:text-default'"
+          class="l4-segmented-item relative flex flex-col items-center gap-0.5 py-1.5 text-[11px]"
           :aria-current="mode === item.value ? 'page' : undefined"
         >
           <UIcon :name="item.icon" class="size-[18px]" />

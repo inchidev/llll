@@ -452,7 +452,7 @@ async function logout() {
             <p class="font-medium text-highlighted">Display current activity</p>
             <p class="text-sm text-muted mt-1">Show Online / Idle / Offline on the member list.</p>
           </div>
-          <USwitch v-model="prefs.showOnline" />
+          <USwitch v-model="prefs.showOnline" aria-label="Display current activity" />
         </div>
       </div>
     </template>
@@ -468,7 +468,7 @@ async function logout() {
           <p class="font-medium text-highlighted">Compact mode</p>
           <p class="text-sm text-muted mt-1">Tighter message spacing. Consecutive messages still group together.</p>
         </div>
-        <USwitch v-model="prefs.compact" />
+        <USwitch v-model="prefs.compact" aria-label="Compact mode" />
       </div>
     </template>
 
@@ -490,6 +490,7 @@ async function logout() {
           <USwitch
             v-else-if="push.status.value === 'subscribed'"
             :model-value="true"
+            aria-label="Push notifications"
             :disabled="push.busy.value"
             @update:model-value="disableNotifications"
           />
@@ -505,7 +506,7 @@ async function logout() {
             <p class="font-medium text-highlighted">Message sounds</p>
             <p class="text-sm text-muted mt-1">Play a sound when a message arrives while the tab is in the background.</p>
           </div>
-          <USwitch v-model="prefs.messageSounds" />
+          <USwitch v-model="prefs.messageSounds" aria-label="Message sounds" />
         </div>
       </div>
     </template>

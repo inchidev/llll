@@ -1,12 +1,10 @@
 import { version } from '../package.json'
+import { clientUiTheme } from '../packages/client-ui/theme'
 
 export default defineAppConfig({
   version,
   ui: {
-    colors: {
-      primary: 'neutral',
-      neutral: 'neutral',
-    },
+    ...clientUiTheme,
     // Solid alerts read as alarms; the tinted style is the house default.
     alert: {
       defaultVariants: {
@@ -16,7 +14,7 @@ export default defineAppConfig({
     // Dialog actions sit on the right, primary last.
     modal: {
       slots: {
-        footer: 'justify-end',
+        footer: 'flex-wrap justify-end gap-2',
       },
       // The default elevated scrim lightens a dark page; dim it instead.
       variants: {

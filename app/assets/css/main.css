@@ -2,69 +2,14 @@
 @import "@nuxt/ui";
 @source "../../../packages/client-ui";
 
-@font-face {
-  font-family: Geist;
-  src: url("/fonts/geist-variable.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@theme {
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-brand: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-}
+@import "../../../packages/client-ui/theme.css";
 
 :root {
-  color-scheme: light;
-  /* The monochrome house style from the llll.gg landing. */
-  --ui-radius: 0.375rem;
-  --ui-primary: #171717;
-  --ui-bg: #ffffff;
-  --ui-bg-muted: #fafafa;
-  --ui-bg-elevated: #ffffff;
-  --ui-bg-accented: #f5f5f5;
-  --ui-bg-inverted: #171717;
-  --ui-text-dimmed: #a3a3a3;
-  --ui-text-muted: #525252;
-  --ui-text-toned: #404040;
-  --ui-text: #171717;
-  --ui-text-highlighted: #000000;
-  --ui-text-inverted: #fafafa;
-  --ui-border: #e5e5e5;
-  --ui-border-muted: #f5f5f5;
-  --ui-border-accented: #d4d4d4;
-  --ui-border-inverted: #171717;
   --df-auth-stage-width: 50%;
   --df-safe-area-top: env(safe-area-inset-top, 0px);
   --df-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --df-server-rail-width: 4rem;
 }
-
-::selection { background: #d4d4d4; color: #000; }
-
-.dark {
-  color-scheme: dark;
-  --ui-primary: #ededed;
-  --ui-bg: #000000;
-  --ui-bg-muted: #0a0a0a;
-  --ui-bg-elevated: #0a0a0a;
-  --ui-bg-accented: #171717;
-  --ui-bg-inverted: #fafafa;
-  --ui-text-dimmed: #525252;
-  --ui-text-muted: #a3a3a3;
-  --ui-text-toned: #d4d4d4;
-  --ui-text: #e5e5e5;
-  --ui-text-highlighted: #fafafa;
-  --ui-text-inverted: #0a0a0a;
-  --ui-border: #262626;
-  --ui-border-muted: #171717;
-  --ui-border-accented: #404040;
-  --ui-border-inverted: #fafafa;
-}
-
-.dark ::selection { background: #404040; color: #fafafa; }
 
 .df-panel {
   background-color: color-mix(in oklab, var(--ui-bg-muted) 72%, var(--ui-bg-accented));
