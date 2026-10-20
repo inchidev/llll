@@ -10,6 +10,10 @@ The official web/PWA/Telegram Shell connects a Server address or invitation. It 
 
 `/.well-known/llll` advertises `kind: server`, UUID, origin, name, version and embed origins. The official directory maps UUID directly to Server origin after checking discovery; it grants no membership. A changed identity at a bookmarked origin requires explicit reconnection. Device-local bookmarks contain metadata only; cross-device synchronization is deferred.
 
+The public name comes from the Server's current settings in D1; deployment `APP_NAME` is only the fallback before owner setup. Discovery also exposes `iconUrl` (or `null`) and `updatedAt`. The versioned icon URL points to `/.well-known/llll/icon`, which anonymously serves only this Server's current PNG/JPEG/WebP/GIF branding image, with revalidation. It never accepts a bucket key or exposes other private files. The login health response uses the same appearance for the sign-in page. Names and icons are public branding; Accounts, Members and conversations remain private.
+
+Client settings-query updates publish fresh name/icon metadata to Shell immediately. Shell shares it across the rail, My servers, Connect and Cloudflare lists, persists only safe public metadata and ignores older revisions or a different saved UUID. Startup, navigation, focus and a visible-page 60-second refresh update saved connections; unavailable Servers keep their last known appearance. Cloudflare resource labels are fallbacks, not the source of the displayed Server name. Older releases without these optional metadata fields remain connectable, but each Server must be updated to publish its renamed settings and public icon.
+
 `EMBED_ORIGINS` adds permitted parents; llll.gg is allowed by default. CSP restricts embedding. The embedded Client hides its own outer rail. Login can happen in the iframe or a same-origin popup; the popup returns a one-use S256-bound code to its opening iframe. The iframe exchanges that code with the Server. Session credentials never pass through the parent Shell. Browser cookie restrictions require independent direct and embedded acceptance.
 
 ## Accounts and optional providers

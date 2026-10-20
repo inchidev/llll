@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 const shell = useShell()
 function forget(origin: string) {
   shell.error.value = ''
@@ -18,7 +19,7 @@ function forget(origin: string) {
       <ul v-if="shell.servers.value.length" aria-label="Saved servers" class="mt-6 divide-y divide-default">
         <li v-for="server in shell.servers.value" :key="server.origin" class="flex min-w-0 items-center gap-2 py-2">
           <NuxtLink :to="`/${server.id}`" class="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-3 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary">
-            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accented text-sm font-semibold">{{ server.name.trim().slice(0, 1).toUpperCase() || 'L' }}</span>
+            <ServerAvatar :name="server.name" :icon-url="server.iconUrl" class="size-11 rounded-xl bg-accented" />
             <span class="min-w-0 flex-1">
               <span class="block truncate font-medium">{{ server.name }}</span>
               <span class="block truncate text-sm text-muted">{{ server.origin.replace(/^https?:\/\//, '') }}</span>

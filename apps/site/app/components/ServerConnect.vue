@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 const shell = useShell()
 function forget(origin: string) {
   try { shell.forget(origin) }
@@ -20,7 +21,10 @@ function forget(origin: string) {
       <h2 class="text-sm font-medium">Saved on this device</h2>
       <ul aria-label="Saved servers" class="mt-3 space-y-2">
         <li v-for="server in shell.servers.value" :key="server.origin" class="flex min-w-0 items-center justify-between gap-3">
-          <UButton :label="server.name" color="neutral" variant="outline" class="min-w-0" @click="shell.open(server)" />
+          <UButton color="neutral" variant="outline" class="min-w-0" @click="shell.open(server)">
+            <ServerAvatar :name="server.name" :icon-url="server.iconUrl" class="size-6 rounded-md bg-accented" />
+            <span class="truncate">{{ server.name }}</span>
+          </UButton>
           <UButton :aria-label="`Remove ${server.name} from this device`" icon="i-ph-x" color="neutral" variant="ghost" @click="forget(server.origin)" />
         </li>
       </ul>

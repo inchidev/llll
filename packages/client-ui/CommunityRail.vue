@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { UIcon, UTooltip } from '#components'
+import ServerAvatar from './ServerAvatar.vue'
 
 interface RailGroup {
   origin: string
   name: string
   collapsed?: boolean
-  servers: { id: string; name: string; unread?: number }[]
+  servers: { id: string; name: string; unread?: number; iconUrl?: string | null }[]
 }
 const props = defineProps<{ groups: RailGroup[]; activeOrigin?: string; activeServerId?: string; addActive?: boolean; homeHref?: string; homeLabel?: string; homeActive?: boolean }>()
 const emit = defineEmits<{
@@ -17,9 +18,6 @@ const emit = defineEmits<{
   server: [origin: string, id: string]
 }>()
 const visibleGroups = computed(() => props.groups.filter(group => group.servers.length))
-function initials(name: string) {
-  return name.trim().split(/\s+/).map(word => word[0]).slice(0, 2).join('').toUpperCase()
-}
 </script>
 
 <template>
@@ -31,7 +29,7 @@ function initials(name: string) {
       <template v-if="!group.collapsed">
         <UTooltip v-for="server in group.servers" :key="server.id" :text="server.name" :content="{ side: 'right' }">
           <button :aria-label="server.name" :aria-current="activeOrigin === group.origin && activeServerId === server.id ? 'page' : undefined" class="relative flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accented text-sm font-semibold text-default transition hover:rounded-xl hover:bg-inverted hover:text-inverted focus-visible:outline-2 focus-visible:outline-primary" :class="activeOrigin === group.origin && activeServerId === server.id ? 'rounded-xl ring-2 ring-primary' : ''" @click="emit('server', group.origin, server.id)">
-            {{ initials(server.name) }}
+            <ServerAvatar :name="server.name" :icon-url="server.iconUrl" class="size-full rounded-[inherit]" />
             <span v-if="server.unread" class="absolute -bottom-1 -right-1 rounded bg-primary px-1 text-[10px] text-inverted">{{ server.unread }}</span>
           </button>
         </UTooltip>

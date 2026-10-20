@@ -8,16 +8,24 @@ import {
 import { SERVER_API_VERSION } from '../../../../shared/server'
 import type { ServerDiscovery } from '../../../../shared/server'
 import { readDeploymentClaim, stripDeploymentClaim } from '../../../../shared/deploy-handoff'
+import { serverAppearance, type ServerAppearance } from '../../../../shared/server-appearance'
+import { serverDiscovery } from '../../../../shared/server-discovery'
+import { readDeployedServers, recordDeployedServer } from '../../../../shared/deploy-recall'
 export type ShellServer = {
   id: string
   origin: string
   name: string
   unread: number
+  iconUrl?: string | null
+  updatedAt?: string
 }
 export const SERVER_UNREACHABLE =
   'The server is unreachable. Check the address or try again in a moment.'
 export function useShell() {
   const servers = useState<ShellServer[]>('shell-servers', () => [])
+  const metadata = useState<Record<string, ServerAppearance>>('shell-metadata', () => ({}))
+  const checked = useState<Record<string, number>>('shell-metadata-checked', () => ({}))
+  const checking = useState<Record<string, boolean>>('shell-metadata-checking', () => ({}))
   const groups = computed(() =>
     servers.value.map((s) => ({
       origin: s.origin,
@@ -51,6 +59,38 @@ export function useShell() {
     } catch {
       /* Bookmarks remain usable in memory. */
     }
+  }
+  function updateMetadata(origin: string, value: unknown) {
+    const data = serverAppearance(value, origin)
+    const saved = servers.value.find(item => item.origin === origin)
+    if (saved && saved.id !== data.id) return false
+    const previous = metadata.value[origin]
+    if (previous?.id === data.id && previous.updatedAt && (!data.updatedAt || data.updatedAt < previous.updatedAt)) return true
+    metadata.value[origin] = { ...(previous?.id === data.id ? previous : {}), ...data }
+    if (saved) { Object.assign(saved, metadata.value[origin]); persist() }
+    const deployed = readDeployedServers().find(item => item.origin === origin)
+    if (deployed && (!deployed.id || deployed.id === data.id)) recordDeployedServer({ ...deployed, ...metadata.value[origin] })
+    return true
+  }
+  async function readMetadata(origin: string, signal = AbortSignal.timeout(7000)) {
+    const response = await fetch(origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', cache: 'no-store', signal })
+    if (!response.ok) throw new Error('Server is unavailable')
+    const data = serverDiscovery(await response.json(), origin)
+    if (!updateMetadata(origin, data)) throw new Error('Server identity did not match the saved connection')
+    return data
+  }
+  async function refreshMetadata() {
+    let cursor = 0
+    const origins = servers.value.map(item => item.origin)
+    await Promise.all(Array.from({ length: Math.min(4, origins.length) }, async () => {
+      while (cursor < origins.length) {
+        const origin = origins[cursor++]!
+        if (checking.value[origin] || Date.now() - (checked.value[origin] || 0) < 30_000) continue
+        checking.value[origin] = true
+        try { await readMetadata(origin) } catch { /* Keep the saved identity and appearance while offline. */ }
+        finally { checked.value[origin] = Date.now(); checking.value[origin] = false }
+      }
+    }))
   }
   function send(origin: string, data: object) {
     if (!ready.value[origin]) return
@@ -146,6 +186,7 @@ export function useShell() {
       }
       servers.value.push(server)
     }
+    updateMetadata(origin, d)
     if (claim || !loaded.value.includes(origin)) await restoreClaim(origin, claim)
     if (claims.value[origin]) starts.value[origin] = '/setup'
     else if (!loaded.value.includes(origin)) {
@@ -213,10 +254,9 @@ export function useShell() {
             return uuidSchema.safeParse(s.id).success
               ? [
                   {
-                    id: s.id,
                     origin: normalizeServerOrigin(s.origin),
-                    name: String(s.name).slice(0, 100),
                     unread: 0,
+                    ...serverAppearance(s, normalizeServerOrigin(s.origin)),
                   },
                 ]
               : []
@@ -224,6 +264,8 @@ export function useShell() {
             return []
           }
         })
+      for (const saved of servers.value) updateMetadata(saved.origin, saved)
+      for (const deployed of readDeployedServers()) if (deployed.id) updateMetadata(deployed.origin, deployed)
     } catch {
       /* Empty bookmarks. */
     }
@@ -258,7 +300,7 @@ export function useShell() {
       if (m.type === 'servers') {
         const info = m.servers.find((s) => s.id === server.id)
         if (info) {
-          server.name = info.name
+          if (!updateMetadata(server.origin, info)) return
           server.unread = info.unread
           persist()
           void $fetch('/api/servers/register', {
@@ -292,12 +334,17 @@ export function useShell() {
     Reflect.deleteProperty(claims.value, origin)
     Reflect.deleteProperty(ready.value, origin)
     Reflect.deleteProperty(calls.value, origin)
+    Reflect.deleteProperty(metadata.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()
   }
   return {
     error,
     servers,
+    metadata,
+    updateMetadata,
+    readMetadata,
+    refreshMetadata,
     groups,
     selected,
     loaded,

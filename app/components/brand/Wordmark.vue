@@ -32,7 +32,7 @@ const gapClass = computed(() => {
 
 <template>
   <div class="flex items-center" :class="gapClass">
-    <BrandLogo :size="logoSize" alt="" :priority="variant !== 'sm'" />
+    <slot name="icon"><BrandLogo :size="logoSize" alt="" :priority="variant !== 'sm'" /></slot>
     <span class="font-brand font-semibold tracking-tight text-highlighted" :class="textClass">{{ props.name }}</span>
   </div>
 </template>

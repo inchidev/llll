@@ -29,14 +29,15 @@ export default defineNuxtPlugin(async (nuxt) => {
   const colorMode = useColorMode()
   const router = useRouter()
   const unread = useState('llll-embed-unread', () => 0)
+  const appearance = computed(() => connection.servers.value.find(item => item.origin === location.origin && item.id === server.id) || server)
   const publish = () => {
     post({ type: 'session', authenticated: Boolean(session.user) })
     post({
       type: 'servers',
-      servers: [{ id: server.id, name: server.name, unread: unread.value }],
+      servers: [{ id: server.id, name: appearance.value.name, iconUrl: appearance.value.iconUrl ?? null, updatedAt: appearance.value.updatedAt, unread: unread.value }],
     })
   }
-  watch(() => [session.user?.id, unread.value], publish)
+  watch(() => [session.user?.id, unread.value, appearance.value.name, appearance.value.iconUrl, appearance.value.updatedAt], publish)
   watch(
     () => live.connection,
     (v) =>

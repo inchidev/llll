@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Shell from '../../apps/site/app/components/Shell.vue'
 import ShellServers from '../../apps/site/app/components/ShellServers.vue'
@@ -23,6 +23,7 @@ const shell = {
   groups: computed(() => [{ origin, name: 'Fixture', servers: servers.value }]),
   frames: ref({}),
   frameSrc: () => 'about:blank', initialize, forget,
+  refreshMetadata: vi.fn(async () => {}),
   resolveServer: vi.fn(async () => { selected.value = origin }),
 }
 let view: ReturnType<typeof mount> | undefined
@@ -43,7 +44,7 @@ beforeEach(() => {
   forget.mockReset().mockImplementation(() => { servers.value = [] })
   initialize.mockReset(); shell.resolveServer.mockClear()
   navigate.mockReset().mockImplementation(async (path: string) => { go(path) })
-  for (const [name, fn] of Object.entries({ computed, ref, watch, onMounted })) vi.stubGlobal(name, fn)
+  for (const [name, fn] of Object.entries({ computed, ref, watch, onMounted, onUnmounted })) vi.stubGlobal(name, fn)
   vi.stubGlobal('useShell', () => shell)
   vi.stubGlobal('useRoute', () => route)
   vi.stubGlobal('navigateTo', navigate)

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { publicIconPath } from '~~/shared/server-appearance'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import * as z from 'zod'
 import type { FormSubmitEvent, TableColumn } from '@nuxt/ui'
@@ -212,7 +213,7 @@ const serverInitial = computed(() => serverName.value.slice(0, 1).toUpperCase())
 const serverIconUrl = computed(() => {
   const server = serverQ.data.value?.server
   if (!server?.iconR2Key) return undefined
-  return serverUrl(`/api/servers/${props.serverId}/icon?v=${encodeURIComponent(server.updatedAt)}`)
+  return serverUrl(`${publicIconPath}?v=${encodeURIComponent(server.updatedAt)}`)
 })
 
 async function onSave(event: FormSubmitEvent<Schema>) {
