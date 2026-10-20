@@ -16,7 +16,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <UApp>
+  <UApp :toaster="{ position: 'top-right', ui: { viewport: 'top-[max(1rem,env(safe-area-inset-top))]' } }">
     <NuxtRouteAnnouncer />
     <div v-if="native" class="flex h-dvh min-w-0 overflow-hidden bg-default">
       <ClientServerRail v-if="!embedded.enabled" />
