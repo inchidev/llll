@@ -182,7 +182,10 @@ try {
       const frontend = run('pnpm', ['exec', 'nuxt', 'dev', '--host', '0.0.0.0', '--port', config.LLLL_FRONTEND_PORT, '--dotenv', resolve(directory, 'frontend.env')], { env: frontendEnv })
       const backend = run('node', ['scripts/dev-backend.mjs'], { env: { ...process.env, NODE_ENV: 'production', LLLL_CLIENT_MODE: 'web', LLLL_STATIC_CLIENT: 'false', LLLL_DEV_PROXY_ORIGIN: '' } })
       const jobs = [frontend, backend]
-      if (!values['no-shell']) jobs.push(run('node', ['scripts/dev-shell.mjs']))
+      if (!values['no-shell']) jobs.push(run('node', ['scripts/dev-shell.mjs'], {
+        // The Shell gets its own stable key, never the Server's credentials.
+        env: { ...process.env, LLLL_SHELL_ORIGIN: config.LLLL_SHELL_ORIGIN, AUTH_SECRET: createHash('sha256').update('llll-local-shell\0').update(config.AUTH_SECRET).digest('hex') },
+      }))
       // Observe failures immediately, including those during the initial build.
       for (const job of jobs) job.catch(error => { if (!closing) { console.error(error.message); void shutdown().then(() => process.exit(1)) } })
       await waitFor(() => existsSync(resolve(directory, 'backend/.build.json')), 'the backend compiler')
