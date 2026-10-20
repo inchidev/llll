@@ -10,7 +10,40 @@ beforeEach(() => {
   vi.stubGlobal('computed', computed)
   vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin)
 })
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; localStorage.clear() })
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; localStorage.clear() })
+
+it('allows a retry if activation stalls and rechecks unsaved work before a delayed reload', async () => {
+  vi.useFakeTimers()
+  const handlers = new Map<string, () => void>()
+  const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
+  const postMessage = vi.fn()
+  const worker = { postMessage, addEventListener: vi.fn() }
+  vi.stubGlobal('navigator', { serviceWorker: { register: vi.fn(async () => ({ waiting: worker, addEventListener: vi.fn() })), addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const result = plugin({ hook: vi.fn() } as never)!
+  await Promise.resolve(); await Promise.resolve()
+  const pwa = result.provide.pwa
+  pwa.update()
+  expect(pwa.updating.value).toBe(true)
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(pwa.updating.value).toBe(false)
+  expect(pwa.error.value).toMatch(/try again/i)
+  pwa.update()
+  expect(postMessage).toHaveBeenCalledTimes(2)
+  const blocker = document.createElement('div')
+  blocker.dataset.updateBlocked = 'true'; document.body.append(blocker)
+  const ownAction = document.createElement('button')
+  ownAction.dataset.clientUpdateAction = ''
+  ownAction.setAttribute('aria-busy', 'true')
+  document.body.append(ownAction)
+  handlers.get('controllerchange')!()
+  expect(reload).not.toHaveBeenCalled()
+  expect(pwa.updating.value).toBe(false)
+  expect(pwa.waiting.value).toBe(true)
+  blocker.remove()
+  pwa.update()
+  expect(reload).toHaveBeenCalledOnce()
+})
 
 it('notices an update that was already installing when registration resolved', async () => {
   let installed!: () => void
@@ -33,7 +66,7 @@ it.each([false, true])('offers a waiting update in the web Client (embedded=%s)'
   const postMessage = vi.fn()
   const handlers = new Map<string, () => void>()
   const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
-  const register = vi.fn(async () => ({ waiting: { postMessage }, addEventListener: vi.fn() }))
+  const register = vi.fn(async () => ({ waiting: { postMessage, addEventListener: vi.fn() }, addEventListener: vi.fn() }))
   vi.stubGlobal('navigator', { serviceWorker: { register, addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
   const plugin = (await import('../../app/plugins/pwa.client')).default
   const result = plugin({ hook: vi.fn() } as never)!

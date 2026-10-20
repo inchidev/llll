@@ -26,7 +26,8 @@ self.addEventListener('activate', event => {
   })())
 })
 self.addEventListener('message', event => {
-  if (event.data?.type === 'ACTIVATE_UPDATE') event.waitUntil(self.skipWaiting())
+  // Request activation independently of this message's lifetime.
+  if (event.data?.type === 'ACTIVATE_UPDATE') void self.skipWaiting()
 })
 self.addEventListener('fetch', event => {
   const request = event.request, url = new URL(request.url)
