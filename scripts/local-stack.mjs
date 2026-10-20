@@ -131,12 +131,13 @@ async function shutdown() {
   for (const child of children) {
     try { process.kill(-child.pid, 'SIGTERM') } catch { /* Already exited. */ }
   }
-  if (ownsLock) { unlinkSync(lockFile); ownsLock = false }
-  if (!managesContainers) return
+  const unlock = () => { if (ownsLock) { unlinkSync(lockFile); ownsLock = false } }
+  if (!managesContainers) { unlock(); return }
   // Stop only services started by this invocation. A second dev command that
   // fails its port preflight must not stop the already running Server.
   const stopped = spawnSync('docker', [...composeArgs, 'stop'], { cwd: root, env, stdio: 'inherit', timeout: 55000 })
   if (stopped.status !== 0) console.error('Could not stop the local stack; run pnpm stack -- stop.')
+  unlock()
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
   if (command === 'dev') { void shutdown().then(() => process.exit(0)); return }
