@@ -88,6 +88,15 @@ if (!config) {
   if (values['shell-port'] && Number(values['shell-port']) !== Number(new URL(config.LLLL_SHELL_ORIGIN).port)) throw new Error('The Shell port is persisted in the local env file.')
 }
 const modeFile = resolve(directory, 'mode')
+const lockFile = resolve(directory, 'dev.pid')
+function developmentRunning() {
+  if (!existsSync(lockFile)) return false
+  const pid = Number(readFileSync(lockFile, 'utf8'))
+  if (!Number.isInteger(pid) || pid < 1) throw new Error('Invalid local dev.pid; inspect the local stack before removing it.')
+  try { process.kill(pid, 0); return true }
+  catch (error) { if (error.code === 'ESRCH') return false; throw error }
+}
+if (command === 'up' && developmentRunning()) throw new Error('Stop the foreground dev:stack command before changing modes.')
 const mode = command === 'dev' ? 'dev' : command === 'up' ? 'build' : existsSync(modeFile) ? readFileSync(modeFile, 'utf8').trim() : 'build'
 const composeArgs = ['--context', context, 'compose', '--project-name', config.LLLL_PROJECT, '--env-file', envFile,
   '-f', resolve(root, 'self-host/docker-compose.yml'),
@@ -98,6 +107,7 @@ const env = { ...process.env, ...config, LLLL_ENV_FILE: envFile, LLLL_IMAGE: val
 const children = new Set()
 let closing = false
 let managesContainers = false
+let ownsLock = false
 function run(executable, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: root, env, stdio: 'inherit', detached: true, ...options })
@@ -121,6 +131,7 @@ async function shutdown() {
   for (const child of children) {
     try { process.kill(-child.pid, 'SIGTERM') } catch { /* Already exited. */ }
   }
+  if (ownsLock) { unlinkSync(lockFile); ownsLock = false }
   if (!managesContainers) return
   // Stop only services started by this invocation. A second dev command that
   // fails its port preflight must not stop the already running Server.
@@ -140,6 +151,10 @@ try {
   } else {
     writeFileSync(modeFile, mode, { mode: 0o600 })
     if (command === 'dev') {
+      if (developmentRunning()) throw new Error('This worktree already has a running dev:stack command.')
+      if (existsSync(lockFile)) unlinkSync(lockFile)
+      writeFileSync(lockFile, String(process.pid), { mode: 0o600, flag: 'wx' })
+      ownsLock = true
       await freePort(Number(config.LLLL_FRONTEND_PORT))
       if (!values['no-shell']) await freePort(Number(new URL(config.LLLL_SHELL_ORIGIN).port))
       // An empty dotenv file prevents a checkout's personal .env being loaded
