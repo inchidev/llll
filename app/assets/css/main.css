@@ -19,6 +19,10 @@
   background-color: var(--ui-bg-accented);
 }
 
+/* A sticky save bar already leaves its own bottom gap. Pane padding must not
+   push it a second time above the viewport, especially on phones. */
+.l4-settings-pane:has(.l4-save-bar) { padding-bottom: 0; }
+
 html, body, #__nuxt {
   height: 100%;
 }

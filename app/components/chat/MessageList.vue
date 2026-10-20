@@ -635,7 +635,7 @@ defineExpose({ focusMessage })
               <div class="flex-1 border-t" :class="unreadBoundary === m.id ? 'border-error/70' : 'border-default'" />
               <span class="px-2 text-xs font-semibold text-muted">{{ formatDayLabel(m.createdAt) }}</span>
               <div class="flex-1 border-t" :class="unreadBoundary === m.id ? 'border-error/70' : 'border-default'" />
-              <span v-if="unreadBoundary === m.id" class="rounded-sm bg-error px-1 text-[10px] font-bold uppercase leading-4 text-inverted">New</span>
+              <span v-if="unreadBoundary === m.id" class="rounded-sm bg-error px-1 text-[11px] font-bold uppercase leading-4 text-inverted">New</span>
             </div>
             <div
               v-else-if="unreadBoundary === m.id"
@@ -643,7 +643,7 @@ defineExpose({ focusMessage })
               role="separator"
               aria-label="New messages"
             >
-              <span class="absolute end-0 -top-2 rounded-sm bg-error px-1 text-[10px] font-bold uppercase leading-4 text-inverted">New</span>
+              <span class="absolute end-0 -top-2 rounded-sm bg-error px-1 text-[11px] font-bold uppercase leading-4 text-inverted">New</span>
             </div>
             <ChatMessageItem
               :id="`message-${m.id}`"

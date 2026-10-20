@@ -33,7 +33,7 @@ const activeId = computed(() => String(route.query.gadget || '') || gadgets.valu
           <template #leading><UIcon name="i-ph-app-window" class="size-[18px] shrink-0 text-dimmed" /></template>
           {{ gadget.name }}
           <template #trailing>
-            <span v-if="!gadget.publishedVersion" class="shrink-0 text-[10px] uppercase tracking-wide text-dimmed">Draft</span>
+            <span v-if="!gadget.publishedVersion" class="shrink-0 text-[11px] uppercase tracking-wide text-dimmed">Draft</span>
           </template>
         </LayoutNavRow>
       </li>
