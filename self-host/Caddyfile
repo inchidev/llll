@@ -1,0 +1,3 @@
+{$LLLL_SITE_ADDRESS} {
+  reverse_proxy llll:8080
+}

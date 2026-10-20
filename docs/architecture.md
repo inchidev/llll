@@ -104,6 +104,7 @@ Replies in that DM Thread keep addressing the same Agent without another mention
 
 ## Local vs production
 
+- `pnpm dev:stack` — standalone celld/RustFS Server, Caddy, Client HMR and a local Shell, with persistent per-worktree state. See [local development](local-development.md).
 - `pnpm dev` — Nuxt development server with locally simulated Cloudflare bindings.
 - `pnpm dev:full` — built Worker in local Wrangler, including WebSockets and Durable Object hibernation.
 - Browser Run in local Wrangler uses the remote binding.

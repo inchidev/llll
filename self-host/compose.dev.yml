@@ -1,0 +1,21 @@
+services:
+  llll:
+    image: ${LLLL_PROJECT:-llll}-dev:celld-0.6.2
+    build:
+      context: ..
+      dockerfile: self-host/Dockerfile
+      target: development
+    volumes:
+      - ../.deployment/dev-stack/backend:/opt/llll/.output:ro
+      - ../wrangler.celld.json:/opt/llll/wrangler.celld.json:ro
+      - ../drizzle/server-migrations:/opt/llll/drizzle/server-migrations:ro
+    environment:
+      LLLL_DEV_RELOAD: "true"
+  gateway:
+    environment:
+      LLLL_FRONTEND_PORT: ${LLLL_FRONTEND_PORT:?set LLLL_FRONTEND_PORT}
+      LLLL_SHELL_ORIGIN: ${LLLL_SHELL_ORIGIN:?set LLLL_SHELL_ORIGIN}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro

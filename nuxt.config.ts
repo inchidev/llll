@@ -13,6 +13,7 @@ const devProxyOrigin = process.env.LLLL_DEV_PROXY_ORIGIN
   ? new URL(process.env.LLLL_DEV_PROXY_ORIGIN).origin
   : null
 const remoteFrontend = Boolean(devProxyOrigin && process.env.NODE_ENV === 'development')
+const stackFrontend = process.env.LLLL_DEV_STACK === 'true' && process.env.NODE_ENV === 'development'
 const rawSqlPlugin = {
   name: 'llll-raw-sql',
   async load(id: string) {
@@ -23,6 +24,10 @@ const rawSqlPlugin = {
 }
 
 export default defineNuxtConfig({
+  ...(stackFrontend ? {
+    buildDir: '.deployment/dev-stack/nuxt-client',
+    serverDir: '.deployment/dev-stack/frontend-server',
+  } : {}),
   compatibilityDate: '2026-10-16',
   ssr: false,
   devtools: { enabled: false },
@@ -63,7 +68,7 @@ export default defineNuxtConfig({
     entry: process.env.NODE_ENV === 'development' ? undefined : './cloudflare-entry.ts',
     alias: llllNodeAliases,
     rollupConfig: {
-      plugins: [rawSqlPlugin, ...llllNitroPlugins()],
+      plugins: [rawSqlPlugin, ...(stackFrontend ? [] : llllNitroPlugins())],
     },
     errorHandler: './server/error',
     ...(remoteFrontend
@@ -109,6 +114,10 @@ export default defineNuxtConfig({
       include: ['@cloudflare/realtimekit'],
     },
     server: {
+      ...(stackFrontend ? {
+        origin: process.env.LLLL_DEV_PROXY_ORIGIN,
+        ws: { clientPort: Number(new URL(process.env.LLLL_DEV_PROXY_ORIGIN!).port) },
+      } : {}),
       allowedHosts: [
         'localhost',
         '127.0.0.1',

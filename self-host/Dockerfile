@@ -24,16 +24,14 @@ COPY . .
 # `pnpm build` pins NODE_OPTIONS to 4096. Call nuxt with the stage env so this
 # image build keeps the 6144 MiB heap.
 RUN pnpm install --frozen-lockfile \
-    && pnpm build \
-    && mkdir -p /out \
-    && esbuild_bin="$(find node_modules -path '*/@esbuild/*/bin/esbuild' -print | head -n 1)" \
-    && test -n "$esbuild_bin" \
-    && cp -L "$esbuild_bin" /out/esbuild \
-    && chmod 755 /out/esbuild
+    && pnpm build
 
 FROM ghcr.io/denoland/celld:${CELLD_VERSION} AS celld
 
-FROM debian:bookworm-slim
+FROM node:${NODE_VERSION}-bookworm-slim AS tools
+RUN npm install --prefix /tools --no-audit --no-fund esbuild@0.25.9
+
+FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl jq tini \
@@ -41,12 +39,11 @@ RUN apt-get update \
     && mkdir -p /opt/llll /var/lib/llll/celld
 
 COPY --from=celld /usr/local/bin/celld /usr/local/bin/celld
-COPY --from=build /out/esbuild /usr/local/bin/esbuild
-COPY --from=build /src/.output /opt/llll/.output
-COPY --from=build /src/drizzle/server-migrations /opt/llll/drizzle/server-migrations
-COPY --from=build /src/wrangler.celld.json /opt/llll/wrangler.celld.json
+COPY --from=tools /tools/node_modules/@esbuild /tmp/esbuild
+RUN cp /tmp/esbuild/*/bin/esbuild /usr/local/bin/esbuild && rm -rf /tmp/esbuild
 COPY self-host/entrypoint.sh /usr/local/bin/llll-entrypoint
 COPY self-host/healthcheck.sh /usr/local/bin/llll-healthcheck
+COPY self-host/dev-reload.sh /usr/local/bin/llll-dev-reload
 
 RUN chmod 755 /usr/local/bin/llll-entrypoint /usr/local/bin/llll-healthcheck /usr/local/bin/esbuild /usr/local/bin/celld
 
@@ -66,3 +63,12 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=240s --retries=12 \
     CMD /usr/local/bin/llll-healthcheck
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/llll-entrypoint"]
+
+# Source and compiler output are mounted by compose.dev.yml. No Node/Vite or
+# application build is required in the runtime container.
+FROM runtime AS development
+
+FROM runtime AS application
+COPY --from=build /src/.output /opt/llll/.output
+COPY --from=build /src/drizzle/server-migrations /opt/llll/drizzle/server-migrations
+COPY --from=build /src/wrangler.celld.json /opt/llll/wrangler.celld.json

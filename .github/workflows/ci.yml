@@ -102,6 +102,48 @@ jobs:
           pnpm test:server
           node scripts/test-web.mjs
 
+  local-stack:
+    name: local-stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start an isolated standalone development Server
+        run: |
+          node scripts/local-stack.mjs dev --no-shell --port 38080 --frontend-port 38081 --shell-port 38082 > "$RUNNER_TEMP/local-stack.log" 2>&1 &
+          echo "LLLL_DEV_PID=$!" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 180); do
+            if curl -fsS http://localhost:38080/.well-known/llll >/dev/null 2>&1; then exit 0; fi
+            if ! kill -0 "$!" 2>/dev/null; then cat "$RUNNER_TEMP/local-stack.log"; exit 1; fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/local-stack.log"
+          exit 1
+      - name: Verify source reload and standalone transport with independent storage
+        run: pnpm test:stack
+      - name: Show development startup logs
+        if: failure()
+        run: cat "$RUNNER_TEMP/local-stack.log" || true
+      - name: Stop development processes and retain no running services
+        if: always()
+        run: |
+          if [ -n "${LLLL_DEV_PID:-}" ]; then
+            kill -TERM "$LLLL_DEV_PID" 2>/dev/null || true
+            for attempt in $(seq 1 30); do
+              if ! kill -0 "$LLLL_DEV_PID" 2>/dev/null; then break; fi
+              sleep 1
+            done
+          fi
+          if [ -f .deployment/dev-stack/.env ]; then node scripts/local-stack.mjs down; fi
+
   self-host:
     name: self-host
     runs-on: ubuntu-latest

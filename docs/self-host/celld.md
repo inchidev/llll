@@ -2,7 +2,7 @@
 
 L4 runs as one Nuxt Worker. On Cloudflare that Worker uses Workers AI, Browser Rendering, Email Routing, and RealtimeKit when you bind them. [celld](https://celld.dev) (and other Workers runtimes with D1, KV, R2, and Durable Objects) can run the same build. This page is the celld path. It was exercised on celld 0.6.2 with [RustFS](https://github.com/rustfs/rustfs) as the S3 bucket.
 
-For one VPS, [self-host/README.md](../../self-host/README.md) builds this application and runs that node under Docker Compose. `docker compose up -d` from `self-host/` is that path. The rest of this page is the same deployment without Docker.
+For one machine, [self-host/README.md](../../self-host/README.md) runs that node under the shared Docker Compose, using a verified loaded image or the explicit source-build override. `pnpm dev:stack` provides [local development](../local-development.md) with Client HMR. The rest of this page is the same deployment without Docker.
 
 celld does not implement Workers AI, Browser Rendering, or Email Workers. It also rejects Wrangler keys that depend on Cloudflare's network, including `ai`, `browser`, `routes`, `placement`, `observability`, and `preview_urls`. `wrangler.celld.json` is `wrangler.jsonc` with those keys removed and with placeholder names only. Replace every placeholder before you deploy. Do not reuse another server's database id, KV id, or hostname.
 

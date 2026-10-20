@@ -1,6 +1,6 @@
-# One celld node and the RustFS bucket it uses.
-# Copy .env.example to .env first. `docker compose up -d` builds and starts this file.
-name: llll
+# Shared standalone Server. Supply an image, or add compose.build.yml/compose.dev.yml.
+# A project name scopes every network and volume; never use a shared fleet bucket.
+name: ${LLLL_PROJECT:-llll}
 
 services:
   rustfs-perms:
@@ -71,10 +71,8 @@ services:
         exit 1
 
   llll:
-    build:
-      context: ..
-      dockerfile: self-host/Dockerfile
-    image: llll:local
+    image: ${LLLL_IMAGE:-llll:local}
+    pull_policy: never
     restart: always
     stop_grace_period: 50s
     depends_on:
@@ -83,7 +81,7 @@ services:
       rustfs:
         condition: service_healthy
     env_file:
-      - path: .env
+      - path: ${LLLL_ENV_FILE:-.env}
         required: true
     environment:
       # Coolify can inject these. Plain Compose leaves them empty and uses .env.
@@ -104,8 +102,7 @@ services:
       CELLD_WATCH: /var/lib/llll/celld
       CELLD_DURABILITY: bucket
       CELLD_READY_FLEET_GATE_MS: "0"
-    ports:
-      - "${LLLL_BIND:-127.0.0.1}:${LLLL_PUBLISH_PORT:-8080}:8080"
+      RUST_LOG: ${RUST_LOG:-warn}
     volumes:
       - celld-data:/var/lib/llll/celld
     healthcheck:
@@ -115,6 +112,23 @@ services:
       retries: 12
       start_period: 240s
 
+  gateway:
+    image: caddy:2.11.2-alpine
+    restart: unless-stopped
+    depends_on:
+      llll:
+        condition: service_healthy
+    environment:
+      LLLL_SITE_ADDRESS: ${LLLL_SITE_ADDRESS:-http://:80}
+    ports:
+      - "${LLLL_BIND:-127.0.0.1}:${LLLL_HTTP_PORT:-${LLLL_PUBLISH_PORT:-8080}}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   rustfs-data:
   celld-data:
+  caddy-data:
+  caddy-config:

@@ -1,6 +1,6 @@
 # Self-host with Docker
 
-One command runs L4 on a single [celld](https://celld.dev) node. [RustFS](https://github.com/rustfs/rustfs) is the S3 bucket for that node. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
+The common Compose runs L4 on a single [celld](https://celld.dev) node, with private [RustFS](https://github.com/rustfs/rustfs) storage and a Caddy gateway. For convenient local development from the repository root, use `pnpm dev:stack`; see [local development](../docs/local-development.md). The VPS installer will reuse this stack in a later change. The same deployment without Docker is [Self-host on celld](../docs/self-host/celld.md).
 
 celld 0.6.2 has no secrets store. On startup the container writes `self-host/.env` into a gitignored `wrangler.celld.local.json` and `celld deploy` stores that `vars` object in the bucket as plaintext. Keep the RustFS volume private. Do not publish port 9000.
 
@@ -14,10 +14,13 @@ From this directory:
 cp .env.example .env
 openssl rand -hex 32   # use one value for AUTH_SECRET and another for SETUP_TOKEN
 # edit .env: PUBLIC_ORIGIN, AUTH_SECRET, ADMIN_EMAIL, SETUP_TOKEN, RustFS keys
-docker compose up -d
+# Local source build:
+docker compose -f docker-compose.yml -f compose.build.yml up -d --build --wait
+# Or set LLLL_IMAGE=llll:<version> in .env after loading a verified release:
+# docker compose up -d --wait
 ```
 
-The app listens on `127.0.0.1:8080`. The container stays unhealthy until `celld d1 migrations apply` finishes, then `http://127.0.0.1:8080/api/setup/health` returns HTTP 200. On celld the app does not create tables itself. A request that applied the bundled schema would leave those tables out of `d1_migrations`, and the next apply would stop on `table already exists`.
+Caddy listens on `127.0.0.1:8080` (`LLLL_HTTP_PORT` changes the host port). Neither celld nor RustFS publishes a host port. The app container stays unhealthy until `celld d1 migrations apply` finishes; Caddy starts after that, and `http://127.0.0.1:8080/api/setup/health` returns HTTP 200. On celld the app does not create tables itself. A request that applied the bundled schema would leave those tables out of `d1_migrations`, and the next apply would stop on `table already exists`.
 
 Then open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser.
 
@@ -29,7 +32,7 @@ RustFS is not published to the host. One Docker volume holds the fleet bucket.
 
 ## Reverse proxy and TLS
 
-Leave L4 bound to loopback and terminate TLS in front of it. Set `PUBLIC_ORIGIN` to the public origin, then recreate:
+The included gateway defaults to local HTTP. For public use, leave it bound to loopback and terminate TLS in front of it. Set `PUBLIC_ORIGIN` to the public HTTPS origin, then recreate:
 
 ```bash
 docker compose up -d
@@ -59,26 +62,21 @@ server {
 }
 ```
 
-To listen on every interface instead of loopback, set `LLLL_BIND=0.0.0.0` in `.env`. Put the proxy on a private network if you do that.
+To expose the gateway on every interface instead of loopback, set `LLLL_BIND=0.0.0.0` in `.env`. Configure public TLS before inviting anyone. Container-managed public TLS and its installation flow are follow-up work.
 
 ## Upgrade
 
-From this directory, with the stack already created:
+Take and verify a private backup first. Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then run `docker load --input llll-runtime-linux-amd64.tar.gz`. It loads `llll:<version>` locally. Set `LLLL_IMAGE=llll:<version>` in `.env`, then run `docker compose up -d --wait`. The common Compose has no build block and uses `pull_policy: never`. The published image is currently `linux/amd64`; local source/development builds use the Docker host's native architecture.
 
-```bash
-git pull
-docker compose up -d --build
-```
-
-The new container deploys the image it was built from and runs `celld d1 migrations apply <database_name>` again. Migrations that are already recorded are skipped. Expect a short outage while the single node restarts.
-
-Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then run `docker load --input llll-runtime-linux-amd64.tar.gz`. It loads `llll:<version>` locally. Set that exact image in Compose, remove the `build` block and use `pull_policy: never`. The image is `linux/amd64`; other architectures build from the Dockerfile. See [deployment](../docs/deployment.md#vps-docker-compose-and-coolify) for the prebuilt multi-server path.
+The new container deploys that image and runs `celld d1 migrations apply <database_name>` again. Recorded migrations are skipped. Expect a short outage while the single node restarts. Automatic backup, upgrade and rollback commands are not implemented yet. For local source verification only, use the `compose.build.yml` override with `--build`.
 
 Do not change `AUTH_SECRET` during an upgrade. It signs sessions, and backup credentials stored by the app are encrypted with it.
 
 ## Backup
 
 Stop the stack, then copy both volumes and `.env`:
+
+The names below assume the raw Compose project `llll`. The local launcher prints its per-worktree project name in `pnpm stack -- status`; use that prefix for its volumes instead. Keep backup archives outside these live volumes and preserve them when removing a Server.
 
 ```bash
 docker compose stop

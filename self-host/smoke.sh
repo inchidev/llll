@@ -9,23 +9,24 @@ if [ ! -f .env ]; then
 fi
 
 port="${LLLL_PUBLISH_PORT:-8080}"
+compose() { docker compose -f docker-compose.yml -f compose.build.yml "$@"; }
 
-if ! docker compose up -d --build; then
-  docker compose logs --no-color >&2 || true
+if ! compose up -d --build; then
+  compose logs --no-color >&2 || true
   exit 1
 fi
 
 deadline=$(( $(date +%s) + 600 ))
-until docker compose logs llll 2>&1 | grep -q "migrations apply .* finished"; do
-  state=$(docker compose ps --all --format '{{.Service}} {{.State}}' | awk '$1 == "llll" { print $2; exit }')
+until compose logs llll 2>&1 | grep -q "migrations apply .* finished"; do
+  state=$(compose ps --all --format '{{.Service}} {{.State}}' | awk '$1 == "llll" { print $2; exit }')
   if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
     echo "llll exited before migrations finished" >&2
-    docker compose logs --no-color >&2 || true
+    compose logs --no-color >&2 || true
     exit 1
   fi
   if [ "$(date +%s)" -ge "$deadline" ]; then
     echo "migrations did not finish" >&2
-    docker compose logs --no-color >&2 || true
+    compose logs --no-color >&2 || true
     exit 1
   fi
   sleep 5
@@ -36,6 +37,6 @@ code=$(curl -sS -o "$body" -w '%{http_code}' "http://127.0.0.1:${port}/api/setup
 echo "health HTTP ${code}"
 if [ "$code" != "200" ]; then
   cat "$body" >&2 || true
-  docker compose logs --no-color >&2 || true
+  compose logs --no-color >&2 || true
   exit 1
 fi

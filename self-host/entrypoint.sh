@@ -21,8 +21,10 @@ export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 
 celld_pid=
+reload_pid=
 
 stop_celld() {
+  if [ -n "$reload_pid" ]; then kill -TERM "$reload_pid" 2>/dev/null || true; fi
   if [ -n "$celld_pid" ]; then
     kill -TERM "$celld_pid" 2>/dev/null || true
   fi
@@ -150,6 +152,16 @@ if [ -n "${DATABASE_NAME:-}" ]; then
 fi
 
 chmod 600 "$CONFIG"
+if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
+  LLLL_DEV_DEPLOYED_BUILD=$(cat /opt/llll/.output/.build.json)
+  build_directory=$(printf '%s' "$LLLL_DEV_DEPLOYED_BUILD" | jq -r '.directory')
+  case "$build_directory" in build-[0-9]*) ;; *) fail "missing completed backend build" ;; esac
+  tmp=$(mktemp)
+  jq --arg dir ".output/$build_directory" \
+    '.main=($dir+"/server/index.mjs") | .assets.directory=($dir+"/public")' "$CONFIG" > "$tmp"
+  mv "$tmp" "$CONFIG"
+  export LLLL_DEV_DEPLOYED_BUILD
+fi
 DATABASE_NAME=$(jq -r '.d1_databases[0].database_name' "$CONFIG")
 if [ -z "$DATABASE_NAME" ] || [ "$DATABASE_NAME" = "null" ]; then
   fail "wrangler config has no d1 database_name"
@@ -172,6 +184,7 @@ celld deploy "$CONFIG" \
   --region "$AWS_REGION"
 
 mkdir -p "$CELLD_WATCH"
+rm -f "${CELLD_WATCH}/.migrations-applied"
 if [ -f "$CELLD_WATCH/.node-started" ]; then
   echo "llll: waiting ${CELLD_RESTART_DELAY}s so a fenced node lease can expire"
   sleep "$CELLD_RESTART_DELAY"
@@ -206,6 +219,12 @@ do
 done
 touch "${CELLD_WATCH}/.migrations-applied"
 echo "llll: celld d1 migrations apply ${DATABASE_NAME} finished"
+
+if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
+  export CELLD_CONFIG="$CONFIG" DATABASE_NAME CELLD_BUCKET CELLD_INTERNAL_LISTEN
+  sh /usr/local/bin/llll-dev-reload &
+  reload_pid=$!
+fi
 
 set +e
 wait "$celld_pid"

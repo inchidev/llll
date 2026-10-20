@@ -22,7 +22,9 @@ Application code may only deploy in Workers Builds from Git. Local Wrangler is l
 
 ## VPS / celld
 
-Use `self-host/docker-compose.yml` or the Coolify standalone template with the portable image from a verified release. Configure `PUBLIC_ORIGIN`, `AUTH_SECRET`, `ADMIN_EMAIL`, private `SETUP_TOKEN` and persistent storage credentials in ignored/private operator configuration. Place TLS in front of celld, open `/setup#claim=…`, set the owner password and invite another person.
+`self-host/docker-compose.yml` is the common celld/RustFS/Caddy stack. It runs an already loaded portable image; `compose.build.yml` adds a local source build and `compose.dev.yml` adds source watching and Client HMR. See [self-host setup](../self-host/README.md) and [local development](local-development.md). A one-command VPS installer is follow-up work. The Coolify standalone template uses Coolify's own proxy instead.
+
+Configure `PUBLIC_ORIGIN`, `AUTH_SECRET`, `ADMIN_EMAIL`, private `SETUP_TOKEN` and persistent storage credentials in ignored/private operator configuration. Configure public TLS before inviting users; the local launcher defaults to loopback HTTP. Open `/setup#claim=…`, set the owner password and invite another person.
 
 Keep each Server's D1, files and DO state separate. Preserve its original encryption secret and storage across restarts and updates. Operator Docker/SSH credentials do not enter the Client. Verify transport and browser behavior on celld separately from Cloudflare.
 

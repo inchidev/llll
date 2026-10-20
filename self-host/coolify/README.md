@@ -1,6 +1,6 @@
 # Coolify operator template
 
-This is an advanced standalone-Server template, not a published one-click catalog entry. The normal multi-server entry point is the private Compose generator in [deployment](../../docs/deployment.md#vps-docker-compose-and-coolify). VPS/celld remains experimental pending its browser/transport acceptance.
+This is an advanced standalone-Server template, not a published one-click catalog entry. For the shared Compose and local development flow see [self-host setup](../README.md) and [local development](../../docs/local-development.md). VPS/celld transport must be verified separately from Cloudflare; the VPS installer is follow-up work.
 
 1. Download the intended release's `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS` on the Coolify host. Verify the archive, then load it with `docker load --input llll-runtime-linux-amd64.tar.gz`.
 2. Create a Docker Compose resource using `docker-compose.yaml`. Set `LLLL_VERSION` to the exact loaded version, such as `0.1.0-alpha.1`, without `v`. The template uses the local image and does not pull a registry tag.

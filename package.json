@@ -12,6 +12,8 @@
     "generate:native": "node scripts/generate-native.mjs native",
     "generate:extension": "node scripts/generate-native.mjs extension",
     "dev": "nuxt dev",
+    "dev:stack": "node scripts/local-stack.mjs dev",
+    "stack": "node scripts/local-stack.mjs",
     "dev:remote": "node scripts/dev-remote.mjs --",
     "dev:full": "pnpm db:migrate:local && pnpm build && wrangler dev .output/server/index.mjs --assets .output/public -c wrangler.dev.jsonc --port 3000",
     "preview": "nuxt build && wrangler dev",
@@ -51,6 +53,7 @@
     "web:preview": "node scripts/web-deploy.mjs preview",
     "web:deploy": "node scripts/web-deploy.mjs production",
     "test:server": "node scripts/test-server.mjs",
+    "test:stack": "node scripts/test-local-stack.mjs",
     "model:check": "node scripts/check-server-model.mjs"
   },
   "cloudflare": {
@@ -238,6 +241,7 @@
     "eslint": "^10.9.1",
     "happy-dom": "^20.13.1",
     "miniflare": "5.20260926.0-alpha",
+    "nitropack": "2.13.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.2",
     "vitest": "^4.1.11",

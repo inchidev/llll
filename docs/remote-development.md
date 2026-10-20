@@ -1,5 +1,9 @@
 # Remote development
 
+For an entirely local standalone Server with Client and Shell hot reload, use
+`pnpm dev:stack`; see [local development](local-development.md). The remote mode
+below is useful when intentionally working against a separate deployed Server.
+
 Use one command, `pnpm dev:remote`, to run the local Nuxt frontend against a
 standalone L4 server using local authentication. Personal hostnames and
 deployment resource identifiers belong in ignored local configuration, never
