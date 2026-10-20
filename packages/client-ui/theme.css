@@ -81,6 +81,13 @@
   background: var(--ui-bg-inverted);
 }
 
+/* Keep phone text entry legible and avoid focus zoom on iOS. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"]), textarea, select {
+    font-size: 1rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto !important; }
   *, ::before, ::after {

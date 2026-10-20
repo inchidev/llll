@@ -112,13 +112,6 @@ const maskedEmail = computed(() => {
   return `${name[0]}${'*'.repeat(Math.max(name.length - 1, 4))}@${domain}`
 })
 
-const bannerStyle = computed(() => {
-  const id = session.user?.id || ''
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * (i + 1)) % 360
-  return { backgroundColor: `hsl(${h} 48% 38%)` }
-})
-
 const theme = computed({
   get: () => colorMode.preference || 'dark',
   set: (v: string) => { colorMode.preference = v },
@@ -286,7 +279,7 @@ async function logout() {
     <template v-if="section === 'account'">
       <h1 class="text-xl font-semibold text-highlighted mb-5">My Account</h1>
       <div class="rounded-lg overflow-hidden bg-elevated ring ring-default">
-        <div class="h-[100px]" :style="bannerStyle" />
+        <div class="h-[100px] bg-accented" />
         <div class="relative px-4 pb-4">
           <button
             type="button"
@@ -420,7 +413,7 @@ async function logout() {
         <div>
           <p class="text-[11px] font-bold uppercase tracking-wide text-muted mb-2">Preview</p>
           <div class="rounded-lg overflow-hidden bg-elevated ring ring-default">
-            <div class="h-20" :style="bannerStyle" />
+            <div class="h-20 bg-accented" />
             <div class="px-4 pb-4">
               <div class="rounded-full ring-8 ring-[var(--ui-bg-elevated)] -mt-8 w-fit">
                 <UserAvatar v-if="previewUser" :user="previewUser" size="xl" />
