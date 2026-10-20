@@ -111,6 +111,15 @@ it('never recovers a different Server’s installer claim', async () => {
   expect(frameClaim(shell)).toBe('')
 })
 
+it('recovers an earlier setup handoff while a second Server is being deployed', async () => {
+  bookmark()
+  installer.mockResolvedValue({ completed: false, deployments: [{ origin, claim: origin + '/setup#claim=' + claim }] })
+  const shell = useShell()
+  shell.initialize()
+  await shell.resolveServer()
+  expect(frameClaim(shell)).toBe('#claim=' + claim)
+})
+
 it('reloads an already open Client at setup when the claim arrives later', async () => {
   installer.mockRejectedValue(new Error('No installer session'))
   const shell = useShell()

@@ -231,6 +231,7 @@
     "@resvg/resvg-js": "^2.6.2",
     "@types/html-to-text": "9.0.4",
     "@types/node": "^24.19.0",
+    "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "^2.5.0",
     "drizzle-kit": "^0.31.10",
     "esbuild": "0.25.9",

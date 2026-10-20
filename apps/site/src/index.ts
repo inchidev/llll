@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
 import { advanceDeployment, cloudflare, deploymentBuildTokens, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
-import { webSession, digest } from './session'
+import { webSession, digest, clearDeployment } from './session'
 import type { WebEnv } from './env'
+import { listL4Servers } from '../../../packages/deployment-core/src/servers'
 
 function fail(status: number, message: string): never { throw Object.assign(new Error(message), { status }) }
 function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } }) }
@@ -77,7 +78,6 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     await rateLimit(request, env)
     const session = await webSession(request, env, true)
     if (session.data.worker && !session.data.completed && url.searchParams.get('resume') !== '1') fail(409, 'Resume your current deployment before starting another')
-    if (session.data.completed) for (const key of Object.keys(session.data)) Reflect.deleteProperty(session.data, key)
     session.data.state = randomCode(); session.data.verifier = randomCode(); delete session.data.error
     await session.save()
     const target = new URL(CLOUDFLARE_AUTH_URL)
@@ -96,7 +96,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare', 303)
     }
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
-    if (session.data.accountId) {
+    if (session.data.accountId && !session.data.completed) {
       const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
       if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this server') }
     }
@@ -105,13 +105,35 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   }
   if (path === '/api/deploy/session') {
     const session = await webSession(request, env); const data = session.data
-    const accounts = data.grant && !data.worker ? await cloudflare<{ id: string; name: string }[]>(data.grant.accessToken, '/accounts') : []
-    return json({ authorized: Boolean(data.grant), accounts: accounts.map(a => ({ id: a.id, name: a.name })), step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined })
+    let authorized = Boolean(data.grant && data.grant.expiresAt > Date.now())
+    let accounts: { id: string; name: string }[] = []
+    if (authorized) {
+      try { accounts = await cloudflare(data.grant!.accessToken, '/accounts') }
+      catch (error) {
+        if (!error || typeof error !== 'object' || !('status' in error) || ![401, 403].includes(Number(error.status))) throw error
+        delete data.grant; authorized = false; await session.save()
+      }
+    }
+    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })) })
+  }
+  if (path === '/api/deploy/servers' && request.method === 'GET') {
+    const session = await webSession(request, env)
+    const grant = session.data.grant
+    if (!grant || grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare to refresh your Servers')
+    const accountId = z.string().regex(/^[a-f0-9]{32}$/).parse(url.searchParams.get('accountId'))
+    const accounts = await cloudflare<{ id: string }[]>(grant.accessToken, '/accounts')
+    if (!accounts.some(account => account.id === accountId)) fail(403, 'Choose an account authorized by Cloudflare')
+    const servers = await listL4Servers(grant.accessToken, accountId, { strict: true })
+    return json({ servers: servers.flatMap(server => {
+      try {
+        return [{ origin: publicOrigin(server.origin, env), name: server.configuration.appName, version: server.version, accountId }]
+      } catch { return [] }
+    }) })
   }
   if (path === '/api/deploy/start' && request.method === 'POST') {
     const session = await webSession(request, env)
-    if (!session.data.grant) fail(401, 'Connect Cloudflare first')
-    if (session.data.worker) fail(409, 'Resume the existing deployment')
+    if (!session.data.grant || session.data.grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
+    if (session.data.worker && !session.data.completed) fail(409, 'Resume the existing deployment')
     const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), ownerEmail: z.string().email(), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
     const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
     if (!accounts.some(a => a.id === value.accountId)) fail(403, 'Choose an account authorized by Cloudflare')
@@ -123,6 +145,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       if (probe.status === 403) fail(403, 'Cloudflare denied Workers access for this grant. Reconnect Cloudflare and approve every requested permission, or ask an account admin for Workers rights.')
     } catch (error) { if (error instanceof Error && 'status' in error) throw error }
     const tokens = await deploymentBuildTokens(session.data.grant.accessToken, value.accountId)
+    clearDeployment(session.data)
     Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail), { buildTokenId: tokens[0]!.build_token_uuid }); await session.save()
     return json({ ok: true })
   }

@@ -1,9 +1,9 @@
-/** Completed servers this browser deployed through the web.
+/** Public addresses this browser deployed or discovered in Cloudflare.
  * The deploy session (Cloudflare grant and cookie) lives for about an hour,
- * so /deploy keeps a local record of what this browser created and offers it
+ * so /create keeps a local record of what this browser created and offers it
  * again on return even after the session ended.
  */
-export type DeployedServer = { origin: string; name: string; completedAt: number }
+export type DeployedServer = { origin: string; name: string; completedAt: number; accountId?: string; version?: string | null }
 
 export type RememberStorage = { getItem(key: string): string | null; setItem(key: string, value: string): void }
 
@@ -17,12 +17,15 @@ function normalize(entry: unknown): DeployedServer | null {
   if (typeof value?.origin !== 'string') return null
   let url: URL
   try { url = new URL(value.origin) } catch { return null }
+  if (url.origin !== value.origin) return null
   if (url.protocol === 'http:' && !['localhost', '127.0.0.1'].includes(url.hostname)) return null
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
   return {
     origin: value.origin,
     name: typeof value.name === 'string' ? value.name.slice(0, 100) : '',
     completedAt: typeof value.completedAt === 'number' && value.completedAt > 0 ? value.completedAt : Date.now(),
+    ...(typeof value.accountId === 'string' && /^[a-f0-9]{32}$/.test(value.accountId) ? { accountId: value.accountId } : {}),
+    ...(typeof value.version === 'string' ? { version: value.version.slice(0, 50) } : {}),
   }
 }
 

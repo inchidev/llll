@@ -125,9 +125,13 @@ async function workerSettings(
   client: ReturnType<typeof cloudflareClient>,
   accountId: string,
   workerIds: string[],
+  strict = false,
 ): Promise<Array<ExistingWorkerBinding[] | null>> {
   return mapConcurrent(workerIds, SETTINGS_CONCURRENCY, async (workerId) => {
-    const settings = await client.workers.scripts.scriptAndVersionSettings.get(workerId, { account_id: accountId }).catch(() => null)
+    const settings = await client.workers.scripts.scriptAndVersionSettings.get(workerId, { account_id: accountId }).catch(error => {
+      if (strict && error?.status !== 404) throw error
+      return null
+    })
     return (settings?.bindings as ExistingWorkerBinding[] | undefined) || null
   })
 }
@@ -135,7 +139,7 @@ async function workerSettings(
 export async function listL4Servers(
   accessToken: string,
   accountId: string,
-  options: { zones?: CloudflareZone[] } = {},
+  options: { zones?: CloudflareZone[]; strict?: boolean } = {},
 ): Promise<CloudflareServer[]> {
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account is invalid' })
   const client = cloudflareClient(accessToken)
@@ -154,7 +158,7 @@ export async function listL4Servers(
       for await (const worker of client.workers.scripts.list({ account_id: accountId })) {
         if (worker.id) workerIds.push(worker.id)
       }
-      return { workerIds, settingsList: await workerSettings(client, accountId, workerIds) }
+      return { workerIds, settingsList: await workerSettings(client, accountId, workerIds, options.strict) }
     })(),
   ])
   const servers: CloudflareServer[] = []

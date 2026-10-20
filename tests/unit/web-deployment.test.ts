@@ -55,7 +55,7 @@ it('does not offer feed releases with incomplete assets or a mismatched manifest
   }))
   expect(await listReleases()).toEqual([])
 })
-it('resumes server creation through Workers Builds without uploading application code or retaining the OAuth grant', async () => {
+it('resumes server creation through Workers Builds without uploading application code and retains the grant for the bounded installer session', async () => {
   const code = 'export default {}'
   const artifact = JSON.stringify({
     schemaVersion: 3,
@@ -133,7 +133,8 @@ it('resumes server creation through Workers Builds without uploading application
   ready = true
   await advanceDeployment(state, env, async () => {})
   expect(state.completed).toBe(true)
-  expect(state.grant).toBeUndefined()
+  expect(state.grant?.accessToken).toBe('private')
+  expect(state.deployments).toEqual([expect.objectContaining({ origin: state.origin, setupToken: state.setupToken })])
   expect(
     calls.filter(
       (c) => c.path.endsWith('/workers/workers') && c.method === 'POST',

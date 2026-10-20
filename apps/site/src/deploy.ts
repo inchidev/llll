@@ -4,7 +4,7 @@ import {
 } from '../../../shared/cloudflare-oauth'
 import type { WebEnv } from './env'
 import type { DeploymentState } from './session'
-import { digest } from './session'
+import { digest, rememberDeployment } from './session'
 
 /** Releases come from published GitHub tags, never from a pinned env URL.
  * The operator configures no version: the user picks one on `/create` and the
@@ -407,12 +407,12 @@ export async function advanceDeployment(
       }
       return
     }
-    delete state.grant
     delete state.authSecret
     delete state.verifier
     delete state.state
     state.completed = true
     state.step = 3
+    rememberDeployment(state)
     await save()
   }
 }

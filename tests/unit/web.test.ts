@@ -3,7 +3,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import web from '../../apps/site/src/index'
 import type { WebEnv } from '../../apps/site/src/env'
+import { listL4Servers } from '../../packages/deployment-core/src/servers'
 import { webSession } from '../../apps/site/src/session'
+
+vi.mock('../../packages/deployment-core/src/servers', () => ({ listL4Servers: vi.fn() }))
 
 let sqlite: DatabaseSync
 let env: WebEnv
@@ -24,10 +27,11 @@ function d1(database: DatabaseSync): D1Database {
 const origin = 'https://web.example.com'
 const req = (path: string, cookie = '', body?: object) => new Request(origin + path, { method: body ? 'POST' : 'GET', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
 beforeEach(() => {
+  vi.mocked(listL4Servers).mockReset()
   sqlite = new DatabaseSync(':memory:'); sqlite.exec(readFileSync('apps/site/migrations/0000_web_baseline.sql', 'utf8'))
   env = { DB: d1(sqlite), ASSETS: { fetch: async () => new Response('static') } as Fetcher, AUTH_SECRET: 'test-secret-'.repeat(5), PUBLIC_ORIGIN: origin, CLOUDFLARE_OAUTH_CLIENT_ID: 'public-client' }
 })
-afterEach(() => { vi.unstubAllGlobals(); sqlite.close() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); sqlite.close() })
 
 it('surfaces Cloudflare refusal reason on the deploy page instead of a generic cancellation', async () => {
   const start = await web.fetch(req('/api/deploy/oauth'), env)
@@ -168,4 +172,83 @@ it('requires an server proof and prevents directory ownership replacement', asyn
   const result = await web.fetch(req('/api/servers/' + id), env)
   expect(await result.json()).toEqual({ origin: 'https://one.example.com' })
   expect((await web.fetch(req('/api/servers/register', '', { id: crypto.randomUUID(), origin: 'https://127.0.0.1' }), env)).status).toBe(400)
+})
+
+async function connectedSession(completed = false) {
+  const session = await webSession(req('/'), env, true)
+  Object.assign(session.data, {
+    grant: { accessToken: 'private-access', refreshToken: 'private-refresh', clientId: 'client', expiresAt: Date.now() + 3600000 },
+    ...(completed ? { completed: true, step: 3, worker: 'first', accountId: 'a'.repeat(32), name: 'First', version: 'v0.2.0-alpha.3', origin: 'https://first.workers.dev', setupToken: 'first-claim-'.padEnd(64, 'x') } : {}),
+  })
+  await session.save()
+  return session.cookie.split(';')[0]!
+}
+
+it('keeps account access after completion and allows another deployment without losing the first claim', async () => {
+  const cookie = await connectedSession(true)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/builds/tokens')) return Response.json({ success: true, result: [{ build_token_uuid: 'build-token' }] })
+    return Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'Account' }] })
+  }))
+  const before = await (await web.fetch(req('/api/deploy/session', cookie), env)).json()
+  expect(before.authorized).toBe(true)
+  expect(before.accounts).toEqual([{ id: 'a'.repeat(32), name: 'Account' }])
+  expect(before.sessionExpiresAt).toBeGreaterThan(Date.now())
+  const started = await web.fetch(req('/api/deploy/start', cookie, { accountId: 'a'.repeat(32), ownerEmail: 'next@example.com', name: 'Second', version: 'v0.2.0-alpha.3' }), env)
+  expect(started.status).toBe(200)
+  const state = await webSession(req('/', cookie), env)
+  expect(state.data.completed).toBeUndefined()
+  expect(state.data.name).toBe('Second')
+  expect(state.data.grant?.accessToken).toBe('private-access')
+  expect(state.data.deployments).toEqual([expect.objectContaining({ origin: 'https://first.workers.dev', setupToken: 'first-claim-'.padEnd(64, 'x') })])
+  expect((await web.fetch(req('/api/deploy/start', cookie, { accountId: 'a'.repeat(32), ownerEmail: 'next@example.com', name: 'Third', version: 'v0.2.0-alpha.3' }), env)).status).toBe(409)
+  const payload = await (await web.fetch(req('/api/deploy/session', cookie), env)).text()
+  expect(payload).not.toContain('private-access')
+  expect(payload).not.toContain('private-refresh')
+  expect(JSON.stringify(sqlite.prepare('SELECT * FROM deployment_sessions').all())).not.toContain('first-claim-')
+})
+
+it('scopes inventory to an authorized account and exposes only public Server metadata', async () => {
+  const cookie = await connectedSession()
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'Account' }] })))
+  vi.mocked(listL4Servers).mockResolvedValue([{
+    accountId: 'a'.repeat(32), workerName: 'community', origin: 'https://community.workers.dev', version: '0.2.0-alpha.3',
+    configuration: { accountId: 'a'.repeat(32), workerName: 'community', appName: 'Community', adminEmail: '', allowedEmails: [], authMode: 'builtin', registrationMode: 'invite_only', customDomainEnabled: false, zoneId: '', zoneName: '', appSubdomain: 'community', mailEnabled: false, mailSubdomain: '', mailLocalPart: '' },
+    resources: { databaseId: 'private-db', bucketName: 'private-files', kvId: null, mailZoneId: null, mailDomain: null, accessApplicationId: null, accessHealthApplicationId: null, accessDeletionApplicationId: null },
+  }])
+  const denied = await web.fetch(req('/api/deploy/servers?accountId=' + 'b'.repeat(32), cookie), env)
+  expect(denied.status).toBe(403)
+  expect(listL4Servers).not.toHaveBeenCalled()
+  const response = await web.fetch(req('/api/deploy/servers?accountId=' + 'a'.repeat(32), cookie), env)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(await response.json()).toEqual({ servers: [{ accountId: 'a'.repeat(32), origin: 'https://community.workers.dev', name: 'Community', version: '0.2.0-alpha.3' }] })
+  expect(listL4Servers).toHaveBeenCalledWith('private-access', 'a'.repeat(32), { strict: true })
+})
+
+it('does not extend the installer deadline on reads or progress saves, and rejects expired grants', async () => {
+  const cookie = await connectedSession()
+  const session = await webSession(req('/', cookie), env)
+  const deadline = session.expiresAt
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5000)
+  session.data.grant!.expiresAt = Date.now() - 1
+  await session.save()
+  expect((await webSession(req('/', cookie), env)).expiresAt).toBe(deadline)
+  const response = await web.fetch(req('/api/deploy/session', cookie), env)
+  expect((await response.json()).authorized).toBe(false)
+  expect((await web.fetch(req('/api/deploy/servers?accountId=' + 'a'.repeat(32), cookie), env)).status).toBe(401)
+  sqlite.prepare('UPDATE deployment_sessions SET expires_at=?').run(Date.now() - 1)
+  expect((await web.fetch(req('/api/deploy/session', cookie), env)).status).toBe(401)
+})
+
+it('renews the browser deadline only on explicit OAuth reconnect and preserves completed setup handoffs', async () => {
+  const cookie = await connectedSession(true)
+  sqlite.prepare('UPDATE deployment_sessions SET expires_at=?').run(Date.now() + 1000)
+  const old = await webSession(req('/', cookie), env)
+  const response = await web.fetch(req('/api/deploy/oauth', cookie), env)
+  expect(response.status).toBe(302)
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=3600')
+  const renewed = await webSession(req('/', cookie), env)
+  expect(renewed.expiresAt).toBeGreaterThan(old.expiresAt + 3500000)
+  expect(renewed.data.origin).toBe('https://first.workers.dev')
 })

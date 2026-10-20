@@ -40,5 +40,14 @@ it('returns an empty list for missing or corrupt storage and skips unsafe origin
   recordDeployedServer({ origin: 'not a url', name: 'X', completedAt: 1 }, storage)
   recordDeployedServer({ origin: 'ftp://a.test', name: 'X', completedAt: 1 }, storage)
   recordDeployedServer({ origin: 'http://192.0.2.1', name: 'X', completedAt: 1 }, storage)
+  recordDeployedServer({ origin: 'https://a.test/setup#claim=private-token', name: 'X', completedAt: 1 }, storage)
+  recordDeployedServer({ origin: 'https://owner:private-token@a.test', name: 'X', completedAt: 1 }, storage)
   expect(readDeployedServers(storage)).toEqual([])
+})
+
+it('remembers account metadata without retaining private handoffs', () => {
+  const storage = fakeStorage()
+  recordDeployedServer({ origin: 'https://a.test', name: 'Community', accountId: 'a'.repeat(32), version: '0.2.0-alpha.3', completedAt: 1, ...{ claim: 'private-claim', grant: 'private-grant' } }, storage)
+  expect(readDeployedServers(storage)).toEqual([{ origin: 'https://a.test', name: 'Community', accountId: 'a'.repeat(32), version: '0.2.0-alpha.3', completedAt: 1 }])
+  expect(storage.getItem('')).not.toContain('private-')
 })

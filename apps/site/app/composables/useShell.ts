@@ -70,9 +70,10 @@ export function useShell() {
     if (!claim && claims.value[origin]) return
     if (!claim) {
       try {
-        const state = await $fetch<{ completed?: boolean; origin?: string; claim?: string }>('/api/deploy/session')
-        if (state.completed && state.origin === origin && state.claim) {
-          const setup = new URL(state.claim)
+        const state = await $fetch<{ completed?: boolean; origin?: string; claim?: string; deployments?: { origin: string; claim: string }[] }>('/api/deploy/session')
+        const credential = state.completed && state.origin === origin ? state.claim : state.deployments?.find(item => item.origin === origin)?.claim
+        if (credential) {
+          const setup = new URL(credential)
           if (setup.origin === origin && setup.pathname === '/setup')
             claim = readDeploymentClaim(setup.hash)
         }

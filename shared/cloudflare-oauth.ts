@@ -8,7 +8,8 @@ export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
 // Groups: provisioning (accounts, Workers, Builds, D1, KV, R2),
 // custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
 // and optional provider configuration (browser rendering, containers,
-// realtime, queues). The installer grant is discarded after verification.
+// realtime, queues). The encrypted installer grant is retained only within the
+// browser's bounded deployment session, allowing another Server to be created.
 // workers-scripts.admin
 // is the new-model Admin role: the legacy Workers Scripts Write group
 // (discoflare's workers-scripts.write) is not registered on this client, and
