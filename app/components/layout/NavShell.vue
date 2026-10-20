@@ -5,6 +5,7 @@ import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, Serv
 import { Permission } from '~~/shared/permissions'
 import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
+import { publicIconPath } from '~~/shared/server-appearance'
 
 type Mode = 'chat' | 'tasks' | 'mail' | 'databases' | 'gadgets'
 
@@ -28,6 +29,7 @@ const { can } = usePermissions(computed(() => membersQ.data.value?.members))
 const serverQ = useQuery({
   queryKey: computed(() => ['server', props.serverId]),
   queryFn: () => api<{ server: W }>(`/api/servers/${props.serverId}`),
+  refetchInterval: 60_000,
 })
 const channelsQ = useQuery({
   queryKey: computed(() => ['channels', props.serverId]),
@@ -121,7 +123,7 @@ const serverName = computed(() => serverQ.data.value?.server.name || '')
 const serverIconUrl = computed(() => {
   const server = serverQ.data.value?.server
   if (!server?.iconR2Key) return undefined
-  return serverUrl(`/api/servers/${props.serverId}/icon?v=${encodeURIComponent(server.updatedAt)}`)
+  return serverUrl(`${publicIconPath}?v=${encodeURIComponent(server.updatedAt)}`)
 })
 const canOpenServerSettings = computed(() => [
   Permission.manageServer,

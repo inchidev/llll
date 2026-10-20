@@ -2,6 +2,8 @@ import type { ConnectedServer, ServerDiscovery } from '~~/shared/server'
 import { SERVER_API_VERSION } from '~~/shared/server'
 import { normalizeServerOrigin } from '~~/shared/client-router'
 import { uuidSchema } from '~~/shared/embed'
+import { appearanceFromSettings, serverAppearance } from '~~/shared/server-appearance'
+import type { ServerDTO } from '~~/shared/types'
 
 export function useServers() {
   const servers = useState<ConnectedServer[]>('llll-servers', () => [])
@@ -94,10 +96,14 @@ export function useServers() {
       throw new Error('This address is not a compatible L4 Server')
     const current = servers.value.find((s) => s.origin === origin)
     if (current)
-      Object.assign(current, { id: d.id, name: d.name, version: d.version })
+      Object.assign(current, serverAppearance(d, origin))
     else
-      servers.value.push({ origin, id: d.id, name: d.name, version: d.version })
+      servers.value.push({ origin, ...serverAppearance(d, origin), version: d.version })
     return d
+  }
+  function updateAppearance(origin: string, row: ServerDTO) {
+    const current = servers.value.find(item => item.origin === origin && item.id === row.id)
+    if (current) Object.assign(current, appearanceFromSettings(origin, row))
   }
   async function refresh(origin: string) {
     const current = servers.value.find((s) => s.origin === origin)
@@ -142,6 +148,7 @@ export function useServers() {
     initialize,
     request,
     discover,
+    updateAppearance,
     refresh,
     select,
     logout,

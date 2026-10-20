@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { computed, ref, type Ref } from 'vue'
 import { useShell } from '../../apps/site/app/composables/useShell'
 import { EMBED_VERSION } from '../../shared/embed'
+import { recordDeployedServer, readDeployedServers } from '../../shared/deploy-recall'
 
 const origin = 'https://fixture.customer.workers.dev'
 const id = '20bce15e-c83c-4f92-b90d-cee8eab23ce5'
@@ -150,4 +151,46 @@ it('reloads an already open Client at setup when the claim arrives later', async
   const frame = new URL(shell.frameSrc(origin, location.origin))
   expect(frame.pathname).toBe('/setup')
   expect(frame.hash).toBe('#claim=' + claim)
+})
+
+it('refreshes a saved connection and deployment recall from public metadata without opening a Client', async () => {
+  bookmark()
+  recordDeployedServer({ origin, name: 'Old deploy name', completedAt: 1 })
+  const shell = useShell()
+  shell.initialize()
+  const iconUrl = origin + '/.well-known/llll/icon?v=2'
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, name: 'Renamed community', iconUrl, updatedAt: '2026-10-20T02:00:00.000Z', ready: true })))
+  await shell.refreshMetadata()
+  expect(shell.servers.value[0]).toMatchObject({ name: 'Renamed community', iconUrl })
+  expect(shell.groups.value[0]?.servers[0]?.iconUrl).toBe(iconUrl)
+  expect(readDeployedServers()[0]).toMatchObject({ id, name: 'Renamed community', iconUrl })
+  expect(shell.loaded.value).toEqual([])
+  expect(localStorage.getItem('llll.shell.servers.v1')).not.toContain('claim')
+})
+
+it('applies live name/icon changes and deletion while rejecting stale metadata and another UUID', () => {
+  bookmark()
+  const shell = useShell()
+  shell.initialize()
+  const frame = document.createElement('iframe'); document.body.append(frame)
+  shell.frames.value[origin] = frame
+  const emit = (name: string, iconUrl: string | null, updatedAt: string) => listener(new MessageEvent('message', { origin, source: frame.contentWindow!, data: { llll: EMBED_VERSION, type: 'servers', servers: [{ id, name, iconUrl, updatedAt, unread: 2 }] } }))
+  emit('New name', origin + '/.well-known/llll/icon?v=2', '2026-10-20T02:00:00.000Z')
+  emit('Stale name', null, '2026-10-20T01:00:00.000Z')
+  expect(shell.servers.value[0]?.name).toBe('New name')
+  expect(shell.servers.value[0]?.iconUrl).toContain('v=2')
+  emit('Newest name', null, '2026-10-20T03:00:00.000Z')
+  expect(shell.servers.value[0]).toMatchObject({ name: 'Newest name', iconUrl: null })
+  expect(shell.updateMetadata(origin, { id: crypto.randomUUID(), name: 'Replacement Server' })).toBe(false)
+  expect(shell.servers.value[0]?.id).toBe(id)
+  expect(shell.servers.value[0]?.name).toBe('Newest name')
+  frame.remove()
+})
+
+it('refreshes the name on reconnect instead of keeping the first discovery response forever', async () => {
+  bookmark()
+  const shell = useShell(); shell.initialize()
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, name: 'Renamed on Server', embedOrigins: [location.origin], ready: true })))
+  await shell.connect(origin)
+  expect(shell.servers.value[0]?.name).toBe('Renamed on Server')
 })

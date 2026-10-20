@@ -4,6 +4,8 @@ export type ServerDiscovery = {
   kind: 'server'
   id: string
   name: string
+  iconUrl?: string | null
+  updatedAt?: string
   apiVersion: number
   version: string
   origin: string
@@ -16,6 +18,8 @@ export type ConnectedServer = {
   origin: string
   id: string
   name: string
+  iconUrl?: string | null
+  updatedAt?: string
   version: string
   userId?: string
 }

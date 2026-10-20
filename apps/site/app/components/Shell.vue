@@ -72,17 +72,31 @@ async function handleQuery(queryOrigin: string, claim: string | undefined) {
 function selectFrame(element: unknown, origin: string) {
   if (element instanceof HTMLIFrameElement) shell.frames.value[origin] = element
 }
+function refreshMetadata() {
+  if (!document.hidden && (showNavigation.value || route.params.serverId)) void shell.refreshMetadata()
+}
+let metadataTimer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
   ownOrigin.value = location.origin
   shell.initialize()
+  refreshMetadata()
+  window.addEventListener('focus', refreshMetadata)
+  document.addEventListener('visibilitychange', refreshMetadata)
+  metadataTimer = setInterval(refreshMetadata, 60_000)
   if (showNavigation.value) shell.selected.value = ''
   if (showCreate.value && queryOrigin.value) await handleQuery(queryOrigin.value, queryClaim.value)
   else if (route.params.serverId) await mountServer()
+})
+onUnmounted(() => {
+  clearInterval(metadataTimer)
+  window.removeEventListener('focus', refreshMetadata)
+  document.removeEventListener('visibilitychange', refreshMetadata)
 })
 watch(
   () => route.fullPath,
   async () => {
     if (showNavigation.value) shell.selected.value = ''
+    refreshMetadata()
     if (path.value === '/create' && queryOrigin.value)
       await handleQuery(queryOrigin.value, queryClaim.value)
     else if (route.params.serverId) await mountServer()

@@ -6,6 +6,7 @@ import type { SetupHealth } from '../../../shared/types'
 import { readAppBranding } from '../../../shared/app-branding'
 import { maskedOwnerEmail, readOwnerSetupEnv } from '../../utils/owner-setup'
 import { version as packageVersion } from '../../../package.json'
+import { publicServerAppearance } from '../../utils/server-appearance'
 import { authMode } from '../../utils/cloudflare-access'
 import { agentBrowserConfigured, aiProvider } from '../../../workers/env'
 import { serverAiModel, serverCapabilities, UNAVAILABLE_CAPABILITIES } from '../../../workers/server-capabilities'
@@ -79,6 +80,8 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
 
   const ownerSetup = readOwnerSetupEnv(env)
   await checkFiles
+  const branding = readAppBranding(env)
+  const appearance = migrated ? await publicServerAppearance(env.DB, env.PUBLIC_ORIGIN || getRequestURL(event).origin, branding.appName) : null
 
   return {
     version: env.LLLL_VERSION?.trim() || packageVersion,
@@ -96,6 +99,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     capabilities: serverCapabilities(env),
     realtimekit: await realtimekit,
     twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
-    ...readAppBranding(env),
+    ...branding,
+    ...(appearance ? { appName: appearance.name, iconUrl: appearance.iconUrl } : {}),
   }
 })

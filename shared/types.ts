@@ -652,6 +652,7 @@ export type SetupHealth = {
   realtimekit: boolean
   twitterAuth: boolean
   appName: string
+  iconUrl?: string | null
   appTitle: string
   appSubtitle: string
 }

@@ -181,6 +181,30 @@ try {
     assert.equal(home.payload.server.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.ready, true)
+    await api(name, `/api/servers/${ids[name]}`, { method: 'PATCH', body: { name: 'Renamed ' + name } })
+    assert.equal((await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload.name, 'Renamed ' + name)
+    assert.equal((await api(name, '/api/setup/health', { actor: 'anonymous' })).payload.appName, 'Renamed ' + name)
+    await api(name, `/api/servers/${ids[name]}/icon`, { actor: 'anonymous', expected: 401 })
+    await api(name, '/.well-known/llll/icon', { actor: 'anonymous', expected: 404 })
+    let previousIconUrl = ''
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGL8AAAAASUVORK5CYII=', 'base64')
+    for (const bytes of [png, Buffer.concat([png, Buffer.from([0])])]) {
+      const iconForm = new FormData()
+      iconForm.append('file', new File([bytes], 'icon.png', { type: 'image/png' }))
+      const uploadRequest = new Request(origins[name] + `/api/servers/${ids[name]}/icon`, { method: 'PUT', headers: { Host: new URL(origins[name]).host, Origin: origins[name], Cookie: cookies[name + '-owner'] }, body: iconForm })
+      const uploaded = await runtimes[name].dispatchFetch(uploadRequest.url, { method: 'PUT', headers: uploadRequest.headers, body: await uploadRequest.arrayBuffer() })
+      assert.equal(uploaded.status, 200, await uploaded.clone().text())
+      const appearance = (await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload
+      assert.ok(appearance.iconUrl.startsWith(origins[name] + '/.well-known/llll/icon?v='))
+      assert.notEqual(appearance.iconUrl, previousIconUrl)
+      previousIconUrl = appearance.iconUrl
+      const publicIcon = await api(name, new URL(appearance.iconUrl).pathname + new URL(appearance.iconUrl).search, { actor: 'anonymous' })
+      assert.deepEqual(Buffer.from(await publicIcon.response.arrayBuffer()), bytes)
+      assert.equal(publicIcon.response.headers.get('content-type'), 'image/png')
+    }
+    await api(name, `/api/servers/${ids[name]}/icon`, { method: 'DELETE' })
+    assert.equal((await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload.iconUrl, null)
+    await api(name, '/.well-known/llll/icon', { actor: 'anonymous', expected: 404 })
     await api(name, '/api/servers/main/members', { expected: 404 })
     const page = await api(name, '/login', { actor: 'anonymous' })
     assert.ok(

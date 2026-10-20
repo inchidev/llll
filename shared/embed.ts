@@ -10,7 +10,7 @@ export const embedCommand = z.discriminatedUnion('type', [
 export const embedEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), version: z.literal(EMBED_VERSION), name: z.string().max(100) }),
   z.object({ type: z.literal('session'), authenticated: z.boolean() }),
-  z.object({ type: z.literal('servers'), servers: z.array(z.object({ id: uuidSchema, name: z.string().max(100), unread: z.number().int().min(0).default(0) })).max(500) }),
+  z.object({ type: z.literal('servers'), servers: z.array(z.object({ id: uuidSchema, name: z.string().max(100), iconUrl: z.string().max(2048).nullable().optional(), updatedAt: z.string().datetime().optional(), unread: z.number().int().min(0).default(0) })).max(500) }),
   z.object({ type: z.literal('navigate'), serverId: uuidSchema, path: z.string().max(2000) }),
   z.object({ type: z.literal('call'), active: z.boolean() }),
   z.object({ type: z.literal('open-rejected'), serverId: uuidSchema, currentServerId: uuidSchema.optional(), path: z.string().max(2000).optional(), reason: z.enum(['call-active', 'unavailable']) }),

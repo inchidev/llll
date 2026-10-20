@@ -2,11 +2,11 @@
 import { z } from 'zod'
 import { deploymentShellUrl } from '../../../../shared/deploy-handoff'
 import { readDeployedServers, recordDeployedServer, type DeployedServer } from '../../../../shared/deploy-recall'
-import { uuidSchema } from '../../../../shared/embed'
-import { SERVER_API_VERSION } from '../../../../shared/server'
+import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 
 const phases = ['Configure your Server', 'Start deployment', 'Wait for Cloudflare verification', 'Ready']
-type Deployment = { origin: string; name: string; accountId: string; version?: string | null; claim?: string }
+type Deployment = { origin: string; name: string; accountId: string; version?: string | null; claim?: string; iconUrl?: string | null }
+const shell = useShell()
 type Session = {
   authorized: boolean; accounts: { id: string; name: string }[]; accountId?: string
   sessionExpiresAt: number; grantExpiresAt?: number; step?: number; completed?: boolean
@@ -47,10 +47,11 @@ const pending = computed(() => session.value?.step !== undefined && !session.val
 const connected = computed(() => Boolean(session.value?.authorized && now.value < session.value.sessionExpiresAt && now.value < (session.value.grantExpiresAt || 0)))
 const expired = computed(() => sessionEnded.value || Boolean(session.value && (!session.value.authorized || now.value >= Math.min(session.value.sessionExpiresAt, session.value.grantExpiresAt || 0))))
 const rows = computed(() => {
-  if (connected.value && inventoryLoaded.value) return inventory.value
+  const currentAppearance = (entry: Deployment | DeployedServer) => ({ ...entry, ...shell.metadata.value[entry.origin] })
+  if (connected.value && inventoryLoaded.value) return inventory.value.map(currentAppearance)
   const saved = connected.value ? remembered.value.filter(item => item.accountId === accountId.value) : remembered.value
   const current = connected.value ? inventory.value : []
-  return [...current, ...saved.filter(item => !current.some(server => server.origin === item.origin))]
+  return [...current, ...saved.filter(item => !current.some(server => server.origin === item.origin))].map(currentAppearance)
 })
 const statuses = ref<Record<string, 'ready' | 'setup' | 'unavailable'>>({})
 const checking = ref<Record<string, boolean>>({})
@@ -66,7 +67,7 @@ function openRoute(origin: string) {
   return deploymentShellUrl(origin, statuses.value[origin] === 'setup' ? claimFor(origin) : undefined)
 }
 function remember(entry: Deployment) {
-  remembered.value = recordDeployedServer({ origin: entry.origin, name: entry.name, accountId: entry.accountId, version: entry.version, completedAt: Date.now() })
+  remembered.value = recordDeployedServer({ origin: entry.origin, name: entry.name, accountId: entry.accountId, version: entry.version, ...shell.metadata.value[entry.origin], completedAt: Date.now() })
 }
 async function refresh() {
   try {
@@ -94,9 +95,7 @@ async function checkServer(origin: string) {
   probes.add(controller)
   const timer = setTimeout(() => controller.abort(), 7000)
   try {
-    const response = await fetch(origin + '/.well-known/llll', { credentials: 'omit', redirect: 'error', signal: controller.signal })
-    const data = await response.json()
-    if (!response.ok || data.product !== 'llll' || data.kind !== 'server' || data.origin !== origin || data.apiVersion !== SERVER_API_VERSION || typeof data.ready !== 'boolean' || !uuidSchema.safeParse(data.id).success) throw new Error('Unavailable')
+    const data = await shell.readMetadata(origin, controller.signal)
     statuses.value[origin] = data.ready ? 'ready' : 'setup'
   } catch { statuses.value[origin] = 'unavailable' }
   finally { clearTimeout(timer); probes.delete(controller); checking.value[origin] = false }
@@ -196,6 +195,7 @@ onMounted(async () => {
       <ul v-else-if="rows.length" class="space-y-3">
         <li v-for="entry in rows" :key="entry.origin" class="min-w-0 space-y-3 rounded-lg border border-default p-4">
           <div class="flex min-w-0 flex-wrap items-start justify-between gap-2">
+            <ServerAvatar :name="entry.name || 'L4 Server'" :icon-url="entry.iconUrl" class="size-10 rounded-xl bg-accented" />
             <div class="min-w-0 flex-1">
               <p class="break-words font-medium text-highlighted">{{ entry.name || 'L4 Server' }}</p>
               <p class="break-all text-xs leading-5 text-muted">{{ entry.origin.replace(/^https?:\/\//, '') }}</p>

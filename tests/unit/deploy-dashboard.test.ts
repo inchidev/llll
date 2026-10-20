@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Dashboard from '../../apps/site/app/components/ServerDeploy.vue'
+import { useShell } from '../../apps/site/app/composables/useShell'
 
 const account = 'a'.repeat(32)
 const ready = 'https://ready.customer.workers.dev'
@@ -31,6 +32,14 @@ const stubs = { UButton: Button, UInput: Input, USelect: Select, UForm: Form, UF
 beforeEach(() => {
   vi.useFakeTimers()
   localStorage.clear()
+  const state = new Map<string, Ref<unknown>>()
+  vi.stubGlobal('useState', (key: string, create: () => unknown) => {
+    if (!state.has(key)) state.set(key, ref(create()))
+    return state.get(key)
+  })
+  vi.stubGlobal('useShell', useShell)
+  vi.stubGlobal('useRoute', () => ({ params: {} }))
+  vi.stubGlobal('useRouter', () => ({ push: vi.fn(), replace: vi.fn() }))
   for (const [name, fn] of Object.entries({ ref, computed, watch, onMounted, onUnmounted })) vi.stubGlobal(name, fn)
   vi.stubGlobal('navigateTo', vi.fn())
   api.mockReset().mockImplementation(async (path: string) => {
@@ -48,7 +57,7 @@ beforeEach(() => {
   vi.stubGlobal('$fetch', api)
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const origin = new URL(input).origin
-    return Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id: '00000000-0000-4000-8000-000000000001', origin, ready: origin === ready })
+    return Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id: '00000000-0000-4000-8000-000000000001', origin, name: origin === ready ? 'Ready Server' : origin === pending ? 'Unclaimed Server' : 'Other account Server', ready: origin === ready })
   }))
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -137,4 +146,17 @@ it('uses a successful account refresh rather than presenting a deleted cached Se
   expect(view.findAll('li')).toHaveLength(0)
   expect(view.text()).toContain('No L4 Servers found')
   expect(localStorage.getItem('llll.deploy-recall.v1')).toContain(ready)
+})
+
+it('uses current public names and icons rather than Cloudflare deployment labels and removes a deleted icon', async () => {
+  const discovery = { product: 'llll', kind: 'server', apiVersion: 2, id: '00000000-0000-4000-8000-000000000001', origin: ready, name: 'Renamed community', iconUrl: ready + '/.well-known/llll/icon?v=2', updatedAt: '2026-10-20T02:00:00.000Z', ready: true }
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => new URL(input).origin === ready ? Response.json(discovery) : Response.json({ ...discovery, origin: pending, name: 'Unclaimed Server', ready: false })))
+  const view = await render()
+  expect(view.findAll('li')[0]!.text()).toContain('Renamed community')
+  expect(view.findAll('li')[0]!.get('img').attributes('src')).toBe(discovery.iconUrl)
+  expect(localStorage.getItem('llll.deploy-recall.v1')).toContain('Renamed community')
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...discovery, iconUrl: null, updatedAt: '2026-10-20T03:00:00.000Z' })))
+  await view.findAll('button').find(button => button.text() === 'Refresh Servers')!.trigger('click')
+  await flushPromises()
+  expect(view.findAll('li')[0]!.find('img').exists()).toBe(false)
 })

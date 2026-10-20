@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ServerAvatar from '../../packages/client-ui/ServerAvatar.vue'
 import {
   DEFAULT_APP_NAME,
   DEFAULT_APP_SUBTITLE,
@@ -21,7 +22,9 @@ useHead(() => ({ title: appName.value }))
 <template>
   <div class="h-full min-h-0 overflow-y-auto bg-default lg:grid lg:grid-cols-[var(--df-auth-stage-width)_minmax(0,1fr)]">
     <aside class="auth-stage relative flex min-h-[22rem] flex-col overflow-hidden border-b border-default bg-elevated p-6 pb-[max(1.5rem,var(--df-safe-area-bottom))] pt-[max(1.5rem,var(--df-safe-area-top))] sm:min-h-[26rem] sm:p-8 sm:pb-[max(2rem,var(--df-safe-area-bottom))] sm:pt-[max(2rem,var(--df-safe-area-top))] lg:min-h-full lg:border-r lg:border-b-0 lg:p-10 lg:pb-[max(2.5rem,var(--df-safe-area-bottom))] lg:pt-[max(2.5rem,var(--df-safe-area-top))] xl:p-12 xl:pb-[max(3rem,var(--df-safe-area-bottom))] xl:pt-[max(3rem,var(--df-safe-area-top))]">
-      <BrandWordmark :name="appName" size="lg" class="relative z-10" />
+      <BrandWordmark :name="appName" size="lg" class="relative z-10">
+        <template v-if="session.health?.iconUrl" #icon><ServerAvatar :name="appName" :icon-url="session.health.iconUrl" class="size-10 rounded-lg bg-accented" /></template>
+      </BrandWordmark>
 
       <div class="relative z-10 flex-1 flex items-center">
         <div class="max-w-lg">

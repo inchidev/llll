@@ -51,3 +51,15 @@ it('remembers account metadata without retaining private handoffs', () => {
   expect(readDeployedServers(storage)).toEqual([{ origin: 'https://a.test', name: 'Community', accountId: 'a'.repeat(32), version: '0.2.0-alpha.3', completedAt: 1 }])
   expect(storage.getItem('')).not.toContain('private-')
 })
+
+it('persists safe public appearance metadata and drops private icon addresses and invalid revisions', () => {
+  const storage = fakeStorage()
+  const id = crypto.randomUUID()
+  const iconUrl = 'https://a.test/.well-known/llll/icon?v=2'
+  recordDeployedServer({ origin: 'https://a.test', id, name: 'Renamed', iconUrl, updatedAt: '2026-10-20T02:00:00.000Z', completedAt: 1 }, storage)
+  expect(readDeployedServers(storage)[0]).toMatchObject({ id, name: 'Renamed', iconUrl, updatedAt: '2026-10-20T02:00:00.000Z' })
+  recordDeployedServer({ origin: 'https://a.test', name: 'Renamed', iconUrl: 'https://a.test/api/files/private?token=private-token', updatedAt: 'not-a-revision', completedAt: 1 }, storage)
+  expect(readDeployedServers(storage)[0]?.iconUrl).toBeNull()
+  expect(storage.getItem('')).not.toContain('private-token')
+  expect(storage.getItem('')).not.toContain('not-a-revision')
+})
