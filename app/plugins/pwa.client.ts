@@ -8,8 +8,13 @@ export default defineNuxtPlugin((nuxtApp) => {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (reload) location.reload() })
     void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((value) => {
       registration = value
-      waiting.value = Boolean(value.waiting)
-      value.addEventListener('updatefound', () => value.installing?.addEventListener('statechange', () => { waiting.value = Boolean(value.waiting) }))
+      const syncWaiting = () => { waiting.value = Boolean(value.waiting) }
+      const watchInstalling = () => {
+        syncWaiting()
+        value.installing?.addEventListener('statechange', syncWaiting)
+      }
+      watchInstalling()
+      value.addEventListener('updatefound', watchInstalling)
     }).catch(() => { error.value = 'Offline setup is unavailable. You can continue online.' })
   }
   function update() {

@@ -12,6 +12,23 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; localStorage.clear() })
 
+it('notices an update that was already installing when registration resolved', async () => {
+  let installed!: () => void
+  const registration = {
+    waiting: null as null | { postMessage: ReturnType<typeof vi.fn> },
+    installing: { addEventListener: vi.fn((name: string, listener: () => void) => { if (name === 'statechange') installed = listener }) },
+    addEventListener: vi.fn(),
+  }
+  vi.stubGlobal('navigator', { serviceWorker: { register: vi.fn(async () => registration), addEventListener: vi.fn() } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const result = plugin({ hook: vi.fn() } as never)!
+  await flushPromises()
+  expect(result.provide.pwa.waiting.value).toBe(false)
+  registration.waiting = { postMessage: vi.fn() }
+  installed()
+  expect(result.provide.pwa.waiting.value).toBe(true)
+})
+
 it.each([false, true])('offers a waiting update in the web Client (embedded=%s)', async (embedded) => {
   const postMessage = vi.fn()
   const handlers = new Map<string, () => void>()
