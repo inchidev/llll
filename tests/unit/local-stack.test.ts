@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -35,7 +36,7 @@ else { console.error('Unexpected Docker mutation'); process.exit(42); }
       encoding: 'utf8',
     })
   }
-  return { state, envFile, configuration, calls, launch }
+  return { root, state, envFile, configuration, calls, launch }
 }
 
 describe('standalone stack lifecycle guards', () => {
@@ -65,4 +66,46 @@ describe('standalone stack lifecycle guards', () => {
     const calls = readFileSync(f.calls, 'utf8').trim().split('\n').map(line => JSON.parse(line))
     expect(calls).toEqual([['context', 'inspect', 'fixture']])
   })
+
+  it('reaps busy process groups and releases the lock when stopped during startup', async () => {
+    const f = fixture()
+    unlinkSync(join(f.state, 'dev.pid'))
+    const portProbe = createServer()
+    await new Promise<void>(resolve => portProbe.listen(0, '127.0.0.1', resolve))
+    const address = portProbe.address()
+    if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+    await new Promise<void>(resolve => portProbe.close(() => resolve()))
+    writeFileSync(f.envFile, f.configuration.replace('LLLL_FRONTEND_PORT=3001', `LLLL_FRONTEND_PORT=${address.port}`))
+    const childPids = join(f.root, 'children')
+    for (const name of ['node', 'pnpm']) {
+      const executable = join(f.root, name)
+      writeFileSync(executable, `#!${process.execPath}
+require('node:fs').appendFileSync(${JSON.stringify(childPids)}, process.pid+'\\n');
+process.on('SIGTERM', () => {});
+setInterval(() => {}, 1000);
+`)
+      chmodSync(executable, 0o755)
+    }
+    const child = spawn(process.execPath, [join(f.root, 'scripts/local-stack.mjs'), 'dev', '--no-shell'], {
+      cwd: f.root, env: { PATH: f.root + ':' + dirname(process.execPath), HOME: f.root }, stdio: 'ignore',
+    })
+    let pids: number[] = []
+    try {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        pids = existsSync(childPids) ? readFileSync(childPids, 'utf8').trim().split('\n').map(Number) : []
+        if (pids.length === 2) break
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      expect(pids).toHaveLength(2)
+      const exited = new Promise(resolve => child.once('exit', resolve))
+      child.kill('SIGTERM')
+      expect(await exited).toBe(0)
+      expect(existsSync(join(f.state, 'dev.pid'))).toBe(false)
+      for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow()
+      expect(readFileSync(f.calls, 'utf8')).not.toContain('compose')
+    } finally {
+      child.kill('SIGKILL')
+      for (const pid of pids) { try { process.kill(-pid, 'SIGKILL') } catch { /* Already reaped. */ } }
+    }
+  }, 10000)
 })
