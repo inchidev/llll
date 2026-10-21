@@ -78,6 +78,8 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
     return new Response('Unknown operation', { status: 404 })
   } catch (error) {
     // Upstream exceptions may contain provider headers; never forward them to untrusted compute.
+    console.warn('agent.gateway.failed', { runId, operation, errorType: error instanceof Error ? error.name : 'Unknown',
+      detail: error instanceof Error && typeof modelForAgent(env, run.model) === 'string' ? error.message.slice(0, 300) : undefined })
     const code = error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 502
     return Response.json({ error: { message: code === 403 ? 'Current permissions do not allow this operation' : 'The operation failed; inspect the Run before retrying' } }, { status: code })
   }
