@@ -43,6 +43,7 @@ const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
   { label: 'Server', keys: ['manageServer', 'manageChannels', 'manageRoles', 'invite', 'kick'] },
   { label: 'Conversations', keys: ['sendMessages', 'attachFiles', 'startLive'] },
   { label: 'Tools', keys: ['manageTasks', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
+  { label: 'Integrations', keys: ['mcp.connect'] },
 ]
 const groupedGrants = grantGroups.map(group => ({
   label: group.label,

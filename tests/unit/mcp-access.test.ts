@@ -86,7 +86,7 @@ describe('MCP access tokens', () => {
 
   it('acts as an Agent with the intersection of its current role and token scopes', async () => {
     sqlite.exec(`
-      INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'agent', 'Task Agent', ${Permission.manageTasks | Permission.manageDatabases});
+      INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'agent', 'Task Agent', ${Permission.manageTasks | Permission.manageDatabases | Permission.mcpConnect});
       INSERT INTO users (id, kind, display_name, status, role_id, joined_at)
         VALUES ('agent-user', 'agent', 'Release Agent', 'active', 'agent-role', '2026-09-06T00:00:00.000Z');
     `)
@@ -104,10 +104,23 @@ describe('MCP access tokens', () => {
     expect(() => requireMcpAccess(principal!, 'documents:write')).not.toThrow()
     expect(() => requireMcpAccess(principal!, 'tasks:read')).toThrow('tasks:read scope')
 
-    sqlite.exec("UPDATE roles SET permissions_bitmask = 0 WHERE id = 'agent-role'")
+    sqlite.prepare("UPDATE roles SET permissions_bitmask = ? WHERE id = 'agent-role'").run(Permission.mcpConnect)
     const downgraded = await authenticateMcpRequest(env, new Request('https://server.example/mcp', {
       headers: { Authorization: `Bearer ${issued.token}` },
     }))
     expect(() => requireMcpAccess(downgraded!, 'documents:write')).toThrow('Task Agent role')
+  })
+
+  it.each(['human', 'agent'])('blocks an existing %s bearer token as soon as mcp.connect is removed', async (kind) => {
+    sqlite.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('test-role','test','MCP test',?)").run(Permission.manageTasks | Permission.mcpConnect)
+    sqlite.prepare("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('test-member',?,'Test','active','test-role','2026-10-21')").run(kind)
+    const input = { createdBy: 'owner-user', subjectId: 'test-member', name: 'MCP', scopes: ['tasks:read'] as const }
+    const issue = () => issueMcpAccessToken(env, { ...input, scopes: [...input.scopes] })
+    const issued = await issue()
+    const request = new Request('https://server.example/mcp', { headers: { Authorization: `Bearer ${issued.token}` } })
+    expect(await authenticateMcpRequest(env, request)).toMatchObject({ userId: 'test-member' })
+    sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='test-role'").run(Permission.manageTasks)
+    expect(await authenticateMcpRequest(env, request)).toBeNull()
+    await expect(issue()).rejects.toThrow('mcp.connect')
   })
 })

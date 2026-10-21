@@ -69,7 +69,7 @@ beforeEach(async () => {
   ownerId = (await response.json()).user.id
   cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
   sqlite.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('owner-role','owner','Owner',0), ('member-role','member','Member',?), ('agent-role','agent','Agent',?)")
-    .run(Permission.manageTasks, Permission.manageTasks | Permission.manageDatabases)
+    .run(Permission.manageTasks | Permission.mcpConnect, Permission.manageTasks | Permission.manageDatabases | Permission.mcpConnect)
   sqlite.prepare("INSERT INTO users (id,display_name,status,role_id,joined_at) VALUES (?,'Owner','active','owner-role','2026-10-21'), ('other-human','Other','active','member-role','2026-10-21')").run(ownerId)
   sqlite.exec("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('agent-member','agent','Builder','active','agent-role','2026-10-21')")
   sqlite.prepare("INSERT INTO server (id,name,owner_id) VALUES ('00000000-0000-4000-8000-000000000001','L4',?)").run(ownerId)
@@ -144,7 +144,7 @@ describe('MCP OAuth with the installed provider and real SQL storage', () => {
     const agent = await principal(tokens.access_token)
     expect(agent).toMatchObject({ userId: 'agent-member', delegatedBy: ownerId, authorization: { credential: { clientId } } })
     expect(() => requireMcpAccess(agent!, 'tasks:read')).toThrow('tasks:read scope')
-    sqlite.exec("UPDATE roles SET permissions_bitmask=0 WHERE id='agent-role'")
+    sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='agent-role'").run(Permission.mcpConnect)
     const downgraded = await principal(tokens.access_token)
     expect(() => requireMcpAccess(downgraded!, 'documents:read')).toThrow('Agent role')
   })
@@ -165,6 +165,26 @@ describe('MCP OAuth with the installed provider and real SQL storage', () => {
     expect((await exchange(valid.callback.searchParams.get('code')!, valid.verifier)).status).toBe(400)
     const denied = await authorization(ownerId, ['tasks:read'], { resource: 'https://another.example/mcp' })
     expect(denied.location.searchParams.get('error')).toBe('invalid_target')
+  })
+
+  it.each(['human', 'agent', 'delegator'])('blocks issued access, refresh and outstanding codes when the %s loses mcp.connect', async (kind) => {
+    if (kind !== 'agent') {
+      sqlite.exec("UPDATE server SET owner_id='other-human'")
+      sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='owner-role'").run(Permission.manageServer | Permission.manageTasks | Permission.mcpConnect)
+    }
+    const subjectId = kind === 'human' ? ownerId : 'agent-member'
+    const active = await connect(subjectId)
+    const pending = await authorization(subjectId)
+    expect(await principal(active.tokens.access_token)).toMatchObject({ userId: subjectId })
+    const roleId = kind === 'agent' ? 'agent-role' : 'owner-role'
+    sqlite.prepare('UPDATE roles SET permissions_bitmask=permissions_bitmask & ? WHERE id=?').run(~Permission.mcpConnect, roleId)
+    expect(await principal(active.tokens.access_token)).toBeNull()
+    const refresh = await call('/oauth2/token', { form: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId, refresh_token: active.tokens.refresh_token, resource }) })
+    expect(refresh.status).toBe(400)
+    expect((await exchange(pending.callback.searchParams.get('code')!, pending.verifier)).status).toBe(400)
+    await expect(createMcpConnection(env, { createdBy: ownerId, subjectId, clientId, resource, scopes: ['tasks:read'] })).rejects.toThrow('mcp.connect')
+    expect((await listMcpConnections(env, ownerId)).some(connection => connection.id === active.connectionId)).toBe(true)
+    expect(await revokeMcpConnection(env, active.connectionId, ownerId)).toBe(true)
   })
 
   it('denies consent without minting tokens and rejects bypass of Member selection', async () => {

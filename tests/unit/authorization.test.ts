@@ -5,7 +5,7 @@ import { Permission } from '../../shared/permissions'
 function context(overrides: Partial<AuthorizationContext> = {}): AuthorizationContext {
   return {
     serverId: 'main',
-    principal: { id: 'agent-1', kind: 'agent', roleId: 'role-1', roleName: 'Agent', permissions: Permission.manageTasks, isOwner: false },
+    principal: { id: 'agent-1', kind: 'agent', roleId: 'role-1', roleName: 'Agent', permissions: Permission.manageTasks | Permission.mcpConnect, isOwner: false },
     credential: { kind: 'mcp', id: 'token-1', scopes: ['tasks:read'] },
     ...overrides,
   }
@@ -39,5 +39,13 @@ describe('server authorization', () => {
     expect(() => authorize(delegated, ServerAction.readTasks)).not.toThrow()
     expect(() => authorize(delegated, ServerAction.writeTasks)).not.toThrow()
     expect(() => authorize(delegated, ServerAction.writeDocuments)).toThrow(AuthorizationError)
+  })
+
+  it('requires mcp.connect for MCP credentials without affecting browser or internal Agent access', () => {
+    const member = { ...context().principal, permissions: Permission.manageTasks }
+    expect(() => authorize(context({ principal: member }), ServerAction.readTasks)).toThrow('mcp.connect')
+    for (const kind of ['session', 'agent_runtime'] as const) {
+      expect(() => authorize(context({ principal: member, credential: { kind } }), ServerAction.readTasks)).not.toThrow()
+    }
   })
 })

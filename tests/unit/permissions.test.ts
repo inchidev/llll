@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
+import migration from '../../drizzle/server-migrations/0002_mcp_connect_grant.sql?raw'
 import { ALL_PERMISSIONS, hasPermission, MemberPermissions, Permission, permissionBitmask, rolePermissions } from '../../shared/permissions'
 
 describe('permissions', () => {
@@ -25,7 +27,30 @@ describe('permissions', () => {
     expect(hasPermission(ALL_PERMISSIONS, Permission.manageDatabases)).toBe(true)
     expect(hasPermission(ALL_PERMISSIONS, Permission.useGadgets)).toBe(true)
     expect(hasPermission(ALL_PERMISSIONS, Permission.manageGadgets)).toBe(true)
-    expect(rolePermissions('admin')).toBe(ALL_PERMISSIONS)
+    expect(rolePermissions('admin')).toBe(ALL_PERMISSIONS & ~Permission.mcpConnect)
+  })
+
+  it('requires an explicit mcp.connect grant for every role except owner', () => {
+    for (const name of ['admin', 'member', 'agent', 'custom']) {
+      expect(hasPermission(rolePermissions(name), Permission.mcpConnect)).toBe(false)
+    }
+    expect(hasPermission(rolePermissions('owner'), Permission.mcpConnect)).toBe(true)
+    expect(permissionBitmask(['mcp.connect'])).toBe(Permission.mcpConnect)
+  })
+
+  it('opts only the owner role into MCP when upgrading existing roles', () => {
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec("CREATE TABLE roles (key TEXT, permissions_bitmask INTEGER); INSERT INTO roles VALUES ('owner',4095),('admin',4095),('member',112),('agent',768)")
+      database.exec(migration)
+      expect(database.prepare('SELECT key,permissions_bitmask FROM roles').all()).toEqual([
+        { key: 'owner', permissions_bitmask: ALL_PERMISSIONS },
+        { key: 'admin', permissions_bitmask: ALL_PERMISSIONS & ~Permission.mcpConnect },
+        { key: 'member', permissions_bitmask: MemberPermissions },
+        { key: 'agent', permissions_bitmask: Permission.manageTasks | Permission.manageDatabases },
+      ])
+    }
+    finally { database.close() }
   })
 
   it('builds a custom role bitmask from grants', () => {

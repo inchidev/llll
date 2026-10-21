@@ -1,7 +1,7 @@
 import type { L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
+import { ALL_PERMISSIONS, hasPermission, Permission } from '../../shared/permissions'
 import { getServerId } from '../../shared/server-id'
 
 export type McpPrincipal = {
@@ -32,6 +32,7 @@ export async function resolveMcpPrincipal(
   if (!row) return null
   const isOwner = row.ownerId === credential.subjectId
   const perms = isOwner ? ALL_PERMISSIONS : row.perms
+  if (!hasPermission(perms, Permission.mcpConnect)) return null
   const delegatedBy = credential.createdBy === credential.subjectId ? null : credential.createdBy
   return {
     tokenId: credential.id, userId: credential.subjectId, serverId,

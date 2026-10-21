@@ -11,6 +11,7 @@ export const Permission = {
   manageDatabases: 1 << 9,
   useGadgets: 1 << 10,
   manageGadgets: 1 << 11,
+  mcpConnect: 1 << 12,
 } as const
 
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
@@ -28,6 +29,7 @@ export const ALL_PERMISSIONS =
   | Permission.manageDatabases
   | Permission.useGadgets
   | Permission.manageGadgets
+  | Permission.mcpConnect
 
 export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
@@ -45,6 +47,7 @@ export const PermissionGrants = [
   { key: 'manageDatabases', flag: Permission.manageDatabases, label: 'Manage data', description: 'Create databases, documents, canvases, fields, and records.' },
   { key: 'useGadgets', flag: Permission.useGadgets, label: 'Use apps', description: 'Open published internal tools shared with this role.' },
   { key: 'manageGadgets', flag: Permission.manageGadgets, label: 'Manage apps', description: 'Create, configure, publish, and share internal tools.' },
+  { key: 'mcp.connect', flag: Permission.mcpConnect, label: 'Connect MCP clients', description: 'Allow external MCP clients to act as this member within their role and approved scopes.' },
 ] as const
 
 export type PermissionGrantKey = (typeof PermissionGrants)[number]['key']
@@ -70,6 +73,7 @@ export function directMessagePermissions(rolePermissions: number, isOwner: boole
 }
 
 export function rolePermissions(name: string): number {
-  if (name === 'owner' || name === 'admin') return ALL_PERMISSIONS
+  if (name === 'owner') return ALL_PERMISSIONS
+  if (name === 'admin') return ALL_PERMISSIONS & ~Permission.mcpConnect
   return MemberPermissions
 }

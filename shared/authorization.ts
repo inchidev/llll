@@ -67,6 +67,9 @@ export class AuthorizationError extends Error {
 
 /** The single server authorization boundary shared by HTTP, MCP, and Agents. */
 export function authorize(context: AuthorizationContext, action: ServerAction): void {
+  if (context.credential.kind === 'mcp' && !context.principal.isOwner && !hasPermission(context.principal.permissions, Permission.mcpConnect)) {
+    throw new AuthorizationError(`The ${context.principal.roleName} role cannot perform mcp.connect`)
+  }
   const rule = ACTION_RULES[action]
   const delegatedAuthority = context.credential.kind === 'agent_runtime' && context.delegation?.permissions !== undefined
     ? {

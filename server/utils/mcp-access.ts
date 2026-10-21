@@ -1,7 +1,7 @@
 import type { McpPrincipal } from './mcp-principal'
 import { resolveMcpPrincipal } from './mcp-principal'
 import { authenticateOAuthMcpRequest } from './mcp-oauth'
-import { authorize, ServerAction } from '../../shared/authorization'
+import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
 import type { PublicUser } from '../../shared/types'
@@ -86,6 +86,9 @@ export async function issueMcpAccessToken(
     "SELECT id, kind, display_name as displayName, avatar_r2_key as avatarR2Key FROM users WHERE id = ? AND status = 'active'",
   ).bind(input.createdBy).first<PublicUser>()
   if (!subject || !creator) throw new Error('Token subject and creator must be active server members')
+  if (!await resolveMcpPrincipal(env, { id: '', subjectId: input.subjectId, createdBy: input.createdBy, scopes: input.scopes })) {
+    throw new AuthorizationError('The selected member’s role does not allow mcp.connect')
+  }
   const scopes = [...new Set(input.scopes)].filter(scope => MCP_SCOPES.includes(scope))
   if (!scopes.length) throw new Error('Choose at least one MCP scope')
 

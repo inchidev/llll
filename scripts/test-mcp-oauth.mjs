@@ -7,7 +7,15 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   const resource = `${origin}/mcp`
   const owner = (await api('alpha', '/api/me')).payload.user.id
   const db = await runtimes.alpha.getD1Database('DB')
-  await db.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('oauth-test-role','oauth-test','MCP test',768)").run()
+  const mcpConnect = 1 << 12
+  const defaults = (await api('alpha', `/api/servers/${ids.alpha}/roles`)).payload.roles
+  for (const key of ['owner', 'admin', 'member']) {
+    assert.equal(Boolean(defaults.find(role => role.key === key).permissions & mcpConnect), key === 'owner')
+  }
+  await db.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('oauth-test-role','oauth-test','MCP test',?)").bind(768 | mcpConnect).run()
+  const setConnectGrant = enabled => api('alpha', `/api/servers/${ids.alpha}/roles/oauth-test-role`, {
+    method: 'PATCH', body: { permissions: 768 | (enabled ? mcpConnect : 0) },
+  })
   await db.prepare("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('oauth-test-agent','agent','OAuth test Agent','active','oauth-test-role',?)")
     .bind(new Date().toISOString()).run()
 
@@ -49,7 +57,7 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   assert.match(consentPage.headers.get('content-security-policy'), /frame-ancestors 'none'/)
   const memberQuery = await begin('alpha-member')
   const memberConsent = await api('alpha', `/api/mcp/consent?${new URLSearchParams({ oauth_query: memberQuery })}`, { actor: 'alpha-member' })
-  assert.deepEqual(memberConsent.payload.subjects.map(subject => subject.id), [memberId])
+  assert.deepEqual(memberConsent.payload.subjects, [], 'default members cannot connect MCP clients')
   await api('alpha', '/api/mcp/consent', { actor: 'alpha-member', method: 'POST', expected: 403,
     body: { accept: true, oauth_query: memberQuery, subjectId: 'oauth-test-agent', scopes: ['tasks:read'] } })
   await api('alpha', '/api/mcp/consent', { method: 'POST', expected: 403,
@@ -102,6 +110,22 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   assert.equal((await mcp(exchanged.payload.access_token, 'list_documents')).payload.result.isError, true)
   assert.equal((await mcp(exchanged.payload.access_token, 'list_task_boards', {}, 'beta')).response.status, 401)
 
+  // Keep data permissions intact: removing only mcp.connect must block every
+  // existing credential and fresh issuance, with no wait for token expiry.
+  const manual = (await api('alpha', `/api/servers/${ids.alpha}/mcp-tokens`, { method: 'POST', body: {
+    name: 'Grant removal test', subjectId: 'oauth-test-agent', scopes: ['tasks:read'],
+  } })).payload.token
+  assert.equal((await mcp(manual.token, 'list_task_boards')).response.status, 200)
+  await setConnectGrant(false)
+  assert.equal((await mcp(exchanged.payload.access_token, 'list_task_boards')).response.status, 401)
+  assert.equal((await mcp(manual.token, 'list_task_boards')).response.status, 401)
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: exchanged.payload.refresh_token })).response.status, 400)
+  await api('alpha', '/api/mcp/consent', { method: 'POST', expected: 403,
+    body: { accept: true, oauth_query: oauthQuery, subjectId: 'oauth-test-agent', scopes: ['tasks:read'] } })
+  await api('alpha', `/api/servers/${ids.alpha}/mcp-tokens`, { method: 'POST', expected: 403,
+    body: { name: 'Denied without grant', subjectId: 'oauth-test-agent', scopes: ['tasks:read'] } })
+  await setConnectGrant(true)
+
   const connections = (await api('alpha', '/api/mcp/connections')).payload.connections
   const connection = connections.find(item => item.subject.id === 'oauth-test-agent')
   assert.ok(connection)
@@ -123,11 +147,14 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   const selfTokens = await token({ ...form, code: new URL(selfConsent.payload.url).searchParams.get('code') })
   assert.equal(selfTokens.response.status, 200)
   assert.ok(!(await mcp(selfTokens.payload.access_token, 'list_task_boards')).payload.result.isError)
+  await setConnectGrant(false)
+  assert.equal((await mcp(selfTokens.payload.access_token, 'list_task_boards')).response.status, 401)
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: selfTokens.payload.refresh_token })).response.status, 400)
   const ownConnections = (await api('alpha', '/api/mcp/connections', { actor: 'alpha-member' })).payload.connections
   assert.equal(ownConnections.length, 1)
   assert.equal(ownConnections[0].subject.id, memberId)
   assert.ok(!(await api('alpha', '/api/mcp/connections')).payload.connections.some(item => item.id === ownConnections[0].id))
   await api('alpha', `/api/mcp/connections/${ownConnections[0].id}`, { actor: 'alpha-member', method: 'DELETE' })
   await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(originalMemberRole.role_id, memberId).run()
-  console.log('PASS: MCP OAuth discovery/DCR, signed consent/CSRF, Agent authorship/audit, scope/server isolation, code replay, refresh and revocation')
+  console.log('PASS: MCP OAuth discovery/DCR, signed consent/CSRF, Agent authorship/audit, scope/server isolation, code replay, refresh, revocation and live Human/Agent mcp.connect removal for OAuth and bearer tokens')
 }
