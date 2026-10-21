@@ -67,14 +67,15 @@ async function decide(accept: boolean) {
         <USelect v-model="subjectId" :items="subjectOptions" class="w-full" :disabled="busy" />
       </UFormField>
 
-      <UFormField label="Allow this application to">
+      <fieldset>
+        <legend class="mb-3 text-sm font-medium text-highlighted">Allow this application to</legend>
         <div class="space-y-3">
           <UCheckbox
 v-for="scope in consent.scopes" :key="scope" :label="MCP_SCOPE_LABELS[scope]"
             :disabled="busy || !allowedScopes.includes(scope)" :model-value="scopes.includes(scope)"
             @update:model-value="checked => { scopes = checked === true ? [...new Set([...scopes, scope])] : scopes.filter(value => value !== scope) }" />
         </div>
-      </UFormField>
+      </fieldset>
       <p v-if="!allowedScopes.length" class="text-sm text-muted">This Member’s Role does not allow the requested actions.</p>
       <p v-if="consent.offlineAccess" class="text-sm text-muted">The application may renew access until this connection is revoked or expires.</p>
       <p class="text-sm text-muted">You can revoke access in My Settings → Connected apps on this Server.</p>

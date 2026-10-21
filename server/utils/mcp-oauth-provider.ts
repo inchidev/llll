@@ -22,7 +22,7 @@ export function mcpOAuthProvider(env: L4Env, origin: string, connectionId?: stri
     resources: [{ identifier: resource, name: 'L4 MCP', allowedScopes: [...MCP_SCOPES, 'offline_access'] }],
     accessTokenExpiresIn: 60 * 15,
     refreshTokenExpiresIn: 60 * 60 * 24 * 30,
-    codeExpiresIn: 60 * 2,
+    codeExpiresIn: 60 * 10,
     storeTokens: { hash: hashMcpToken },
     prefix: { opaqueAccessToken: 'l4_at_', refreshToken: 'l4_rt_', clientSecret: 'l4_cs_' },
     // DCR may identify a client; only a human consent grants access to L4 data.
