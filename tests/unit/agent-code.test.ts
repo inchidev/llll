@@ -7,7 +7,9 @@ import { d1 } from '../helpers/sqlite-d1'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 import { loadAuthorizationContext } from '../../server/utils/authorization'
-import { createAgentRun, findAgentRun } from '../../server/utils/agent-run-service'
+import { createAgentRun, findAgentRun, runAuthorization  } from '../../server/utils/agent-run-service'
+import { previousRunFiles, requireRunFiles } from '../../server/utils/agent-files'
+import { createSchedule } from '../../server/utils/schedule-service'
 import { publishCodeProposal, codeProposalChecks } from '../../server/utils/agent-code-service'
 import type { AgentRun } from '../../shared/agent-execution'
 import type { CodeProposalInput } from '../../shared/code-environments'
@@ -153,4 +155,34 @@ describe('GitHub capability broker', () => {
     head = 'e'.repeat(40)
     await expect(codeProposalChecks(env, run.id)).rejects.toMatchObject({ statusCode: 409 })
   })
+  it('revokes repository writes after environment edits or task reassignment', async () => {
+    db.exec("UPDATE agent_environments SET version=version+1 WHERE id='code-env'")
+    await expect(publishCodeProposal(env, run.id, input())).rejects.toMatchObject({ statusCode: 403 })
+    db.exec("UPDATE agent_environments SET version=1 WHERE id='code-env'; UPDATE tasks SET assignee_id='owner-user' WHERE id='code-task'")
+    await expect(publishCodeProposal(env, run.id, input())).rejects.toMatchObject({ statusCode: 403 })
+    expect(count('/pulls')).toBe(0)
+  })
+  it('restores only files from the same conversation, task and repository snapshot', async () => {
+    db.prepare("UPDATE agent_runs SET status='completed',files_key='private-files' WHERE id=?").run(run.id)
+    const current = { ...run, id: 'another-run', createdAt: '9999-01-01' }
+    expect(await previousRunFiles(env, current)).toBe('private-files')
+    expect(await previousRunFiles(env, { ...current, taskId: 'other-task' })).toBeNull()
+    expect(await previousRunFiles(env, { ...current, sessionId: 'other-session' })).toBeNull()
+    expect(await previousRunFiles(env, { ...current, environmentJson: JSON.stringify({ ...JSON.parse(run.environmentJson!), baseSha: 'c'.repeat(40) }) })).toBeNull()
+    const auth = await runAuthorization(env, run)
+    auth.principal.resourceAccess = { repositories: [] }
+    await expect(requireRunFiles(env, auth, run)).rejects.toMatchObject({ statusCode: 403 })
+  })
+  it('freezes scheduled repository authority and refuses it after configuration changes', async () => {
+    env.AGENT_SCHEDULE_DO = { getByName: () => ({ wake: async () => {} }) } as unknown as NonNullable<L4Env['AGENT_SCHEDULE_DO']>
+    const owner = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+    const scheduled = await createSchedule(env, owner, { kind: 'work', content: 'Fix behavior', agentId: 'agent-user', taskId: 'code-task', channelId: 'code-channel',
+      firstAt: new Date(Date.now() + 60000).toISOString(), timezone: 'UTC', recurrence: 'once' })
+    const row = db.prepare('SELECT mandate_json as mandate FROM agent_schedules WHERE id=?').get(scheduled.id)!
+    const mandate = JSON.parse(String(row.mandate))
+    expect(mandate).toMatchObject({ environmentId: 'code-env', environmentVersion: 1, computer: true })
+    db.exec("UPDATE agent_environments SET version=2 WHERE id='code-env'")
+    await expect(createAgentRun(env, owner, { agentId: 'agent-user', channelId: 'code-channel', taskId: 'code-task', prompt: 'Scheduled work', idempotencyKey: 'scheduled-attempt' }, mandate)).rejects.toMatchObject({ statusCode: 403 })
+  })
+
 })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import type { CodeEnvironment } from '~~/shared/code-environments'
 import { Permission } from '~~/shared/permissions'
 import type {
   ChannelDTO,
@@ -67,6 +68,10 @@ const agentsQ = useQuery({
   queryFn: () => api<{ agents: TaskAgentDTO[] }>(`/api/servers/${serverId.value}/task-agents`),
   enabled: computed(() => Boolean(serverId.value)),
 })
+const environmentsQ = useQuery({
+  queryKey: ['code-environments'], queryFn: () => api<{ environments: CodeEnvironment[] }>('/api/code-environments'), enabled: computed(() => can(Permission.useComputer)),
+})
+const environmentOptions = computed(() => [{ label: 'No repository', value: null }, ...(environmentsQ.data.value?.environments ?? []).filter(item => item.enabled).map(item => ({ label: item.name, value: item.id }))])
 const membersQ = useQuery({
   queryKey: computed(() => ['members', serverId.value]),
   queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
@@ -167,15 +172,16 @@ type TaskForm = {
   description: string
   priority: TaskPriority
   dueAt: string
+  environmentId: string | null
   assigneeId: string | null
   channelId: string | null
   labelIds: string[]
   dependencyIds: string[]
 }
 
-const newTask = reactive<TaskForm>({ title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, channelId: null, labelIds: [], dependencyIds: [] })
+const newTask = reactive<TaskForm>({ title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
 const editTask = reactive<TaskForm & { boardId: string; status: TaskStatus }>({
-  title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, channelId: null, labelIds: [], dependencyIds: [], boardId: '', status: 'backlog',
+  title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [], boardId: '', status: 'backlog',
 })
 const boardName = ref('')
 const editingBoardId = ref<string | null>(null)
@@ -193,6 +199,7 @@ function fillEditTask(task: TaskDetailDTO | null) {
     priority: task.priority,
     dueAt: toDateInput(task.dueAt),
     assigneeId: task.assigneeId,
+    environmentId: task.environmentId ?? null,
     channelId: task.channelId,
     labelIds: task.labels.map(label => label.id),
     dependencyIds: [...task.dependencyIds],
@@ -216,6 +223,7 @@ const taskDirty = computed(() => {
     || editTask.dueAt !== toDateInput(task.dueAt)
     || editTask.assigneeId !== task.assigneeId
     || editTask.channelId !== task.channelId
+    || editTask.environmentId !== (task.environmentId ?? null)
     || editTask.boardId !== task.boardId
     || editTask.status !== task.status
     || !sameIds(editTask.labelIds, task.labels.map(label => label.id))
@@ -361,7 +369,7 @@ function deleteBoard() {
 }
 
 function openCreateTask() {
-  Object.assign(newTask, { title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, channelId: null, labelIds: [], dependencyIds: [] })
+  Object.assign(newTask, { title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
   showTaskForm.value = true
 }
 
@@ -612,6 +620,7 @@ const boardMenu = computed(() => [[
           <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask" /></UFormField>
           <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer)" label="Repository environment" help="Uses a separate working fork for draft pull requests."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
           <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
           <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
@@ -664,6 +673,7 @@ const boardMenu = computed(() => [[
             <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="editTask.description" :rows="5" autoresize class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
             <UFormField label="Status"><USelect v-model="editTask.status" :items="manualStatusOptions" class="w-full" /></UFormField>
             <UFormField label="Assignee"><USelect v-model="editTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer)" label="Repository environment" help="Uses a separate working fork for draft pull requests."><USelect v-model="editTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
             <UFormField label="Priority"><USelect v-model="editTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
             <UFormField label="Due"><UInput v-model="editTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
             <UFormField label="Board"><USelect :model-value="editTask.boardId" :items="boardOptions" class="w-full" @update:model-value="changeEditBoard" /></UFormField>

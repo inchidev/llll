@@ -1,0 +1,35 @@
+import { z } from 'zod'
+import type { AgentRun } from '../../shared/agent-execution'
+import type { L4Env } from '../../workers/env'
+import { runAuthorization } from './agent-run-service'
+import { authorize, ServerAction, authorizeResource } from '../../shared/authorization'
+import type { AuthorizationContext } from '../../shared/authorization'
+import type { RunEnvironment } from '../../shared/code-environments'
+import { getTask } from './task-service'
+import { fail } from './cf'
+
+export const workingFilesSchema = z.object({ version: z.literal(1), files: z.array(z.object({
+  path: z.string().min(1).max(500).refine(value => !value.startsWith('/') && !value.includes('\\') && ![...value].some(c => c.charCodeAt(0) < 32)
+    && value.split('/').every(part => part && part !== '.' && part !== '..' && part.toLowerCase() !== '.git')),
+  content: z.string().max(700000).regex(/^[A-Za-z0-9+/]*={0,2}$/u).nullable(), executable: z.boolean(),
+})).max(100) })
+export async function requireRunFiles(env: L4Env, auth: AuthorizationContext, run: AgentRun) {
+  authorize(auth, ServerAction.useComputer)
+  if (run.taskId) await getTask(env, auth, run.taskId)
+  if (run.environmentJson) authorizeResource(auth, 'repositories', String((JSON.parse(run.environmentJson) as RunEnvironment).sourceRepoId))
+}
+export async function previousRunFiles(env: L4Env, run: AgentRun) {
+  // Never import files from another conversation, task, repository base or mandate version.
+  const previous = await env.DB.prepare(`SELECT files_key as filesKey FROM agent_runs WHERE session_id=? AND task_id IS ?
+    AND environment_json IS ? AND status='completed' AND files_key IS NOT NULL AND id<>? AND created_at<? ORDER BY created_at DESC,id DESC LIMIT 1`)
+    .bind(run.sessionId, run.taskId, run.environmentJson, run.id, run.createdAt).first<{ filesKey: string }>()
+  return previous?.filesKey ?? null
+}
+export async function runtimeFiles(env: L4Env, run: AgentRun): Promise<Response> {
+  const auth = await runAuthorization(env, run)
+  await requireRunFiles(env, auth, run)
+  const key = await previousRunFiles(env, run)
+  const object = key ? await env.FILES?.get(key) : null
+  if (!object || object.size > 2000000) fail(404, 'not_found', 'Saved working files are unavailable')
+  return new Response(object.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+}

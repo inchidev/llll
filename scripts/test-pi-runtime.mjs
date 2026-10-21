@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { gzipSync } from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -20,9 +21,13 @@ const runnerToken = randomBytes(32).toString('hex')
 const serverId = randomUUID()
 const secondId = randomUUID()
 const image = process.env.LLLL_TEST_PI_IMAGE || 'llll-agent:pi-1.3.0'
+const header = Buffer.alloc(512)
+header.write('repo-base/source.txt'); header.write('0000644', 100); header.write('00000000006', 124); header.write('0', 156)
+const repository = gzipSync(Buffer.concat([header, Buffer.from('source'), Buffer.alloc(506 + 1024)])).toString('base64')
 const fixture = `
 const http = require('node:http'); let calls=0; let tools=0;
 http.createServer(async (req,res)=>{
+ if(req.url==='/repository'){res.end(Buffer.from('${repository}','base64'));return;}
  if(req.method==='GET'&&req.url==='/tools'){res.writeHead(405).end();return;}
  let body='';for await(const chunk of req)body+=chunk;
  if(req.url==='/stats'){res.end(JSON.stringify({calls,tools}));return;}
@@ -65,7 +70,7 @@ try {
   const input = { runId, sessionId, prompt: 'Read the evidence and report it', instructions: 'Use read_evidence before answering.',
     modelGateway: { url: 'http://gateway/v1', token, model: 'fixture' }, toolEndpoint: 'http://gateway/tools',
     tools: [{ name: 'read_evidence', description: 'Read evidence', parameters: { type: 'object', properties: {} } }],
-    computer: false, maxSteps: 5, timeoutMs: 30000 }
+    repository: { archiveUrl: 'http://gateway/repository' }, computer: true, maxSteps: 5, timeoutMs: 30000 }
   assert.equal((await request('/run', 'POST', input)).status, 202)
   let result
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -78,6 +83,10 @@ try {
   assert.ok(result.events.some(event => event.type === 'tool'))
   const archive = await (await request('/session')).json()
   assert.ok(archive.transcript.includes('Fixture source'))
+  assert.equal((await command('exec', agent, 'cat', '/data/session/work/source.txt')).stdout, 'source')
+  await command('exec', agent, 'node', '-e', "require('node:fs').writeFileSync('/data/session/work/result.txt','saved evidence')")
+  const output = await (await request('/files')).json()
+  assert.ok(output.files.some(file => file.path === 'result.txt' && Buffer.from(file.content, 'base64').toString() === 'saved evidence'))
   assert.equal((await request('/run', 'POST', input)).status, 202)
   const stats = JSON.parse((await command('exec', gateway, 'node', '-e', "fetch('http://127.0.0.1/stats').then(r=>r.text()).then(console.log)")).stdout)
   assert.equal(stats.tools, 1, 'Duplicate admission repeated a side effect')

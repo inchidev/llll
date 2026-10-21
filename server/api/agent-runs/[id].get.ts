@@ -1,3 +1,4 @@
+import { requireRunFiles } from '../../utils/agent-files'
 import { Permission, hasPermission } from '../../../shared/permissions'
 import { getTask } from '../../utils/task-service'
 import { findAgentRun } from '../../utils/agent-run-service'
@@ -10,6 +11,7 @@ export default defineEventHandler(async (event) => {
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
   if (run.taskId) await getTask(env, actor.authorization, run.taskId)
-  const { instructions: _instructions, mandateJson: _mandate, ...visible } = run
-  return { run: visible, canCancel: actor.user.id === run.initiatedBy || actor.isOwner || hasPermission(actor.perms, Permission.manageAgents) }
+  if (run.environmentJson) await requireRunFiles(env, actor.authorization, run)
+  const { instructions: _instructions, mandateJson: _mandate, environmentJson: _environment, filesKey: _files, ...visible } = run
+  return { run: { ...visible, hasFiles: Boolean(run.filesKey) }, canCancel: actor.user.id === run.initiatedBy || actor.isOwner || hasPermission(actor.perms, Permission.manageAgents) }
 })

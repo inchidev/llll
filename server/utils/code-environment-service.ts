@@ -17,7 +17,7 @@ export async function findCodeEnvironment(env: L4Env, id: string): Promise<CodeE
   return { ...codeEnvironmentSchema.parse(JSON.parse(row.configJson)), id: row.id, enabled: Boolean(row.enabled), version: row.version }
 }
 export async function listCodeEnvironments(env: L4Env, auth: AuthorizationContext) {
-  if (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.useComputer)) fail(403, 'code_denied', 'Computer access is not granted')
+  if (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.useComputer) && !hasPermission(auth.principal.permissions, Permission.manageServer) && !hasPermission(auth.principal.permissions, Permission.manageRoles)) fail(403, 'code_denied', 'Computer access is not granted')
   const rows = await env.DB.prepare('SELECT id FROM agent_environments ORDER BY created_at').all<{ id: string }>()
   const visible = []
   for (const row of rows.results ?? []) {
@@ -45,8 +45,10 @@ export async function saveCodeEnvironment(env: L4Env, auth: AuthorizationContext
   const environmentId = existing?.id ?? newId()
   const now = nowIso()
   const config = JSON.stringify(input)
-  if (existing) await env.DB.prepare('UPDATE agent_environments SET config_json=?,enabled=1,version=version+1,updated_at=? WHERE id=? AND version=?')
+  if (existing) { const updated = await env.DB.prepare('UPDATE agent_environments SET config_json=?,enabled=1,version=version+1,updated_at=? WHERE id=? AND version=?')
     .bind(config, now, environmentId, existing.version).run()
+    if (!updated.meta.changes) fail(409, 'code_environment_changed', 'Environment changed while it was being saved')
+  }
   else await env.DB.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)')
     .bind(environmentId, config, auth.principal.id, now, now).run()
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'agent.environment.configure', targetType: 'environment', targetId: environmentId,

@@ -25,9 +25,9 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   }
   add('list_tasks', ServerAction.readTasks, z.object({}), 'Read authorized task boards and tasks.', async () => ({ boards: await listTasks(env, authorization) }))
   add('get_task', ServerAction.readTasks, z.object({ taskId: z.string().min(1) }), 'Read one authorized task.', async ({ taskId }) => ({ task: await getTask(env, authorization, taskId) }))
-  add('create_task', ServerAction.writeTasks, z.object({ boardId: z.string().min(1), title: z.string().min(1).max(160), description: z.string().max(12000).default('') }),
-    'Create tracked work on an authorized board. Creation does not expand the current mandate.', async ({ boardId, title, description }) => ({ task: await createTask(env, authorization, boardId,
-      { title, description, priority: 'normal', dueAt: null, assigneeId: authorization.principal.id, channelId: null, labelIds: [], dependencyIds: [] }, schedule) }))
+  add('create_task', ServerAction.writeTasks, z.object({ boardId: z.string().min(1), title: z.string().min(1).max(160), description: z.string().max(12000).default(''), environmentId: z.string().min(8).nullable().optional() }),
+    'Create tracked work on an authorized board. Creation does not expand the current mandate.', async ({ boardId, title, description, environmentId }) => ({ task: await createTask(env, authorization, boardId,
+      { title, description, environmentId, priority: 'normal', dueAt: null, assigneeId: authorization.principal.id, channelId: null, labelIds: [], dependencyIds: [] }, schedule) }))
   add('update_task', ServerAction.writeTasks, z.object({ taskId: z.string().min(1), title: z.string().min(1).max(160).optional(), description: z.string().max(12000).optional(), status: z.enum(['backlog', 'ready', 'review', 'done', 'failed']).optional() }),
     'Update an authorized task.', async ({ taskId, ...patch }) => ({ task: await updateTask(env, authorization, taskId, patch, schedule) }))
   add('list_data', ServerAction.readDocuments, z.object({}), 'Discover authorized tables and documents.', async () => listAuthorizedDataResources(env, authorization))

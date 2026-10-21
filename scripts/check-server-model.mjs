@@ -10,7 +10,7 @@ async function scan(directory) {
     if (!/\.(?:ts|vue|mjs|sql|json|jsonc|md)$/.test(path)) continue
     const text = await readFile(resolve(root, path), 'utf8')
     // GitHub App provider IDs are distinct from the retired product domain.
-    const productText = (path + '\n' + text).replace(/\b(?:(?:source|work)InstallationId|installationId)\b|\/app\/installations\//g, 'GitHubProviderId')
+    const productText = (path + '\n' + text).replace(/\b(?:(?:source|work)InstallationId|installationId)\b|\/app\/installations(?:\/|\?)|\/installation\/(?:token|repositories)/g, 'GitHubProviderId')
     if (/workspace|installation|apps\/instance/i.test(productText) || /\bInstance\b/.test(productText)) violations.push(relative(root, resolve(root, path)))
   }
 }

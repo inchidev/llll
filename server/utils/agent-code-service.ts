@@ -7,6 +7,7 @@ import type { L4Env } from '../../workers/env'
 import { findAgentRun, runAuthorization } from './agent-run-service'
 import { githubAgentClient } from './github-agent-client'
 import { requireRunEnvironment } from './code-environment-service'
+import { getTask } from './task-service'
 import { fail } from './cf'
 import { writeAudit } from './messages'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
@@ -45,7 +46,10 @@ async function codeRun(env: L4Env, id: string, write = false) {
   const auth = await runAuthorization(env, run)
   authorize(auth, ServerAction.useComputer)
   if (write) authorize(auth, ServerAction.proposeCode)
+  const task = await getTask(env, auth, run.taskId)
+  if (!task || task.assigneeId !== run.agentId) fail(403, 'code_revoked', 'Task is no longer assigned to this agent')
   const environment = await requireRunEnvironment(env, auth, JSON.parse(run.environmentJson) as RunEnvironment)
+  if (task.environmentId && task.environmentId !== environment.id) fail(403, 'code_revoked', 'Task repository changed')
   return { run, auth, environment }
 }
 export async function readCodeTree(env: L4Env, runId: string) {

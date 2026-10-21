@@ -44,7 +44,7 @@ createServer(async (request, response) => {
   const supplied = Buffer.from(request.headers.authorization || '')
   if (supplied.length !== auth.length || !timingSafeEqual(supplied, auth)) { response.writeHead(401).end(); return }
   const url = new URL(request.url, 'http://runner')
-  const match = url.pathname.match(/^\/runs\/([0-9a-f-]{36})\/(run|session|lifecycle|health)$/u)
+  const match = url.pathname.match(/^\/runs\/([0-9a-f-]{36})\/(run|session|files|lifecycle|health)$/u)
   if (!match || !['GET', 'POST', 'DELETE'].includes(request.method)) { response.writeHead(404).end(); return }
   const id = match[1]
   const token = request.headers['x-run-capability']

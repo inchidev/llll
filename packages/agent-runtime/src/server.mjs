@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openPi } from './pi.mjs'
+import { prepareFiles, changedFiles } from './files.mjs'
 import { runtimeInput } from './protocol.mjs'
 
 const token = process.env.LLLL_RUN_TOKEN
@@ -36,6 +37,12 @@ const server = createServer(async (request, response) => {
     const all = existsSync(eventFile) ? readFileSync(eventFile, 'utf8').trim().split('\n').filter(Boolean) : []
     const events = all.slice(after, after + 100).map(line => JSON.parse(line))
     json(response, 200, { status: active ? 'running' : existsSync(resultFile) ? 'finished' : identity ? 'interrupted' : 'idle', events, nextCursor: after + events.length, result: existsSync(resultFile) ? JSON.parse(readFileSync(resultFile, 'utf8')) : null }); return
+  }
+  if (request.method === 'GET' && url.pathname === '/files') {
+    if (active) { response.writeHead(409).end(); return }
+    try { json(response, 200, await changedFiles(join(directory, 'session', 'work'))) }
+    catch { json(response, 422, { error: 'Working files exceed archive limits or are unavailable' }) }
+    return
   }
   if (request.method === 'GET' && url.pathname === '/session') {
     if (active) { response.writeHead(409).end(); return }
@@ -82,6 +89,7 @@ const server = createServer(async (request, response) => {
           throw new Error(`Gateway connection failed (${code})`, { cause: error })
         }
         if (probe.status !== 405) throw new Error(`Gateway rejected readiness check (${probe.status})`)
+        await prepareFiles(input, join(sessionDirectory, 'work'), controller.signal)
         const pi = await openPi(input, { directory: sessionDirectory, emit, signal: controller.signal,
           callTool: async (call, signal) => {
             const tool = await fetch(input.toolEndpoint, { method: 'POST', signal,

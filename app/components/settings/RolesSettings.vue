@@ -77,7 +77,7 @@ function permissionSummary(role: RoleDTO) {
 const roleResourceAccess = ref<ResourceAccess>({})
 const resourceGroups: Array<{ kind: ResourceKind; label: string }> = [
   { kind: 'boards', label: 'Task boards' }, { kind: 'databases', label: 'Tables' },
-  { kind: 'documents', label: 'Documents' }, { kind: 'canvases', label: 'Canvases' },
+  { kind: 'repositories', label: 'Repositories' }, { kind: 'documents', label: 'Documents' }, { kind: 'canvases', label: 'Canvases' },
 ]
 const boardResources = useQuery({
   queryKey: computed(() => ['boards', props.serverId]),
@@ -89,7 +89,9 @@ const dataResources = useQuery({
   queryFn: () => api<DataResourcesDTO>(`/api/servers/${props.serverId}/data-resources`),
   enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readData)),
 })
+const environments = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ environments: Array<{ sourceRepo: string; sourceRepoId: number }> }>('/api/code-environments'), enabled: computed(() => Boolean(selectedRole.value)) })
 function resourceOptions(kind: ResourceKind) {
+  if (kind === 'repositories') return [...new Map((environments.data.value?.environments ?? []).map(item => [item.sourceRepoId, { label: item.sourceRepo, value: String(item.sourceRepoId) }])).values()]
   if (kind === 'boards') return (boardResources.data.value?.boards ?? []).map(row => ({ label: row.name, value: row.id }))
   const data = dataResources.data.value
   if (kind === 'databases') return (data?.databases ?? []).map(row => ({ label: row.name, value: row.id }))

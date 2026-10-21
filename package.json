@@ -88,6 +88,12 @@
       "EMAIL_FROM_NAME": {
         "description": "Optional display name for verification emails."
       },
+      "GITHUB_AGENT_APP_ID": {
+        "description": "Optional dedicated GitHub App ID for governed code environments, separate from login OAuth."
+      },
+      "GITHUB_AGENT_APP_PRIVATE_KEY": {
+        "description": "Secret PEM private key of the dedicated agent GitHub App. Never forwarded to compute."
+      },
       "GITHUB_CLIENT_ID": {
         "description": "Optional GitHub OAuth client ID. Deployment credentials override settings entered in L4."
       },

@@ -8,7 +8,7 @@ const { api } = useApi()
 const cancelling = ref(false)
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson'>; canCancel: boolean }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -38,6 +38,7 @@ async function cancel() {
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
       <section class="space-y-2"><h2 class="text-sm font-medium">Instruction</h2><p class="whitespace-pre-wrap text-sm text-muted">{{ run.prompt }}</p></section>
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><div class="whitespace-pre-wrap text-sm text-default">{{ run.resultText }}</div></section>
+      <UButton v-if="run.hasFiles" :href="`/api/agent-runs/${run.id}/files`" external label="Download working files" icon="i-lucide-download" color="neutral" variant="outline" />
       <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
     </template>
     </main>

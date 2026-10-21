@@ -3,6 +3,7 @@ import { createWorkersAI } from 'workers-ai-provider'
 import { z } from 'zod'
 import { findAgentRun, runAuthorization, verifyRunCapability } from './agent-run-service'
 import { executeRunTool } from './agent-tools'
+import { runtimeFiles } from './agent-files'
 import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
 import { modelForAgent } from '../../workers/ai-runtime'
@@ -66,6 +67,9 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
   if (!await verifyRunCapability(env, runId, capability)) return new Response('Unauthorized', { status: 401 })
   const run = await findAgentRun(env, runId)
   if (!run || run.status !== 'running' || run.deadline <= new Date().toISOString()) return new Response('Run is no longer active', { status: 403 })
+  if (request.method === 'GET' && operation === 'files') {
+    try { return await runtimeFiles(env, run) } catch { return new Response('Files unavailable', { status: 403 }) }
+  }
   if (request.method === 'GET' && operation === 'repository/archive') {
     try { await runAuthorization(env, run); return await codeRepositoryArchive(env, run.id) }
     catch { return new Response('Repository archive is unavailable under the current mandate', { status: 403 }) }

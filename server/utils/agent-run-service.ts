@@ -74,7 +74,8 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   const input = runRequestSchema.parse(request)
   const sameRequest = (run: AgentRun) => {
     if (run.channelId !== input.channelId || run.prompt !== input.prompt || run.taskId !== (input.taskId ?? null)
-      || run.sourceMessageId !== (input.sourceMessageId ?? null)) fail(409, 'run_conflict', 'Request key was already used for different work')
+      || run.sourceMessageId !== (input.sourceMessageId ?? null)
+      || (input.environmentId && JSON.parse(run.environmentJson ?? '{}').id !== input.environmentId)) fail(409, 'run_conflict', 'Request key was already used for different work')
   }
   if (input.sourceMessageId) {
     const source = await env.DB.prepare('SELECT m.id FROM messages m JOIN channels c ON c.id=? WHERE m.id=? AND (m.channel_id=c.id OR c.parent_message_id=m.id)')

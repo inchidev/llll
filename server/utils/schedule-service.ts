@@ -6,6 +6,8 @@ import { asRpc } from '../../workers/env'
 import { hasPermission, Permission } from '../../shared/permissions'
 import { resourceAccessWithin } from '../../shared/resource-access'
 import type { AuthorizationContext } from '../../shared/authorization'
+import { findCodeEnvironment } from './code-environment-service'
+import { authorizeResource } from '../../shared/authorization'
 import { intersectResources, type RunMandate } from '../../shared/agent-execution'
 import { scheduleRequestSchema, type Schedule, type ScheduleRequest } from '../../shared/schedules'
 import { newId, nowIso } from '../../shared/ids'
@@ -75,13 +77,22 @@ export async function createSchedule(env: L4Env, auth: AuthorizationContext, req
       delegatedBy: auth.delegation?.by ?? auth.principal.id })
     if (!agent || !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'schedule_denied', 'Agent task execution is not granted')
     const task = await getTask(env, agent, input.taskId!)
-    if (task?.assigneeId !== input.agentId) fail(403, 'schedule_denied', 'Task must be assigned to the selected agent')
+    if (!task || task.assigneeId !== input.agentId) fail(403, 'schedule_denied', 'Task must be assigned to the selected agent')
     const humanPermissions = auth.delegation ? (auth.delegation.isOwner ? auth.principal.permissions : auth.delegation.permissions!) : auth.principal.permissions
     mandate = { permissions: humanPermissions, resourceAccess: auth.delegation?.resourceAccess ?? auth.principal.resourceAccess,
       agentPermissions: agent.principal.permissions & (auth.principal.kind === 'agent' ? auth.principal.permissions : agent.principal.permissions),
       agentResourceAccess: auth.principal.kind === 'agent' ? intersectResources(agent.principal.resourceAccess, auth.principal.resourceAccess) : agent.principal.resourceAccess,
       computer: hasPermission(agent.principal.permissions, Permission.useComputer) && hasPermission(humanPermissions, Permission.useComputer),
       maxSteps: 20, maxModelCalls: 20, maxToolCalls: 100, maxTokens: 64000 }
+    if (task.environmentId) {
+      if (!mandate.computer) fail(403, 'code_denied', 'Scheduled repository work requires computer permission')
+      const environment = await findCodeEnvironment(env, task.environmentId)
+      if (!environment?.enabled) fail(403, 'code_denied', 'Repository environment is unavailable')
+      authorizeResource(auth, 'repositories', String(environment.sourceRepoId))
+      authorizeResource(agent, 'repositories', String(environment.sourceRepoId))
+      mandate.environmentId = environment.id
+      mandate.environmentVersion = environment.version
+    }
   }
   const id = newId()
   await env.DB.prepare(`INSERT INTO agent_schedules(id,principal_id,created_by,channel_id,kind,content,agent_id,task_id,first_at,timezone,recurrence,next_at,status,authorization_json,mandate_json,created_at)

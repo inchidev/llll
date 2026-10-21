@@ -1,3 +1,4 @@
+import { proposalFiles } from './files.mjs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
@@ -31,8 +32,9 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     reload: async () => {},
   }
   const customTools = input.tools.map(tool => ({
-    name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
+    name: tool.name, label: tool.name, description: tool.description, parameters: tool.name === 'publish_code_changes' ? { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' } }, required: ['title', 'body'], additionalProperties: false } : tool.parameters,
     execute: async (id, args, toolSignal) => {
+      if (tool.name === 'publish_code_changes') args = { ...args, files: await proposalFiles(cwd) }
       const value = await callTool({ callId: id, name: tool.name, arguments: args }, toolSignal)
       return { content: [{ type: 'text', text: JSON.stringify(value) }], details: {} }
     },

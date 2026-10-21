@@ -35,9 +35,7 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
   ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
   if (!githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Configure a dedicated GitHub App for agent repositories')
   await ensure()
-  const now = Math.floor(Date.now() / 1000)
-  const key = await importPKCS8(githubPkcs8(env.GITHUB_AGENT_APP_PRIVATE_KEY!.replace(/\\n/gu, '\n')), 'RS256')
-  const jwt = await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(env.GITHUB_AGENT_APP_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
+  const jwt = await appJwt(env)
   const tokenResult = await decode(await transport(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
@@ -59,4 +57,39 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
       return decode(await this.raw(path, method, body))
     },
   }
+}
+
+async function appJwt(env: L4Env) {
+  const now = Math.floor(Date.now() / 1000)
+  const key = await importPKCS8(githubPkcs8(env.GITHUB_AGENT_APP_PRIVATE_KEY!.replace(/\\n/gu, '\n')), 'RS256')
+  return await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(env.GITHUB_AGENT_APP_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
+}
+
+export type AgentRepository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
+/** Metadata-only discovery for Server administration. Execution still mints single-repository tokens. */
+export async function agentRepositories(env: L4Env): Promise<AgentRepository[]> {
+  if (!githubAgentConfigured(env)) return []
+  const jwt = await appJwt(env)
+  const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker' })
+  const request = (path: string, token: string, body?: unknown) => fetch(`https://api.github.com${path}`, {
+    headers: { ...headers(token), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined, redirect: 'error', signal: AbortSignal.timeout(20000),
+  })
+  const result: AgentRepository[] = []
+  for (let page = 1; page <= 10; page++) {
+    const grants = await decode(await request(`/app/installations?per_page=100&page=${page}`, jwt)) as Array<{ id: number; suspended_at: string | null }>
+    for (const grant of grants) {
+      if (grant.suspended_at) continue
+      const capability = await decode(await request(`/app/installations/${grant.id}/access_tokens`, jwt, { permissions: { metadata: 'read' } })) as { token: string }
+      try {
+        for (let repoPage = 1; repoPage <= 10; repoPage++) {
+          const repos = await decode(await request(`/installation/repositories?per_page=100&page=${repoPage}`, capability.token)) as { repositories: Array<{ id: number; full_name: string; fork: boolean; archived: boolean; default_branch: string }> }
+          result.push(...repos.repositories.filter(repo => !repo.archived).map(repo => ({ id: repo.id, name: repo.full_name, installationId: grant.id, fork: repo.fork, defaultBranch: repo.default_branch })))
+          if (repos.repositories.length < 100) break
+        }
+      } finally { await fetch('https://api.github.com/installation/token', { method: 'DELETE', headers: headers(capability.token), signal: AbortSignal.timeout(10000) }) }
+    }
+    if (grants.length < 100) break
+  }
+  return result
 }

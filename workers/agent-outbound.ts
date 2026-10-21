@@ -7,7 +7,7 @@ export class AgentOutbound extends WorkerEntrypoint<L4Env> {
     const url = new URL(request.url)
     if (!this.env.PUBLIC_ORIGIN) return new Response('Server gateway unavailable', { status: 503 })
     const target = new URL(this.env.PUBLIC_ORIGIN)
-    const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools)$/u)
+    const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files)$/u)
     if (url.protocol !== 'http:' || url.hostname !== target.hostname || url.port || url.search
       || !gateway) {
       return new Response('Destination is not granted', { status: 403 })

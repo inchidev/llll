@@ -84,6 +84,7 @@ const serverNav = computed(() => [
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
 ])
 const featureNav = computed(() => [
+  ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
@@ -635,6 +636,10 @@ function roleLabel(name: string) {
 
     <template v-else-if="section === 'roles'">
       <SettingsRolesSettings :server-id="serverId" />
+    </template>
+
+    <template v-else-if="section === 'environments'">
+      <SettingsCodeEnvironments :server-id="serverId" />
     </template>
 
     <template v-else-if="section === 'agents'">
