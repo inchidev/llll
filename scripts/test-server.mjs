@@ -141,6 +141,7 @@ try {
               LLLL_ACCOUNT_ID: 'a'.repeat(32),
               LLLL_WORKER_NAME: 'server-' + name,
               LLLL_SERVER_MARKER: 'llll.gg/server-v1',
+              LLLL_VERSION: '0.2.0-alpha.8',
               BACKUP_BUCKET_NAME: name + '-backups',
               AUTH_SECRET: (name + '-server-secret-').repeat(4),
               APP_NAME: name,
@@ -188,6 +189,8 @@ try {
     await api(name, `/api/servers/${ids[name]}`, { method: 'PATCH', body: { name: 'Renamed ' + name } })
     assert.equal((await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload.name, 'Renamed ' + name)
     assert.equal((await api(name, '/api/setup/health', { actor: 'anonymous' })).payload.appName, 'Renamed ' + name)
+    assert.equal((await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload.version, '0.2.0-alpha.8')
+    assert.equal((await api(name, '/api/setup/health', { actor: 'anonymous' })).payload.version, '0.2.0-alpha.8')
     await api(name, `/api/servers/${ids[name]}/icon`, { actor: 'anonymous', expected: 401 })
     await api(name, '/.well-known/llll/icon', { actor: 'anonymous', expected: 404 })
     let previousIconUrl = ''
