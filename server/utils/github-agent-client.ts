@@ -40,7 +40,7 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
     body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: input.access === 'work' ? 'write' : 'read',
-      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read' } : {}) } }),
+      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}) } }),
   })) as { token?: string }
   const token = tokenResult.token
   if (!token) fail(502, 'github_response', 'GitHub did not issue a repository capability')

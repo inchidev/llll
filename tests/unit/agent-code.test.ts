@@ -93,6 +93,7 @@ beforeEach(async () => {
       return Response.json(currentPr(), { status: 201 })
     }
     if (uri.pathname.endsWith('/pulls/1')) {
+      expect(['read', 'write']).toContain(capability.permissions.pull_requests)
       if (method === 'PATCH') pr = { ...pr, ...body }
       return Response.json(currentPr())
     }
