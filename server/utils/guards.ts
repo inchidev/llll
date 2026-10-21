@@ -1,3 +1,4 @@
+import { authorizeResourceRequest } from './resource-policy'
 import type { H3Event } from 'h3'
 import type { PermissionFlag } from '../../shared/permissions'
 import { getServerId } from '../../shared/server-id'
@@ -9,7 +10,12 @@ export type { ServerMembership as Membership, ServerChannelAccess as ChannelAcce
 export async function requireMember(event: H3Event, serverId: string, flag?: PermissionFlag) {
   if (serverId !== await getServerId(cf(event).env.DB)) fail(404, 'not_found', 'Server not found')
   const user = await requireUser(event)
-  return requireMemberForUser(cf(event).env, user, serverId, flag)
+  const member = await requireMemberForUser(cf(event).env, user, serverId, flag)
+  const path = event.path.split('?')[0]!
+  if (event.method !== 'GET' || !path.match(/^\/api\/servers\/[^/]+\/(boards|documents|databases|canvases)$/u)) {
+    await authorizeResourceRequest(cf(event).env, member.authorization, path)
+  }
+  return member
 }
 
 export async function requireChannelMember(event: H3Event, channelId: string, flag?: PermissionFlag) {

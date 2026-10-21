@@ -185,7 +185,7 @@ describe('MCP OAuth with the installed provider and real SQL storage', () => {
   it.each(['human', 'agent', 'delegator'])('blocks issued access, refresh and outstanding codes when the %s loses mcp.connect', async (kind) => {
     if (kind !== 'agent') {
       sqlite.exec("UPDATE server SET owner_id='other-human'")
-      sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='owner-role'").run(Permission.manageServer | Permission.manageTasks | Permission.mcpConnect)
+      sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='owner-role'").run(Permission.manageAgents | Permission.manageTasks | Permission.mcpConnect)
     }
     const subjectId = kind === 'human' ? ownerId : 'agent-member'
     const active = await connect(subjectId)

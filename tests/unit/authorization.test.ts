@@ -24,7 +24,7 @@ describe('server authorization', () => {
     expect(() => authorize(missingRole, ServerAction.readTasks)).toThrow('Agent role')
   })
 
-  it('uses the invoking human authority for bounded Agent tools', () => {
+  it('never elevates an Agent to the invoking owner authority', () => {
     const delegated = context({
       principal: { ...context().principal, permissions: Permission.sendMessages, roleName: 'Member' },
       credential: { kind: 'agent_runtime', id: 'channel-general' },
@@ -36,8 +36,8 @@ describe('server authorization', () => {
         actions: [ServerAction.readTasks, ServerAction.writeTasks],
       },
     })
-    expect(() => authorize(delegated, ServerAction.readTasks)).not.toThrow()
-    expect(() => authorize(delegated, ServerAction.writeTasks)).not.toThrow()
+    expect(() => authorize(delegated, ServerAction.readTasks)).toThrow('Member role')
+    expect(() => authorize(delegated, ServerAction.writeTasks)).toThrow('Member role')
     expect(() => authorize(delegated, ServerAction.writeDocuments)).toThrow(AuthorizationError)
   })
 
@@ -47,5 +47,19 @@ describe('server authorization', () => {
     for (const kind of ['session', 'agent_runtime'] as const) {
       expect(() => authorize(context({ principal: member, credential: { kind } }), ServerAction.readTasks)).not.toThrow()
     }
+  })
+})
+
+describe('bounded agent permissions', () => {
+  it('requires both the agent and the delegator to have the operation', () => {
+    const delegated = context({ credential: { kind: 'agent_runtime' }, delegation: { by: 'human', permissions: Permission.readTasks } })
+    expect(() => authorize(delegated, ServerAction.readTasks)).not.toThrow()
+    expect(() => authorize(delegated, ServerAction.writeTasks)).toThrow('delegating')
+  })
+
+  it('allows read-only roles without granting task mutation or administration', () => {
+    const reader = context({ principal: { ...context().principal, permissions: Permission.readTasks }, credential: { kind: 'session' } })
+    expect(() => authorize(reader, ServerAction.readTasks)).not.toThrow()
+    expect(() => authorize(reader, ServerAction.writeTasks)).toThrow()
   })
 })

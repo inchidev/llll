@@ -8,7 +8,7 @@ import { getDb } from '../../../utils/db'
 
 export default defineEventHandler(async (event): Promise<{ agents: AgentDTO[] }> => {
   const serverId = getRouterParam(event, 'id')!
-  await requireMember(event, serverId, Permission.manageServer)
+  await requireMember(event, serverId, Permission.manageAgents)
   const db = getDb(cf(event).env.DB)
   const rows = await db.select({ profile: agents, user: users }).from(agents)
     .innerJoin(users, eq(users.id, agents.userId))

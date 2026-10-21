@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const boardId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  await requireBoard(env, boardId)
+  await requireBoard(env, boardId, actor.authorization)
   const now = nowIso()
   const label = { id: newId(), boardId, name: body.name, color: body.color, position: await nextLabelPosition(env, boardId), createdBy: actor.user.id, createdAt: now, updatedAt: now }
   try {

@@ -18,7 +18,7 @@ export function isDmType(type: string): boolean {
   return type === 'dm'
 }
 
-/** Agent DMs are visible to server managers and to the participating Agent itself. */
+/** Agent DMs require permission to use agents and ordinary conversation membership. */
 export function canAccessAgentConversation(
   userKind: 'human' | 'agent',
   canManageAgents: boolean,

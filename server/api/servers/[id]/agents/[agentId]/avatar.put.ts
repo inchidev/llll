@@ -14,7 +14,7 @@ const MAX_AGENT_AVATAR_BYTES = 2 * 1024 * 1024
 export default defineEventHandler(async (event): Promise<{ avatarR2Key: string }> => {
   const serverId = getRouterParam(event, 'id')!
   const agentId = getRouterParam(event, 'agentId')!
-  const actor = await requireMember(event, serverId, Permission.manageServer)
+  const actor = await requireMember(event, serverId, Permission.manageAgents)
   const { env, waitUntil } = cf(event)
   const form = await readMultipartFormData(event)
   const file = form?.find(part => part.name === 'file' && part.data)

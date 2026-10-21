@@ -562,6 +562,7 @@ export type SidebarThreadDTO = {
 }
 
 export type RoleDTO = {
+  resourceAccess?: import('./resource-access').ResourceAccess
   id: string
   serverId: string
   key: string

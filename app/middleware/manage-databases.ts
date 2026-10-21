@@ -1,3 +1,3 @@
 import { Permission } from '~~/shared/permissions'
 
-export default defineNuxtRouteMiddleware(() => guardMemberPermission([Permission.manageDatabases]))
+export default defineNuxtRouteMiddleware(() => guardMemberPermission([Permission.readData]))

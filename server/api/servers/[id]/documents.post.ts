@@ -9,7 +9,7 @@ const bodySchema = z.object({ title: z.string().trim().min(1).max(160) })
 
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
-  const actor = await requireMember(event, serverId, Permission.manageDatabases)
+  const actor = await requireMember(event, serverId, Permission.writeData)
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   return { document: await createDocument(env, actor.authorization, body) }

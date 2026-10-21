@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   const db = getDb(env.DB)
   const item = (await db.select().from(taskChecklistItems).where(eq(taskChecklistItems.id, id)).limit(1))[0]
   if (!item) fail(404, 'not_found', 'Checklist item not found')
-  const task = await requireTask(env, item.taskId)
+  const task = await requireTask(env, item.taskId, actor.authorization)
   await db.update(taskChecklistItems).set({ ...body, updatedAt: nowIso() }).where(eq(taskChecklistItems.id, id))
   await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.update', targetType: 'task', targetId: task.id, meta: { itemId: id, fields: Object.keys(body) } })
   waitUntil(signalTasksChanged(env, task.boardId, task.id))

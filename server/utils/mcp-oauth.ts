@@ -18,7 +18,7 @@ async function mcpActor(env: L4Env, actorId: string) {
      WHERE u.id = ? AND u.status = 'active' AND u.kind = 'human'`,
   ).bind(await getServerId(env.DB), actorId).first<{ id: string; perms: number; ownerId: string }>()
   if (!actor) throw new APIError('FORBIDDEN', { message: 'An active human member must authorize MCP access' })
-  const canManageAgents = actor.ownerId === actor.id || hasPermission(actor.perms, Permission.manageServer)
+  const canManageAgents = actor.ownerId === actor.id || hasPermission(actor.perms, Permission.manageAgents)
   return { ...actor, canManageAgents, canConnect: actor.ownerId === actor.id || hasPermission(actor.perms, Permission.mcpConnect) }
 }
 
@@ -37,7 +37,7 @@ export async function mcpConsentSubjects(env: L4Env, actorId: string) {
     // Reading chats needs membership; send permission may come from a channel
     // override or DM participation even when the global role cannot send.
     scopes: MCP_SCOPES.filter(scope => scope.startsWith('messages:') || hasPermission(row.id === actor.ownerId ? ALL_PERMISSIONS : row.permissions,
-      scope.startsWith('tasks:') ? Permission.manageTasks : Permission.manageDatabases)),
+      scope.startsWith('tasks:') ? (scope.endsWith(':read') ? Permission.readTasks : Permission.writeTasks) : (scope.endsWith(':read') ? Permission.readData : Permission.writeData))),
   }))
 }
 
@@ -57,7 +57,7 @@ export async function requireMcpConnection(env: L4Env, id: string, actorId: stri
        (s.owner_id = creator.id OR (creator_role.permissions_bitmask & ?) = ?)))
      AND (subject.id = s.owner_id OR (subject_role.permissions_bitmask & ?) = ?)
      AND (creator.id = s.owner_id OR (creator_role.permissions_bitmask & ?) = ?)`,
-  ).bind(await getServerId(env.DB), id, actorId, resource, Permission.manageServer, Permission.manageServer,
+  ).bind(await getServerId(env.DB), id, actorId, resource, Permission.manageAgents, Permission.manageAgents,
     Permission.mcpConnect, Permission.mcpConnect, Permission.mcpConnect, Permission.mcpConnect).first<ConnectionRow>()
   if (!row) {
     throw new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'MCP connection was revoked or its member is no longer available' })

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { MemberDTO, RoleDTO } from '~~/shared/types'
+import type { DataResourcesDTO, TaskBoardDTO, MemberDTO, RoleDTO } from '~~/shared/types'
 import { hasPermission, MemberPermissions, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
+
+import type { ResourceAccess, ResourceKind } from '~~/shared/resource-access'
 
 const props = defineProps<{ serverId: string }>()
 
@@ -42,7 +44,10 @@ const tabs = computed(() => [
 const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
   { label: 'Server', keys: ['manageServer', 'manageChannels', 'manageRoles', 'invite', 'kick'] },
   { label: 'Conversations', keys: ['sendMessages', 'attachFiles', 'startLive'] },
-  { label: 'Tools', keys: ['manageTasks', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
+  { label: 'Tasks', keys: ['readTasks', 'writeTasks', 'manageTasks'] },
+  { label: 'Data', keys: ['readData', 'writeData', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
+  { label: 'Using agents', keys: ['useAgents', 'manageAgents', 'approveAgentActions'] },
+  { label: 'Agent autonomy', keys: ['executeTasks', 'useComputer', 'manageSchedules'] },
   { label: 'Integrations', keys: ['mcp.connect'] },
 ]
 const groupedGrants = grantGroups.map(group => ({
@@ -68,6 +73,31 @@ function permissionSummary(role: RoleDTO) {
 }
 
 // Draft edits, compared against the saved role to drive the save bar.
+const roleResourceAccess = ref<ResourceAccess>({})
+const resourceGroups: Array<{ kind: ResourceKind; label: string }> = [
+  { kind: 'boards', label: 'Task boards' }, { kind: 'databases', label: 'Tables' },
+  { kind: 'documents', label: 'Documents' }, { kind: 'canvases', label: 'Canvases' },
+]
+const boardResources = useQuery({
+  queryKey: computed(() => ['boards', props.serverId]),
+  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${props.serverId}/boards`),
+  enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readTasks)),
+})
+const dataResources = useQuery({
+  queryKey: computed(() => ['data-resources', props.serverId]),
+  queryFn: () => api<DataResourcesDTO>(`/api/servers/${props.serverId}/data-resources`),
+  enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readData)),
+})
+function resourceOptions(kind: ResourceKind) {
+  if (kind === 'boards') return (boardResources.data.value?.boards ?? []).map(row => ({ label: row.name, value: row.id }))
+  const data = dataResources.data.value
+  if (kind === 'databases') return (data?.databases ?? []).map(row => ({ label: row.name, value: row.id }))
+  if (kind === 'documents' || kind === 'canvases') return (data?.[kind] ?? []).map(row => ({ label: row.title, value: row.id }))
+  return []
+}
+function setResourceMode(kind: ResourceKind, mode: string) {
+  roleResourceAccess.value = { ...roleResourceAccess.value, [kind]: mode === 'all' ? null : [] }
+}
 const roleName = ref('')
 const rolePermissions = ref(0)
 const saving = ref(false)
@@ -79,13 +109,14 @@ function resetDraft() {
   const role = selectedRole.value
   roleName.value = role ? roleLabel(role) : ''
   rolePermissions.value = role?.permissions ?? 0
+  roleResourceAccess.value = structuredClone(role?.resourceAccess ?? {})
 }
 watch(selectedRole, resetDraft, { immediate: true })
 
 const dirty = computed(() => {
   const role = selectedRole.value
   if (!role || readOnly.value) return false
-  return roleName.value.trim() !== roleLabel(role) || rolePermissions.value !== role.permissions
+  return roleName.value.trim() !== roleLabel(role) || rolePermissions.value !== role.permissions || JSON.stringify(roleResourceAccess.value) !== JSON.stringify(role.resourceAccess ?? {})
 })
 
 function openRole(role: RoleDTO) {
@@ -152,7 +183,7 @@ async function saveRole() {
   try {
     await api(`/api/servers/${props.serverId}/roles/${role.id}`, {
       method: 'PATCH',
-      body: { name: roleName.value.trim(), permissions: rolePermissions.value },
+      body: { name: roleName.value.trim(), permissions: rolePermissions.value, resourceAccess: roleResourceAccess.value },
     })
     await refreshRoles()
     toast.add({ title: 'Role saved', color: 'success' })
@@ -207,7 +238,7 @@ const canAssignSelected = computed(() => {
   return role.key !== 'admin' || isOwner.value
 })
 const assignableMembers = computed(() => members.value
-  .filter(member => member.role.id !== selectedRoleId.value && member.role.key !== 'owner' && member.user.kind !== 'agent')
+  .filter(member => member.role.id !== selectedRoleId.value && member.role.key !== 'owner')
   .map(member => ({ label: memberName(member), value: member.user.id, description: roleLabel(member.role) })))
 
 function memberName(member: MemberDTO) {
@@ -327,6 +358,16 @@ watch(addMemberId, async (userId) => {
               />
             </label>
           </div>
+        </section>
+        <section class="space-y-4">
+          <h3 class="text-sm font-medium text-highlighted">Resources</h3>
+          <p class="text-sm text-muted">Permissions above determine what members can do. Choose where those permissions apply. Selected resources also limit agents and MCP connections.</p>
+          <UFormField v-for="group in resourceGroups" :key="group.kind" :label="group.label">
+            <div class="space-y-2">
+              <USelect :model-value="roleResourceAccess[group.kind] == null ? 'all' : 'selected'" :items="[{ label: 'All resources', value: 'all' }, { label: 'Selected resources', value: 'selected' }]" :disabled="readOnly" class="w-full" @update:model-value="setResourceMode(group.kind, $event)" />
+              <USelectMenu v-if="roleResourceAccess[group.kind] != null" :model-value="roleResourceAccess[group.kind] ?? []" multiple :items="resourceOptions(group.kind)" value-key="value" placeholder="Choose resources" :disabled="readOnly" class="w-full" @update:model-value="roleResourceAccess = { ...roleResourceAccess, [group.kind]: $event }" />
+            </div>
+          </UFormField>
         </section>
       </div>
 

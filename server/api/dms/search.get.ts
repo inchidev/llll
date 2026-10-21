@@ -13,6 +13,6 @@ export default defineEventHandler(async (event) => {
   const member = await requireMember(event, serverId)
   const { env } = cf(event)
   return {
-    members: await searchDmMembers(env.DB, me.id, q, member.isOwner || hasPermission(member.perms, Permission.manageServer)),
+    members: await searchDmMembers(env.DB, me.id, q, member.isOwner || hasPermission(member.perms, Permission.useAgents)),
   }
 })

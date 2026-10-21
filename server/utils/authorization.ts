@@ -1,3 +1,4 @@
+import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { AuthorizationContext, CredentialKind, ServerAction } from '../../shared/authorization'
@@ -15,7 +16,7 @@ export async function loadAuthorizationContext(
 ): Promise<AuthorizationContext | null> {
   const row = await env.DB.prepare(
     `SELECT u.id, u.kind, r.id as roleId, r.name as roleName,
-     r.permissions_bitmask as permissions, w.owner_id as ownerId
+     r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
      FROM users u
      JOIN roles r ON r.id = u.role_id
      JOIN server w ON w.id = ?
@@ -26,13 +27,14 @@ export async function loadAuthorizationContext(
     roleId: string
     roleName: string
     permissions: number
+    resourceAccessJson: string
     ownerId: string
   }>()
   if (!row) return null
   const isOwner = row.ownerId === row.id
   const delegated = input.delegatedBy
     ? await env.DB.prepare(
-        `SELECT r.name as roleName, r.permissions_bitmask as permissions, w.owner_id as ownerId
+        `SELECT r.name as roleName, r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
          FROM users u
          JOIN roles r ON r.id = u.role_id
          JOIN server w ON w.id = ?
@@ -40,6 +42,7 @@ export async function loadAuthorizationContext(
       ).bind((await getServerId(env.DB)), input.delegatedBy).first<{
         roleName: string
         permissions: number
+        resourceAccessJson: string
         ownerId: string
       }>()
     : null
@@ -53,6 +56,7 @@ export async function loadAuthorizationContext(
       roleName: row.roleName,
       permissions: isOwner ? ALL_PERMISSIONS : row.permissions,
       isOwner,
+      resourceAccess: parseResourceAccess(row.resourceAccessJson),
     },
     credential: input.credential,
     ...(input.delegatedBy && delegated
@@ -60,6 +64,7 @@ export async function loadAuthorizationContext(
           delegation: {
             by: input.delegatedBy,
             permissions: delegated.permissions,
+            resourceAccess: parseResourceAccess(delegated.resourceAccessJson),
             isOwner: delegated.ownerId === input.delegatedBy,
             roleName: delegated.roleName,
             ...(input.delegatedActions ? { actions: input.delegatedActions } : {}),

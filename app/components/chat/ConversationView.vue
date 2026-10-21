@@ -210,7 +210,7 @@ const typingNames = computed(() => presence.typingIn(channelId.value)
       || channel.value?.participants?.find(u => u.id === id)?.displayName || 'Someone'
   }))
 const agentBusy = computed(() => presence.agentTurnsIn(channelId.value).length > 0)
-const canApproveAgent = computed(() => can(Permission.manageServer))
+const canApproveAgent = computed(() => can(Permission.approveAgentActions))
 
 function onReply(id: string) {
   ui.startReply(channelId.value, id)

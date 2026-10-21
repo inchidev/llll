@@ -19,7 +19,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const boardId = getRouterParam(event, 'id')!
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.writeTasks)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
   return { task: await createTask(env, actor.authorization, boardId, body, waitUntil) }

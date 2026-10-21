@@ -4,6 +4,8 @@ import baselineSql from '../../drizzle/server-migrations/0000_server_baseline.sq
 import serverUpdatesSql from '../../drizzle/server-migrations/0001_server_updates.sql?raw'
 import mcpOauthSql from '../../drizzle/server-migrations/0002_mcp_oauth.sql?raw'
 import mcpConnectSql from '../../drizzle/server-migrations/0003_mcp_connect_grant.sql?raw'
+import agentPermissionsSql from '../../drizzle/server-migrations/0004_agent_permissions.sql?raw'
+import roleResourcesSql from '../../drizzle/server-migrations/0005_role_resources.sql?raw'
 import { schema } from '../../drizzle/schema'
 
 export function getDb(d1: D1Database) {
@@ -30,6 +32,8 @@ export const INIT_SQL = d1ExecSql([
   serverUpdatesSql,
   mcpOauthSql,
   mcpConnectSql,
+  agentPermissionsSql,
+  roleResourcesSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

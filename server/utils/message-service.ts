@@ -35,7 +35,7 @@ export async function requireMessageMember(env: L4Env, authorization: Authorizat
 export async function listMessageChannels(env: L4Env, member: Membership, input: { limit?: number; cursor?: string; name?: string } = {}) {
   authorizeMcpCredential(member.authorization, 'messages:read')
   const limit = Math.max(1, Math.min(input.limit ?? 25, 50))
-  const canManageAgents = member.isOwner || hasPermission(member.perms, Permission.manageServer)
+  const canManageAgents = member.isOwner || hasPermission(member.perms, Permission.useAgents)
   // Match chat navigation visibility before pagination. The shared channel
   // guard remains authoritative for every returned item (including threads).
   const rows = await env.DB.prepare(
@@ -72,7 +72,7 @@ export async function listMessageChannels(env: L4Env, member: Membership, input:
 export async function listMessageMembers(env: L4Env, member: Membership, input: { limit?: number; cursor?: string; name?: string; kind?: 'human' | 'agent' } = {}) {
   authorizeMcpCredential(member.authorization, 'messages:read')
   const limit = Math.max(1, Math.min(input.limit ?? 25, 50))
-  const canViewAgents = member.isOwner || hasPermission(member.perms, Permission.manageServer)
+  const canViewAgents = member.isOwner || hasPermission(member.perms, Permission.useAgents)
   const rows = await getDb(env.DB).select().from(users).where(and(
     eq(users.status, 'active'), input.cursor ? lt(users.id, input.cursor) : undefined,
     !canViewAgents ? eq(users.kind, 'human') : undefined,

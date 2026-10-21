@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  await requireBoard(env, id)
+  await requireBoard(env, id, actor.authorization)
   const patch: Partial<typeof taskBoards.$inferInsert> = { updatedAt: nowIso() }
   if (body.name !== undefined) patch.name = body.name
   if (body.position !== undefined) patch.position = body.position
@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
   await getDb(env.DB).update(taskBoards).set(patch).where(eq(taskBoards.id, id))
   await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: body.archived === true ? 'board.archive' : body.archived === false ? 'board.restore' : 'board.update', targetType: 'task_board', targetId: id, meta: { fields: Object.keys(body) } })
   waitUntil(signalTasksChanged(env, id))
-  const board = await requireBoard(env, id)
+  const board = await requireBoard(env, id, actor.authorization)
   if (!board) fail(404, 'not_found', 'Board not found')
   return { board }
 })

@@ -16,7 +16,7 @@ See [standalone Servers and Shell](server.md). Accounts, UUID identity and authe
 9. Web Push subscriptions and its delivery outbox live in D1. Message and Live session writes enqueue notification rows in the same D1 batch; `NotificationDO` uses alarms to deliver and retry without another Worker or process.
 10. Agents are real Members in the shared author/access model, but never authentication identities. `users.kind` distinguishes humans from agents; only humans map to either verified Access identities or Better Auth identities and sessions.
 11. One top-level `L4Agent` coordinator is named `agent:<agentId>`. Each Channel or Thread gets a `L4Think` sub-agent with its own SQLite transcript, so conversation memory cannot leak across facets.
-12. The default Member Role is chat-only. Task reads and writes require `manageTasks`; Agent discovery, chat invocation, control, and configuration require `manageServer`. Task managers receive only a redacted Agent assignment list. The UI hides unavailable administrative surfaces, but the Worker API and Durable Objects are the authorization boundary.
+12. The default Member Role is chat-only. Task reads require `readTasks`, writes require `writeTasks`, and destructive/board administration retains `manageTasks`. Data follows `readData`, `writeData`, and `manageDatabases`. Agent discovery and invocation require `useAgents`; configuration requires `manageAgents`; pending actions require `approveAgentActions`. Role resource access limits apply in HTTP, MCP and Agent domain operations. Task managers receive only a redacted Agent assignment list. The UI hides unavailable administrative surfaces, but the Worker API and Durable Objects are the authorization boundary.
 13. Chat turns use Think's durable FIFO submission ledger directly, including idempotent admission, cancellation, recovery, and approval continuation. D1 mirrors only server-visible active-turn state; Think remains authoritative for the conversation.
 14. Terms, Privacy, and Server rules are one immutable onboarding revision in D1. Access, email, and social admissions record acceptance of the current revision before a pending User can become an active Member; later publications apply only to future admissions.
 15. Agents reply in chat and may read or create Tasks through the same authorized domain operations as HTTP and MCP. They have no project, repository, filesystem, shell, Workflow, or Container execution capability. Those connections are deferred until their lifecycle and isolation model is designed separately.
@@ -68,7 +68,7 @@ from the conversation.
 
 ```
 Human talks to an Agent in a Channel or Thread
-  → Agent resolves its current Role and the initiating Human delegation
+  → Agent intersects its current Role/resource access with the initiating Human delegation
   → list_tasks or get_task reads authorized Task data from D1
   → create_task writes through the shared Task domain service
   → Server DO fans out the Task change to connected clients

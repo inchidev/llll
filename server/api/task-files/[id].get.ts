@@ -1,3 +1,4 @@
+import { requireTask } from '../../utils/task-policy'
 import { getServerId } from '../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { taskAttachments } from '../../../drizzle/schema'
@@ -8,11 +9,12 @@ import { getDb } from '../../utils/db'
 import { requireMember } from '../../utils/guards'
 
 export default defineEventHandler(async (event) => {
-  await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.readTasks)
   const id = getRouterParam(event, 'id')!
   const { env } = cf(event)
   const row = (await getDb(env.DB).select().from(taskAttachments).where(eq(taskAttachments.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'File not found')
+  await requireTask(env, row.taskId, actor.authorization)
   const rangeHeader = getHeader(event, 'range')
   let object: R2ObjectBody | null
   if (rangeHeader) {

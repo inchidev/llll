@@ -1,3 +1,5 @@
+import { authorizeResource } from '../../shared/authorization'
+import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import { channelRoleOverrides, channels, channelMembers, emailMailboxAccess, emailMailboxes, roles, tasks, users, server } from '../../drizzle/schema'
@@ -39,6 +41,7 @@ export async function requireMemberForUser(env: L4Env, user: PublicUser, serverI
       roleId: users.roleId,
       roleName: roles.name,
       perms: roles.permissionsBitmask,
+      resourceAccessJson: roles.resourceAccessJson,
     }).from(users)
       .innerJoin(roles, eq(roles.id, users.roleId))
       .where(and(eq(users.id, user.id), eq(users.status, 'active')))
@@ -64,6 +67,7 @@ export async function requireMemberForUser(env: L4Env, user: PublicUser, serverI
       roleName: row.roleName,
       permissions: perms,
       isOwner,
+      resourceAccess: parseResourceAccess(row.resourceAccessJson),
     },
     credential: source?.credential ?? { kind: 'session' },
     ...(source?.delegation ? { delegation: source.delegation } : {}),
@@ -115,13 +119,15 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
       eq(emailMailboxAccess.channelId, accessRoot.id),
       eq(emailMailboxAccess.userId, user.id),
     )).limit(1),
-    db.select({ id: tasks.id }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
+    db.select({ id: tasks.id, boardId: tasks.boardId }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
   ])
   if (privateParts && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
   // A task's discussion is part of the task: only people who can work with tasks may open it.
-  if (discussions[0] && !baseMember.isOwner && !hasPermission(baseMember.perms, Permission.manageTasks)) {
+  if (discussions[0] && !baseMember.isOwner && !hasPermission(baseMember.perms, Permission.readTasks)) {
     fail(404, 'not_found', 'Channel not found')
   }
+
+  if (discussions[0]) authorizeResource(baseMember.authorization, 'boards', discussions[0].boardId)
 
   const mailbox = mailboxes[0]
   if (mailbox) {
@@ -140,7 +146,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
     const parts = await db.select().from(channelMembers).where(eq(channelMembers.channelId, accessRoot.id))
     const userRows = await db.select().from(users).where(inArray(users.id, parts.map((p) => p.userId)))
     const participants = userRows.map(toPublicUser)
-    const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.manageServer)
+    const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.useAgents)
     if (participants.some(participant => participant.kind === 'agent') && !canManageAgents) {
       fail(404, 'not_found', 'Channel not found')
     }

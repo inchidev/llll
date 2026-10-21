@@ -20,7 +20,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> => {
   const serverId = getRouterParam(event, 'id')!
-  const actor = await requireMember(event, serverId, Permission.manageServer)
+  const actor = await requireMember(event, serverId, Permission.manageAgents)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
   if (!agentRuntimeConfigured(env)) {

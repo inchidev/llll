@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
   const id = getRouterParam(event, 'id')!
   const { env, waitUntil } = cf(event)
-  const board = await requireBoard(env, id)
+  const board = await requireBoard(env, id, actor.authorization)
   const blobs = await env.DB.prepare(
     'SELECT a.r2_key as r2Key FROM task_attachments a JOIN tasks t ON t.id = a.task_id WHERE t.board_id = ?',
   ).bind(id).all<{ r2Key: string }>()

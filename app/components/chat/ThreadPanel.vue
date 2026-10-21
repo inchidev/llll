@@ -29,7 +29,7 @@ const canSendMessages = computed(() => hasPermission(effectivePermissions.value,
 const canAttachFiles = computed(() => hasPermission(effectivePermissions.value, Permission.attachFiles))
 const presence = usePresenceStore()
 const agentBusy = computed(() => Boolean(threadId.value && presence.agentTurnsIn(threadId.value).length))
-const canApproveAgent = computed(() => hasPermission(effectivePermissions.value, Permission.manageServer))
+const canApproveAgent = computed(() => hasPermission(effectivePermissions.value, Permission.approveAgentActions))
 
 // The router's live route: the page-level route misses thread-only URL changes.
 const liveRoute = useRouter().currentRoute

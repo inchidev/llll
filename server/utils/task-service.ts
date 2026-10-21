@@ -7,7 +7,7 @@ import type { L4Env } from '../../workers/env'
 import { signalTasksChanged } from '../../workers/task-events'
 import { getDb } from './db'
 import { writeAudit } from './messages'
-import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, authorizeResource, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { loadTaskBoards, loadTaskDetail } from './task-data'
 import { nextTaskPosition, requireBoard, requireTask, validateTaskAssignee, validateTaskChannel, validateTaskDependencies, validateTaskLabels } from './task-policy'
 
@@ -45,7 +45,7 @@ export async function listTasks(
   includeArchived = false,
 ): Promise<TaskBoardDTO[]> {
   authorize(authorization, ServerAction.readTasks)
-  return loadTaskBoards(env, includeArchived)
+  return (await loadTaskBoards(env, includeArchived)).filter(board => resourceAllowed(authorization, 'boards', board.id))
 }
 
 export async function getTask(
@@ -54,7 +54,9 @@ export async function getTask(
   taskReference: string | number,
 ): Promise<TaskDetailDTO | null> {
   authorize(authorization, ServerAction.readTasks)
-  return loadTaskDetail(env, taskReference)
+  const task = await loadTaskDetail(env, taskReference)
+  if (task) authorizeResource(authorization, 'boards', task.boardId)
+  return task
 }
 
 export async function createTask(
@@ -65,6 +67,7 @@ export async function createTask(
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
   authorize(authorization, ServerAction.writeTasks)
+  authorizeResource(authorization, 'boards', boardId)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
   await Promise.all([
@@ -119,6 +122,8 @@ export async function updateTask(
   const task = await requireTask(env, taskReference)
   const id = task.id
   const boardId = input.boardId ?? task.boardId
+  authorizeResource(authorization, 'boards', task.boardId)
+  authorizeResource(authorization, 'boards', boardId)
   await Promise.all([
     input.boardId ? requireBoard(env, input.boardId) : Promise.resolve(),
     validateTaskAssignee(env, input.assigneeId),

@@ -1,3 +1,4 @@
+import { parseResourceAccess, resourceAccessWithin, type ResourceAccess } from '../../shared/resource-access'
 import type { roles } from '../../drizzle/schema'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { RoleDTO } from '../../shared/types'
@@ -13,6 +14,7 @@ export function toRoleDto(role: RoleRow, serverId: string, memberCount = 0): Rol
     key: role.key,
     name: role.name,
     permissions: role.permissionsBitmask,
+    resourceAccess: parseResourceAccess(role.resourceAccessJson),
     position: role.position,
     isSystem: role.isSystem,
     memberCount,
@@ -29,4 +31,11 @@ export function assertRoleAssignable(actor: Membership, role: RoleRow) {
   if (role.key === 'owner') fail(403, 'forbidden', 'Owner role cannot be assigned')
   if (role.key === 'admin' && !actor.isOwner) fail(403, 'forbidden', 'Only the owner can assign the admin role')
   assertGrantScope(actor, role.permissionsBitmask)
+  assertResourceGrantScope(actor, parseResourceAccess(role.resourceAccessJson))
+}
+
+export function assertResourceGrantScope(actor: Membership, access: ResourceAccess) {
+  if (!actor.isOwner && !resourceAccessWithin(access, actor.authorization.principal.resourceAccess)) {
+    fail(403, 'forbidden', 'Cannot grant access to resources outside your own role')
+  }
 }

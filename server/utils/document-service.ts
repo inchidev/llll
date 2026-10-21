@@ -4,7 +4,7 @@ import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { loadDataResources, requireDocument } from './data-resources'
 import { writeAudit } from './messages'
-import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, authorizeResource, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 
 export type CreateDocumentInput = {
   title: string
@@ -22,7 +22,15 @@ export async function listAuthorizedDataResources(
   authorization: AuthorizationContext,
 ): Promise<DataResourcesDTO> {
   authorize(authorization, ServerAction.readDocuments)
-  return loadDataResources(env, authorization.credential.kind === 'session' ? authorization.principal.id : undefined)
+  const data = await loadDataResources(env, authorization.credential.kind === 'session' ? authorization.principal.id : undefined)
+  return { ...data,
+    databases: data.databases.filter(row => resourceAllowed(authorization, 'databases', row.id)),
+    documents: data.documents.filter(row => resourceAllowed(authorization, 'documents', row.id)),
+    canvases: data.canvases.filter(row => resourceAllowed(authorization, 'canvases', row.id)),
+    bookmarks: data.bookmarks.filter(row => row.targetType === 'database_view'
+      ? data.databases.some(database => resourceAllowed(authorization, 'databases', database.id) && database.views.some(view => view.id === row.targetId))
+      : resourceAllowed(authorization, row.targetType === 'document' ? 'documents' : 'canvases', row.targetId)),
+  }
 }
 
 export async function getDocument(
@@ -31,6 +39,7 @@ export async function getDocument(
   id: string,
 ): Promise<DocumentDTO> {
   authorize(authorization, ServerAction.readDocuments)
+  authorizeResource(authorization, 'documents', id)
   return requireDocument(env, id)
 }
 
@@ -40,6 +49,7 @@ export async function createDocument(
   input: CreateDocumentInput,
 ): Promise<DocumentDTO> {
   authorize(authorization, ServerAction.writeDocuments)
+  authorizeResource(authorization, 'documents', '*')
   const serverId = authorization.serverId
   const actorId = authorization.principal.id
   if (await env.DB.prepare('SELECT id FROM documents WHERE lower(title) = lower(?) LIMIT 1').bind(input.title).first()) {
@@ -72,6 +82,7 @@ export async function updateDocument(
   input: UpdateDocumentInput,
 ): Promise<DocumentDTO> {
   authorize(authorization, ServerAction.writeDocuments)
+  authorizeResource(authorization, 'documents', id)
   const serverId = authorization.serverId
   const actorId = authorization.principal.id
   const document = await requireDocument(env, id)

@@ -6,7 +6,7 @@ import { listTasks } from '../../../utils/task-service'
 
 export default defineEventHandler(async (event): Promise<{ boards: TaskBoardDTO[] }> => {
   const serverId = getRouterParam(event, 'id')!
-  const actor = await requireMember(event, serverId, Permission.manageTasks)
+  const actor = await requireMember(event, serverId, Permission.readTasks)
   const includeArchived = getQuery(event).archived === 'true'
   return { boards: await listTasks(cf(event).env, actor.authorization, includeArchived) }
 })

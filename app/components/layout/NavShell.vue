@@ -127,6 +127,7 @@ const serverIconUrl = computed(() => {
 })
 const canOpenServerSettings = computed(() => [
   Permission.manageServer,
+  Permission.manageAgents,
   Permission.manageChannels,
   Permission.manageRoles,
   Permission.invite,

@@ -2,6 +2,7 @@ import { Permission } from '~~/shared/permissions'
 
 export default defineNuxtRouteMiddleware(() => guardMemberPermission([
   Permission.manageServer,
+  Permission.manageAgents,
   Permission.manageChannels,
   Permission.manageRoles,
   Permission.invite,

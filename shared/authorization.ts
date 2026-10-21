@@ -1,3 +1,4 @@
+import { resourceAccessAllows, type ResourceAccess, type ResourceKind } from './resource-access'
 import type { McpScope } from './mcp'
 import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
@@ -23,6 +24,7 @@ export type AuthorizationContext = {
     roleId: string
     roleName: string
     permissions: number
+    resourceAccess?: ResourceAccess
     isOwner: boolean
   }
   credential: {
@@ -35,6 +37,7 @@ export type AuthorizationContext = {
     by: string
     actions?: ServerAction[]
     permissions?: number
+    resourceAccess?: ResourceAccess
     isOwner?: boolean
     roleName?: string
   }
@@ -43,10 +46,10 @@ export type AuthorizationContext = {
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
 const ACTION_RULES: Record<ServerAction, ActionRule> = {
-  [ServerAction.readTasks]: { permission: Permission.manageTasks, scope: 'tasks:read' },
-  [ServerAction.writeTasks]: { permission: Permission.manageTasks, scope: 'tasks:write' },
-  [ServerAction.readDocuments]: { permission: Permission.manageDatabases, scope: 'documents:read' },
-  [ServerAction.writeDocuments]: { permission: Permission.manageDatabases, scope: 'documents:write' },
+  [ServerAction.readTasks]: { permission: Permission.readTasks, scope: 'tasks:read' },
+  [ServerAction.writeTasks]: { permission: Permission.writeTasks, scope: 'tasks:write' },
+  [ServerAction.readDocuments]: { permission: Permission.readData, scope: 'documents:read' },
+  [ServerAction.writeDocuments]: { permission: Permission.writeData, scope: 'documents:write' },
   [ServerAction.useGadgets]: { permission: Permission.useGadgets },
   [ServerAction.manageGadgets]: { permission: Permission.manageGadgets },
   [ServerAction.sendMessages]: { permission: Permission.sendMessages, scope: 'messages:write' },
@@ -80,15 +83,12 @@ export function authorizeMcpCredential(context: AuthorizationContext, scope?: Mc
 export function authorize(context: AuthorizationContext, action: ServerAction): void {
   authorizeMcpCredential(context)
   const rule = ACTION_RULES[action]
-  const delegatedAuthority = context.credential.kind === 'agent_runtime' && context.delegation?.permissions !== undefined
-    ? {
-        permissions: context.delegation.permissions,
-        isOwner: context.delegation.isOwner === true,
-        roleName: context.delegation.roleName || 'delegating member',
-      }
-    : context.principal
-  if (!delegatedAuthority.isOwner && !hasPermission(delegatedAuthority.permissions, rule.permission)) {
-    throw new AuthorizationError(`The ${delegatedAuthority.roleName} role cannot perform ${action}`)
+  if (!context.principal.isOwner && !hasPermission(context.principal.permissions, rule.permission)) {
+    throw new AuthorizationError(`The ${context.principal.roleName} role cannot perform ${action}`)
+  }
+  if (context.delegation?.permissions !== undefined && !context.delegation.isOwner
+    && !hasPermission(context.delegation.permissions, rule.permission)) {
+    throw new AuthorizationError(`The delegating ${context.delegation.roleName || 'member'} cannot perform ${action}`)
   }
   authorizeMcpCredential(context, rule.scope)
   if (context.delegation?.actions && !context.delegation.actions.includes(action)) {
@@ -104,4 +104,14 @@ export function auditAttribution(context: AuthorizationContext): Record<string, 
     ...(context.credential.clientId ? { clientId: context.credential.clientId } : {}),
     ...(context.delegation?.by ? { delegatedBy: context.delegation.by } : {}),
   }
+}
+
+/** Resource access is checked separately so list operations can filter before disclosure. */
+export function resourceAllowed(context: AuthorizationContext, kind: ResourceKind, id: string): boolean {
+  return (context.principal.isOwner || resourceAccessAllows(context.principal.resourceAccess, kind, id))
+    && resourceAccessAllows(context.delegation?.resourceAccess, kind, id)
+}
+
+export function authorizeResource(context: AuthorizationContext, kind: ResourceKind, id: string): void {
+  if (!resourceAllowed(context, kind, id)) throw new AuthorizationError(`Access to this ${kind} resource is not granted`)
 }

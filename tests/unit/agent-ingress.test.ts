@@ -37,7 +37,7 @@ beforeEach(() => {
     CREATE TABLE channel_members (channel_id TEXT NOT NULL, user_id TEXT NOT NULL);
     CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT, content_type TEXT NOT NULL);
 
-    INSERT INTO roles VALUES ('admin-role', 1), ('member-role', 112);
+    INSERT INTO roles VALUES ('admin-role', 8192), ('member-role', 112);
     INSERT INTO server VALUES ('main', 'owner');
     INSERT INTO users VALUES
       ('owner', 'human', 'active', 'member-role'),
@@ -58,6 +58,14 @@ beforeEach(() => {
 afterEach(() => sqlite.close())
 
 describe('agent message ingress', () => {
+  it('does not treat server administration as permission to invoke agents', async () => {
+    sqlite.exec("UPDATE roles SET permissions_bitmask = 1 WHERE id = 'admin-role'")
+    const receiveMessage = vi.fn()
+    await signalAgentsForMessage({ DB: db, AI: {}, AGENT_DO: { getByName: () => ({ receiveMessage }) } } as never,
+      { messageId: 'denied', channelId: 'dm', authorId: 'human', authorName: 'Human', content: 'run', mentionIds: ['agent'] })
+    expect(receiveMessage).not.toHaveBeenCalled()
+  })
+
   it('keeps addressing the agent inside a one-to-one DM thread', async () => {
     const receiveMessage = vi.fn(async () => 'workflow-id')
     const env = {

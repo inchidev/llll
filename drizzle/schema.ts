@@ -288,6 +288,7 @@ export const roles = sqliteTable('roles', {
   key: text('key').notNull().unique(),
   name: text('name').notNull(),
   permissionsBitmask: integer('permissions_bitmask').notNull(),
+  resourceAccessJson: text('resource_access_json').notNull().default('{}'),
   position: integer('position').notNull().default(0),
   isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
   ...isoTimestamps(),

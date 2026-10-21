@@ -1,3 +1,4 @@
+import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { agents, channels, taskBoards, taskDependencies, taskLabels, taskNumbers, tasks, users } from '../../drizzle/schema'
 import type { TaskStatus } from '../../shared/types'
@@ -5,13 +6,14 @@ import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { getDb } from './db'
 
-export async function requireBoard(env: L4Env, boardId: string) {
+export async function requireBoard(env: L4Env, boardId: string, authorization?: AuthorizationContext) {
+  if (authorization) authorizeResource(authorization, 'boards', boardId)
   const row = (await getDb(env.DB).select().from(taskBoards).where(eq(taskBoards.id, boardId)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Board not found')
   return row
 }
 
-export async function requireTask(env: L4Env, taskReference: string | number) {
+export async function requireTask(env: L4Env, taskReference: string | number, authorization?: AuthorizationContext) {
   const reference = String(taskReference).trim()
   let taskId = reference
   if (/^[1-9]\d*$/u.test(reference)) {
@@ -21,6 +23,7 @@ export async function requireTask(env: L4Env, taskReference: string | number) {
   }
   const row = (await getDb(env.DB).select().from(tasks).where(eq(tasks.id, taskId)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Task not found')
+  if (authorization) authorizeResource(authorization, 'boards', row.boardId)
   return row
 }
 

@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
-  const task = await requireTask(env, id)
+  const task = await requireTask(env, id, actor.authorization)
   const taskId = task.id
   const attachments = await db.select({ r2Key: taskAttachments.r2Key }).from(taskAttachments).where(eq(taskAttachments.taskId, taskId))
   await db.delete(tasks).where(eq(tasks.id, taskId))

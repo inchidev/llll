@@ -11,7 +11,7 @@ import { writeAudit } from '../../../../../utils/messages'
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
   const agentId = getRouterParam(event, 'agentId')!
-  const actor = await requireMember(event, serverId, Permission.manageServer)
+  const actor = await requireMember(event, serverId, Permission.manageAgents)
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const current = (await db.select({ avatarR2Key: users.avatarR2Key }).from(users)

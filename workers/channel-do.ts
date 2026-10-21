@@ -1,3 +1,4 @@
+import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-access'
 import { getServerId } from '../shared/server-id'
 import { DurableObject } from 'cloudflare:workers'
 import { z } from 'zod'
@@ -536,13 +537,22 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
   private async onAgentControl(
     ws: WebSocket,
-    _sock: Sock,
+    sock: Sock,
     authz: Authz,
     body: z.infer<typeof agentControlSchema>,
   ) {
     if (!authz.canManageAgents) {
       this.send(ws, { t: 'error', code: 'forbidden', message: 'Cannot control an Agent in this channel' })
       return
+    }
+    if (body.action !== 'stop') {
+      const actor = await this.env.DB.prepare(
+        `SELECT r.permissions_bitmask as permissions FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.status = 'active'`,
+      ).bind(sock.user.id).first<{ permissions: number }>()
+      if (sock.user.id !== authz.ownerId && (!actor || !hasPermission(actor.permissions, Permission.approveAgentActions))) {
+        this.send(ws, { t: 'error', code: 'forbidden', message: 'Cannot approve Agent actions' })
+        return
+      }
     }
     const turn = await this.env.DB.prepare(
       `SELECT submission_id FROM agent_turns
@@ -840,14 +850,18 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
 
     const membership = await this.env.DB.prepare(
-      `SELECT u.kind, r.permissions_bitmask as perms, r.id as roleId, w.owner_id as ownerId
+      `SELECT u.kind, r.permissions_bitmask as perms, r.resource_access_json as resourceAccessJson, r.id as roleId, w.owner_id as ownerId
        FROM users u
        JOIN roles r ON r.id = u.role_id
        CROSS JOIN server w
        WHERE u.id = ? AND u.status = 'active'`,
-    ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string }>()
+    ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string; resourceAccessJson: string }>()
     if (!membership) return null
-    const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.manageServer)
+    const discussion = await this.env.DB.prepare('SELECT board_id as boardId FROM tasks WHERE discussion_channel_id = ?')
+      .bind(accessRoot.id).first<{ boardId: string }>()
+    if (discussion && membership.ownerId !== userId && (!hasPermission(membership.perms, Permission.readTasks)
+      || !resourceAccessAllows(parseResourceAccess(membership.resourceAccessJson), 'boards', discussion.boardId))) return null
+    const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.useAgents)
 
     if (accessRoot.visibility === 'private') {
       const part = await this.env.DB.prepare(

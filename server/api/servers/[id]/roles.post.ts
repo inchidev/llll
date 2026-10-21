@@ -1,3 +1,4 @@
+import { resourceAccessSchema } from '../../../../shared/resource-access'
 import { z } from 'zod'
 import { roles } from '../../../../drizzle/schema'
 import { newId, nowIso } from '../../../../shared/ids'
@@ -6,10 +7,11 @@ import { requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { writeAudit } from '../../../utils/messages'
-import { assertGrantScope, toRoleDto } from '../../../utils/role-policy'
+import { assertGrantScope, assertResourceGrantScope, toRoleDto } from '../../../utils/role-policy'
 import { parseBody } from '../../../utils/validate'
 
 const bodySchema = z.object({
+  resourceAccess: resourceAccessSchema.optional(),
   name: z.string().trim().min(1).max(40),
   permissions: z.number().int().min(0).max(ALL_PERMISSIONS).default(MemberPermissions),
 })
@@ -19,6 +21,7 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, serverId, Permission.manageRoles)
   const body = parseBody(bodySchema, await readBody(event))
   assertGrantScope(actor, body.permissions)
+  assertResourceGrantScope(actor, body.resourceAccess ?? actor.authorization.principal.resourceAccess ?? {})
   const { env } = cf(event)
   const db = getDb(env.DB)
   const existing = await db.select({ name: roles.name, position: roles.position }).from(roles)
@@ -32,6 +35,7 @@ export default defineEventHandler(async (event) => {
     key: `custom:${id}`,
     name: body.name,
     permissionsBitmask: body.permissions,
+    resourceAccessJson: JSON.stringify(body.resourceAccess ?? actor.authorization.principal.resourceAccess ?? {}),
     position: Math.max(...existing.map(item => item.position), 0) + 1,
     isSystem: false,
     createdAt,

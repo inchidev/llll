@@ -14,10 +14,10 @@ import { requireTask } from '../../../utils/task-policy'
  * work as in chat; the channel list leaves it out and only task managers can open it.
  */
 export default defineEventHandler(async (event) => {
-  await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.writeTasks)
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const task = await requireTask(env, getRouterParam(event, 'id')!)
+  const task = await requireTask(env, getRouterParam(event, 'id')!, actor.authorization)
   if (task.discussionChannelId) return { channelId: task.discussionChannelId }
 
   const number = (await db.select({ number: taskNumbers.number }).from(taskNumbers)
@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
     .where(and(eq(tasks.id, task.id), isNull(tasks.discussionChannelId)))
   if (!linked.meta.changes) {
     await db.delete(channels).where(eq(channels.id, id))
-    const current = await requireTask(env, task.id)
+    const current = await requireTask(env, task.id, actor.authorization)
     return { channelId: current.discussionChannelId }
   }
   return { channelId: id }

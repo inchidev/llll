@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   const canViewRoleDetails = actor.isOwner
     || hasPermission(actor.perms, Permission.manageRoles)
     || hasPermission(actor.perms, Permission.manageChannels)
-  const canViewAgents = actor.isOwner || hasPermission(actor.perms, Permission.manageServer)
+  const canViewAgents = actor.isOwner || (hasPermission(actor.perms, Permission.useAgents) || hasPermission(actor.perms, Permission.manageAgents))
 
   const rows = await db.select({
     user: users,

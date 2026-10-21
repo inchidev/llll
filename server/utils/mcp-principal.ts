@@ -1,3 +1,4 @@
+import { parseResourceAccess } from '../../shared/resource-access'
 import type { L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
@@ -23,11 +24,11 @@ export async function resolveMcpPrincipal(
 ): Promise<McpPrincipal | null> {
   const serverId = await getServerId(env.DB)
   const row = await env.DB.prepare(
-    `SELECT u.kind, r.id as roleId, r.name as roleName, r.permissions_bitmask as perms, s.owner_id as ownerId
+    `SELECT u.kind, r.id as roleId, r.name as roleName, r.permissions_bitmask as perms, r.resource_access_json as resourceAccessJson, s.owner_id as ownerId
      FROM users u JOIN roles r ON r.id = u.role_id JOIN server s ON s.id = ?
      WHERE u.id = ? AND u.status = 'active'`,
   ).bind(serverId, credential.subjectId).first<{
-    kind: 'human' | 'agent'; roleId: string; roleName: string; perms: number; ownerId: string
+    resourceAccessJson: string; kind: 'human' | 'agent'; roleId: string; roleName: string; perms: number; ownerId: string
   }>()
   if (!row) return null
   const isOwner = row.ownerId === credential.subjectId
@@ -39,7 +40,7 @@ export async function resolveMcpPrincipal(
     roleId: row.roleId, roleName: row.roleName, perms, isOwner, scopes: credential.scopes, delegatedBy,
     authorization: {
       serverId,
-      principal: { id: credential.subjectId, kind: row.kind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner },
+      principal: { id: credential.subjectId, kind: row.kind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner, resourceAccess: parseResourceAccess(row.resourceAccessJson) },
       credential: { kind: 'mcp', id: credential.id, scopes: credential.scopes, ...(credential.clientId ? { clientId: credential.clientId } : {}) },
       ...(delegatedBy ? { delegation: { by: delegatedBy } } : {}),
     },
