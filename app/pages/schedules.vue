@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { Temporal } from '@js-temporal/polyfill'
-import type { ChannelDTO, TaskBoardDTO } from '~~/shared/types'
+import type { ChannelDTO, TaskAgentDTO, TaskBoardDTO } from '~~/shared/types'
 import type { Schedule } from '~~/shared/schedules'
 import { Permission } from '~~/shared/permissions'
 
@@ -25,7 +25,8 @@ const dms = useQuery({ queryKey: ['dms'], queryFn: () => api<{ channels: Channel
 const boards = useQuery({ queryKey: computed(() => ['schedule-tasks', serverId.value]), queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${serverId.value}/boards`),
   enabled: computed(() => kind.value === 'work' && can(Permission.readTasks)) })
 const channelOptions = computed(() => [...(channels.data.value?.channels ?? []), ...(dms.data.value?.channels ?? [])].map(channel => ({ label: channel.name, value: channel.id })))
-const tasks = computed(() => boards.data.value?.boards.flatMap(board => board.tasks).filter(task => task.assigneeId && !task.archivedAt) ?? [])
+const agents = useQuery({ queryKey: computed(() => ['schedule-agents', serverId.value]), queryFn: () => api<{ agents: TaskAgentDTO[] }>(`/api/servers/${serverId.value}/task-agents`), enabled: computed(() => kind.value === 'work' && can(Permission.readTasks)) })
+const tasks = computed(() => boards.data.value?.boards.flatMap(board => board.tasks).filter(task => agents.data.value?.agents.some(agent => agent.id === task.assigneeId && agent.status === 'active') && !task.archivedAt) ?? [])
 async function create() {
   busy.value = true
   try {

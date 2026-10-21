@@ -75,7 +75,7 @@ export async function createSchedule(env: L4Env, auth: AuthorizationContext, req
     if (auth.principal.kind === 'agent' && input.agentId !== auth.principal.id) fail(403, 'schedule_denied', 'An agent may schedule only its own work')
     const agent = await loadAuthorizationContext(env, { principalId: input.agentId!, credential: { kind: 'agent_runtime' },
       delegatedBy: auth.delegation?.by ?? auth.principal.id })
-    if (!agent || !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'schedule_denied', 'Agent task execution is not granted')
+    if (!agent || agent.principal.kind !== 'agent' || !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'schedule_denied', 'Agent task execution is not granted')
     const task = await getTask(env, agent, input.taskId!)
     if (!task || task.assigneeId !== input.agentId) fail(403, 'schedule_denied', 'Task must be assigned to the selected agent')
     const humanPermissions = auth.delegation ? (auth.delegation.isOwner ? auth.principal.permissions : auth.delegation.permissions!) : auth.principal.permissions
