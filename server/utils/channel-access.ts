@@ -147,7 +147,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
     const userRows = await db.select().from(users).where(inArray(users.id, parts.map((p) => p.userId)))
     const participants = userRows.map(toPublicUser)
     const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.useAgents)
-    if (participants.some(participant => participant.kind === 'agent') && !canManageAgents) {
+    if (user.kind !== 'agent' && participants.some(participant => participant.kind === 'agent') && !canManageAgents) {
       fail(404, 'not_found', 'Channel not found')
     }
     const stillIn = new Set(userRows.filter(row => row.status === 'active').map(row => row.id))

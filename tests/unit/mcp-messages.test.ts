@@ -1,3 +1,4 @@
+import { requireChannelAccessForMember, requireMemberForUser } from '../../server/utils/channel-access'
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
@@ -95,6 +96,13 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     expect(audit.actor_id).toBe('member-user')
     expect(JSON.parse(String(audit.meta_json))).toMatchObject({ credentialId: 'oauth-connection', clientId: 'codex-client', principalKind: 'human' })
     expect(receiveMessage).not.toHaveBeenCalled() // Same management boundary as the interface.
+  })
+
+  it('allows a participating Agent to read its own conversation without the human invocation grant', async () => {
+    const member = await requireMemberForUser(env, { id: agentId, kind: 'agent', displayName: 'Helper Agent', avatarR2Key: null }, serverId)
+    const access = await requireChannelAccessForMember(env, member, 'agent-dm')
+    expect(access.user.id).toBe(agentId)
+    await expect(requireChannelAccessForMember(env, member, 'private-chat')).rejects.toMatchObject({ statusCode: 404 })
   })
 
   it('dispatches Agent mentions for an authorized human and preserves the initiating human', async () => {
