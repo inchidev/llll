@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
 import { useMounted } from '@vueuse/core'
 import { serverConnectionKey } from '../../composables/useServerSocket'
 
@@ -23,8 +24,16 @@ const open = computed(() => ui.mobilePane === 'channels')
 // Follow the router's live route: page-level routes miss child-only changes,
 // such as opening a thread of the current channel from the drawer.
 const liveRoute = useRouter().currentRoute
+const hasMenu = computed(() => hasServerNavigationMenu(liveRoute.value.path))
+const sectionIntent = ref<ReturnType<typeof serverNavigationSection>>(null)
+function selectSection(path: string) {
+  sectionIntent.value = isMobile.value ? serverNavigationSection(path) : null
+}
 watch(() => liveRoute.value.fullPath, () => {
-  if (isMobile.value) ui.mobilePane = 'chat'
+  if (!isMobile.value) return
+  if (sectionIntent.value === serverNavigationSection(liveRoute.value.path) && hasMenu.value && open.value) return
+  sectionIntent.value = null
+  ui.mobilePane = 'chat'
 })
 
 // Swipe right anywhere to open the navigation drawer, swipe left to close it.
@@ -96,6 +105,7 @@ function onTouchEnd(event: TouchEvent) {
     ? velocity > 0
     : dragOffset.value > current.width / 2
   dragOffset.value = null
+  if (!shouldOpen) sectionIntent.value = null
   ui.mobilePane = shouldOpen ? 'channels' : 'chat'
 }
 
@@ -119,7 +129,7 @@ const backdropOpacity = computed(() => {
 })
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && isMobile.value && open.value) ui.mobilePane = 'chat'
+  if (event.key === 'Escape' && isMobile.value && open.value) { sectionIntent.value = null; ui.mobilePane = 'chat' }
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -138,19 +148,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       v-if="serverId"
       id="channel-navigation"
       ref="drawer"
-      class="channel-drawer flex min-h-0 shrink-0 flex-col bg-muted pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
+      class="channel-drawer flex min-h-0 shrink-0 bg-muted pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
+      :class="{ 'rail-only': !hasMenu }"
       :style="drawerStyle"
       :aria-hidden="isMobile && !open && dragOffset === null ? 'true' : undefined"
       :inert="isMobile && !open && dragOffset === null ? true : undefined"
     >
-      <LayoutNavShell :server-id="serverId" />
+      <LayoutNavShell :server-id="serverId" @select-section="selectSection" @select-resource="sectionIntent = null" />
       <LayoutResizeHandle
-        v-if="!isMobile"
+        v-if="!isMobile && hasMenu"
         v-model="ui.channelPaneWidth"
         :min="200"
         :max="360"
         side="end"
-        label="Resize channel panel"
+        label="Resize section menu"
       />
     </aside>
     <button
@@ -161,7 +172,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       :style="{ opacity: backdropOpacity, transition: dragOffset !== null ? 'none' : undefined }"
       tabindex="-1"
       aria-label="Close navigation"
-      @click="ui.mobilePane = 'chat'"
+      @click="sectionIntent = null; ui.mobilePane = 'chat'"
     />
     <div class="flex min-h-0 min-w-0 flex-1 flex-col pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]">
       <slot />
@@ -183,12 +194,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   will-change: transform;
 }
 
-/* Wider screens: a resizable column beside the page. */
+.channel-drawer.rail-only {
+  width: 72px;
+}
+
+/* Wider screens: a fixed 72px rail plus the selected section's resizable menu. */
 @media (min-width: 768px) {
   .channel-drawer {
     position: relative;
     z-index: auto;
-    width: var(--channel-pane-width, 240px);
+    width: calc(72px + var(--channel-pane-width, 240px));
     transform: none;
     box-shadow: none;
     transition: none;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineProps<{ compact?: boolean }>()
 const session = useSessionStore()
 const presence = usePresenceStore()
 const live = useLiveStore()
@@ -26,8 +27,16 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-  <div class="px-2 pt-2 pb-6 shrink-0">
-    <div class="df-panel flex h-11 items-center gap-0.5 rounded-lg px-1">
+  <div class="shrink-0" :class="compact ? 'px-1 pb-3 pt-2' : 'px-2 pt-2 pb-6'">
+    <div v-if="compact" class="flex flex-col items-center gap-1">
+      <UButton v-if="live.connection === 'connected'" :icon="live.muted ? 'i-ph-microphone-slash' : 'i-ph-microphone'" color="neutral" variant="ghost" class="size-9 justify-center" :aria-label="live.muted ? 'Unmute' : 'Mute'" :aria-pressed="live.muted" @click="live.toggleMute()" />
+      <UButton v-if="live.connection === 'connected'" :icon="live.deafened ? 'i-ph-speaker-slash' : 'i-ph-headphones'" color="neutral" variant="ghost" class="size-9 justify-center" :aria-label="live.deafened ? 'Undeafen' : 'Deafen'" :aria-pressed="live.deafened" @click="live.toggleDeafen()" />
+      <button type="button" class="flex h-14 w-full flex-col items-center justify-center gap-1 rounded-lg hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :title="session.user?.displayName" aria-label="User settings" @click="settingsOpen = true">
+        <UChip inset :color="chipColor" position="bottom-right" size="sm"><UserAvatar v-if="session.user" :user="session.user" size="xs" /></UChip>
+        <span class="text-[10px] font-medium leading-3 text-muted">Account</span>
+      </button>
+    </div>
+    <div v-else class="df-panel flex h-11 items-center gap-0.5 rounded-lg px-1">
       <button
         type="button"
         class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-start hover:bg-elevated/80 focus-visible:outline-2 focus-visible:outline-primary"
@@ -77,7 +86,7 @@ const statusLabel = computed(() => {
         />
       </UTooltip>
 
-      <SettingsUserSettings v-model:open="settingsOpen" />
     </div>
+    <SettingsUserSettings v-model:open="settingsOpen" />
   </div>
 </template>
