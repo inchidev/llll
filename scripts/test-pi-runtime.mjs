@@ -44,10 +44,11 @@ try {
     'node:24.21.0-bookworm-slim', 'node', '-e', fixture)
   await command('run', '-d', '--name', agent, '--network', network, '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '128', '--memory', '1g', '--cpus', '1',
-    '--label', 'llll.test=pi-runtime', '--volume', '/data', '--env', `LLLL_RUN_TOKEN=${token}`, image)
+    '--label', 'llll.test=pi-runtime', '--tmpfs', '/data:rw,nosuid,size=512m,uid=1000,gid=1000', '--env', `LLLL_RUN_TOKEN=${token}`, image)
   const info = JSON.parse((await command('inspect', agent)).stdout)[0]
   assert.equal(info.HostConfig.ReadonlyRootfs, true)
   assert.equal(info.Config.User, 'node')
+  assert.ok(info.HostConfig.Tmpfs['/data'].includes('size=512m'))
   assert.ok(!info.Mounts.some(mount => mount.Source.includes('docker.sock')))
   let runnerMode = false
   const request = async (path, method = 'GET', body, authorized = true) => {
@@ -84,7 +85,7 @@ try {
   for (let attempt = 0; attempt < 100; attempt++) {
     try { result = await (await request('/run')).json(); break } catch { await new Promise(resolve => setTimeout(resolve, 100)) }
   }
-  assert.equal(result.result.text, 'Evidence preserved')
+  assert.equal(result.status, 'idle', 'Ephemeral compute loss must be reported to the durable coordinator, never silently resumed')
   const isolated = await command('exec', agent, 'node', '-e', "fetch('https://example.com',{signal:AbortSignal.timeout(1000)}).then(()=>process.exit(1)).catch(()=>console.log('egress denied'))")
   assert.ok(isolated.stdout.includes('egress denied'))
   await command('run', '-d', '--name', runner, '--network', network, '--label', 'llll.test=pi-runtime',
@@ -107,7 +108,7 @@ try {
   assert.equal((await request('/lifecycle', 'DELETE')).status, 204, 'Cleanup must be idempotent')
   await assert.rejects(command('inspect', `llll-agent-${secondId}`))
   await assert.rejects(command('volume', 'inspect', `llll-agent-${secondId}-data`))
-  console.log('PASS: real Pi in an unprivileged Docker container, private network, model/tool gateway, events, evidence archive, duplicate admission, restart recovery, Runner cancellation and cleanup')
+  console.log('PASS: real Pi in an unprivileged Docker container, private network, model/tool gateway, events, evidence archive, duplicate admission, fail-closed restart, Runner cancellation and bounded cleanup')
 } finally {
   for (const name of [agent, runner, `llll-agent-${secondId}`, gateway]) await command('rm', '-f', '-v', name).catch(() => {})
   await command('volume', 'rm', `llll-agent-${secondId}-data`).catch(() => {})

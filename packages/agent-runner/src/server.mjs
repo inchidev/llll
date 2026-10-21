@@ -15,22 +15,22 @@ async function inspect(name) {
   catch (error) { if (error.code === 1) return null; throw error }
 }
 const starting = new Map()
+let admission = Promise.resolve()
 async function start(id, token) {
   const name = `llll-agent-${id}`
-  const volumeName = `${name}-data`
   let container = await inspect(name)
   if (container && (container.Config.Labels['llll.server'] !== serverId || container.Config.Labels['llll.run'] !== id)) throw new Error('Foreign container')
   if (!container) {
-    // Reject a pre-existing volume owned by anything other than this Run.
-    let volume
-    try { volume = JSON.parse((await docker('docker', ['volume', 'inspect', volumeName])).stdout)[0] }
-    catch (error) { if (error.code !== 1) throw error }
-    if (volume && (volume.Labels?.['llll.server'] !== serverId || volume.Labels?.['llll.run'] !== id)) throw new Error('Foreign volume')
-    if (!volume) await docker('docker', ['volume', 'create', '--label', `llll.server=${serverId}`, '--label', `llll.run=${id}`, volumeName])
+    const privateNetwork = JSON.parse((await docker('docker', ['network', 'inspect', network])).stdout)[0]
+    if (!privateNetwork?.Internal) throw new Error('Agent network must deny public internet')
+    const running = (await docker('docker', ['ps', '-q', '--filter', `label=llll.server=${serverId}`])).stdout.trim().split('\n').filter(Boolean)
+    if (running.length >= 4) throw new Error('Server compute capacity is occupied')
     await docker('docker', ['run', '-d', '--name', name, '--label', `llll.server=${serverId}`, '--label', `llll.run=${id}`,
-      '--network', network, '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m', '--cap-drop', 'ALL',
+      '--network', network, '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m',
+      '--tmpfs', '/data:rw,nosuid,size=512m,uid=1000,gid=1000', '--cap-drop', 'ALL',
+      '--log-driver', 'local', '--log-opt', 'max-size=5m', '--log-opt', 'max-file=2',
       '--security-opt', 'no-new-privileges', '--pids-limit', '128', '--memory', '1g', '--cpus', '1',
-      '--env', `LLLL_RUN_TOKEN=${token}`, '--mount', `type=volume,source=${volumeName},target=/data`, image], { timeout: 60000 })
+      '--env', `LLLL_RUN_TOKEN=${token}`, image], { timeout: 60000 })
   } else if (!container.State.Running) await docker('docker', ['start', name], { timeout: 60000 })
   const url = `http://${name}:8080`
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -60,13 +60,6 @@ createServer(async (request, response) => {
         if (container.Config.Labels['llll.server'] !== serverId || container.Config.Labels['llll.run'] !== id) throw new Error('Foreign container')
         await docker('docker', ['rm', '-f', name], { timeout: 30000 })
       }
-      let volume
-      try { volume = JSON.parse((await docker('docker', ['volume', 'inspect', `${name}-data`])).stdout)[0] }
-      catch (error) { if (error.code !== 1) throw error }
-      if (volume) {
-        if (volume.Labels?.['llll.server'] !== serverId || volume.Labels?.['llll.run'] !== id) throw new Error('Foreign volume')
-        await docker('docker', ['volume', 'rm', `${name}-data`], { timeout: 30000 })
-      }
       response.writeHead(204).end(); return
     }
     let body
@@ -76,7 +69,11 @@ createServer(async (request, response) => {
       for await (const chunk of request) { bytes += chunk.length; if (bytes > 2_128_000) { response.writeHead(413).end(); return }; chunks.push(chunk) }
       body = Buffer.concat(chunks)
     }
-    if (!starting.has(id)) starting.set(id, start(id, token).finally(() => starting.delete(id)))
+    if (!starting.has(id)) {
+      const launched = admission.then(() => start(id, token))
+      admission = launched.then(() => undefined, () => undefined)
+      starting.set(id, launched.finally(() => starting.delete(id)))
+    }
     const origin = await starting.get(id)
     const upstream = await fetch(`${origin}/${match[2]}${url.search}`, { method: request.method, body,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000) })

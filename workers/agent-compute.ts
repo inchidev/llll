@@ -25,7 +25,7 @@ export class AgentComputeDurableObject extends DurableObject<L4Env> {
         const gateway = this.ctx.exports.AgentOutbound({ props: { origin: origin.origin } })
         await container.interceptOutboundHttp(origin.hostname, gateway)
         // This HTTP hop stays inside Cloudflare's encrypted interception network.
-        // The trusted outbound Worker performs HTTPS to the Server.
+        // The trusted outbound Worker calls the Server gateway directly.
         container.start({ image: container.images.pi, instance: 'standard-1', enableInternet: false,
           env: { LLLL_RUN_TOKEN: token } })
         for (let attempt = 0; attempt < 60; attempt++) {

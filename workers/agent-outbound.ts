@@ -1,15 +1,18 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import type { L4Env } from './env'
+import { agentGateway } from '../server/utils/agent-gateway'
 
 export class AgentOutbound extends WorkerEntrypoint<L4Env, { origin: string }> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const target = new URL(this.ctx.props.origin)
+    const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools)$/u)
     if (url.protocol !== 'http:' || url.hostname !== target.hostname || url.port || url.search
-      || !/^\/api\/agent-runs\/[0-9a-f-]{36}\/gateway\/(v1\/chat\/completions|tools)$/u.test(url.pathname)) {
+      || !gateway) {
       return new Response('Destination is not granted', { status: 403 })
     }
-    target.pathname = url.pathname
-    return fetch(new Request(target, request), { redirect: 'error' })
+    // Stay inside the Server binding. Public self-fetch is neither needed nor
+    // reliable for a Worker that intercepts its own container's callbacks.
+    return agentGateway(request, this.env, gateway[1]!, gateway[2]!, promise => this.ctx.waitUntil(promise))
   }
 }
