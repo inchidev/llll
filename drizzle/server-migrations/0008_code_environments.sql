@@ -7,8 +7,10 @@ ALTER TABLE tasks ADD COLUMN environment_id TEXT REFERENCES agent_environments(i
 --> statement-breakpoint
 ALTER TABLE agent_runs ADD COLUMN environment_json TEXT;
 --> statement-breakpoint
+ALTER TABLE agent_runs ADD COLUMN files_key TEXT;
+--> statement-breakpoint
 CREATE TABLE agent_code_proposals (
  run_id TEXT PRIMARY KEY REFERENCES agent_runs(id), environment_id TEXT NOT NULL REFERENCES agent_environments(id),
- input_hash TEXT NOT NULL, branch TEXT NOT NULL, commit_sha TEXT, pull_number INTEGER,
- lease_until TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+ input_hash TEXT NOT NULL, branch TEXT NOT NULL, commit_sha TEXT, published_commit_sha TEXT, pull_number INTEGER,
+ lease_until TEXT, lease_token TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );

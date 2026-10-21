@@ -48,7 +48,7 @@ const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
   { label: 'Data', keys: ['readData', 'writeData', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
   { label: 'Using agents', keys: ['useAgents', 'manageAgents', 'approveAgentActions'] },
   { label: 'Research', keys: ['browseWeb'] },
-  { label: 'Agent autonomy', keys: ['executeTasks', 'useComputer', 'manageSchedules'] },
+  { label: 'Agent autonomy', keys: ['executeTasks', 'useComputer', 'proposeCode', 'manageSchedules'] },
   { label: 'Integrations', keys: ['mcp.connect'] },
 ]
 const groupedGrants = grantGroups.map(group => ({

@@ -3,6 +3,7 @@ import { createWorkersAI } from 'workers-ai-provider'
 import { z } from 'zod'
 import { findAgentRun, runAuthorization, verifyRunCapability } from './agent-run-service'
 import { executeRunTool } from './agent-tools'
+import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
 import { modelForAgent } from '../../workers/ai-runtime'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
@@ -65,6 +66,10 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
   if (!await verifyRunCapability(env, runId, capability)) return new Response('Unauthorized', { status: 401 })
   const run = await findAgentRun(env, runId)
   if (!run || run.status !== 'running' || run.deadline <= new Date().toISOString()) return new Response('Run is no longer active', { status: 403 })
+  if (request.method === 'GET' && operation === 'repository/archive') {
+    try { await runAuthorization(env, run); return await codeRepositoryArchive(env, run.id) }
+    catch { return new Response('Repository archive is unavailable under the current mandate', { status: 403 }) }
+  }
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
   const body = await readLimitedStream(request.body, 128000)
   if (!body.ok) return new Response('Invalid request size', { status: 413 })

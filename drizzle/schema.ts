@@ -974,6 +974,7 @@ export const tasks = sqliteTable('tasks', {
   position: integer('position').notNull().default(0),
   /** The member responsible for the task, human or agent. */
   assigneeId: text('assignee_id').references(() => users.id, { onDelete: 'set null' }),
+  environmentId: text('environment_id'),
   channelId: text('channel_id').references(() => channels.id, { onDelete: 'set null' }),
   /** Hidden channel holding the task's discussion, created on first use. */
   discussionChannelId: text('discussion_channel_id').references(() => channels.id, { onDelete: 'set null' }),

@@ -15,6 +15,7 @@ const bodySchema = z.object({
   position: z.number().int().min(0).optional(),
   boardId: z.string().min(8).optional(),
   assigneeId: z.string().min(8).nullable().optional(),
+  environmentId: z.string().min(8).nullable().optional(),
   channelId: z.string().min(8).nullable().optional(),
   archived: z.boolean().optional(),
   labelIds: z.array(z.string().min(8)).max(20).optional(),

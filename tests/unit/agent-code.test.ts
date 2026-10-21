@@ -1,0 +1,156 @@
+import { DatabaseSync } from 'node:sqlite'
+import { generateKeyPairSync } from 'node:crypto'
+import { importSPKI, jwtVerify } from 'jose'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { INIT_SQL } from '../../server/utils/db'
+import { d1 } from '../helpers/sqlite-d1'
+import { Permission } from '../../shared/permissions'
+import type { L4Env } from '../../workers/env'
+import { loadAuthorizationContext } from '../../server/utils/authorization'
+import { createAgentRun, findAgentRun } from '../../server/utils/agent-run-service'
+import { publishCodeProposal, codeProposalChecks } from '../../server/utils/agent-code-service'
+import type { AgentRun } from '../../shared/agent-execution'
+import type { CodeProposalInput } from '../../shared/code-environments'
+
+const pair = generateKeyPairSync('rsa', { modulusLength: 2048 })
+const privateKey = pair.privateKey.export({ type: 'pkcs1', format: 'pem' }).toString()
+const publicKey = await importSPKI(pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'RS256')
+const permissions = Permission.sendMessages | Permission.readTasks | Permission.executeTasks | Permission.useComputer | Permission.proposeCode
+const baseSha = 'a'.repeat(40)
+const baseTree = 'b'.repeat(40)
+let db: DatabaseSync
+let env: L4Env
+let run: AgentRun
+let head: string | null
+let pr: Record<string, unknown> | null
+let calls: Array<{ path: string; method: string; body: Record<string, unknown> }>
+let minted: Array<{ repository_ids: number[]; permissions: Record<string, string> }>
+let tokens: Map<string, { repository_ids: number[]; permissions: Record<string, string> }>
+let sequence: number
+let dropPrResponse: boolean
+let lintSuccess: boolean
+
+const configuration = { name: 'Project', sourceRepo: 'source/project', sourceRepoId: 11, sourceInstallationId: 101,
+  workRepo: 'worker/project', workRepoId: 22, workInstallationId: 202, baseBranch: 'main', requiredChecks: ['lint', 'build'], previewHosts: ['dev.llll.gg'] }
+const input = (): CodeProposalInput => ({ title: 'Fix source behavior', body: 'Changes and reported validation.', files: [{ path: 'src/index.js', content: 'export const answer = 42\n', executable: false }] })
+const count = (suffix: string, method = 'POST') => calls.filter(call => call.path.endsWith(suffix) && call.method === method).length
+const currentPr = () => ({ ...pr, head: { ref: `l4-agent/${run.id}`, sha: head, repo: { id: 22 } }, base: { ref: 'main', repo: { id: 11 } } })
+
+beforeEach(async () => {
+  head = null; pr = null; calls = []; minted = []; tokens = new Map(); sequence = 1; dropPrResponse = false; lintSuccess = false
+  db = new DatabaseSync(':memory:')
+  db.exec(INIT_SQL)
+  db.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'00000000-0000-4000-8000-000000000001');
+    INSERT INTO roles(id,key,name,permissions_bitmask,resource_access_json) VALUES('owner-role','owner','Owner',0,'{}'),
+      ('agent-role','custom:code','Coder',${permissions},'{"boards":["code-board"],"repositories":["11"]}');
+    INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('owner-user','human','Owner','active','owner-role','2026-10-21'),('agent-user','agent','Coder','active','agent-role','2026-10-21');
+    INSERT INTO server(id,name,owner_id) VALUES('00000000-0000-4000-8000-000000000001','Test','owner-user');
+    INSERT INTO agents(user_id,created_by,harness) VALUES('agent-user','owner-user','pi');
+    INSERT INTO channels(id,name,type,visibility) VALUES('code-channel','Code','text','server');
+    INSERT INTO task_boards(id,name,created_by) VALUES('code-board','Code','owner-user');`)
+  db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)').run('code-env', JSON.stringify(configuration), 'owner-user', '2026-10-21', '2026-10-21')
+  db.exec("INSERT INTO tasks(id,board_id,title,description,status,priority,position,assignee_id,environment_id,created_by,created_at,updated_at) VALUES('code-task','code-board','Fix behavior','','ready','normal',1,'agent-user','code-env','owner-user','2026-10-21','2026-10-21')")
+  env = { DB: d1(db), AUTH_SECRET: 'test-only-server-secret-with-32-characters', FILES: {},
+    GITHUB_AGENT_APP_ID: '4242', GITHUB_AGENT_APP_PRIVATE_KEY: privateKey,
+    AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret', AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) } } as unknown as L4Env
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL, options: RequestInit = {}) => {
+    const uri = new URL(String(url))
+    expect(uri.origin).toBe('https://api.github.com')
+    const method = options.method ?? 'GET'
+    const body = options.body ? JSON.parse(String(options.body)) : {}
+    const authorization = new Headers(options.headers).get('Authorization')!
+    if (uri.pathname.includes('/access_tokens')) {
+      await jwtVerify(authorization.slice(7), publicKey, { issuer: '4242', algorithms: ['RS256'] })
+      minted.push(body)
+      const token = `installation-capability-${minted.length}`
+      tokens.set(token, body)
+      return Response.json({ token })
+    }
+    const capability = tokens.get(authorization.slice(7))!
+    expect(capability).toBeDefined()
+    const source = uri.pathname.startsWith('/repos/source/')
+    expect(capability.repository_ids).toEqual([source ? 11 : 22])
+    calls.push({ path: uri.pathname, method, body })
+    if (method !== 'GET') {
+      if (source) { expect(uri.pathname).toMatch(/\/pulls(?:\/\d+)?$/u); expect(capability.permissions.pull_requests).toBe('write'); expect(capability.permissions.contents).toBe('read') }
+      else expect(capability.permissions.contents).toBe('write')
+    }
+    if (uri.pathname.endsWith('/commits/main')) return Response.json({ sha: baseSha, commit: { tree: { sha: baseTree } } })
+    if (uri.pathname.endsWith('/git/trees')) return Response.json({ sha: (++sequence).toString(16).padStart(40, '0') })
+    if (uri.pathname.endsWith('/git/commits')) return Response.json({ sha: (++sequence).toString(16).padStart(40, '0') })
+    if (/\/git\/commits\/[a-f0-9]{40}$/u.test(uri.pathname)) return Response.json({ sha: head, tree: { sha: baseTree } })
+    if (uri.pathname.includes('/git/ref/heads/')) return head ? Response.json({ object: { sha: head } }) : Response.json({}, { status: 404 })
+    if (uri.pathname.endsWith('/git/refs') || uri.pathname.includes('/git/refs/heads/')) {
+      if (method === 'PATCH') expect(body.force).toBe(false)
+      head = body.sha; return Response.json({ object: { sha: head } })
+    }
+    if (uri.pathname.endsWith('/pulls')) {
+      if (method === 'GET') return Response.json(pr ? [currentPr()] : [])
+      pr = { number: 1, state: 'open', merged: false, title: body.title, body: body.body }
+      if (dropPrResponse) { dropPrResponse = false; throw new Error('Lost response after GitHub created the PR') }
+      return Response.json(currentPr(), { status: 201 })
+    }
+    if (uri.pathname.endsWith('/pulls/1')) {
+      if (method === 'PATCH') pr = { ...pr, ...body }
+      return Response.json(currentPr())
+    }
+    if (uri.pathname.endsWith('/check-runs')) {
+      expect(capability.permissions.checks).toBe('read')
+      return Response.json({ total_count: 1, check_runs: [{ name: 'lint', head_sha: head, status: 'completed', conclusion: lintSuccess ? 'success' : 'failure', details_url: null }] })
+    }
+    if (uri.pathname.endsWith('/status')) {
+      expect(capability.permissions.statuses).toBe('read')
+      return Response.json({ statuses: [{ context: 'build', state: 'success', target_url: 'https://candidate.dev.llll.gg' }, { context: 'untrusted', state: 'success', target_url: 'https://dev.llll.gg.attacker.example' }] })
+    }
+    throw new Error(`Unexpected GitHub operation: ${method} ${uri.pathname}`)
+  }))
+  const owner = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+  run = await createAgentRun(env, owner, { agentId: 'agent-user', channelId: 'code-channel', taskId: 'code-task', prompt: 'Fix behavior and open a PR', idempotencyKey: 'code-request' })
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  run = (await findAgentRun(env, run.id))!
+})
+afterEach(() => { vi.unstubAllGlobals(); db.close() })
+
+describe('GitHub capability broker', () => {
+  it('writes only the Run-owned fork branch and deduplicates repeated publication', async () => {
+    const first = await publishCodeProposal(env, run.id, input())
+    expect(first).toMatchObject({ url: 'https://github.com/source/project/pull/1', status: 'draft', checks: 'unverified' })
+    expect(await publishCodeProposal(env, run.id, input())).toEqual(first)
+    expect(count('/git/commits')).toBe(1); expect(count('/git/refs')).toBe(1); expect(count('/pulls')).toBe(1)
+    expect(calls.find(call => call.path.endsWith('/git/refs'))?.body.ref).toBe(`refs/heads/l4-agent/${run.id}`)
+    expect(minted.filter(token => token.permissions.contents === 'write').every(token => token.repository_ids[0] === 22)).toBe(true)
+    expect(JSON.stringify(first)).not.toContain('installation-capability')
+    expect(JSON.stringify(first)).not.toContain('PRIVATE KEY')
+  })
+  it('recovers an uncertain PR response by discovering the existing PR', async () => {
+    dropPrResponse = true
+    await expect(publishCodeProposal(env, run.id, input())).rejects.toThrow('Lost response')
+    await expect(publishCodeProposal(env, run.id, input())).resolves.toMatchObject({ number: 1 })
+    expect(count('/pulls')).toBe(1)
+    expect(count('/git/commits')).toBe(1)
+  })
+  it('requires explicit code-publication permission even when the Owner starts the Run', async () => {
+    db.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='agent-role'").run(permissions & ~Permission.proposeCode)
+    const before = minted.length
+    await expect(publishCodeProposal(env, run.id, input())).rejects.toMatchObject({ statusCode: 403 })
+    expect(minted.length).toBe(before)
+    expect(count('/pulls')).toBe(0)
+  })
+  it('does not publish workflow files or move a branch changed outside the Run', async () => {
+    await expect(publishCodeProposal(env, run.id, { ...input(), files: [{ path: '.github/workflows/deploy.yml', content: 'unsafe', executable: false }] })).rejects.toThrow()
+    expect(count('/git/commits')).toBe(0)
+    await publishCodeProposal(env, run.id, input())
+    head = 'f'.repeat(40)
+    await expect(publishCodeProposal(env, run.id, { ...input(), title: 'Follow-up', files: [{ path: 'src/index.js', content: 'export const answer=43', executable: false }] })).rejects.toMatchObject({ statusCode: 409 })
+    expect(head).toBe('f'.repeat(40))
+    expect(count(`/git/refs/heads/l4-agent/${run.id}`, 'PATCH')).toBe(0)
+  })
+  it('reports independent checks for the exact head and filters Preview hosts', async () => {
+    const proposal = await publishCodeProposal(env, run.id, input())
+    expect(await codeProposalChecks(env, run.id)).toMatchObject({ readyForReview: false, required: [{ name: 'lint', status: 'failure' }, { name: 'build', status: 'success' }], previews: ['https://candidate.dev.llll.gg'] })
+    lintSuccess = true
+    expect(await codeProposalChecks(env, run.id)).toMatchObject({ readyForReview: true, commit: proposal.commit })
+    head = 'e'.repeat(40)
+    await expect(codeProposalChecks(env, run.id)).rejects.toMatchObject({ statusCode: 409 })
+  })
+})

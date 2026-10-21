@@ -9,10 +9,13 @@ import { loadAuthorizationContext } from './authorization'
 import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import { getTask } from './task-service'
 import { fail } from './cf'
+import { admitRunEnvironment, requireRunEnvironment } from './code-environment-service'
+import type { RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
 
 const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id as channelId, initiated_by as initiatedBy,
  task_id as taskId, source_message_id as sourceMessageId, status, prompt, model, instructions, mandate_json as mandateJson, result_text as resultText,
+ environment_json as environmentJson, files_key as filesKey,
  last_error as lastError, model_calls as modelCalls, total_tokens as totalTokens, event_cursor as eventCursor,
  deadline, created_at as createdAt, updated_at as updatedAt`
 
@@ -35,7 +38,7 @@ async function wakeAdmittedRun(env: L4Env, run: AgentRun): Promise<void> {
 }
 
 /** Check both current authority and the immutable upper bound accepted for this Run. */
-export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'agentId' | 'channelId' | 'initiatedBy' | 'mandateJson'>): Promise<AuthorizationContext> {
+export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'agentId' | 'channelId' | 'initiatedBy' | 'mandateJson'> & { environmentJson?: string | null }): Promise<AuthorizationContext> {
   const auth = await loadAuthorizationContext(env, { principalId: run.agentId, credential: { kind: 'agent_runtime', id: run.id }, delegatedBy: run.initiatedBy })
   if (!auth || !auth.delegation) fail(403, 'run_revoked', 'Run authorization was revoked')
   const actor = await env.DB.prepare(`SELECT u.kind, r.permissions_bitmask as permissions FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'`)
@@ -63,6 +66,7 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.delegation.permissions = (auth.delegation.isOwner ? mandate.permissions : auth.delegation.permissions! & mandate.permissions)
   auth.delegation.isOwner = false
   auth.delegation.resourceAccess = intersect(auth.delegation.resourceAccess, mandate.resourceAccess)
+  if (run.environmentJson) await requireRunEnvironment(env, auth, JSON.parse(run.environmentJson) as RunEnvironment)
   return auth
 }
 
@@ -95,10 +99,13 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (!agent) fail(403, 'forbidden', 'Agent unavailable')
   const computer = Boolean(input.taskId && hasPermission(agent.principal.permissions, Permission.useComputer)
     && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer)))
+  let environmentId = input.environmentId ?? null
   if (input.taskId) {
     if (!hasPermission(agent.principal.permissions, Permission.executeTasks) || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.executeTasks))) fail(403, 'forbidden', 'Task execution is not granted')
     const task = await getTask(env, agent, input.taskId)
     if (!task || task.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
+    if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
+    environmentId ??= task.environmentId ?? null
   }
   const now = nowIso()
   const sessionId = newId()
@@ -123,12 +130,22 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   }
   // Admission checks source conversation access before creating an executable record.
   const pending = { id, agentId: input.agentId, channelId: input.channelId, initiatedBy: actor.principal.id, mandateJson: JSON.stringify(mandate) }
-  await runAuthorization(env, pending)
-  const admitted = await env.DB.prepare(`INSERT INTO agent_runs (id,session_id,agent_id,channel_id,initiated_by,task_id,source_message_id,idempotency_key,status,prompt,model,instructions,mandate_json,deadline,created_at,updated_at)
-    SELECT ?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
+  const execution = await runAuthorization(env, pending)
+  let environment: RunEnvironment | null = null
+  if (ceiling && environmentId !== (ceiling.environmentId ?? null)) fail(403, 'code_denied', 'Subtasks and scheduled work cannot change repository environments')
+  if (environmentId) {
+    if (!mandate.computer) fail(403, 'code_denied', 'Repository execution needs computer permission in a task-backed mandate')
+    environment = await admitRunEnvironment(env, execution, environmentId)
+    if (ceiling?.environmentVersion !== undefined && environment.version !== ceiling.environmentVersion) fail(403, 'code_revoked', 'Repository mandate must be renewed after configuration changes')
+    mandate.environmentId = environment.id
+    mandate.environmentVersion = environment.version
+  }
+  const admitted = await env.DB.prepare(`INSERT INTO agent_runs (id,session_id,agent_id,channel_id,initiated_by,task_id,source_message_id,idempotency_key,status,prompt,model,instructions,mandate_json,environment_json,deadline,created_at,updated_at)
+    SELECT ?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
     ON CONFLICT(agent_id,initiated_by,idempotency_key) DO NOTHING RETURNING id`)
     .bind(id, session!.id, input.agentId, input.channelId, actor.principal.id, input.taskId ?? null, input.sourceMessageId ?? null, input.idempotencyKey,
-      input.prompt, profile.model, profile.instructions, JSON.stringify(mandate), new Date(Date.now() + 15 * 60_000).toISOString(), now, now, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
+      input.prompt, profile.model, profile.instructions, JSON.stringify(mandate), environment ? JSON.stringify(environment) : null,
+      new Date(Date.now() + 15 * 60_000).toISOString(), now, now, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
   if (!admitted) {
     const duplicate = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?').bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
     if (duplicate) {

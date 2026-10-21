@@ -58,7 +58,7 @@ export async function provisionServer(event: H3Event, seed: AdminSeed) {
   const statements = [
     db.insert(roles).values([
       { id: ownerRoleId, key: 'owner', name: 'owner', permissionsBitmask: ALL_PERMISSIONS, position: 0, isSystem: true, createdAt: created, updatedAt: created },
-      { id: adminRoleId, key: 'admin', name: 'admin', permissionsBitmask: ALL_PERMISSIONS & ~(Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules), position: 1, isSystem: true, createdAt: created, updatedAt: created },
+      { id: adminRoleId, key: 'admin', name: 'admin', permissionsBitmask: ALL_PERMISSIONS & ~(Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode), position: 1, isSystem: true, createdAt: created, updatedAt: created },
       { id: memberRoleId, key: 'member', name: 'member', permissionsBitmask: MemberPermissions, position: 2, isSystem: true, createdAt: created, updatedAt: created },
     ]),
     db.insert(users).values({

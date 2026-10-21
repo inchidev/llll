@@ -1,3 +1,6 @@
+import { authorizeResource as requireResource } from '../../shared/authorization'
+import { findCodeEnvironment } from './code-environment-service'
+import { fail } from './cf'
 import { getServerId } from '../../shared/server-id'
 import { eq, or } from 'drizzle-orm'
 import { taskDependencies, taskLabelLinks, tasks } from '../../drizzle/schema'
@@ -11,6 +14,13 @@ import { authorize, authorizeResource, resourceAllowed, ServerAction, type Autho
 import { loadTaskBoards, loadTaskDetail } from './task-data'
 import { nextTaskPosition, requireBoard, requireTask, validateTaskAssignee, validateTaskChannel, validateTaskDependencies, validateTaskLabels } from './task-policy'
 
+async function validateEnvironment(env: L4Env, auth: AuthorizationContext, id: string | null | undefined) {
+  if (!id) return
+  const item = await findCodeEnvironment(env, id)
+  if (!item?.enabled) fail(403, 'code_revoked', 'Repository environment is unavailable')
+  requireResource(auth, 'repositories', String(item.sourceRepoId))
+}
+
 type Schedule = (promise: Promise<unknown>) => void
 
 export type CreateTaskInput = {
@@ -20,6 +30,7 @@ export type CreateTaskInput = {
   dueAt: string | null
   assigneeId: string | null
   channelId: string | null
+  environmentId?: string | null
   labelIds: string[]
   dependencyIds: string[]
 }
@@ -34,6 +45,7 @@ export type UpdateTaskInput = {
   boardId?: string
   assigneeId?: string | null
   channelId?: string | null
+  environmentId?: string | null
   archived?: boolean
   labelIds?: string[]
   dependencyIds?: string[]
@@ -74,6 +86,7 @@ export async function createTask(
     requireBoard(env, boardId),
     validateTaskAssignee(env, input.assigneeId),
     validateTaskChannel(env, input.channelId),
+    validateEnvironment(env, authorization, input.environmentId),
     validateTaskLabels(env, boardId, input.labelIds),
     validateTaskDependencies(env, null, boardId, input.dependencyIds),
   ])
@@ -91,6 +104,7 @@ export async function createTask(
     position: await nextTaskPosition(env, boardId, status),
     assigneeId: input.assigneeId,
     channelId: input.channelId,
+    environmentId: input.environmentId ?? null,
     createdBy: actorId,
     resultSummary: null,
     resultDetails: null,
@@ -128,6 +142,7 @@ export async function updateTask(
     input.boardId ? requireBoard(env, input.boardId) : Promise.resolve(),
     validateTaskAssignee(env, input.assigneeId),
     validateTaskChannel(env, input.channelId),
+    validateEnvironment(env, authorization, input.environmentId),
     validateTaskLabels(env, boardId, input.labelIds),
     validateTaskDependencies(env, id, boardId, input.dependencyIds),
   ])
@@ -149,6 +164,7 @@ export async function updateTask(
     boardId,
     assigneeId: input.assigneeId === undefined ? task.assigneeId : input.assigneeId,
     channelId: input.channelId === undefined ? task.channelId : input.channelId,
+    environmentId: input.environmentId === undefined ? task.environmentId : input.environmentId,
     archivedAt: input.archived === undefined ? task.archivedAt : input.archived ? updatedAt : null,
     lastError: status === 'failed' ? task.lastError : null,
     updatedAt,

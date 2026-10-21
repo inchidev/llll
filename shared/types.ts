@@ -94,6 +94,7 @@ export type TaskDTO = {
   /** The responsible member, human or agent. */
   assigneeId: string | null
   channelId: string | null
+  environmentId?: string | null
   /** Hidden channel for the task's discussion; null until someone opens it. */
   discussionChannelId: string | null
   createdBy: string
