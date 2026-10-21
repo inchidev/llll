@@ -42,10 +42,10 @@ watch(() => job.value?.stage, async (stage, previous) => {
   if (stage === 'failed' || stage === 'cancelled') attemptedRequest.value = null
   if (stage === 'complete' && previous !== 'complete') {
     await updateQ.refetch()
-    await navigator.serviceWorker?.getRegistration().then(registration => registration?.update()).catch(() => {})
+    await $pwa?.check()
   }
 })
-async function refresh() { await Promise.all([updateQ.refetch(), progressQ.refetch()]) }
+async function refresh() { await Promise.all([updateQ.refetch(), progressQ.refetch(), $pwa?.check()]) }
 async function start() {
   if (!selectedRelease.value || active.value || busy.value) return
   busy.value = true

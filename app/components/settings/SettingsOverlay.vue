@@ -25,6 +25,7 @@ const open = defineModel<boolean>('open', { default: false })
 const section = defineModel<string>('section', { default: '' })
 
 const appConfig = useAppConfig()
+const { $pwa } = useNuxtApp()
 const releaseUrl = computed(() => llllReleaseUrl(appConfig.version))
 const isMobile = useIsMobile()
 const detailBack = provideSettingsDetailBack()
@@ -86,9 +87,10 @@ function close() {
 
 watch(open, (value) => {
   if (!value) return
+  void $pwa?.check()
   query.value = ''
   mobileView.value = isMobile.value && !deepLinked() ? 'nav' : 'detail'
-})
+}, { immediate: true })
 
 watch(isMobile, (value) => {
   if (!value) mobileView.value = 'detail'
@@ -122,9 +124,10 @@ function onEscape(event: KeyboardEvent) {
     }"
   >
     <template #content>
+      <ClientUpdateBanner />
       <div
         ref="settingsSurface"
-        class="flex h-dvh min-h-0 pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
+        class="flex min-h-0 flex-1 pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
         tabindex="-1"
         role="document"
         style="outline: none"

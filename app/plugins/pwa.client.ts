@@ -1,3 +1,5 @@
+import { useEventListener, useIntervalFn } from '@vueuse/core'
+
 export default defineNuxtPlugin((nuxtApp) => {
   const waiting = ref(false)
   const updating = ref(false)
@@ -6,6 +8,24 @@ export default defineNuxtPlugin((nuxtApp) => {
   let reloadRequested = false
   let readyToReload = false
   let activationTimer: ReturnType<typeof setTimeout> | undefined
+  let checking: Promise<void> | undefined
+
+  function syncWaiting() {
+    waiting.value = Boolean(registration?.waiting) || readyToReload
+  }
+
+  function check() {
+    if (!registration || document.visibilityState === 'hidden' || navigator.onLine === false) return
+    if (checking) return checking
+    const current = registration
+    checking = (async () => {
+      try { await current.update() }
+      // A transient network failure must not hide an already downloaded update.
+      catch { /* Retry on the next foreground/online check. */ }
+      finally { syncWaiting() }
+    })().finally(() => { checking = undefined })
+    return checking
+  }
 
   function blocked() {
     if (document.querySelector('[data-update-blocked="true"]')) { error.value = 'Save or reset your changes and finish recording before updating.'; return true }
@@ -29,10 +49,18 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
 
   if ('serviceWorker' in navigator && !import.meta.dev && ['http:', 'https:'].includes(location.protocol)) {
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloadRequested) finishUpdate() })
+    let controlled = Boolean(navigator.serviceWorker.controller)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadRequested) finishUpdate()
+      else if (controlled) { readyToReload = true; syncWaiting() }
+      controlled = true
+    })
+    useEventListener(window, 'focus', () => { void check() })
+    useEventListener(window, 'online', () => { void check() })
+    useEventListener(document, 'visibilitychange', () => { void check() })
+    useIntervalFn(() => { void check() }, 60_000)
     void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((value) => {
       registration = value
-      const syncWaiting = () => { waiting.value = Boolean(value.waiting) || readyToReload }
       const watchInstalling = () => {
         syncWaiting()
         value.installing?.addEventListener('statechange', syncWaiting)
@@ -62,5 +90,5 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   }
   nuxtApp.hook('app:chunkError', () => { error.value = 'Some app files are unavailable. Reconnect and check for an update.' })
-  return { provide: { pwa: { waiting, updating, error, update } } }
+  return { provide: { pwa: { waiting, updating, error, update, check } } }
 })

@@ -1,16 +1,18 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { computed, ref } from 'vue'
+import { computed, effectScope, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import App from '../../app/app.vue'
 import UpdateBanner from '../../app/components/client/UpdateBanner.vue'
 
+let scope: ReturnType<typeof effectScope>
 beforeEach(() => {
+  scope = effectScope()
   vi.stubGlobal('ref', ref)
   vi.stubGlobal('computed', computed)
   vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin)
 })
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; localStorage.clear() })
+afterEach(() => { scope.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; localStorage.clear() })
 
 it('allows a retry if activation stalls and rechecks unsaved work before a delayed reload', async () => {
   vi.useFakeTimers()
@@ -20,7 +22,7 @@ it('allows a retry if activation stalls and rechecks unsaved work before a delay
   const worker = { postMessage, addEventListener: vi.fn() }
   vi.stubGlobal('navigator', { serviceWorker: { register: vi.fn(async () => ({ waiting: worker, addEventListener: vi.fn() })), addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
   const plugin = (await import('../../app/plugins/pwa.client')).default
-  const result = plugin({ hook: vi.fn() } as never)!
+  const result = scope.run(() => plugin({ hook: vi.fn() } as never))!
   await Promise.resolve(); await Promise.resolve()
   const pwa = result.provide.pwa
   pwa.update()
@@ -54,7 +56,7 @@ it('notices an update that was already installing when registration resolved', a
   }
   vi.stubGlobal('navigator', { serviceWorker: { register: vi.fn(async () => registration), addEventListener: vi.fn() } })
   const plugin = (await import('../../app/plugins/pwa.client')).default
-  const result = plugin({ hook: vi.fn() } as never)!
+  const result = scope.run(() => plugin({ hook: vi.fn() } as never))!
   await flushPromises()
   expect(result.provide.pwa.waiting.value).toBe(false)
   registration.waiting = { postMessage: vi.fn() }
@@ -69,7 +71,7 @@ it.each([false, true])('offers a waiting update in the web Client (embedded=%s)'
   const register = vi.fn(async () => ({ waiting: { postMessage, addEventListener: vi.fn() }, addEventListener: vi.fn() }))
   vi.stubGlobal('navigator', { serviceWorker: { register, addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
   const plugin = (await import('../../app/plugins/pwa.client')).default
-  const result = plugin({ hook: vi.fn() } as never)!
+  const result = scope.run(() => plugin({ hook: vi.fn() } as never))!
   vi.stubGlobal('useNuxtApp', () => ({ $pwa: result.provide.pwa }))
   vi.stubGlobal('useRequestURL', () => new URL('https://server.example.com'))
   vi.stubGlobal('useClientServers', () => ({ native: false }))
@@ -93,4 +95,40 @@ it.each([false, true])('offers a waiting update in the web Client (embedded=%s)'
   expect(reload).toHaveBeenCalledOnce()
   expect(localStorage.getItem('saved-draft')).toBe('Unsent message')
   view.unmount()
+})
+
+it('checks an open Client again on return, reconnect and while visible, preserving drafts', async () => {
+  vi.useFakeTimers()
+  const registration = { waiting: null as null | { postMessage: ReturnType<typeof vi.fn> }, addEventListener: vi.fn(), update: vi.fn(async () => {}) }
+  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => registration), addEventListener: vi.fn() } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const pwa = scope.run(() => plugin({ hook: vi.fn() } as never))!.provide.pwa
+  await flushPromises()
+  localStorage.setItem('saved-draft', 'Unsent message')
+  window.dispatchEvent(new Event('focus')); await flushPromises()
+  expect(registration.update).toHaveBeenCalledOnce()
+  document.dispatchEvent(new Event('visibilitychange')); await flushPromises()
+  expect(registration.update).toHaveBeenCalledTimes(2)
+  window.dispatchEvent(new Event('online')); await flushPromises()
+  expect(registration.update).toHaveBeenCalledTimes(3)
+  registration.waiting = { postMessage: vi.fn() }
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(pwa.waiting.value).toBe(true)
+  expect(localStorage.getItem('saved-draft')).toBe('Unsent message')
+})
+
+it('offers a safe reload when another tab activates the new Client', async () => {
+  const handlers = new Map<string, () => void>()
+  const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
+  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => ({ waiting: null, addEventListener: vi.fn() })), addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const pwa = scope.run(() => plugin({ hook: vi.fn() } as never))!.provide.pwa
+  await flushPromises()
+  handlers.get('controllerchange')!()
+  expect(pwa.waiting.value).toBe(true)
+  expect(reload).not.toHaveBeenCalled()
+  const blocker = document.createElement('div'); blocker.dataset.updateBlocked = 'true'; document.body.append(blocker)
+  pwa.update(); expect(reload).not.toHaveBeenCalled()
+  blocker.remove(); pwa.update()
+  expect(reload).toHaveBeenCalledOnce()
 })

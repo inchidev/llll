@@ -23,7 +23,7 @@ beforeEach(() => {
     }
     throw Error('Unexpected API call')
   })
-  for (const [name, fn] of Object.entries({ ref, computed, watch, useApi: () => ({ api }), useNuxtApp: () => ({ $pwa: { waiting: ref(false) } }), useToast: () => ({ add: vi.fn() }), errorMessage: String })) vi.stubGlobal(name, fn)
+  for (const [name, fn] of Object.entries({ ref, computed, watch, useApi: () => ({ api }), useNuxtApp: () => ({ $pwa: { waiting: ref(false), check: vi.fn() } }), useToast: () => ({ add: vi.fn() }), errorMessage: String })) vi.stubGlobal(name, fn)
 })
 afterEach(() => { client.clear(); vi.unstubAllGlobals() })
 function view() {
