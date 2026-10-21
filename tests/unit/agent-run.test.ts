@@ -112,4 +112,25 @@ describe('Pi run authorization', () => {
     const exhausted = { ...child, mandateJson: JSON.stringify({ ...JSON.parse(child.mandateJson), depth: 2 }) }
     await expect(agentTools(env, await runAuthorization(env, exhausted), () => {}, exhausted).call('execute_task', { taskId: 'child-task' })).rejects.toMatchObject({ statusCode: 409 })
   })
+  it('routes system instructions and tool results through the real AI SDK adapter', async () => {
+    const requests: Array<{ messages: Array<{ role: string; content: string }> }> = []
+    env.AI = { run: async (_model: string, body: { messages: Array<{ role: string; content: string }> }) => {
+      requests.push(body)
+      return { response: 'Verified result', usage: { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23 } }
+    } } as unknown as Ai
+    const run = await createAgentRun(env, (await start())!, input())
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({
+      messages: [{ role: 'system', content: 'Stay within the mandate' }, { role: 'user', content: 'Read evidence' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'evidence-call', function: { name: 'list_tasks', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'evidence-call', content: 'Authorized evidence' }], stream: true,
+    }) }), env, run.id, 'v1/chat/completions', () => {})
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('Verified result')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.messages).toEqual(expect.arrayContaining([{ role: 'system', content: 'Stay within the mandate' }]))
+    expect(requests[0]!.messages.some(message => message.role === 'tool' && message.content === 'Authorized evidence')).toBe(true)
+    expect((await findAgentRun(env, run.id))?.totalTokens).toBe(23)
+  })
+
 })
