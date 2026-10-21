@@ -6,9 +6,22 @@ The consent screen names the client, displays its callback and lets you choose *
 
 The **Connect MCP clients** (`mcp.connect`) Role grant is required for the acting Member and the human approving an OAuth connection. It is off by default for Admin, Member, Agent and custom Roles; the Server Owner always has access. Enable it under **Server Settings → Roles → Integrations** for each Role that may use external clients. This grant allows the connection only: it adds no Task or Document permissions and does not affect browser sessions or internal Agent tools.
 
-Select the requested Task and Document scopes, then allow or deny the connection. The Server binds the connection to one acting Member and the human who approved it. The selected Member's current Role and resource permissions still apply on every tool call. OAuth scopes can restrict that access; they cannot expand it. Agent connections stop working when the Agent is removed, the approving human is removed, or that human loses Agent management authority.
+Select the requested Task, Document and Message scopes, then allow or deny the connection. The Server binds the connection to one acting Member and the human who approved it. The selected Member's current Role and resource permissions still apply on every tool call. OAuth scopes can restrict that access; they cannot expand it. Agent connections stop working when the Agent is removed, the approving human is removed, or that human loses Agent management authority.
 
 Open **My Settings → Connected apps** to inspect or revoke connections. Members see their own connections; Agent managers also see connections for Agents they manage. Revocation fences off existing access tokens and subsequent token issuance, including refreshes and outstanding authorization codes. Audit entries retain the acting Member, OAuth client ID, connection ID and human delegator where applicable.
+
+## Chat from your MCP client
+
+Connect as **yourself** and approve `messages:read` and `messages:write`. Existing connections keep their original scopes: reconnect and approve the Message scopes to add chat access; refreshing an older token cannot expand it.
+
+1. Use `list_channels` to find accessible chat channels, DMs and threads. Results include IDs, DM participants, frozen state and whether you can send. Email mailboxes and task discussions stay in their own navigation and are not included in this listing.
+2. Use `list_messages` with `channelId` to read up to 50 messages per page. Each page is chronological; `nextCursor` reads older messages. Reading does not mark the conversation as read. Deleted bodies stay redacted.
+3. Use `list_members` to find a participant or Agent and its `mentionToken`, such as `<@00000000-0000-4000-8000-000000000002>`.
+4. Call `send_message` with `channelId` and `content` (up to 2,000 characters). Include mention tokens in the content to tag members. `replyToId` must belong to the same channel. Every call sends a new message, so do not retry an uncertain send blindly.
+
+The sender is the connected Member; clients cannot choose another author. HTTP and MCP share the same message service, private-channel/DM membership, inherited thread access, channel Role overrides and frozen-DM rules. A channel override or DM participation can allow sending even when the global Role does not. Messages use the interface's notifications, read receipts, realtime fanout and Agent dispatch. OAuth audit attribution is stored in the same transaction as the message.
+
+Agent mentions invoke the existing internal Agent runtime only when the sender is the Server Owner or has **Manage server**, the Agent is active and can access the conversation. Ordinary members have the same Agent visibility and invocation restrictions as in the interface. The MCP grant and Message scopes add no Agent management rights. Reading or sending in an Agent DM follows those same restrictions. `agentMode: "steer"` uses the existing steering behavior; otherwise messages queue normally.
 
 ## Protocol
 

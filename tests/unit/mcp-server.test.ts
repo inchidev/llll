@@ -114,6 +114,10 @@ describe('L4 MCP server', () => {
       'get_document',
       'create_document',
       'update_document',
+      'list_channels',
+      'list_members',
+      'list_messages',
+      'send_message',
     ])
   })
 

@@ -119,13 +119,13 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
   }))
 }
 
-export async function writeAudit(
+export async function auditStatement(
   env: L4Env,
   input: { serverId: string; actorId: string; action: string; targetType: string; targetId: string; meta?: Record<string, unknown>; authorization?: import('../../shared/authorization').AuthorizationContext },
 ) {
   const { newId, nowIso } = await import('../../shared/ids')
   const { auditAttribution } = await import('../../shared/authorization')
-  await env.DB.prepare(
+  return env.DB.prepare(
     'INSERT INTO audit_log (id, actor_id, action, target_type, target_id, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ).bind(
     newId(),
@@ -135,5 +135,9 @@ export async function writeAudit(
     input.targetId,
     JSON.stringify({ ...(input.meta ?? {}), ...(input.authorization ? auditAttribution(input.authorization) : {}) }),
     nowIso(),
-  ).run()
+  )
+}
+
+export async function writeAudit(env: L4Env, input: Parameters<typeof auditStatement>[1]) {
+  await (await auditStatement(env, input)).run()
 }

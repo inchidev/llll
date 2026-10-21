@@ -1,7 +1,7 @@
 import type { McpPrincipal } from './mcp-principal'
 import { resolveMcpPrincipal } from './mcp-principal'
 import { authenticateOAuthMcpRequest } from './mcp-oauth'
-import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
+import { authorize, authorizeMcpCredential, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
 import type { PublicUser } from '../../shared/types'
@@ -139,6 +139,11 @@ export async function authenticateMcpRequest(
 }
 
 export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void {
+  if (scope === 'messages:read' || scope === 'messages:write') {
+    // Chat role overrides and DM permissions are checked by message-service.
+    authorizeMcpCredential(principal.authorization, scope)
+    return
+  }
   const action = scope === 'tasks:read' ? ServerAction.readTasks
     : scope === 'tasks:write' ? ServerAction.writeTasks
       : scope === 'documents:read' ? ServerAction.readDocuments

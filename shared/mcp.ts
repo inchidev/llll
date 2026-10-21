@@ -5,6 +5,8 @@ export const MCP_SCOPES = [
   'tasks:write',
   'documents:read',
   'documents:write',
+  'messages:read',
+  'messages:write',
 ] as const
 
 export type McpScope = typeof MCP_SCOPES[number]
@@ -14,6 +16,8 @@ export const MCP_SCOPE_LABELS: Record<McpScope, string> = {
   'tasks:write': 'Create and update tasks',
   'documents:read': 'Read documents',
   'documents:write': 'Create and update documents',
+  'messages:read': 'Read accessible chats, messages and members',
+  'messages:write': 'Send messages and mention members in accessible chats',
 }
 
 export type McpConnectionDTO = {

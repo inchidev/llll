@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import { createError } from 'h3'
 import type { L4Env } from '../../workers/env'
 
 export type Rpc<T> = { fetch: (request: Request) => Promise<Response> } & T

@@ -5,6 +5,7 @@ import type { L4Env } from '../../workers/env'
 import { createDocument, getDocument, listAuthorizedDataResources, updateDocument } from './document-service'
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
+import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from './message-service'
 
 type McpServerContext = {
   env: L4Env
@@ -124,6 +125,35 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     if (input.title === undefined && input.content === undefined) throw new Error('No changes supplied')
     return result({ document: await updateDocument(env, principal.authorization, documentId, input) })
   })
+
+  const pageSchema = {
+    limit: z.number().int().min(1).max(50).default(25),
+    cursor: z.string().min(1).max(100).optional(),
+  }
+  server.registerTool('list_channels', {
+    description: 'List accessible chat channels, DMs and threads with IDs, participants and canSend. Email mailboxes and task discussions use their own navigation and are excluded. Page with nextCursor.',
+    inputSchema: { ...pageSchema, name: z.string().trim().min(1).max(100).optional() },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async (input) => result(await listMessageChannels(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
+
+  server.registerTool('list_members', {
+    description: 'List active members visible to you, including Agents when you can manage them. Paste a returned mentionToken into send_message content to tag that member; plain @names are not mention tokens. Page with nextCursor.',
+    inputSchema: { ...pageSchema, name: z.string().trim().min(1).max(80).optional(), kind: z.enum(['human', 'agent']).optional() },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async (input) => result(await listMessageMembers(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
+
+  server.registerTool('list_messages', {
+    description: 'Read one accessible chat or thread, oldest to newest within each page. Use nextCursor to read older pages. Reading does not mark messages as read. Deleted message bodies are omitted.',
+    inputSchema: { ...pageSchema, channelId: z.string().min(8) },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ channelId, ...input }) => result(await readChannelMessages(env, await requireMessageMember(env, principal.authorization, 'messages:read'), channelId, input)))
+
+  server.registerTool('send_message', {
+    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly.',
+    inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
+      replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async ({ channelId, ...input }) => result(await sendChannelMessage(env, await requireMessageMember(env, principal.authorization, 'messages:write'), channelId, input, schedule)))
 
   return server
 }

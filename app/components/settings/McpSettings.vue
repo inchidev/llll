@@ -35,6 +35,8 @@ const scopeOptions: Array<{ value: McpScope; label: string }> = [
   { value: 'tasks:write', label: 'Write tasks' },
   { value: 'documents:read', label: 'Read documents' },
   { value: 'documents:write', label: 'Write documents' },
+  { value: 'messages:read', label: 'Read accessible chats and messages' },
+  { value: 'messages:write', label: 'Send messages and mentions' },
 ]
 
 const createToken = useMutation({

@@ -120,6 +120,21 @@ async function connect(subjectId = ownerId, scopes: McpScope[] = ['tasks:read'])
 const principal = (token: string, endpoint = resource) => authenticateMcpRequest(env, new Request(endpoint, { headers: { Authorization: `Bearer ${token}` } }), undefined, endpoint)
 
 describe('MCP OAuth with the installed provider and real SQL storage', () => {
+  it('grants explicit chat scopes without Task/Data authority and never expands an older connection', async () => {
+    sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='member-role'").run(Permission.mcpConnect)
+    expect((await mcpConsentSubjects(env, 'other-human'))[0]?.scopes).toEqual(['messages:read', 'messages:write'])
+    const old = await connect()
+    const oldPrincipal = await principal(old.tokens.access_token)
+    expect(() => requireMcpAccess(oldPrincipal!, 'messages:read')).toThrow('messages:read scope')
+    const expanded = await call('/oauth2/token', { form: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId,
+      refresh_token: old.tokens.refresh_token, resource, scope: 'tasks:read messages:read' }) })
+    expect(expanded.status).toBe(400)
+    const chat = await connect(ownerId, ['messages:read'])
+    const member = await principal(chat.tokens.access_token)
+    expect(() => requireMcpAccess(member!, 'messages:read')).not.toThrow()
+    expect(() => requireMcpAccess(member!, 'messages:write')).toThrow('messages:write scope')
+  })
+
   it('discovers PKCE, native DCR and scoped user access, then rotates refresh credentials', async () => {
     const metadata = await (await auth()).api.getOAuthServerConfig()
     expect(metadata).toMatchObject({ issuer: `${origin}/api/auth`, code_challenge_methods_supported: ['S256'], grant_types_supported: ['authorization_code', 'refresh_token'] })

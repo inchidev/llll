@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
 import { testMcpOAuth } from './test-mcp-oauth.mjs'
+import { testMcpMessages } from './test-mcp-messages.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const password = 'LocalServerIntegrationPassword123!'
@@ -254,6 +255,7 @@ try {
     body: {},
   })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
+  await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
   const sent = await api('alpha', `/api/channels/${general.id}/messages`, {
     actor: 'alpha-member',
     method: 'POST',

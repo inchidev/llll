@@ -34,7 +34,9 @@ export async function mcpConsentSubjects(env: L4Env, actorId: string) {
   }>()
   return (rows.results ?? []).filter(row => row.id === actor.ownerId || hasPermission(row.permissions, Permission.mcpConnect)).map(row => ({
     ...row,
-    scopes: MCP_SCOPES.filter(scope => hasPermission(row.id === actor.ownerId ? ALL_PERMISSIONS : row.permissions,
+    // Reading chats needs membership; send permission may come from a channel
+    // override or DM participation even when the global role cannot send.
+    scopes: MCP_SCOPES.filter(scope => scope.startsWith('messages:') || hasPermission(row.id === actor.ownerId ? ALL_PERMISSIONS : row.permissions,
       scope.startsWith('tasks:') ? Permission.manageTasks : Permission.manageDatabases)),
   }))
 }

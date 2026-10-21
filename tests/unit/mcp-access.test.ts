@@ -61,7 +61,7 @@ describe('MCP access tokens', () => {
     }))
 
     expect(principal).toMatchObject({ userId: 'owner-user', serverId: '00000000-0000-4000-8000-000000000001', isOwner: true })
-    expect(principal?.scopes).toEqual(['tasks:read', 'tasks:write', 'documents:read', 'documents:write'])
+    expect(principal?.scopes).toEqual([...MCP_SCOPES])
     expect(sqlite.prepare('SELECT last_used_at as lastUsedAt FROM mcp_access_tokens WHERE id = ?').get(issued.id)).toMatchObject({ lastUsedAt: expect.any(String) })
   })
 
