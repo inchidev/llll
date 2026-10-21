@@ -66,6 +66,154 @@ export const authVerifications = sqliteTable('auth_verifications', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).default(sql`(cast(unixepoch() * 1000 as integer))`),
 })
 
+/** Better Auth OAuth Provider storage. Token values are SHA-256 digests. */
+
+export const oauthClient = sqliteTable('auth_oauth_client', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().unique(),
+  clientSecret: text('client_secret'),
+  clientDiscoveryId: text('client_discovery_id'),
+  disabled: integer('disabled', { mode: 'boolean' }).default(false),
+  skipConsent: integer('skip_consent', { mode: 'boolean' }),
+  enableEndSession: integer('enable_end_session', { mode: 'boolean' }),
+  subjectType: text('subject_type'),
+  scopes: text('scopes'),
+  clientCredentialsScopes: text('client_credentials_scopes').default('[]'),
+  userId: text('user_id').references(() => authUsers.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  name: text('name'),
+  uri: text('uri'),
+  icon: text('icon'),
+  contacts: text('contacts'),
+  tos: text('tos'),
+  policy: text('policy'),
+  softwareId: text('software_id'),
+  softwareVersion: text('software_version'),
+  softwareStatement: text('software_statement'),
+  redirectUris: text('redirect_uris').notNull(),
+  postLogoutRedirectUris: text('post_logout_redirect_uris'),
+  backchannelLogoutUri: text('backchannel_logout_uri'),
+  backchannelLogoutSessionRequired: integer('backchannel_logout_session_required', { mode: 'boolean' }),
+  tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
+  applicationType: text('application_type'),
+  jwks: text('jwks'),
+  jwksUri: text('jwks_uri'),
+  grantTypes: text('grant_types'),
+  responseTypes: text('response_types'),
+  requirePKCE: integer('require_p_k_c_e', { mode: 'boolean' }),
+  dpopBoundAccessTokens: integer('dpop_bound_access_tokens', { mode: 'boolean' }).default(false),
+  referenceId: text('reference_id'),
+  metadata: text('metadata'),
+}, table => [
+  index('auth_oauth_client_user_id_idx').on(table.userId),
+])
+
+export const oauthResource = sqliteTable('auth_oauth_resource', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull().unique(),
+  name: text('name').notNull(),
+  accessTokenTtl: integer('access_token_ttl'),
+  refreshTokenTtl: integer('refresh_token_ttl'),
+  signingAlgorithm: text('signing_algorithm'),
+  signingKeyId: text('signing_key_id'),
+  allowedScopes: text('allowed_scopes'),
+  customClaims: text('custom_claims'),
+  dpopBoundAccessTokensRequired: integer('dpop_bound_access_tokens_required', { mode: 'boolean' }).default(false),
+  disabled: integer('disabled', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  policyVersion: integer('policy_version').default(1),
+  metadata: text('metadata'),
+})
+
+export const oauthClientResource = sqliteTable('auth_oauth_client_resource', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+  resourceId: text('resource_id').notNull().references(() => oauthResource.identifier, { onDelete: 'cascade' }),
+  metadata: text('metadata'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+}, table => [
+  index('auth_oauth_client_resource_client_id_idx').on(table.clientId),
+  index('auth_oauth_client_resource_resource_id_idx').on(table.resourceId),
+  uniqueIndex('auth_oauth_client_resource_client_id_resource_id_unique').on(table.clientId, table.resourceId),
+])
+
+export const oauthRefreshToken = sqliteTable('auth_oauth_refresh_token', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  clientId: text('client_id').notNull().references(() => oauthClient.clientId),
+  sessionId: text('session_id').references(() => authSessions.id, { onDelete: 'set null' }),
+  userId: text('user_id').notNull().references(() => authUsers.id),
+  referenceId: text('reference_id'),
+  authorizationCodeId: text('authorization_code_id'),
+  resources: text('resources'),
+  requestedUserInfoClaims: text('requested_user_info_claims'),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  revoked: integer('revoked', { mode: 'timestamp_ms' }),
+  rotatedAt: integer('rotated_at', { mode: 'timestamp_ms' }),
+  rotationReplayResponse: text('rotation_replay_response'),
+  rotationReplayExpiresAt: integer('rotation_replay_expires_at', { mode: 'timestamp_ms' }),
+  authTime: integer('auth_time', { mode: 'timestamp_ms' }),
+  confirmation: text('confirmation'),
+  scopes: text('scopes').notNull(),
+}, table => [
+  index('auth_oauth_refresh_token_client_id_idx').on(table.clientId),
+  index('auth_oauth_refresh_token_session_id_idx').on(table.sessionId),
+  index('auth_oauth_refresh_token_user_id_idx').on(table.userId),
+  index('auth_oauth_refresh_token_authorization_code_id_idx').on(table.authorizationCodeId),
+])
+
+export const oauthAccessToken = sqliteTable('auth_oauth_access_token', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  clientId: text('client_id').notNull().references(() => oauthClient.clientId),
+  sessionId: text('session_id').references(() => authSessions.id, { onDelete: 'set null' }),
+  userId: text('user_id').references(() => authUsers.id),
+  referenceId: text('reference_id'),
+  authorizationCodeId: text('authorization_code_id'),
+  resources: text('resources'),
+  requestedUserInfoClaims: text('requested_user_info_claims'),
+  refreshId: text('refresh_id').references(() => oauthRefreshToken.id),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  revoked: integer('revoked', { mode: 'timestamp_ms' }),
+  confirmation: text('confirmation'),
+  scopes: text('scopes').notNull(),
+}, table => [
+  index('auth_oauth_access_token_client_id_idx').on(table.clientId),
+  index('auth_oauth_access_token_session_id_idx').on(table.sessionId),
+  index('auth_oauth_access_token_user_id_idx').on(table.userId),
+  index('auth_oauth_access_token_authorization_code_id_idx').on(table.authorizationCodeId),
+  index('auth_oauth_access_token_refresh_id_idx').on(table.refreshId),
+])
+
+export const oauthConsent = sqliteTable('auth_oauth_consent', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClient.clientId),
+  userId: text('user_id').references(() => authUsers.id),
+  referenceId: text('reference_id'),
+  resources: text('resources'),
+  requestedUserInfoClaims: text('requested_user_info_claims'),
+  scopes: text('scopes').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+}, table => [
+  index('auth_oauth_consent_client_id_idx').on(table.clientId),
+  index('auth_oauth_consent_user_id_idx').on(table.userId),
+])
+
+export const oauthClientAssertion = sqliteTable('auth_oauth_client_assertion', {
+  id: text('id').primaryKey(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const oauthTables = {
+  oauthClient, oauthResource, oauthClientResource, oauthRefreshToken,
+  oauthAccessToken, oauthConsent, oauthClientAssertion,
+}
+
 /** Server-wide admission policy and login-method switches. */
 export const authSettings = sqliteTable('auth_settings', {
   id: integer('id').primaryKey().default(1),
@@ -246,6 +394,22 @@ export const mcpAccessTokens = sqliteTable('mcp_access_tokens', {
   index('mcp_access_tokens_subject_id_idx').on(table.subjectId),
   index('mcp_access_tokens_created_by_idx').on(table.createdBy),
   index('mcp_access_tokens_active_idx').on(table.revokedAt, table.createdAt),
+])
+
+/** Explicit human consent binds an OAuth connection to one acting Member. */
+export const mcpOauthConnections = sqliteTable('mcp_oauth_connections', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+  subjectId: text('subject_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  scopesJson: text('scopes_json').notNull(),
+  createdAt: text('created_at').notNull(),
+  lastUsedAt: text('last_used_at'),
+  revokedAt: text('revoked_at'),
+}, table => [
+  index('mcp_oauth_connections_created_by_idx').on(table.createdBy),
+  index('mcp_oauth_connections_subject_id_idx').on(table.subjectId),
 ])
 
 /** Owner-controlled anonymous project heartbeat. No server data is included. */
@@ -900,6 +1064,13 @@ export const schema = {
   authSessions,
   authAccounts,
   authVerifications,
+  oauthClient,
+  oauthResource,
+  oauthClientResource,
+  oauthRefreshToken,
+  oauthAccessToken,
+  oauthConsent,
+  oauthClientAssertion,
   authSettings,
   authProviderCredentials,
   onboardingRevisions,
@@ -909,6 +1080,7 @@ export const schema = {
   agentTurns,
   server,
   mcpAccessTokens,
+  mcpOauthConnections,
   roles,
   channelCategories,
   channels,

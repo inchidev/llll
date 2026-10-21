@@ -29,6 +29,7 @@ export type AuthorizationContext = {
     kind: CredentialKind
     id?: string
     scopes?: McpScope[]
+    clientId?: string
   }
   delegation?: {
     by: string
@@ -90,6 +91,7 @@ export function auditAttribution(context: AuthorizationContext): Record<string, 
     principalKind: context.principal.kind,
     credentialKind: context.credential.kind,
     ...(context.credential.id ? { credentialId: context.credential.id } : {}),
+    ...(context.credential.clientId ? { clientId: context.credential.clientId } : {}),
     ...(context.delegation?.by ? { delegatedBy: context.delegation.by } : {}),
   }
 }

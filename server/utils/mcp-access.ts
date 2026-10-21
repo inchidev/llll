@@ -1,8 +1,9 @@
-import { getServerId } from '../../shared/server-id'
-import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import type { McpPrincipal } from './mcp-principal'
+import { resolveMcpPrincipal } from './mcp-principal'
+import { authenticateOAuthMcpRequest } from './mcp-oauth'
+import { authorize, ServerAction } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { PublicUser } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
 
@@ -19,19 +20,6 @@ type TokenRow = Omit<McpAccessTokenDTO, 'scopes' | 'subject' | 'createdBy'> & {
   creatorKind: 'human' | 'agent'
   creatorName: string
   creatorAvatarR2Key: string | null
-}
-
-export type McpPrincipal = {
-  tokenId: string
-  userId: string
-  serverId: string
-  roleId: string
-  roleName: string
-  perms: number
-  isOwner: boolean
-  scopes: McpScope[]
-  delegatedBy: string | null
-  authorization: AuthorizationContext
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -127,61 +115,24 @@ export async function authenticateMcpRequest(
   env: L4Env,
   request: Request,
   waitUntil?: (promise: Promise<unknown>) => void,
+  resource = `${env.PUBLIC_ORIGIN || new URL(request.url).origin}/mcp`,
 ): Promise<McpPrincipal | null> {
   const match = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i.exec(request.headers.get('authorization') ?? '')
   const token = match?.[1]
-  if (!token) return null
+  if (!token) return authenticateOAuthMcpRequest(env, request, resource, waitUntil)
   const tokenHash = await hashToken(token)
   const row = await env.DB.prepare(
-    `SELECT t.id as tokenId, COALESCE(t.subject_id, t.created_by) as userId,
-     t.created_by as createdBy, t.scopes_json as scopesJson, u.kind as userKind,
-     r.id as roleId, r.name as roleName, r.permissions_bitmask as perms,
-     w.owner_id as ownerId
-     FROM mcp_access_tokens t
-     JOIN users u ON u.id = COALESCE(t.subject_id, t.created_by) AND u.status = 'active'
-     JOIN roles r ON r.id = u.role_id
-     JOIN server w ON w.id = ?
-     WHERE t.token_hash = ? AND t.revoked_at IS NULL
-     LIMIT 1`,
-  ).bind((await getServerId(env.DB)), tokenHash).first<{
-    tokenId: string
-    userId: string
-    createdBy: string
-    scopesJson: string
-    userKind: 'human' | 'agent'
-    roleId: string
-    roleName: string
-    perms: number
-    ownerId: string
-  }>()
+    'SELECT id as tokenId, subject_id as userId, created_by as createdBy, scopes_json as scopesJson FROM mcp_access_tokens WHERE token_hash = ? AND revoked_at IS NULL',
+  ).bind(tokenHash).first<{ tokenId: string; userId: string; createdBy: string; scopesJson: string }>()
   if (!row) return null
-
+  const principal = await resolveMcpPrincipal(env, {
+    id: row.tokenId, subjectId: row.userId, createdBy: row.createdBy, scopes: parseScopes(row.scopesJson),
+  })
+  if (!principal) return null
   const touch = env.DB.prepare('UPDATE mcp_access_tokens SET last_used_at = ? WHERE id = ?').bind(nowIso(), row.tokenId).run()
   if (waitUntil) waitUntil(touch)
   else await touch
-
-  const isOwner = row.ownerId === row.userId
-  const perms = isOwner ? ALL_PERMISSIONS : row.perms
-  const scopes = parseScopes(row.scopesJson)
-  const delegatedBy = row.createdBy === row.userId ? null : row.createdBy
-  const authorization: AuthorizationContext = {
-    serverId: (await getServerId(env.DB)),
-    principal: { id: row.userId, kind: row.userKind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner },
-    credential: { kind: 'mcp', id: row.tokenId, scopes },
-    ...(delegatedBy ? { delegation: { by: delegatedBy } } : {}),
-  }
-  return {
-    tokenId: row.tokenId,
-    userId: row.userId,
-    serverId: (await getServerId(env.DB)),
-    roleId: row.roleId,
-    roleName: row.roleName,
-    perms,
-    isOwner,
-    scopes,
-    delegatedBy,
-    authorization,
-  }
+  return principal
 }
 
 export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void {

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
 import type { L4Env } from '../../workers/env'
 import { createDocument, getDocument, listAuthorizedDataResources, updateDocument } from './document-service'
-import type { McpPrincipal } from './mcp-access'
+import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 
 type McpServerContext = {

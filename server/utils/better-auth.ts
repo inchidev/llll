@@ -4,7 +4,8 @@ import { betterAuth } from 'better-auth'
 import { bearer, captcha, genericOAuth } from 'better-auth/plugins'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import type { H3Event } from 'h3'
-import { authAccounts, authSessions, authUsers, authVerifications } from '../../drizzle/schema'
+import { authAccounts, authSessions, authUsers, authVerifications, oauthTables } from '../../drizzle/schema'
+import { mcpOAuthProvider } from './mcp-oauth-provider'
 import type { L4Env } from '../../workers/env'
 import { readAppBranding } from '../../shared/app-branding'
 import { sendAuthEmail as deliverAuthEmail } from '../../workers/mail-transport'
@@ -68,6 +69,8 @@ export async function createAuth(
   baseURL: string,
   waitUntil: (promise: Promise<unknown>) => void = promise => void promise,
   runtimeConfig?: AuthRuntimeConfig,
+  mcpConnectionId?: string,
+  enableMcpOAuth = false,
 ) {
   const config = runtimeConfig ?? await loadAuthRuntimeConfig(env, baseURL)
   const publicConfig = publicAuthConfig(config)
@@ -90,6 +93,7 @@ export async function createAuth(
         session: authSessions,
         account: authAccounts,
         verification: authVerifications,
+        ...oauthTables,
       },
     }),
     account: { accountLinking: { disableImplicitLinking: true, allowDifferentEmails: true } },
@@ -154,6 +158,7 @@ export async function createAuth(
         : {}),
     },
     plugins: [
+      ...(enableMcpOAuth ? [mcpOAuthProvider(env, baseURL, mcpConnectionId)] : []),
       bearer({ requireSignature: true }),
       serverConnection({ ...env, PUBLIC_ORIGIN: baseURL }, [baseURL]),
       serverTelegram(env, config.registrationMode),
@@ -234,7 +239,13 @@ export function resolveAuthBaseURL(configuredOrigin: string | undefined, request
 
 export async function authFromEvent(event: H3Event) {
   const { env, waitUntil } = cf(event)
-  return createAuth(env, resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin), waitUntil)
+  return createAuth(env, resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin), waitUntil,
+    undefined, undefined, event.path.split('?')[0]!.startsWith('/api/auth/oauth2/'))
+}
+
+export async function mcpAuthFromEvent(event: H3Event, connectionId?: string) {
+  const { env, waitUntil } = cf(event)
+  return createAuth(env, resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin), waitUntil, undefined, connectionId, true)
 }
 
 /** Auth engine for reading the current session; uses the briefly cached runtime config. */

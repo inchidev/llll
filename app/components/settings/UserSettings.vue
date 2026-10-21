@@ -82,6 +82,7 @@ const groups = [
       { id: 'account', label: 'My Account', icon: 'i-ph-user-circle', keywords: ['password', 'email', 'security', 'login'] },
       { id: 'profile', label: 'Profile', icon: 'i-ph-identification-card', keywords: ['display name', 'avatar', 'nickname'] },
       { id: 'privacy', label: 'Privacy & Safety', icon: 'i-ph-shield-check', keywords: ['online status', 'activity', 'presence'] },
+      { id: 'connections', label: 'Connected apps', icon: 'i-ph-plugs-connected', keywords: ['mcp', 'oauth', 'codex', 'claude', 'access', 'revoke'] },
     ],
   },
   {
@@ -341,6 +342,10 @@ async function logout() {
           @click="onPassword"
         />
       </div>
+    </template>
+
+    <template v-else-if="section === 'connections'">
+      <SettingsMcpConnections />
     </template>
 
     <template v-else-if="section === 'profile'">

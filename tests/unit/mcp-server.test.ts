@@ -6,7 +6,7 @@ import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { INIT_SQL } from '../../server/utils/db'
 import { createL4McpServer } from '../../server/utils/mcp-server'
 import type { L4Env } from '../../workers/env'
-import type { McpPrincipal } from '../../server/utils/mcp-access'
+import type { McpPrincipal } from '../../server/utils/mcp-principal'
 
 let sqlite: DatabaseSync
 

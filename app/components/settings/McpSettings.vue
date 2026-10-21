@@ -79,6 +79,9 @@ async function copyValue(value: string, label: string) {
   <div>
     <h1 class="text-xl font-semibold text-highlighted">MCP</h1>
     <p class="mt-1 text-sm text-muted">Connect Codex and other MCP clients to this server.</p>
+    <UAlert
+      class="mt-6" color="neutral" variant="subtle" title="Connect with OAuth"
+      description="Add the MCP Server URL in your client, sign in here, and choose yourself or an Agent you manage. Manage OAuth access in My Settings → Connected apps." />
 
     <div class="mt-8 rounded-lg border border-default bg-elevated p-5">
       <UFormField label="Server URL">

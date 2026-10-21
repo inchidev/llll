@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { drizzle } from 'drizzle-orm/d1'
 import baselineSql from '../../drizzle/server-migrations/0000_server_baseline.sql?raw'
+import mcpOauthSql from '../../drizzle/server-migrations/0001_mcp_oauth.sql?raw'
 import { schema } from '../../drizzle/schema'
 
 export function getDb(d1: D1Database) {
@@ -24,6 +25,7 @@ export function d1ExecSql(sql: string): string {
 
 export const INIT_SQL = d1ExecSql([
   baselineSql,
+  mcpOauthSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */
