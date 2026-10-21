@@ -13,6 +13,8 @@ export function useNavActions() {
   const createBoardOpen = useState('nav:create-board', () => false)
   const createDatabaseOpen = useState('nav:create-database', () => false)
   const createDocumentOpen = useState('nav:create-document', () => false)
+  const documentCreating = useState('nav:document-creating', () => false)
+  const createAgentOpen = useState('nav:create-agent', () => false)
   const createCanvasOpen = useState('nav:create-canvas', () => false)
   const createGadgetOpen = useState('nav:create-gadget', () => false)
   const composeOpen = useState('nav:compose', () => false)
@@ -37,6 +39,8 @@ export function useNavActions() {
     createBoardOpen,
     createDatabaseOpen,
     createDocumentOpen,
+    documentCreating,
+    createAgentOpen,
     createCanvasOpen,
     createGadgetOpen,
     composeOpen,

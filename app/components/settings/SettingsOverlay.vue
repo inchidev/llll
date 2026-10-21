@@ -94,13 +94,19 @@ watch(isMobile, (value) => {
   if (!value) mobileView.value = 'detail'
 })
 
-defineShortcuts({
-  escape: () => {
-    if (!open.value) return
-    if (isMobile.value && mobileView.value === 'detail') mobileView.value = 'nav'
-    else close()
-  },
-})
+const settingsSurface = ref<HTMLElement | null>(null)
+function focusSettings(event: Event) {
+  event.preventDefault()
+  void nextTick(() => settingsSurface.value?.focus({ preventScroll: true }))
+}
+function onEscape(event: KeyboardEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (isMobile.value && mobileView.value === 'detail') {
+    if (detailBack.value) detailBack.value.go()
+    else mobileView.value = 'nav'
+  } else close()
+}
 </script>
 
 <template>
@@ -109,6 +115,7 @@ defineShortcuts({
     fullscreen
     :close="false"
     :dismissible="false"
+    :content="{ onOpenAutoFocus: focusSettings, onEscapeKeyDown: onEscape }"
     :ui="{
       overlay: 'bg-muted',
       content: 'divide-y-0 p-0 ring-0 shadow-none rounded-none bg-muted inset-0',
@@ -116,8 +123,11 @@ defineShortcuts({
   >
     <template #content>
       <div
+        ref="settingsSurface"
         class="flex h-dvh min-h-0 pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
+        tabindex="-1"
         role="document"
+        style="outline: none"
       >
         <div
           class="min-w-0 flex-1 justify-end bg-muted md:flex md:min-w-[192px] md:flex-none"
@@ -132,6 +142,11 @@ defineShortcuts({
 
             <UInput
               v-model="query"
+              type="search"
+              name="settings-filter"
+              data-1p-ignore
+              data-lpignore="true"
+              :spellcheck="false"
               icon="i-ph-magnifying-glass"
               placeholder="Search settings"
               autocomplete="off"

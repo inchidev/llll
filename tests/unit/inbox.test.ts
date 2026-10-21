@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationTitle, isAgentChat, unreadConversations } from '../../shared/inbox'
+import { conversationTitle, inboxFilter, isAgentChat, matchesInboxFilter, unreadConversations } from '../../shared/inbox'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
 
 const human: PublicUser = { id: 'me', kind: 'human', displayName: 'Owner', avatarR2Key: null }
@@ -29,6 +29,16 @@ describe('conversation navigation and Inbox', () => {
     const older = conversation('older')
     const latest = conversation('latest', { type: 'dm', participants: [agent], lastMessageAt: '2026-10-21T12:00:00Z' })
     expect(unreadConversations([older, latest], 'server').map(channel => channel.id)).toEqual(['latest', 'older'])
+  })
+
+  it('partitions unread conversations by URL filter without mixing human and Agent chats', () => {
+    const items = [conversation('channel'), conversation('human', { type: 'dm', participants: [human] }), conversation('agent', { type: 'dm', participants: [agent] })]
+    for (const [filter, ids] of [['all', ['channel', 'human', 'agent']], ['channels', ['channel']], ['direct', ['human']], ['agents', ['agent']]] as const) {
+      expect(items.filter(item => matchesInboxFilter(item, filter)).map(item => item.id)).toEqual(ids)
+      expect(inboxFilter(filter)).toBe(filter)
+    }
+    expect(inboxFilter('unknown')).toBe('all')
+    expect(inboxFilter(['agents', 'direct'])).toBe('all')
   })
 
   it('uses the DM title and identifies the other participant', () => {

@@ -40,6 +40,7 @@ const { title, content, dirty, saving, saveError, save, discard, cancelScheduled
   },
 )
 const deleting = ref(false)
+useDocumentCreateGuard(save)
 const showDelete = ref(false)
 const showReload = ref(false)
 
@@ -98,8 +99,8 @@ function retryLoad() {
       <template #actions>
         <span v-if="activeDocument" class="text-xs text-dimmed">{{ saving ? 'Saving…' : saveError ? 'Not saved' : dirty ? 'Unsaved' : 'Saved' }}</span>
         <DataBookmarkButton v-if="activeDocument" :server-id="serverId" target-type="document" :target-id="activeDocument.id" />
-        <UButton v-if="can(Permission.manageDatabases)" color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete document" :disabled="!activeDocument || saving || deleting" @click="showDelete = true" />
-        <UButton v-if="can(Permission.writeData)" icon="i-ph-plus" :label="isMobile ? undefined : 'Document'" aria-label="New document" @click="nav.createDocumentOpen.value = true" />
+        <UButton v-if="activeDocument && can(Permission.manageDatabases)" color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete document" :disabled="saving || deleting" @click="showDelete = true" />
+        <UButton v-if="can(Permission.writeData)" icon="i-ph-plus" :label="isMobile ? undefined : 'Document'" aria-label="New document" :loading="nav.documentCreating.value" @click="nav.createDocumentOpen.value = true" />
       </template>
     </LayoutPageHeader>
 
@@ -118,6 +119,8 @@ function retryLoad() {
       <div class="mx-auto w-full max-w-4xl px-5 py-8 sm:px-10">
         <UInput
           v-model="title"
+          placeholder="Untitled"
+          :disabled="nav.documentCreating.value"
           :readonly="!can(Permission.writeData)"
           variant="none"
           size="xl"
@@ -126,7 +129,7 @@ function retryLoad() {
           :ui="{ base: 'px-0 text-3xl font-semibold' }"
           @update:model-value="scheduleSave"
         />
-        <UEditor v-model="content" :editable="can(Permission.writeData)" content-type="html" placeholder="Start writing…" class="min-h-[60vh]" @update:model-value="scheduleSave">
+        <UEditor v-model="content" :editable="can(Permission.writeData) && !nav.documentCreating.value" content-type="html" placeholder="Start writing…" class="min-h-[60vh]" @update:model-value="scheduleSave">
           <template #default="{ editor }">
             <UEditorToolbar v-if="can(Permission.writeData)" :editor="editor" class="sticky top-0 z-10 mb-4 border-b border-default bg-default/95 py-2 backdrop-blur" />
           </template>

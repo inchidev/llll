@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const session = useSessionStore()
 const { serverId } = useServer()
+provideDocumentCreateGuard()
 </script>
 
 <template>

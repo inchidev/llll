@@ -2,6 +2,7 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
 import type { CanvasDTO, DatabaseDTO, DocumentDTO } from '~~/shared/types'
+import { documentCreateGuardKey } from '../../composables/useDocumentCreateGuard'
 
 const { serverId } = useServer()
 const { api } = useApi()
@@ -10,12 +11,16 @@ const route = useRoute()
 const qc = useQueryClient()
 const toast = useToast()
 const databaseName = ref('')
-const documentTitle = ref('')
+const documentGuard = inject(documentCreateGuardKey, null)
 const canvasTitle = ref('')
 const saving = ref(false)
 
 watch(nav.createDatabaseOpen, open => { if (open) databaseName.value = '' })
-watch(nav.createDocumentOpen, open => { if (open) documentTitle.value = '' })
+watch(nav.createDocumentOpen, open => {
+  if (!open) return
+  nav.createDocumentOpen.value = false
+  void createDocument()
+})
 watch(nav.createCanvasOpen, open => { if (open) canvasTitle.value = '' })
 
 async function createDatabase() {
@@ -34,17 +39,17 @@ async function createDatabase() {
 }
 
 async function createDocument() {
-  const title = documentTitle.value.trim()
-  if (!title || !serverId.value || saving.value) return
-  saving.value = true
+  if (!serverId.value || nav.documentCreating.value) return
+  nav.documentCreating.value = true
   try {
-    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title } })
-    nav.createDocumentOpen.value = false
+    if (documentGuard?.value && !await documentGuard.value()) return
+    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title: 'Untitled' } })
+    qc.setQueryData(['document', result.document.id], result)
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     await navigateTo(documentPath(result.document.id))
   }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
-  finally { saving.value = false }
+  finally { nav.documentCreating.value = false }
 }
 
 async function createCanvas() {
@@ -68,14 +73,6 @@ async function createCanvas() {
     <template #footer>
       <UButton color="neutral" variant="ghost" label="Cancel" @click="nav.createDatabaseOpen.value = false" />
       <UButton label="Create" :loading="saving" :disabled="!databaseName.trim()" @click="createDatabase" />
-    </template>
-  </UModal>
-
-  <UModal v-model:open="nav.createDocumentOpen.value" title="Create document">
-    <template #body><UFormField label="Title"><UInput v-model="documentTitle" autofocus class="w-full" @keyup.enter="createDocument" /></UFormField></template>
-    <template #footer>
-      <UButton color="neutral" variant="ghost" label="Cancel" @click="nav.createDocumentOpen.value = false" />
-      <UButton label="Create" :loading="saving" :disabled="!documentTitle.trim()" @click="createDocument" />
     </template>
   </UModal>
 

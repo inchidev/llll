@@ -38,6 +38,21 @@ describe('document drafts', () => {
     scope.stop()
   })
 
+  it('saves an empty title as Untitled without repeatedly persisting the same draft', async () => {
+    const scope = effectScope()
+    const source = ref<DocumentDTO | null>(document('a'))
+    const persist = vi.fn().mockImplementation(async (_id, patch) => ({ ...document('a', 2), ...patch, version: 2 }))
+    const draft = scope.run(() => useDocumentDraft(source, persist, saved => { source.value = saved }))!
+    draft.title.value = '  '
+    draft.content.value = 'My notes'
+    expect(await draft.save()).toBe(true)
+    expect(persist).toHaveBeenCalledExactlyOnceWith('a', { title: 'Untitled', content: 'My notes', version: 1 })
+    expect(draft.dirty.value).toBe(false)
+    expect(await draft.save()).toBe(true)
+    expect(persist).toHaveBeenCalledTimes(1)
+    scope.stop()
+  })
+
   it('retains drafts and stops retries after a conflict', async () => {
     vi.useFakeTimers()
     const scope = effectScope()

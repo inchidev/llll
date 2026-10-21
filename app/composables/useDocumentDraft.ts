@@ -21,7 +21,7 @@ export function useDocumentDraft(
   const pending = new Map<string, Promise<boolean>>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   const draft = computed(() => document.value ? drafts.get(document.value.id) : undefined)
-  const isDirty = (value: Draft) => value.title.trim() !== value.savedTitle || value.content !== value.savedContent
+  const isDirty = (value: Draft) => (value.title.trim() || 'Untitled') !== value.savedTitle || value.content !== value.savedContent
 
   watch(document, (value) => {
     if (!value) return
@@ -48,8 +48,7 @@ export function useDocumentDraft(
       value.error = null
       try {
         while (isDirty(value)) {
-          const title = value.title.trim()
-          if (!title) throw new Error('Enter a document title before saving.')
+          const title = value.title.trim() || 'Untitled'
           const content = value.content
           const saved = await persist(value.id, { title, content, version: value.version })
           value.version = saved.version

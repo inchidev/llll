@@ -141,6 +141,10 @@ const categoryCreating = ref(false)
 const selectedCategoryId = ref<string | null>(null)
 const categoryName = ref('')
 const categorySaving = ref(false)
+const editCategoryOpen = ref(false)
+const moveChannelId = ref<string | null>(null)
+const moveCategoryId = ref('uncategorized')
+const movingChannel = computed(() => serverChannels.value.find(channel => channel.id === moveChannelId.value) ?? null)
 const categoryDeleteId = ref<string | null>(null)
 const channelAssigningId = ref<string | null>(null)
 
@@ -305,6 +309,7 @@ async function saveCategory() {
       body: { name },
     })
     await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
+    editCategoryOpen.value = false
     toast.add({ title: 'Category updated', color: 'success' })
   }
   catch (err) {
@@ -338,6 +343,7 @@ async function assignChannelCategory(channelId: string, categoryId: string) {
       body: { categoryId: categoryId === 'uncategorized' ? null : categoryId },
     })
     await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
+    moveChannelId.value = null
   }
   catch (err) {
     toast.add({ title: errorMessage(err), color: 'error' })
@@ -521,38 +527,16 @@ function roleLabel(name: string) {
           @click="createCategoryOpen = true"
         />
       </div>
-      <div class="mt-6 grid gap-6 lg:grid-cols-[210px_minmax(0,1fr)]">
-        <div class="space-y-1">
-          <button
-            v-for="category in categories"
-            :key="category.id"
-            type="button"
-            class="w-full rounded-md px-3 py-2 text-start hover:bg-elevated"
-            :class="selectedCategoryId === category.id ? 'bg-accented text-highlighted' : 'text-muted'"
-            @click="selectedCategoryId = category.id"
-          >
-            <span class="block truncate text-sm font-medium">{{ category.name }}</span>
-            <span class="block text-xs text-muted">
-              {{ serverChannels.filter(channel => channel.categoryId === category.id).length }} channels
-            </span>
+      <ul class="mt-6 divide-y divide-default">
+        <li v-for="category in categories" :key="category.id">
+          <button type="button" class="flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-3 text-start hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`Edit category ${category.name}`" @click="selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true">
+            <UIcon name="i-ph-folder" class="size-5 text-muted" />
+            <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ category.name }}</span><span class="text-xs text-muted">{{ serverChannels.filter(channel => channel.categoryId === category.id).length }} channels</span></span>
+            <UIcon name="i-ph-pencil-simple" class="size-4 text-muted" />
           </button>
-          <p v-if="!categories.length" class="px-3 py-2 text-sm text-muted">No categories</p>
-        </div>
-        <div v-if="selectedCategory" class="min-w-0">
-          <UFormField label="Category name">
-            <UInput
-              v-model="categoryName"
-              class="w-full"
-              :disabled="!can(Permission.manageChannels)"
-              @keyup.enter="saveCategory"
-            />
-          </UFormField>
-          <div v-if="can(Permission.manageChannels)" class="mt-4 flex items-center justify-between gap-3">
-            <UButton color="error" variant="ghost" label="Delete category" @click="categoryDeleteId = selectedCategory.id" />
-            <UButton label="Save changes" :loading="categorySaving" :disabled="!categoryName.trim()" @click="saveCategory" />
-          </div>
-        </div>
-      </div>
+        </li>
+        <li v-if="!categories.length" class="py-4 text-sm text-muted">No categories yet.</li>
+      </ul>
       <h2 class="mt-10 text-sm font-semibold text-highlighted">Channels</h2>
       <ul class="mt-2 divide-y divide-default">
         <li v-for="channel in serverChannels" :key="channel.id" class="flex items-center gap-3 py-3">
@@ -567,21 +551,10 @@ function roleLabel(name: string) {
             size="xs"
             @click="editChannelPermissions(channel.id)"
           />
-          <USelect
-            :model-value="channel.categoryId || 'uncategorized'"
-            :items="categoryOptions"
-            value-key="value"
-            label-key="label"
-            size="sm"
-            class="w-48"
-            :disabled="!can(Permission.manageChannels)"
-            :loading="channelAssigningId === channel.id"
-            :aria-label="`Category for ${channel.name}`"
-            @update:model-value="assignChannelCategory(channel.id, String($event))"
-          />
+          <UButton icon="i-ph-folder" label="Move" color="neutral" variant="ghost" size="sm" :aria-label="`Move ${channel.name} to a category`" @click="moveChannelId = channel.id; moveCategoryId = channel.categoryId || 'uncategorized'" />
         </li>
       </ul>
-      <div v-if="permissionChannel" class="mt-6 rounded-lg border border-default p-4">
+      <UModal :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
         <div class="flex items-center gap-3">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">
             {{ permissionChannel.name }} permissions
@@ -631,7 +604,7 @@ function roleLabel(name: string) {
           />
           <UButton label="Save" :loading="permissionSaving" @click="saveChannelPermissions" />
         </div>
-      </div>
+      </div></template></UModal>
     </template>
 
     <template v-else-if="section === 'roles'">
@@ -745,6 +718,14 @@ function roleLabel(name: string) {
       <UButton color="neutral" variant="outline" label="Cancel" @click="kickId = null" />
       <UButton color="error" label="Kick" @click="confirmKick" />
     </template>
+  </UModal>
+  <UModal v-model:open="editCategoryOpen" title="Edit category" :dismissible="!categorySaving">
+    <template #body><UFormField label="Category name"><UInput v-model="categoryName" autofocus class="w-full" @keyup.enter="saveCategory" /></UFormField></template>
+    <template #footer><UButton v-if="selectedCategory" color="error" variant="ghost" label="Delete category" @click="categoryDeleteId = selectedCategory.id; editCategoryOpen = false" /><UButton color="neutral" variant="ghost" label="Cancel" @click="editCategoryOpen = false" /><UButton label="Save changes" :loading="categorySaving" :disabled="!categoryName.trim()" @click="saveCategory" /></template>
+  </UModal>
+  <UModal :open="Boolean(movingChannel)" :title="`Move #${movingChannel?.name || 'channel'}`" @update:open="value => { if (!value) moveChannelId = null }">
+    <template #body><UFormField label="Category" description="Choose the group where this channel appears in Chat."><USelect v-model="moveCategoryId" :items="categoryOptions" class="w-full" /></UFormField></template>
+    <template #footer><UButton label="Cancel" color="neutral" variant="ghost" @click="moveChannelId = null" /><UButton label="Move channel" :loading="Boolean(channelAssigningId)" @click="moveChannelId && assignChannelCategory(moveChannelId, moveCategoryId)" /></template>
   </UModal>
   <UModal v-model:open="createCategoryOpen" title="Add category">
     <template #body>

@@ -4,7 +4,7 @@ import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
 import { Permission } from '~~/shared/permissions'
 import type { DataResourcesDTO } from '~~/shared/types'
 
-const props = defineProps<{ serverId: string; view: 'databases' | 'documents' | 'canvases' }>()
+const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const { api } = useApi()
 const nav = useNavActions()
@@ -27,18 +27,18 @@ const activeDatabaseId = computed(() => route.path === '/databases' ? String(rou
 const activeDocumentId = computed(() => route.path === '/documents' ? String(route.query.document || '') || documents.value[0]?.id || '' : '')
 const activeCanvasId = computed(() => route.path === '/canvases' ? String(route.query.canvas || '') || canvases.value[0]?.id || '' : '')
 const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMap((bookmark) => {
-  if (props.view === 'databases' && bookmark.targetType === 'database_view') {
+  if (bookmark.targetType === 'database_view') {
     for (const database of resourcesQ.data.value?.databases ?? []) {
       if (database.archivedAt) continue
       const view = database.views.find(candidate => candidate.id === bookmark.targetId)
       if (view) return [{ ...bookmark, label: `${database.name} / ${view.name}`, icon: 'i-ph-layout', to: databasePath(database.id, false, view.id) }]
     }
   }
-  if (props.view === 'documents' && bookmark.targetType === 'document') {
+  if (bookmark.targetType === 'document') {
     const document = documents.value.find(candidate => candidate.id === bookmark.targetId)
     if (document) return [{ ...bookmark, label: document.title, icon: 'i-ph-file-text', to: documentPath(document.id) }]
   }
-  if (props.view === 'canvases' && bookmark.targetType === 'canvas') {
+  if (bookmark.targetType === 'canvas') {
     const canvas = canvases.value.find(candidate => candidate.id === bookmark.targetId)
     if (canvas) return [{ ...bookmark, label: canvas.title, icon: 'i-ph-selection-background', to: canvasPath(canvas.id) }]
   }
@@ -47,7 +47,8 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
 </script>
 
 <template>
-  <div class="space-y-1">
+  <div class="space-y-3">
+    <div class="px-2"><LayoutNavRow to="/data" :active="route.path === '/data'"><template #leading><UIcon name="i-ph-stack" class="size-[18px] text-muted" /></template>All data</LayoutNavRow></div>
     <LayoutNavSection v-if="bookmarks.length" label="Bookmarks" collapse-key="data:bookmarks">
       <ul>
         <li v-for="bookmark in bookmarks" :key="`${bookmark.targetType}:${bookmark.targetId}`">
@@ -59,8 +60,21 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
+    <LayoutNavSection label="Documents" collapse-key="data:documents" :create-label="can(Permission.writeData) ? 'Create document' : undefined" @create="nav.createDocumentOpen.value = true">
+      <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
+      <LayoutLoadError v-else-if="resourcesQ.error.value" inline message="Documents did not load." :retry="resourcesQ.refetch" />
+      <p v-else-if="!documents.length" class="px-2 py-2 text-sm text-muted">No documents yet.</p>
+      <ul v-else>
+        <li v-for="document in documents" :key="document.id">
+          <LayoutNavRow :to="documentPath(document.id)" :title="document.title" :active="document.id === activeDocumentId">
+            <template #leading><UIcon name="i-ph-file-text" class="size-[18px] shrink-0 text-dimmed" /></template>
+            {{ document.title || 'Untitled' }}
+          </LayoutNavRow>
+        </li>
+      </ul>
+    </LayoutNavSection>
+
     <LayoutNavSection
-      v-if="view === 'databases'"
       label="Databases"
       collapse-key="data:databases"
       :create-label="!archived && can(Permission.manageDatabases) ? 'Create database' : undefined"
@@ -80,21 +94,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
-    <LayoutNavSection v-if="view === 'documents'" label="Documents" collapse-key="data:documents" :create-label="can(Permission.writeData) ? 'Create document' : undefined" @create="nav.createDocumentOpen.value = true">
-      <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
-      <LayoutLoadError v-else-if="resourcesQ.error.value" inline message="Documents did not load." :retry="resourcesQ.refetch" />
-      <p v-else-if="!documents.length" class="px-2 py-2 text-sm text-muted">No documents yet.</p>
-      <ul v-else>
-        <li v-for="document in documents" :key="document.id">
-          <LayoutNavRow :to="documentPath(document.id)" :title="document.title" :active="document.id === activeDocumentId">
-            <template #leading><UIcon name="i-ph-file-text" class="size-[18px] shrink-0 text-dimmed" /></template>
-            {{ document.title }}
-          </LayoutNavRow>
-        </li>
-      </ul>
-    </LayoutNavSection>
-
-    <LayoutNavSection v-if="view === 'canvases'" label="Canvases" collapse-key="data:canvases" :create-label="can(Permission.manageDatabases) ? 'Create canvas' : undefined" @create="nav.createCanvasOpen.value = true">
+    <LayoutNavSection label="Canvases" collapse-key="data:canvases" :create-label="can(Permission.manageDatabases) ? 'Create canvas' : undefined" @create="nav.createCanvasOpen.value = true">
       <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
       <LayoutLoadError v-else-if="resourcesQ.error.value" inline message="Canvases did not load." :retry="resourcesQ.refetch" />
       <p v-else-if="!canvases.length" class="px-2 py-2 text-sm text-muted">No canvases yet.</p>
@@ -109,7 +109,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
-    <div v-if="view === 'databases' && !resourcesQ.isPending.value" class="px-2 pt-2">
+    <div v-if="!resourcesQ.isPending.value" class="px-2 pt-2">
       <LayoutNavRow :to="databasePath(null, !archived)" :active="archived">
         <template #leading><UIcon name="i-ph-archive" class="size-[18px] shrink-0 text-dimmed" /></template>
         Archived databases
