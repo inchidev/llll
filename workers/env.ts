@@ -9,6 +9,9 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 }
 
 export type L4Env = {
+  /** Dedicated repository integration, separate from GitHub sign-in. Never exposed to compute. */
+  GITHUB_AGENT_APP_ID?: string
+  GITHUB_AGENT_APP_PRIVATE_KEY?: string
   /** Isolated Pi executor transport. Never exposed to agents or browser clients. */
   AGENT_RUN_DO?: DurableObjectNamespace
   AGENT_SCHEDULE_DO?: DurableObjectNamespace

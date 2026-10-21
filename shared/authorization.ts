@@ -4,6 +4,7 @@ import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
 
 export const ServerAction = {
+  manageData: 'data:manage',
   executeTasks: 'tasks:execute',
   manageSchedules: 'schedules:manage',
   browseWeb: 'web:read',
@@ -51,6 +52,7 @@ export type AuthorizationContext = {
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
 const ACTION_RULES: Record<ServerAction, ActionRule> = {
+  [ServerAction.manageData]: { permission: Permission.manageDatabases, scope: 'data:manage' },
   [ServerAction.executeTasks]: { permission: Permission.executeTasks },
   [ServerAction.manageSchedules]: { permission: Permission.manageSchedules },
   [ServerAction.browseWeb]: { permission: Permission.browseWeb },

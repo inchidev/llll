@@ -37,7 +37,7 @@ export async function mcpConsentSubjects(env: L4Env, actorId: string) {
     // Reading chats needs membership; send permission may come from a channel
     // override or DM participation even when the global role cannot send.
     scopes: MCP_SCOPES.filter(scope => scope.startsWith('messages:') || hasPermission(row.id === actor.ownerId ? ALL_PERMISSIONS : row.permissions,
-      scope.startsWith('tasks:') ? (scope.endsWith(':read') ? Permission.readTasks : Permission.writeTasks) : (scope.endsWith(':read') ? Permission.readData : Permission.writeData))),
+      scope === 'data:manage' ? Permission.manageDatabases : scope.startsWith('tasks:') ? (scope.endsWith(':read') ? Permission.readTasks : Permission.writeTasks) : (scope.endsWith(':read') ? Permission.readData : Permission.writeData))),
   }))
 }
 

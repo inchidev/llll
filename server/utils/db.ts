@@ -8,6 +8,7 @@ import agentPermissionsSql from '../../drizzle/server-migrations/0004_agent_perm
 import roleResourcesSql from '../../drizzle/server-migrations/0005_role_resources.sql?raw'
 import piRunsSql from '../../drizzle/server-migrations/0006_pi_runs.sql?raw'
 import schedulesSql from '../../drizzle/server-migrations/0007_schedules.sql?raw'
+import codeEnvironmentsSql from '../../drizzle/server-migrations/0008_code_environments.sql?raw'
 import { schema } from '../../drizzle/schema'
 
 export function getDb(d1: D1Database) {
@@ -38,6 +39,7 @@ export const INIT_SQL = d1ExecSql([
   roleResourcesSql,
   piRunsSql,
   schedulesSql,
+  codeEnvironmentsSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

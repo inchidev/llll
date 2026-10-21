@@ -144,7 +144,7 @@ export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void
     authorizeMcpCredential(principal.authorization, scope)
     return
   }
-  const action = scope === 'tasks:read' ? ServerAction.readTasks
+  const action = scope === 'data:manage' ? ServerAction.manageData : scope === 'tasks:read' ? ServerAction.readTasks
     : scope === 'tasks:write' ? ServerAction.writeTasks
       : scope === 'documents:read' ? ServerAction.readDocuments
         : scope === 'documents:write' ? ServerAction.writeDocuments

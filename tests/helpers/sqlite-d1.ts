@@ -9,7 +9,11 @@ export function d1(database: DatabaseSync): D1Database {
         async first<T>() { return (database.prepare(sql).get(...values) as T | undefined) ?? null },
         async all<T>() { return { results: database.prepare(sql).all(...values) as T[] } },
         async raw() { const query = database.prepare(sql); query.setReturnArrays(true); return query.all(...values) },
-        async run() { return { success: true, meta: database.prepare(sql).run(...values) } },
+        async run() {
+          const query = database.prepare(sql)
+          if (query.columns().length) return { success: true, results: query.all(...values), meta: { changes: 0 } }
+          return { success: true, meta: query.run(...values) }
+        },
       }
       return statement
     },

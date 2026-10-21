@@ -7,6 +7,7 @@ import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from './message-service'
 import { createRecord, createRecordSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
+import { createTable, createTableSchema } from './table-service'
 
 type McpServerContext = {
   env: L4Env
@@ -25,6 +26,11 @@ const taskReferenceSchema = z.union([z.string().trim().min(1), z.number().int().
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
+  server.registerTool('create_table', {
+    description: 'Create a table and typed fields. Requires the data:manage scope, role permission and unrestricted table creation.',
+    inputSchema: createTableSchema.shape,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async input => result({ database: await createTable(env, principal.authorization, input) }))
 
   server.registerTool('read_records', {
     description: 'Read fields and a page of records from an authorized table.',

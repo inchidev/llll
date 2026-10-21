@@ -106,7 +106,7 @@ describe('L4 MCP server', () => {
 
     expect(response.status).toBe(200)
     expect(payload.result.tools?.map(tool => tool.name)).toEqual([
-      'read_records', 'create_record', 'update_record',
+      'create_table', 'read_records', 'create_record', 'update_record',
       'list_task_boards',
       'get_task',
       'create_task',
