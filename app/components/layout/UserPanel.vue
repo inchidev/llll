@@ -33,7 +33,7 @@ const statusLabel = computed(() => {
       <UButton v-if="live.connection === 'connected'" :icon="live.deafened ? 'i-ph-speaker-slash' : 'i-ph-headphones'" color="neutral" variant="ghost" class="size-9 justify-center" :aria-label="live.deafened ? 'Undeafen' : 'Deafen'" :aria-pressed="live.deafened" @click="live.toggleDeafen()" />
       <button type="button" class="flex h-14 w-full flex-col items-center justify-center gap-1 rounded-lg hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :title="session.user?.displayName" aria-label="User settings" @click="settingsOpen = true">
         <UChip inset :color="chipColor" position="bottom-right" size="sm"><UserAvatar v-if="session.user" :user="session.user" size="xs" /></UChip>
-        <span class="text-[10px] font-medium leading-3 text-muted">Account</span>
+        <span class="text-[11px] font-medium leading-3 text-muted">Account</span>
       </button>
     </div>
     <div v-else class="df-panel flex h-11 items-center gap-0.5 rounded-lg px-1">

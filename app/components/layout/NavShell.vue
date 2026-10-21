@@ -264,7 +264,7 @@ watch(nav.inviteOpen, (open) => {
               @click="emit('selectSection', item.path)"
             >
               <UIcon :name="item.icon" class="size-[22px] shrink-0" />
-              <span class="max-w-full truncate text-[10px] font-medium leading-3">{{ item.label }}</span>
+              <span class="max-w-full truncate text-[11px] font-medium leading-3">{{ item.label }}</span>
               <span v-if="item.count" class="absolute end-1 top-1 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-inverted" aria-hidden="true">{{ item.count > 99 ? '99+' : item.count }}</span>
               <span v-else-if="item.dot" class="absolute end-3 top-1.5 size-1.5 rounded-full bg-primary" aria-hidden="true" />
             </NuxtLink>
