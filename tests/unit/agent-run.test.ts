@@ -39,11 +39,27 @@ beforeEach(() => {
 afterEach(() => db.close())
 
 describe('Pi run authorization', () => {
+  it('recovers a persisted admission when the first wake fails, without creating another attempt', async () => {
+    wake.mockRejectedValueOnce(new Error('Coordinator unavailable'))
+    await expect(createAgentRun(env, (await start())!, input())).rejects.toThrow('Coordinator unavailable')
+    const retry = await createAgentRun(env, (await start())!, input())
+    expect(retry.status).toBe('queued')
+    expect(db.prepare('SELECT count(*) as count FROM agent_runs').get()).toMatchObject({ count: 1 })
+    expect(wake).toHaveBeenCalledTimes(2)
+  })
+  it('rejects concurrent reuse of a request identity for different work', async () => {
+    const actor = (await start())!
+    const results = await Promise.allSettled([createAgentRun(env, actor, input()), createAgentRun(env, actor, { ...input(), prompt: 'Different work' })])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.find(result => result.status === 'rejected')
+    expect(rejected).toMatchObject({ status: 'rejected', reason: { statusCode: 409 } })
+    expect(db.prepare('SELECT count(*) as count FROM agent_runs').get()).toMatchObject({ count: 1 })
+  })
   it('creates one durable attempt for duplicate admission and retains role ceilings under owner invocation', async () => {
     const first = await createAgentRun(env, (await start())!, input())
     const second = await createAgentRun(env, (await start())!, input())
     expect(second.id).toBe(first.id)
-    expect(wake).toHaveBeenCalledOnce()
+    expect(wake).toHaveBeenCalledTimes(2)
     const authorization = await runAuthorization(env, first)
     expect(authorization.principal.permissions & Permission.writeTasks).toBe(0)
     expect(authorization.principal.resourceAccess?.boards).toEqual(['board-allowed'])
