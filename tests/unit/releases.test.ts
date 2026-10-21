@@ -57,3 +57,16 @@ describe('GitHub release discovery', () => {
     expect((init as RequestInit & { cf: { cacheTtl: number } }).cf.cacheTtl).toBe(300)
   })
 })
+
+it('lists only installable published releases and requires explicit prerelease opt-in', async () => {
+  const assets = ['llll-release.json', 'llll-cloudflare-manifest.json', 'llll-worker.mjs', 'llll-assets.json', 'SHA256SUMS'].map(name => ({ name }))
+  const base = { published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.1', assets }
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json([
+    { ...base, tag_name: 'v0.2.1' },
+    { ...base, tag_name: 'v0.2.2-alpha.1', prerelease: true },
+    { ...base, tag_name: 'v0.2.3', draft: true },
+    { ...base, tag_name: 'v0.2.4', assets: [] },
+  ]))
+  expect((await llllReleases(fetcher, { installable: true })).map(r => r.tagName)).toEqual(['v0.2.1'])
+  expect((await llllReleases(fetcher, { installable: true, prereleases: true })).map(r => r.tagName)).toEqual(['v0.2.1', 'v0.2.2-alpha.1'])
+})

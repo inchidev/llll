@@ -1,4 +1,5 @@
 import type { PublishedRelease } from '../../shared/releases'
+import { parseReleaseVersion } from '../../shared/release-version'
 
 const releasesUrl = 'https://api.github.com/repos/inchidev/llll/releases?per_page=100&page=1'
 const releasesCacheTtl = 5 * 60
@@ -11,15 +12,17 @@ type GitHubRelease = {
   body?: string | null
   draft?: boolean
   prerelease?: boolean
+  assets?: { name?: string }[]
 }
 
-export async function llllReleases(fetcher: typeof fetch = fetch): Promise<PublishedRelease[]> {
+export async function llllReleases(fetcher: typeof fetch = fetch, options: { prereleases?: boolean; installable?: boolean } = {}): Promise<PublishedRelease[]> {
   const response = await fetcher(releasesUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'L4 update check',
       'X-GitHub-Api-Version': '2022-11-28',
     },
+    signal: AbortSignal.timeout(20000),
     cf: {
       cacheEverything: true,
       cacheTtl: releasesCacheTtl,
@@ -30,12 +33,15 @@ export async function llllReleases(fetcher: typeof fetch = fetch): Promise<Publi
   const payload = await response.json() as GitHubRelease[]
   if (!Array.isArray(payload)) throw new Error('GitHub releases returned an invalid response')
   return payload.flatMap((release): PublishedRelease[] => {
-    if (release.draft || release.prerelease || !release.tag_name || !release.published_at || !release.html_url) return []
+    if (release.draft || (release.prerelease && !options.prereleases) || !release.tag_name || !release.published_at || !release.html_url) return []
+    if (!/^v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/.test(release.tag_name)) return []
+    try { if (parseReleaseVersion(release.tag_name).pre.length && !options.prereleases) return [] } catch { return [] }
+    if (options.installable && !['llll-release.json', 'llll-cloudflare-manifest.json', 'llll-worker.mjs', 'llll-assets.json', 'SHA256SUMS'].every(name => release.assets?.some(asset => asset.name === name))) return []
     return [{
       tagName: release.tag_name,
       name: release.name?.trim() || release.tag_name,
       publishedAt: release.published_at,
-      url: release.html_url,
+      url: `https://github.com/inchidev/llll/releases/tag/${encodeURIComponent(release.tag_name)}`,
       notes: release.body?.trim() || '',
     }]
   })

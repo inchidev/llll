@@ -138,6 +138,9 @@ try {
             serviceBindings: { ASSETS: assets },
             bindings: {
               PUBLIC_ORIGIN: origins[name],
+              LLLL_ACCOUNT_ID: 'a'.repeat(32),
+              LLLL_WORKER_NAME: 'server-' + name,
+              BACKUP_BUCKET_NAME: name + '-backups',
               AUTH_SECRET: (name + '-server-secret-').repeat(4),
               APP_NAME: name,
               ADMIN_EMAIL: 'owner@example.com',
@@ -519,6 +522,39 @@ try {
   assert.ok(backup.payload.sizeBytes > 0)
   assert.ok(backup.payload.key.includes(ids.alpha))
   const bucket = await runtimes.alpha.getR2Bucket('BACKUPS')
+  // Update controls grant no membership, never reveal the Build hook/capability,
+  // and permit a single backup only for the Build that owns this exact job.
+  const hookId = '11111111-1111-4111-8111-111111111111'
+  await api('alpha', `/api/servers/${ids.alpha}/updates/progress`, { actor: 'anonymous', expected: 401 })
+  for (const [path, method, body] of [['progress', 'GET', undefined], ['config', 'PATCH', { hook: hookId }], ['request', 'POST', { requestId: hookId, release: 'v0.3.0' }], ['resume', 'POST', { requestId: hookId }]]) {
+    await api('alpha', `/api/servers/${ids.alpha}/updates/${path}`, { actor: 'alpha-member', method, body, expected: 403 })
+  }
+  await api('alpha', `/api/servers/${ids.beta}/updates/config`, { method: 'PATCH', body: { hook: hookId }, expected: 404 })
+  await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: 'https://evil.example/hook' }, expected: 400 })
+  await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: hookId } })
+  const stateKey = `control/server-updates/${ids.alpha}/state.json`
+  const updateRecord = JSON.parse(await (await bucket.get(stateKey)).text())
+  assert.ok(updateRecord.hook.ciphertext); assert.equal(JSON.stringify(updateRecord).includes(hookId), false)
+  const progress = (await api('alpha', `/api/servers/${ids.alpha}/updates/progress`)).payload
+  assert.equal(progress.configured, true); assert.equal(JSON.stringify(progress).includes('ciphertext'), false)
+  const requestId = '22222222-2222-4222-8222-222222222222', buildId = '33333333-3333-4333-8333-333333333333'
+  updateRecord.backupToken = 'a'.repeat(64); updateRecord.backupBusy = false
+  updateRecord.job = { id: requestId, serverId: ids.alpha, requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: '0.2.2', stage: 'backing_up', buildId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
+  await bucket.put(stateKey, JSON.stringify(updateRecord))
+  const capability = { actor: 'anonymous', method: 'POST', body: { requestId, buildId }, headers: { Authorization: `Bearer ${updateRecord.backupToken}` } }
+  await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, headers: { Authorization: `Bearer ${'b'.repeat(64)}` }, expected: 403 })
+  await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, body: { requestId, buildId: hookId }, expected: 403 })
+  const updateBackup = (await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, capability)).payload.backup
+  assert.equal(updateBackup.verified, false); assert.ok(updateBackup.sizeBytes > 0)
+  assert.equal(updateBackup.bucket, 'alpha-backups'); assert.match(updateBackup.sha256, /^[a-f0-9]{64}$/)
+  await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, expected: 409 })
+  const ownedProgress = (await api('alpha', `/api/servers/${ids.alpha}/updates/progress`)).payload
+  assert.equal(JSON.stringify(ownedProgress).includes(updateRecord.backupToken), false)
+  assert.equal(ownedProgress.job.backup.key, updateBackup.key)
+  updateRecord.job.stage = 'queued'; updateRecord.backupBusy = false
+  await bucket.put(stateKey, JSON.stringify(updateRecord))
+  await api('alpha', `/api/servers/${ids.alpha}/updates/resume`, { method: 'POST', body: { requestId, cancel: true } })
+  assert.equal(JSON.parse(await (await bucket.get(stateKey)).text()).backupToken, null)
   const object = await bucket.get(backup.payload.key)
   await mkdir(resolve(root, '.deployment/integration'), { recursive: true })
   const archive = resolve(root, '.deployment/integration/alpha.tar')

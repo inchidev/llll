@@ -337,6 +337,12 @@ export async function advanceDeployment(
           build_caching_enabled: true,
         })
       ).trigger_uuid
+    if (!state.updateHookId) {
+      const hooks = await api<{ deploy_hook_uuid: string; deploy_hook_name: string; branch: string }[]>(`/builds/workers/${state.worker}/deploy_hooks`)
+      const existingHook = hooks.find(hook => hook.deploy_hook_name === 'L4 Server updates' && hook.branch === 'main')
+      state.updateHookId = existingHook?.deploy_hook_uuid || (await api<{ deploy_hook_uuid: string }>(`/builds/workers/${state.worker}/deploy_hooks`, 'POST', { branch: 'main', deploy_hook_name: 'L4 Server updates' })).deploy_hook_uuid
+      await save()
+    }
     await api(
       `/builds/triggers/${state.triggerId}/environment_variables`,
       'PATCH',
@@ -349,9 +355,10 @@ export async function advanceDeployment(
           LLLL_SERVER_OWNER_EMAIL: state.ownerEmail!,
           LLLL_SERVER_SETUP_TOKEN: state.setupToken,
           LLLL_SERVER_ORIGIN: state.origin,
+          LLLL_SERVER_UPDATE_HOOK: state.updateHookId,
         }).map(([key, value]) => [
           key,
-          { value, is_secret: key === 'LLLL_SERVER_SETUP_TOKEN' },
+          { value, is_secret: ['LLLL_SERVER_SETUP_TOKEN', 'LLLL_SERVER_UPDATE_HOOK'].includes(key) },
         ]),
       ),
     )

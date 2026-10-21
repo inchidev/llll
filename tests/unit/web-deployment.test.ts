@@ -98,7 +98,9 @@ it('resumes server creation through Workers Builds without uploading application
             })
           : new Response('', { status: 503 })
       let result: unknown = {}
-      if (url.pathname.endsWith('/builds/tokens'))
+      if (url.pathname.endsWith('/deploy_hooks'))
+        result = options?.method === 'POST' ? { deploy_hook_uuid: '11111111-1111-4111-8111-111111111111' } : []
+      else if (url.pathname.endsWith('/builds/tokens'))
         result = [{ build_token_uuid: 'build-token' }]
       else if (
         url.pathname.endsWith('/workers/workers') &&
@@ -126,6 +128,7 @@ it('resumes server creation through Workers Builds without uploading application
   >[1]
   await advanceDeployment(state, env, async () => {})
   expect(state.step).toBe(1)
+  expect(state.updateHookId).toBe('11111111-1111-4111-8111-111111111111')
   await advanceDeployment(state, env, async () => {})
   expect(state.step).toBe(2)
   await advanceDeployment(state, env, async () => {})
