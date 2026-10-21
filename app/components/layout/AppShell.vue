@@ -29,6 +29,11 @@ const sectionIntent = ref<ReturnType<typeof serverNavigationSection>>(null)
 function selectSection(path: string) {
   sectionIntent.value = isMobile.value ? serverNavigationSection(path) : null
 }
+function selectResource(navigates: boolean) {
+  sectionIntent.value = null
+  // Selecting the already-open conversation does not change the URL.
+  if (isMobile.value && navigates) ui.mobilePane = 'chat'
+}
 watch(() => liveRoute.value.fullPath, () => {
   if (!isMobile.value) return
   if (sectionIntent.value === serverNavigationSection(liveRoute.value.path) && hasMenu.value && open.value) return
@@ -154,7 +159,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       :aria-hidden="isMobile && !open && dragOffset === null ? 'true' : undefined"
       :inert="isMobile && !open && dragOffset === null ? true : undefined"
     >
-      <LayoutNavShell :server-id="serverId" @select-section="selectSection" @select-resource="sectionIntent = null" />
+      <LayoutNavShell :server-id="serverId" @select-section="selectSection" @select-resource="selectResource" />
       <LayoutResizeHandle
         v-if="!isMobile && hasMenu"
         v-model="ui.channelPaneWidth"

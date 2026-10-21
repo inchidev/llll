@@ -9,7 +9,7 @@ import { hasServerNavigationMenu, serverNavigationSection } from '~~/shared/serv
 import { publicIconPath } from '~~/shared/server-appearance'
 
 const props = defineProps<{ serverId: string }>()
-const emit = defineEmits<{ selectSection: [path: string]; selectResource: [] }>()
+const emit = defineEmits<{ selectSection: [path: string]; selectResource: [navigates: boolean] }>()
 const ui = useUiStore()
 const route = useRoute()
 const qc = useQueryClient()
@@ -89,6 +89,9 @@ const views = computed(() => [
 ])
 function isViewActive(path: string) {
   return section.value === serverNavigationSection(path)
+}
+function selectResource(event: MouseEvent) {
+  emit('selectResource', event.target instanceof Element && Boolean(event.target.closest('a[href]')))
 }
 const menuTitle = computed(() => views.value.find(view => isViewActive(view.path))?.label || '')
 function leaveLiveOnPageExit() {
@@ -272,7 +275,7 @@ watch(nav.inviteOpen, (open) => {
       <LayoutUserPanel v-if="!hasMenu" compact />
     </div>
 
-    <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted" @click.capture="emit('selectResource')">
+    <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted" @click.capture="selectResource">
       <header class="flex h-12 shrink-0 items-center gap-2 border-b border-default px-3">
         <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
         <UButton icon="i-ph-x" color="neutral" variant="ghost" class="size-9 justify-center md:hidden" aria-label="Close navigation" @click="ui.mobilePane = 'chat'" />
