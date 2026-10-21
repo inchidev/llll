@@ -23,6 +23,7 @@ const origins = {
 const runtimes = {}
 const cookies = {}
 const ids = {}
+let updateHookCalls = 0
 async function assets(request) {
   const url = new URL(request.url)
   let path = resolve(
@@ -136,6 +137,18 @@ try {
               ]),
             ),
             serviceBindings: { ASSETS: assets },
+            outboundService: async request => {
+              const url = new URL(request.url)
+              if (url.hostname === 'api.github.com' && url.pathname === '/repos/inchidev/llll/releases') return Response.json([{
+                tag_name: 'v0.2.2', published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.2',
+                assets: ['llll-release.json', 'llll-cloudflare-manifest.json', 'llll-worker.mjs', 'llll-assets.json', 'SHA256SUMS'].map(name => ({ name })),
+              }])
+              if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/workers/builds/deploy_hooks/11111111-1111-4111-8111-111111111111') {
+                assert.equal(request.method, 'POST'); updateHookCalls++
+                return Response.json({ success: true, result: { build_uuid: '44444444-4444-4444-8444-444444444444', status: 'queued' } })
+              }
+              return fetch(request)
+            },
             bindings: {
               PUBLIC_ORIGIN: origins[name],
               LLLL_ACCOUNT_ID: 'a'.repeat(32),
@@ -536,6 +549,14 @@ try {
   await api('alpha', `/api/servers/${ids.beta}/updates/config`, { method: 'PATCH', body: { hook: hookId }, expected: 404 })
   await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: 'https://evil.example/hook' }, expected: 400 })
   await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: hookId } })
+  // Exercise the actual workerd fetch implementation: redirect:error is rejected
+  // before a hook can be called, even though Node's fetch accepts it.
+  const ownerRequest = { requestId: '55555555-5555-4555-8555-555555555555', release: 'v0.2.2' }
+  const queued = (await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })).payload.job
+  assert.equal(queued.stage, 'queued'); assert.equal(queued.error, null)
+  await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })
+  assert.equal(updateHookCalls, 1)
+  await api('alpha', `/api/servers/${ids.alpha}/updates/resume`, { method: 'POST', body: { requestId: ownerRequest.requestId, cancel: true } })
   const controlDb = await runtimes.alpha.getD1Database('DB')
   const readControl = async () => JSON.parse((await controlDb.prepare('SELECT payload FROM server_update_control WHERE id=1').first()).payload)
   const saveControl = async value => controlDb.prepare('UPDATE server_update_control SET payload=?,revision=revision+1 WHERE id=1').bind(JSON.stringify(value)).run()

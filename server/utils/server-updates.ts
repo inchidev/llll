@@ -39,14 +39,16 @@ export async function updateConfiguration(event: H3Event, env: L4Env, serverId: 
 
 export async function triggerServerUpdate(store: UpdateStore, jobId: string, hook: string) {
   let issue: string | null = null
+  let responseStatus: number | null = null
   try {
-    const response = await fetch(`https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${updateHookId(hook)}`, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000) })
+    const response = await fetch(`https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${updateHookId(hook)}`, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(15000) })
+    responseStatus = response.status
     if (!response.ok) throw new Error('hook rejected')
     const result = await response.json() as { success?: boolean }
     if (result.success === false) throw new Error('hook rejected')
   } catch {
     // A timeout is ambiguous: the Build may already be running. Keep the same job locked.
-    issue = 'The Build start could not be confirmed. Retry starting this request; do not create another update.'
+    issue = `The Build start could not be confirmed.${responseStatus ? ` Cloudflare returned HTTP ${responseStatus}.` : ''} Retry starting this request; do not create another update.`
   }
   await changeUpdateRecord(store, (record) => {
     if (record.job?.id === jobId && ['queued', 'attention'].includes(record.job.stage)) {

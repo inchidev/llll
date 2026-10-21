@@ -65,14 +65,14 @@ export async function executeServerUpdate(d: Dependencies): Promise<boolean> {
     await update(job => { job.stage = 'verifying' })
     await d.verify(first)
     await update(job => { job.stage = 'complete'; job.error = null })
-  } catch {
+  } catch (cause) {
     await update(job => {
       job.stage = deploymentStarted ? 'attention' : 'failed'
       job.error = deploymentStarted
         ? 'Deployment needs verification. Open the Build log or retry verification after that Build stops. Do not start a different update.'
         : 'The update stopped before deployment. Check the Build log and retry with a new request. Your installed Worker is unchanged.'
     })
-    throw new Error('Server update did not complete; inspect the Git-connected Build log')
+    throw new Error('Server update did not complete; inspect the Git-connected Build log', { cause })
   }
   return true
 }

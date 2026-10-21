@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useNow } from '@vueuse/core'
 import { useQuery } from '@tanstack/vue-query'
 import type { UpdateStatusDTO } from '~~/shared/releases'
 import { activeUpdate, type ServerUpdateJob } from '~~/shared/server-updates'
@@ -30,8 +31,9 @@ const progressQ = useQuery({
   refetchInterval: query => activeUpdate(query.state.data?.job ?? null) ? 4000 : false,
 })
 const job = computed(() => progressQ.data.value?.job ?? status.value?.updateControl?.job ?? null)
+const now = useNow({ interval: 10000 })
 const active = computed(() => activeUpdate(job.value))
-const canResume = computed(() => Boolean(job.value && active.value && (['queued', 'attention'].includes(job.value.stage) || Date.now() - Date.parse(job.value.updatedAt) > 5 * 60 * 1000)))
+const canResume = computed(() => Boolean(job.value && active.value && (['queued', 'attention'].includes(job.value.stage) || now.value.getTime() - Date.parse(job.value.updatedAt) > 5 * 60 * 1000)))
 const installed = computed(() => progressQ.data.value?.installedVersion ?? status.value?.installedVersion ?? '')
 const configured = computed(() => progressQ.data.value?.configured ?? status.value?.updateControl?.configured ?? false)
 const buildUrl = computed(() => progressQ.data.value?.buildUrl ?? status.value?.updateControl?.buildUrl)

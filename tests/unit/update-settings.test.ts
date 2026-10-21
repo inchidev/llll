@@ -51,3 +51,16 @@ it('selects only newer numeric versions, explicitly includes prereleases, and st
   expect(api.mock.calls.filter(([url]) => url.endsWith('/request'))).toHaveLength(1)
   reopened.unmount()
 })
+it('offers recovery when a persisted active job becomes stale without a page reload', async () => {
+  vi.useFakeTimers()
+  const now = new Date('2026-10-21T05:00:00Z'); vi.setSystemTime(now)
+  savedJob = { id: crypto.randomUUID(), serverId: 'server', requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: '0.2.2', stage: 'backing_up', buildId: crypto.randomUUID(), createdAt: now.toISOString(), updatedAt: now.toISOString(), backup: null, error: null }
+  const v = view()
+  try {
+    await flushPromises()
+    expect(v.text()).not.toContain('Resume stopped Build')
+    await vi.advanceTimersByTimeAsync(310000)
+    await flushPromises()
+    expect(v.text()).toContain('Resume stopped Build')
+  } finally { v.unmount(); client.clear(); vi.useRealTimers() }
+})
