@@ -9,6 +9,7 @@ import ChannelThreadsPanel from '~/features/threads/components/ChannelThreadsPan
 import ChannelPinsPanel from '~/features/pins/components/ChannelPinsPanel.vue'
 
 const props = defineProps<{
+  overlay?: boolean
   serverId: string
   channelId: string
   channelMembers?: PublicUser[]
@@ -22,6 +23,7 @@ const qc = useQueryClient()
 const ui = useUiStore()
 const { api } = useApi()
 const isMobile = useIsMobile()
+const isOverlay = computed(() => props.overlay || isMobile.value)
 
 const { data, isPending, error, refetch } = useQuery({
   queryKey: computed(() => ['members', props.serverId]),
@@ -118,14 +120,14 @@ function roleLabel(name: string) {
   <aside
     id="channel-details"
     class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-muted"
-    :class="isMobile
+    :class="isOverlay
       ? 'absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-20 flex w-full pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]'
       : 'relative hidden md:flex'"
-    :style="!isMobile ? { width: `${ui.rightPanelWidth}px` } : undefined"
+    :style="!isOverlay ? { width: `${ui.rightPanelWidth}px` } : undefined"
     aria-label="Right panel"
   >
     <LayoutResizeHandle
-      v-if="!isMobile"
+      v-if="!isOverlay"
       v-model="ui.rightPanelWidth"
       :min="180"
       :max="640"
@@ -134,7 +136,7 @@ function roleLabel(name: string) {
     />
     <header class="h-12 px-3 flex items-center gap-2 shadow-[0_1px_0_var(--ui-border)] shrink-0 bg-muted">
       <UButton
-        v-if="isMobile"
+        v-if="isOverlay"
         icon="i-ph-caret-left"
         color="neutral"
         variant="ghost"

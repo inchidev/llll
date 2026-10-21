@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
-import { onKeyStroke } from '@vueuse/core'
+import { onKeyStroke, useMediaQuery } from '@vueuse/core'
 import type { ChannelDTO, MemberDTO, MessageDTO, PublicUser } from '~~/shared/types'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
 import type { RealtimeConnection } from '../../composables/useChannelSocket'
@@ -22,6 +22,7 @@ const qc = useQueryClient()
 const toast = useToast()
 const { serverId } = useServer()
 const { api } = useApi()
+const detailsOverlay = useMediaQuery('(max-width: 1023px)')
 const channelId = computed(() => String(route.params.channel || route.params.channelId || ''))
 
 
@@ -438,14 +439,14 @@ defineShortcuts({
               :variant="ui.rightPanelOpen ? 'soft' : 'ghost'"
               size="sm"
               square
-              class="hidden md:inline-flex"
+              class="hidden lg:inline-flex"
               :aria-label="ui.rightPanelOpen ? 'Close right panel' : 'Open right panel'"
               :aria-pressed="ui.rightPanelOpen"
               @click="ui.rightPanelOpen = !ui.rightPanelOpen"
             />
           </UTooltip>
           <UButton
-            class="size-11 shrink-0 md:hidden"
+            class="size-11 shrink-0 lg:hidden"
             icon="i-ph-sidebar-simple"
             color="neutral"
             variant="ghost"
@@ -545,8 +546,9 @@ defineShortcuts({
         :can-pin="canPin"
       />
       <LayoutMemberRail
-        v-else-if="(!isMobile && ui.rightPanelOpen) || (isMobile && ui.mobilePane === 'members')"
+        v-else-if="(!detailsOverlay && ui.rightPanelOpen) || (detailsOverlay && ui.mobilePane === 'members')"
         key="details"
+        :overlay="detailsOverlay"
         :server-id="serverId"
         :channel-id="channelId"
         :channel-members="isDm ? channel?.participants : undefined"

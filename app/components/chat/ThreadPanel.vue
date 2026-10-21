@@ -57,13 +57,13 @@ defineShortcuts({
   <aside
     v-if="ui.threadId"
     id="channel-details"
-    class="absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-30 flex min-h-0 w-full shrink-0 flex-col border-l border-default bg-elevated pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] md:relative md:inset-auto md:z-auto md:w-[var(--df-right-panel-width)] md:p-0"
+    class="absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-30 flex min-h-0 w-full shrink-0 flex-col border-l border-default bg-elevated pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] lg:relative lg:inset-auto lg:z-auto lg:w-[var(--df-right-panel-width)] lg:p-0"
     :style="{ '--df-right-panel-width': `${ui.rightPanelWidth}px` }"
     aria-label="Thread"
   >
     <LayoutResizeHandle
       v-model="ui.rightPanelWidth"
-      class="hidden md:block"
+      class="hidden lg:block"
       :min="180"
       :max="640"
       side="start"
