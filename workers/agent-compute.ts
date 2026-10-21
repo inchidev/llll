@@ -22,8 +22,7 @@ export class AgentComputeDurableObject extends DurableObject<L4Env> {
         // The coordinator persists transcript and results outside this filesystem.
         // No arbitrary public egress: only the Server's gateway is intercepted.
         const origin = new URL(this.env.PUBLIC_ORIGIN!)
-        const gateway = this.ctx.exports.AgentOutbound({ props: { origin: origin.origin } })
-        await container.interceptOutboundHttp(origin.hostname, gateway)
+        await container.interceptOutboundHttp(origin.hostname, this.ctx.exports.AgentOutbound)
         // This HTTP hop stays inside Cloudflare's encrypted interception network.
         // The trusted outbound Worker calls the Server gateway directly.
         container.start({ image: container.images.pi, instance: 'standard-1', enableInternet: false,

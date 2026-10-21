@@ -2,10 +2,11 @@ import { WorkerEntrypoint } from 'cloudflare:workers'
 import type { L4Env } from './env'
 import { agentGateway } from '../server/utils/agent-gateway'
 
-export class AgentOutbound extends WorkerEntrypoint<L4Env, { origin: string }> {
+export class AgentOutbound extends WorkerEntrypoint<L4Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    const target = new URL(this.ctx.props.origin)
+    if (!this.env.PUBLIC_ORIGIN) return new Response('Server gateway unavailable', { status: 503 })
+    const target = new URL(this.env.PUBLIC_ORIGIN)
     const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools)$/u)
     if (url.protocol !== 'http:' || url.hostname !== target.hostname || url.port || url.search
       || !gateway) {
