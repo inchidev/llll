@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdtemp, open, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -155,8 +156,9 @@ export async function runPendingServerUpdate({ token, accountId, workerName, ori
       const tag = `v${target}`, url = `https://github.com/inchidev/llll/releases/download/${tag}`
       const manifestResponse = await fetch(`${url}/llll-release.json`, { signal: AbortSignal.timeout(30000) }); assert.ok(manifestResponse.ok)
       const manifest = await manifestResponse.json(); validateReleaseManifest(manifest, tag, manifest.commit)
-      const tagResponse = await fetch(`https://api.github.com/repos/inchidev/llll/git/ref/tags/${tag}`, { headers: { 'User-Agent': 'L4 Server update' }, signal: AbortSignal.timeout(30000) }); assert.ok(tagResponse.ok)
-      const tagData = await tagResponse.json(); assert.equal(tagData.object.type, 'commit'); assert.equal(tagData.object.sha, manifest.commit)
+      const refs = execFileSync('git', ['ls-remote', '--tags', 'https://github.com/inchidev/llll.git', `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { encoding: 'utf8', timeout: 30000, maxBuffer: 65536 }).trim().split('\n').map(line => line.split(/\s+/))
+      const commit = (refs.find(([, ref]) => ref === `refs/tags/${tag}^{}`) || refs.find(([, ref]) => ref === `refs/tags/${tag}`))?.[0]
+      assert.equal(commit, manifest.commit, 'Published tag does not match release provenance')
       release = await core.loadL4Release(`${url}/llll-cloudflare-manifest.json`)
       assert.equal(release.manifest.version, target)
       for (const [name, entry] of [['llll-worker.mjs', release.manifest.worker], ['llll-assets.json', release.manifest.assets]]) {

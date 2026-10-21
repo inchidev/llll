@@ -6,6 +6,7 @@ import { updateConfiguration, updateOwner, triggerServerUpdate } from '../../../
 import { fail } from '../../../../utils/cf'
 import { llllReleases } from '../../../../utils/releases'
 import { parseBody } from '../../../../utils/validate'
+import { writeAudit } from '../../../../utils/messages'
 
 export default defineEventHandler(async (event) => {
   const { env, serverId, member } = await updateOwner(event)
@@ -27,6 +28,9 @@ export default defineEventHandler(async (event) => {
     created = record.job?.id !== job.id
     try { requestServerUpdate(record, job) } catch (error) { fail(409, 'update_active', error instanceof Error ? error.message : 'An update is already in progress') }
   })
-  if (created) await triggerServerUpdate(store, job.id, hook)
+  if (created) {
+    await writeAudit(env, { serverId, actorId: member.user.id, action: 'server.update.request', targetType: 'server', targetId: serverId, meta: { requestId: job.id, release: job.targetVersion } })
+    await triggerServerUpdate(store, job.id, hook)
+  }
   return { job: (await store.read()).value.job }
 })
