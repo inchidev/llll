@@ -1,6 +1,6 @@
 export type ServerNavigationSection = 'chat' | 'inbox' | 'tasks' | 'schedules' | 'mail' | 'databases' | 'documents' | 'canvases' | 'gadgets'
 
-/** Resource routes retain their section; Inbox and Schedule use the workspace directly. */
+/** Resource routes retain their section; Inbox and Schedule use the content area directly. */
 export function serverNavigationSection(path: string): ServerNavigationSection | null {
   const segment = path.split('/')[1]
   if (segment === 'channels') return 'chat'

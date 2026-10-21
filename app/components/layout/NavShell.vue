@@ -75,8 +75,8 @@ const dataView = computed(() => {
   return null
 })
 const views = computed(() => [
-  { label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, path: '/channels', count: 0, dot: chatUnread.value },
   { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: unreadConversations.value.length, dot: false },
+  { label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, path: '/channels', count: 0, dot: chatUnread.value },
   ...(can(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),
   ...(can(Permission.manageSchedules) ? [{ label: 'Schedule', icon: 'i-ph-calendar-blank', to: '/schedules', path: '/schedules', count: 0, dot: false }] : []),
   { label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, path: '/mail', count: 0, dot: mailUnread.value },
