@@ -20,12 +20,14 @@ async function cancel() {
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-3xl space-y-6 overflow-auto p-4 sm:p-8">
+  <div class="flex h-full min-h-0 min-w-0 flex-col">
+    <LayoutPageHeader title="Agent run" icon="i-ph-robot" />
+    <main class="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-4 sm:p-8">
     <LayoutSkeleton v-if="runQ.isPending.value" variant="form" />
     <LayoutLoadError v-else-if="runQ.error.value" message="This run did not load." :retry="runQ.refetch" />
     <template v-else-if="run">
       <div class="flex items-center justify-between gap-4">
-        <h1 class="text-lg font-medium text-highlighted">Agent run</h1>
+        <h2 class="text-lg font-medium text-highlighted">Execution</h2>
         <UBadge :label="run.status" color="neutral" variant="subtle" />
       </div>
       <dl class="grid grid-cols-2 gap-3 text-sm">
@@ -38,5 +40,6 @@ async function cancel() {
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><div class="whitespace-pre-wrap text-sm text-default">{{ run.resultText }}</div></section>
       <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
     </template>
-  </main>
+    </main>
+  </div>
 </template>

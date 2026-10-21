@@ -44,8 +44,10 @@ async function cancel(id: string) {
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-3xl space-y-6 overflow-auto p-4 sm:p-8">
-    <h1 class="text-lg font-medium">Reminders and recurring work</h1>
+  <div class="flex h-full min-h-0 min-w-0 flex-col">
+    <LayoutPageHeader title="Schedules" icon="i-ph-clock" />
+    <main class="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-4 sm:p-8">
+    <h2 class="text-lg font-medium">Reminders and recurring work</h2>
     <UAlert v-if="!can(Permission.manageSchedules)" title="Your role does not allow schedules" color="neutral" />
     <template v-else>
       <form class="space-y-4 rounded-lg border border-default p-4" @submit.prevent="create">
@@ -68,5 +70,6 @@ async function cancel(id: string) {
         <UButton v-if="item.status === 'active'" label="Cancel" color="neutral" variant="ghost" size="sm" @click="cancel(item.id)" />
       </article>
     </template>
-  </main>
+    </main>
+  </div>
 </template>
