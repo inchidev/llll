@@ -244,7 +244,8 @@ watch(nav.inviteOpen, (open) => {
     </UDropdownMenu>
 
     <nav
-      class="l4-segmented-track m-2 grid shrink-0 grid-flow-col auto-cols-fr"
+      class="l4-segmented-track m-2 grid shrink-0"
+      :class="modes.length > 5 ? 'grid-cols-3' : 'grid-flow-col auto-cols-fr'"
       aria-label="App"
     >
       <!-- Which apps show depends on permissions; hold their place until they are known. -->

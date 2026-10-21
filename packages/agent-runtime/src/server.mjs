@@ -79,7 +79,7 @@ const server = createServer(async (request, response) => {
           probe = await fetch(input.toolEndpoint, { headers: { Authorization: `Bearer ${input.modelGateway.token}` }, signal: AbortSignal.timeout(10000) })
         } catch (error) {
           const code = typeof error.cause?.code === 'string' ? error.cause.code.slice(0, 80) : error.name
-          throw new Error(`Gateway connection failed (${code})`)
+          throw new Error(`Gateway connection failed (${code})`, { cause: error })
         }
         if (probe.status !== 405) throw new Error(`Gateway rejected readiness check (${probe.status})`)
         const pi = await openPi(input, { directory: sessionDirectory, emit, signal: controller.signal,
