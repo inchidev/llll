@@ -14,6 +14,15 @@ export type UpdateStatusDTO = {
   updateAvailable: boolean
   checkedAt: string
   checkFailed: boolean
+  releases?: PublishedRelease[]
+  updateControl?: {
+    available: boolean
+    configured: boolean
+    source: 'binding' | 'saved' | null
+    job: import('./server-updates').ServerUpdateJob | null
+    buildUrl?: string | null
+    reason: string | null
+  }
 }
 
 export type ServerManagementStatusDTO = {

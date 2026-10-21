@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createTarStream, sqlIdentifier, sqlInsertStatements, sqlValue, textEntry } from '../../server/utils/backup-format'
 import { createServerBackup } from '../../server/utils/server-backup'
 import { INIT_SQL } from '../../server/utils/db'
+import { emptyUpdateRecord } from '../../shared/server-updates'
 import type { L4Env } from '../../workers/env'
 
 async function streamBytes(stream: ReadableStream<Uint8Array>) {
@@ -169,6 +170,8 @@ describe('backup format', () => {
         INSERT INTO auth_oauth_client_resource (id,client_id,resource_id) VALUES ('oauth-link','oauth-client','https://server.example/mcp');
         INSERT INTO auth_oauth_access_token (id,token,client_id,expires_at,created_at,scopes) VALUES ('oauth-token','token-digest','oauth-client',9999999999999,1,'["tasks:read"]');
       `)
+      const updateState = { ...emptyUpdateRecord(), hook: { ciphertext: 'encrypted-hook', iv: 'iv', version: 1 }, job: { stage: 'backing_up' }, backupToken: 'single-job-capability', backupBusy: true }
+      source.prepare('INSERT INTO server_update_control VALUES (1, 9, ?)').run(JSON.stringify(updateState))
       const richDocument = '<p>日本語🙂 long document</p>'.repeat(6000)
       source.prepare('UPDATE documents SET content = ? WHERE id = ?').run(richDocument, 'doc')
       const database = {
@@ -202,6 +205,10 @@ describe('backup format', () => {
       expect(restored.prepare('PRAGMA foreign_key_check').all()).toEqual([])
       expect(restored.prepare('SELECT client_id FROM auth_oauth_access_token WHERE id=?').get('oauth-token')).toEqual({ client_id: 'oauth-client' })
       expect(restored.prepare('SELECT resource_id FROM auth_oauth_client_resource WHERE id=?').get('oauth-link')).toEqual({ resource_id: 'https://server.example/mcp' })
+      const control = restored.prepare('SELECT payload, revision FROM server_update_control').get()!
+      expect(control.revision).toBe(1)
+      expect(JSON.parse(String(control.payload))).toEqual({ ...emptyUpdateRecord(), hook: updateState.hook })
+      expect(JSON.parse(String(source.prepare('SELECT payload FROM server_update_control').get()!.payload))).toEqual(updateState)
       expect(restored.prepare('SELECT parent_message_id FROM channels WHERE id = ?').get('thread')).toEqual({ parent_message_id: 'message' })
       expect(restored.prepare('SELECT channel_id FROM messages WHERE id = ?').get('reply')).toEqual({ channel_id: 'thread' })
       expect(restored.prepare('SELECT content FROM documents WHERE id = ?').get('doc')).toEqual({ content: richDocument })

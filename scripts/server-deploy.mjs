@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { runPendingServerUpdate } from './server-update.mjs'
 requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
 const dir = resolve(root, '.deployment/builds')
@@ -25,7 +26,15 @@ if (
 )
   throw new Error('Configure a Worker name and immutable release version')
 const claim = process.env.LLLL_SERVER_SETUP_TOKEN
-if (!claim || claim.length < 32) throw new Error('Configure a private owner claim of at least 32 characters')
+async function setUpdateHook() {
+  const hook = process.env.LLLL_SERVER_UPDATE_HOOK
+  if (!hook) return
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}/secrets`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'LLLL_UPDATE_HOOK', type: 'secret_text', text: hook }),
+  })
+  if (!r.ok || !(await r.json()).success) throw new Error('Cannot configure the Server update Build hook')
+}
 async function setOwnerClaim() {
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}/secrets`,
@@ -42,15 +51,29 @@ async function setOwnerClaim() {
   if (!response.ok || !result.success) throw new Error('Cannot configure the private owner claim')
 }
 const origin = process.env.LLLL_SERVER_ORIGIN
+if (!origin || !URL.canParse(origin) || new URL(origin).protocol !== 'https:') throw new Error('Configure this Server’s public HTTPS origin')
 if (origin) {
-  const response = await fetch(origin + '/.well-known/llll').catch(() => null)
+  const response = await fetch(origin + '/.well-known/llll', { redirect: 'error', signal: AbortSignal.timeout(15000), cache: 'no-store' }).catch(() => null)
   const data = response?.ok ? await response.json() : null
+  if (!data || data.kind !== 'server') {
+    const settings = await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}/settings`, { headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } })
+    if (settings.ok && (await settings.json()).result?.bindings?.some(binding => binding.name === 'DB')) throw new Error('Existing Server cannot be inspected; refusing to deploy without a verified backup')
+    if (!settings.ok && settings.status !== 404) throw new Error('Cannot inspect existing Worker settings')
+  }
+  if (data?.kind === 'server' && data.ready) {
+    const updated = await runPendingServerUpdate({ token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID, workerName, origin })
+    await setUpdateHook()
+    console.log(updated ? 'Server update request processed' : 'No owner update request; installed Server left unchanged')
+    process.exit(0)
+  }
   if (data?.kind === 'server' && data.version === targetVersion.slice(1)) {
     if (!data.ready) await setOwnerClaim()
+    await setUpdateHook()
     console.log('Selected release already deployed; Server unchanged')
     process.exit(0)
   }
 }
+if (!claim || claim.length < 32) throw new Error('Configure a private owner claim of at least 32 characters')
 const zoneId = process.env.LLLL_SERVER_ZONE_ID || ''
 const zoneName = process.env.LLLL_SERVER_ZONE_NAME || ''
 const subdomain = process.env.LLLL_SERVER_SUBDOMAIN || workerName
@@ -76,6 +99,7 @@ const result = await installL4(process.env.CLOUDFLARE_API_TOKEN, {
 // Persist the browser-bound claim before public DNS/TLS verification. A failed
 // first verification must never lose the only usable owner claim on retry.
 await setOwnerClaim()
+await setUpdateHook()
 await verifyDeployment(result.url, result.version, false, undefined, { attempts: 150 })
 result.verified = true
 await writeFile(

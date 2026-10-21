@@ -16,5 +16,5 @@ export default defineEventHandler(async event => {
   setHeader(event, 'Cache-Control', 'no-store')
   const publicOrigin = env.PUBLIC_ORIGIN || getRequestURL(event).origin
   const appearance = await publicServerAppearance(env.DB, publicOrigin, readAppBranding(env).appName)
-  return { product: 'llll', kind: 'server', ...appearance, apiVersion: SERVER_API_VERSION, version, origin: publicOrigin, registration: env.AUTH_REGISTRATION_MODE === 'open', telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID), embedOrigins: allowed }
+  return { product: 'llll', kind: 'server', ...appearance, apiVersion: SERVER_API_VERSION, version: env.LLLL_VERSION?.trim() || version, origin: publicOrigin, registration: env.AUTH_REGISTRATION_MODE === 'open', telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID), embedOrigins: allowed }
 })

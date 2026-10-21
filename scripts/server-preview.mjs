@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { compareVersions, parseVersion } from './release-policy.mjs'
 import {
   pullRequestCandidate,
   verifyMergeParents,
@@ -70,8 +71,13 @@ async function api(path, method = 'GET', body) {
     throw new Error(`Cloudflare administration failed (${r.status}): ${path}`)
   return d.result
 }
-let db = (await api('/d1/database?per_page=100')).find((d) => d.name === name)
-db ||= await api('/d1/database', 'POST', { name })
+// A fresh isolated database can replace an obsolete, unmerged PR schema.
+// The original database and backup bucket remain available for inspection.
+const databaseName = process.env.LLLL_PREVIEW_DATABASE || name
+if (databaseName !== name && !new RegExp(`^${name}-[a-z0-9]+(?:-[a-z0-9]+)*$`).test(databaseName))
+  throw new Error('Preview database must belong to this PR')
+let db = (await api('/d1/database?per_page=100')).find((d) => d.name === databaseName)
+db ||= await api('/d1/database', 'POST', { name: databaseName })
 for (const bucket of [name + '-files', name + '-backups']) {
   const listed = await api('/r2/buckets?name_contains=' + bucket)
   if (!listed.buckets.some((b) => b.name === bucket))
@@ -101,7 +107,7 @@ Object.assign(config, {
   d1_databases: [
     {
       binding: 'DB',
-      database_name: name,
+      database_name: databaseName,
       database_id: db.uuid,
       migrations_dir: resolve(root, 'drizzle/server-migrations'),
     },
@@ -119,6 +125,21 @@ Object.assign(config, {
     EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
   },
 })
+if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
+  const version = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
+  const installed = process.env.LLLL_PREVIEW_INSTALLED_VERSION || version
+  parseVersion(installed)
+  if (compareVersions(installed, version) > 0) throw new Error('A Preview fixture cannot impersonate a newer release')
+  Object.assign(config.vars, {
+    LLLL_ACCOUNT_ID: account,
+    LLLL_WORKER_NAME: name,
+    LLLL_APP_HOSTNAME: new URL(origin).hostname,
+    LLLL_CUSTOM_DOMAIN: 'true',
+    LLLL_SERVER_MARKER: 'llll.gg/server-v1',
+    LLLL_VERSION: installed,
+    BACKUP_BUCKET_NAME: name + '-backups',
+  })
+}
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)

@@ -1,3 +1,4 @@
+import { emptyUpdateRecord, readUpdateRecord } from './server-updates'
 import { createTarStream, sqlIdentifier, sqlInsertStatements, textEntry, type TarEntry } from '../server/utils/backup-format'
 type DatabaseStatement = {
   bind(...values: (string | number)[]): DatabaseStatement
@@ -52,6 +53,7 @@ Contents
   Example: cat database/*.sql > restore.sql
   Import: npx wrangler d1 execute <database-name> --remote --file=restore.sql
 - r2/*.json stores metadata for the adjacent numbered .bin object. The JSON field "key" is the original R2 key.
+- The update journal keeps its schema and encrypted hook, but resets the operation and single-job capability on restore.
 - summary.json is written last and records the completed table, row, and R2 object counts. If it is missing, discard the incomplete archive.
 
 Security
@@ -123,7 +125,12 @@ async function* backupEntries(env: { DB: BackupDatabase; FILES?: BackupFiles }, 
       const result = await database.prepare(
         `SELECT * FROM ${sqlIdentifier(table.name)} LIMIT ? OFFSET ?`,
       ).bind(DATABASE_PAGE_ROWS, offset).all<Record<string, unknown>>()
-      const rows = result.results ?? []
+      const rows = (result.results ?? []).map(row => {
+        if (table.name !== 'server_update_control') return row
+        // Restoring a backup must never revive an in-flight Build or its capability.
+        const saved = readUpdateRecord(String(row.payload))
+        return { ...row, revision: 1, payload: JSON.stringify({ ...emptyUpdateRecord(), hook: saved.hook }) }
+      })
       if (!rows.length) break
       page += 1
       databaseRows += rows.length

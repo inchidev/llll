@@ -1,46 +1,32 @@
 import { version as packageVersion } from '../../../../package.json'
-import { compareStableVersions, newerStableReleases, stableSemver, type UpdateStatusDTO } from '../../../../shared/releases'
-import { cf, fail } from '../../../utils/cf'
-import { requireMember } from '../../../utils/guards'
+import type { UpdateStatusDTO } from '../../../../shared/releases'
+import { compareVersions } from '../../../../shared/release-version'
+import { serverUpdateBuildUrl, updateConfiguration, updateOwner } from '../../../utils/server-updates'
 import { llllReleases } from '../../../utils/releases'
 
 export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
   setHeader(event, 'Cache-Control', 'no-store')
-  const serverId = getRouterParam(event, 'id')!
-  const member = await requireMember(event, serverId)
-  if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can manage updates')
-
-  const { env } = cf(event)
+  const { env, serverId } = await updateOwner(event)
   const installedVersion = env.LLLL_VERSION?.trim() || packageVersion
-  const management = 'operator'
-  const checkedAt = new Date().toISOString()
-
+  const status: UpdateStatusDTO = {
+    installedVersion, management: 'operator', latestRelease: null, releasesBehind: 0,
+    updateAvailable: false, checkedAt: new Date().toISOString(), checkFailed: false, releases: [],
+    updateControl: { available: false, configured: false, source: null, job: null, reason: null },
+  }
   try {
-    const releases = await llllReleases()
-    const newer = newerStableReleases(installedVersion, releases)
-    const latestRelease = releases
-      .filter(release => stableSemver(release.tagName))
-      .sort((left, right) => compareStableVersions(right.tagName, left.tagName))[0] ?? null
-
-    return {
-      installedVersion,
-      management,
-      latestRelease,
-      releasesBehind: newer.length,
-      updateAvailable: newer.length > 0,
-      checkedAt,
-      checkFailed: false,
-    }
+    const config = await updateConfiguration(event, env, serverId)
+    status.updateControl = { available: true, configured: Boolean(config.hook), source: env.LLLL_UPDATE_HOOK ? 'binding' : config.value.hook ? 'saved' : null, job: config.value.job, buildUrl: serverUpdateBuildUrl(env, config.value.job?.buildId), reason: null }
+  } catch {
+    status.updateControl!.reason = 'Cloudflare updates need a Git-connected L4 Build and a separate backup bucket. On a VPS use llll upgrade.'
   }
-  catch {
-    return {
-      installedVersion,
-      management,
-      latestRelease: null,
-      releasesBehind: 0,
-      updateAvailable: false,
-      checkedAt,
-      checkFailed: true,
-    }
-  }
+  try {
+    const prereleases = getQuery(event).prereleases === 'true'
+    const releases = (await llllReleases(undefined, { prereleases, installable: true })).sort((a, b) => compareVersions(b.tagName, a.tagName))
+    const newer = releases.filter(release => compareVersions(release.tagName, installedVersion) > 0)
+    status.releases = releases
+    status.latestRelease = releases[0] ?? null
+    status.releasesBehind = newer.length
+    status.updateAvailable = newer.length > 0
+  } catch { status.checkFailed = true }
+  return status
 })

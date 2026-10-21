@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import migration from '../../drizzle/server-migrations/0002_mcp_connect_grant.sql?raw'
+import migration from '../../drizzle/server-migrations/0003_mcp_connect_grant.sql?raw'
 import { ALL_PERMISSIONS, hasPermission, MemberPermissions, Permission, permissionBitmask, rolePermissions } from '../../shared/permissions'
 
 describe('permissions', () => {

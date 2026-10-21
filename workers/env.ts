@@ -111,6 +111,8 @@ export type L4Env = {
   LLLL_APP_SUBDOMAIN?: string
   LLLL_SERVER_MARKER?: string
   LLLL_VERSION?: string
+  /** Secret, limited to starting this Server's Git-connected Build. */
+  LLLL_UPDATE_HOOK?: string
   LLLL_APP_HOSTNAME?: string
   /** Cloudflare account id used to call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. */
   CLOUDFLARE_ACCOUNT_ID?: string

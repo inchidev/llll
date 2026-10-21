@@ -7839,6 +7839,42 @@
           "value": "\"users\".\"status\" <> 'active' or (\"users\".\"role_id\" is not null and \"users\".\"joined_at\" is not null)"
         }
       }
+    },
+    "server_update_control": {
+      "name": "server_update_control",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "server_update_control_singleton": {
+          "name": "server_update_control_singleton",
+          "value": "\"server_update_control\".\"id\" = 1"
+        }
+      }
     }
   },
   "views": {},
