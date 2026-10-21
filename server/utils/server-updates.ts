@@ -1,7 +1,8 @@
 import type { H3Event } from 'h3'
 import type { L4Env } from '../../workers/env'
 import { decryptSecret } from '../../shared/encrypted-secret'
-import { activeUpdate, changeUpdateRecord, emptyUpdateRecord, readUpdateRecord, updateHookId, updateStateKey, type UpdateStore } from '../../shared/server-updates'
+import { activeUpdate, changeUpdateRecord, updateHookId, type UpdateStore } from '../../shared/server-updates'
+import { createUpdateStore } from '../../shared/server-update-store'
 import { authSecret } from './auth-config'
 import { cf, fail } from './cf'
 import { requireMember } from './guards'
@@ -18,19 +19,11 @@ export async function updateOwner(event: H3Event) {
   return { serverId, member, env: cf(event).env }
 }
 
-export function updateStorage(env: L4Env, serverId: string): UpdateStore {
+export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
   if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_SERVER_MARKER !== 'llll.gg/server-v1' || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require an L4 Git-connected Cloudflare Build and a separate backup bucket. VPS operators use llll upgrade.')
-  const bucket = env.BACKUPS
-  const key = updateStateKey(serverId)
-  return {
-    async read() {
-      const object = await bucket.get(key)
-      return object ? { value: readUpdateRecord(await object.text()), etag: object.etag } : { value: emptyUpdateRecord(), etag: null }
-    },
-    async write(value, etag) {
-      return Boolean(await bucket.put(key, JSON.stringify(value), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: '*' }, httpMetadata: { contentType: 'application/json' } }))
-    },
-  }
+  // Reads must start on the primary so a fresh request cannot miss an active Build.
+  const database = env.DB.withSession('first-primary')
+  return createUpdateStore(async (sql, params) => (await database.prepare(sql).bind(...params).all<{ payload: string; revision: number }>()).results)
 }
 
 export async function updateConfiguration(event: H3Event, env: L4Env, serverId: string) {

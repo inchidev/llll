@@ -204,6 +204,13 @@ export const serverSchema = sqliteTable('server_schema', {
   version: text('version').notNull(),
 }, table => [check('server_schema_id_check', sql`${table.id} = 1`), check('server_schema_version_check', sql`${table.version} = 'server-v1'`)])
 
+/** Private update journal; membership and Server content remain independent. */
+export const serverUpdateControl = sqliteTable('server_update_control', {
+  id: integer('id').primaryKey().notNull(),
+  revision: integer('revision').notNull(),
+  payload: text('payload').notNull(),
+}, table => [check('server_update_control_singleton', sql`${table.id} = 1`)])
+
 export const serverIdentity = sqliteTable('server_identity', {
   singleton: integer('singleton').notNull().unique(),
   id: text('id').primaryKey(),
@@ -893,6 +900,7 @@ export const taskAttachments = sqliteTable('task_attachments', {
 
 export const schema = {
   serverSchema,
+  serverUpdateControl,
   serverIdentity,
   connectionGrants,
   accountRecovery,

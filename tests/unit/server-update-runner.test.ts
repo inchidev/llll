@@ -6,10 +6,10 @@ import { compareVersions } from '../../shared/release-version'
 const uuid = '11111111-1111-4111-8111-111111111111'
 function job(): ServerUpdateJob { return { id: uuid, serverId: 'server', requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: '0.2.2', stage: 'queued', buildId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null } }
 function memory(initial = emptyUpdateRecord()) {
-  let value = structuredClone(initial), etag = 0
+  let value = structuredClone(initial), revision = 0
   const store: UpdateStore = {
-    async read() { return { value: structuredClone(value), etag: String(etag) } },
-    async write(next, expected) { if (expected !== String(etag)) return false; value = structuredClone(next); etag++; return true },
+    async read() { return { value: structuredClone(value), revision } },
+    async write(next, expected) { if (expected !== revision) return false; value = structuredClone(next); revision++; return true },
   }
   return { store, get value() { return value } }
 }

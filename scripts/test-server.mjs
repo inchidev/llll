@@ -536,15 +536,17 @@ try {
   await api('alpha', `/api/servers/${ids.beta}/updates/config`, { method: 'PATCH', body: { hook: hookId }, expected: 404 })
   await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: 'https://evil.example/hook' }, expected: 400 })
   await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: hookId } })
-  const stateKey = `control/server-updates/${ids.alpha}/state.json`
-  const updateRecord = JSON.parse(await (await bucket.get(stateKey)).text())
+  const controlDb = await runtimes.alpha.getD1Database('DB')
+  const readControl = async () => JSON.parse((await controlDb.prepare('SELECT payload FROM server_update_control WHERE id=1').first()).payload)
+  const saveControl = async value => controlDb.prepare('UPDATE server_update_control SET payload=?,revision=revision+1 WHERE id=1').bind(JSON.stringify(value)).run()
+  const updateRecord = await readControl()
   assert.ok(updateRecord.hook.ciphertext); assert.equal(JSON.stringify(updateRecord).includes(hookId), false)
   const progress = (await api('alpha', `/api/servers/${ids.alpha}/updates/progress`)).payload
   assert.equal(progress.configured, true); assert.equal(JSON.stringify(progress).includes('ciphertext'), false)
   const requestId = '22222222-2222-4222-8222-222222222222', buildId = '33333333-3333-4333-8333-333333333333'
   updateRecord.backupToken = 'a'.repeat(64); updateRecord.backupBusy = false
   updateRecord.job = { id: requestId, serverId: ids.alpha, requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: '0.2.2', stage: 'backing_up', buildId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
-  await bucket.put(stateKey, JSON.stringify(updateRecord))
+  await saveControl(updateRecord)
   const capability = { actor: 'anonymous', method: 'POST', body: { requestId, buildId }, headers: { Authorization: `Bearer ${updateRecord.backupToken}` } }
   await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, headers: { Authorization: `Bearer ${'b'.repeat(64)}` }, expected: 403 })
   await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, body: { requestId, buildId: hookId }, expected: 403 })
@@ -556,9 +558,9 @@ try {
   assert.equal(JSON.stringify(ownedProgress).includes(updateRecord.backupToken), false)
   assert.equal(ownedProgress.job.backup.key, updateBackup.key)
   updateRecord.job.stage = 'queued'; updateRecord.backupBusy = false
-  await bucket.put(stateKey, JSON.stringify(updateRecord))
+  await saveControl(updateRecord)
   await api('alpha', `/api/servers/${ids.alpha}/updates/resume`, { method: 'POST', body: { requestId, cancel: true } })
-  assert.equal(JSON.parse(await (await bucket.get(stateKey)).text()).backupToken, null)
+  assert.equal((await readControl()).backupToken, null)
   const object = await bucket.get(backup.payload.key)
   await mkdir(resolve(root, '.deployment/integration'), { recursive: true })
   const archive = resolve(root, '.deployment/integration/alpha.tar')

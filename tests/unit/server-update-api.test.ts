@@ -1,26 +1,30 @@
+import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import type { H3Event } from 'h3'
-const context = vi.hoisted(() => ({ body: {} as Record<string, unknown>, owner: true, stored: null as string | null, etag: 0 }))
+const context = vi.hoisted(() => ({ body: {} as Record<string, unknown>, owner: true, stored: null as string | null, revision: 0 }))
 vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: context.owner, user: { id: 'owner' } }) }))
 vi.mock('../../server/utils/messages', () => ({ writeAudit: vi.fn(async () => {}) }))
 vi.mock('../../server/utils/releases', () => ({ llllReleases: vi.fn(async () => [{ tagName: 'v0.2.2' }]) }))
 vi.mock('../../server/utils/cf', () => ({
   fail: (statusCode: number, code: string, message: string) => { throw Object.assign(Error(message), { statusCode, code }) },
   cf: () => ({ env: {
-    DB: {}, FILES: {}, LLLL_VERSION: '0.2.1', LLLL_ACCOUNT_ID: 'a'.repeat(32), LLLL_WORKER_NAME: 'worker', LLLL_SERVER_MARKER: 'llll.gg/server-v1', LLLL_UPDATE_HOOK: '11111111-1111-4111-8111-111111111111', BACKUP_BUCKET_NAME: 'separate-backups',
-    BACKUPS: {
-      async get() { return context.stored ? { etag: String(context.etag), text: async () => context.stored } : null },
-      async put(_key: string, value: string, options: { onlyIf: { etagMatches?: string; etagDoesNotMatch?: string } }) {
-        if (options.onlyIf.etagMatches && options.onlyIf.etagMatches !== String(context.etag)) return null
-        if (options.onlyIf.etagDoesNotMatch === '*' && context.stored) return null
-        context.stored = value; context.etag++; return { etag: String(context.etag) }
-      },
-    },
+    DB: { withSession: () => ({ prepare: (sql: string) => ({ bind: (...params: (string | number)[]) => ({ all: async () => {
+      const database = new DatabaseSync(':memory:')
+      try {
+        database.exec('CREATE TABLE server_update_control(id INTEGER PRIMARY KEY, revision INTEGER, payload TEXT)')
+        if (context.stored) database.prepare('INSERT INTO server_update_control VALUES(1,?,?)').run(context.revision, context.stored)
+        const results = database.prepare(sql).all(...params)
+        const row = database.prepare('SELECT payload,revision FROM server_update_control').get()
+        context.stored = row?.payload as string ?? null; context.revision = row?.revision as number ?? 0
+        return { results }
+      } finally { database.close() }
+    } }) }) }) },
+    FILES: {}, BACKUPS: {}, LLLL_VERSION: '0.2.1', LLLL_ACCOUNT_ID: 'a'.repeat(32), LLLL_WORKER_NAME: 'worker', LLLL_SERVER_MARKER: 'llll.gg/server-v1', LLLL_UPDATE_HOOK: '11111111-1111-4111-8111-111111111111', BACKUP_BUCKET_NAME: 'separate-backups',
   } }),
 }))
 const requestId = '22222222-2222-4222-8222-222222222222'
 beforeEach(() => {
-  context.body = { requestId, release: 'v0.2.2' }; context.owner = true; context.stored = null; context.etag = 0
+  context.body = { requestId, release: 'v0.2.2' }; context.owner = true; context.stored = null; context.revision = 0
   vi.stubGlobal('defineEventHandler', (fn: unknown) => fn)
   vi.stubGlobal('getRouterParam', () => 'server')
   vi.stubGlobal('readBody', async () => context.body)

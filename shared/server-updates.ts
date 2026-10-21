@@ -17,19 +17,18 @@ export type ServerUpdateJob = {
 }
 export type ServerUpdateRecord = { schemaVersion: 1; hook: EncryptedSecret | null; job: ServerUpdateJob | null; backupToken: string | null; backupBusy: boolean }
 export type UpdateStore = {
-  read(): Promise<{ value: ServerUpdateRecord; etag: string | null }>
-  write(value: ServerUpdateRecord, etag: string | null): Promise<boolean>
+  read(): Promise<{ value: ServerUpdateRecord; revision: number | null }>
+  write(value: ServerUpdateRecord, revision: number | null): Promise<boolean>
 }
 export const emptyUpdateRecord = (): ServerUpdateRecord => ({ schemaVersion: 1, hook: null, job: null, backupToken: null, backupBusy: false })
-export const updateStateKey = (serverId: string) => `control/server-updates/${serverId}/state.json`
 export const activeUpdate = (job: ServerUpdateJob | null) => Boolean(job && !['complete', 'cancelled', 'failed'].includes(job.stage))
 
 /** Conditional writes serialize owner requests and Git Builds without a second control plane. */
 export async function changeUpdateRecord(store: UpdateStore, change: (value: ServerUpdateRecord) => void) {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const { value, etag } = await store.read()
+    const { value, revision } = await store.read()
     change(value)
-    if (await store.write(value, etag)) return value
+    if (await store.write(value, revision)) return value
   }
   throw new Error('Another update request changed this Server. Refresh and try again.')
 }

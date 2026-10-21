@@ -69,7 +69,7 @@ export async function verifyUpdateArchive(path, receipt, serverId) {
     }
     assert.equal(objects.length, summary.r2Objects)
     const fingerprints = []
-    for (const table of restored.prepare('PRAGMA table_list').all().filter(t => ['table', 'virtual'].includes(t.type) && !/^(sqlite_|_cf_)/.test(t.name))) {
+    for (const table of restored.prepare('PRAGMA table_list').all().filter(t => ['table', 'virtual'].includes(t.type) && !/^(sqlite_|_cf_)/.test(t.name) && t.name !== 'server_update_control')) {
       const columns = restored.prepare(`PRAGMA table_info(${quote(table.name)})`).all()
       const primary = columns.filter(c => c.pk).sort((a, b) => a.pk - b.pk)
       const order = (primary.length ? primary : columns).map(c => quote(c.name)).join(',')
@@ -105,8 +105,8 @@ export async function runPendingServerUpdate({ token, accountId, workerName, ori
   assert.ok(files && backups !== files, 'Update backup bucket must be separate from live files')
   const configuredOrigin = bindings.find(b => b.name === 'PUBLIC_ORIGIN')?.text || `https://${bindings.find(b => b.name === 'LLLL_APP_HOSTNAME')?.text}`
   assert.equal(origin, configuredOrigin, 'Build origin does not match this Worker')
-  async function query(sql) {
-    const d = await api(`/d1/database/${db}/query`, { method: 'POST', body: JSON.stringify({ sql, params: [] }) })
+  async function query(sql, params = []) {
+    const d = await api(`/d1/database/${db}/query`, { method: 'POST', body: JSON.stringify({ sql, params }) })
     assert.ok(d.result.every(s => s.success !== false)); return d.result.flatMap(s => s.results || [])
   }
   async function fileInventory() {
@@ -121,24 +121,12 @@ export async function runPendingServerUpdate({ token, accountId, workerName, ori
   }
   const serverId = (await query('SELECT id FROM server LIMIT 1'))[0]?.id
   if (!serverId) return false
+  // Pre-feature Servers are unchanged until an operator first adopts the migration/runtime.
+  if (!(await query("SELECT name FROM sqlite_master WHERE type='table' AND name='server_update_control'")).length) return false
   const bundlePath = resolve('.deployment/builds/update-state.mjs')
-  await build({ stdin: { contents: `export * from './shared/server-updates.ts';export * from './shared/server-update-runner.ts'`, resolveDir: process.cwd() }, outfile: bundlePath, bundle: true, platform: 'node', format: 'esm', target: 'node24' })
-  const { executeServerUpdate, updateStateKey, emptyUpdateRecord, readUpdateRecord } = await import(pathToFileURL(bundlePath).href)
-  const statePath = objectPath(backups, updateStateKey(serverId))
-  const store = {
-    async read() {
-      const r = await raw(statePath)
-      if (r.status === 404) return { value: emptyUpdateRecord(), etag: null }
-      if (!r.ok) throw new Error('Cannot read update state')
-      return { value: readUpdateRecord(await r.text()), etag: r.headers.get('etag').replace(/^"|"$/g, '') }
-    },
-    async write(value, etag) {
-      const r = await raw(statePath, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(etag ? { 'If-Match': `"${etag}"` } : { 'If-None-Match': '*' }) }, body: JSON.stringify(value) })
-      if (r.status === 412) return false
-      if (!r.ok) throw new Error('Cannot persist update state')
-      return true
-    },
-  }
+  await build({ stdin: { contents: `export * from './shared/server-updates.ts';export * from './shared/server-update-runner.ts';export * from './shared/server-update-store.ts'`, resolveDir: process.cwd() }, outfile: bundlePath, bundle: true, platform: 'node', format: 'esm', target: 'node24' })
+  const { executeServerUpdate, createUpdateStore } = await import(pathToFileURL(bundlePath).href)
+  const store = createUpdateStore(query)
   const corePath = resolve('.deployment/builds/deployment-core.mjs')
   await build({ entryPoints: ['packages/deployment-core/src/index.ts'], outfile: corePath, bundle: true, platform: 'node', format: 'esm', target: 'node24' })
   const core = await import(pathToFileURL(corePath).href)
