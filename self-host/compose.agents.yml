@@ -7,6 +7,7 @@ services:
       AGENT_RUNNER_URL: http://agent-runner:8081
       AGENT_RUNNER_TOKEN: ${LLLL_RUNNER_TOKEN:?set a separate 32+ character Runner token}
       AGENT_CALLBACK_ORIGIN: http://llll:8080
+      EXA_API_KEY: ${EXA_API_KEY:-}
     networks:
       default:
       agents:

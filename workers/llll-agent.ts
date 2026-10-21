@@ -780,9 +780,6 @@ export class L4Agent extends Agent<L4Env> {
       }
       const run = await createAgentRun(this.env, actor, { agentId: this.name.replace(/^agent:/u, ''), channelId: target.channelId, prompt: input.content || 'The user attached an image. Visual input is unavailable in this runtime; explain that limitation without claiming to inspect it.',
         sourceMessageId: input.messageId, idempotencyKey: input.messageId })
-      await putAgentTurn(this.env, { submissionId: run.id, agentId: run.agentId, channelId: run.channelId,
-        sourceMessageId: input.messageId, initiatedBy: run.initiatedBy, status: 'queued', detail: 'Queued' })
-      await fanoutAgentTurns(this.env, run.channelId, run.agentId)
       return run.id
     }
     const conversation = await this.subAgent(L4Think, `channel-${input.channelId}`)

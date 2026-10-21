@@ -22,11 +22,11 @@ export class AgentComputeDurableObject extends DurableObject<L4Env> {
         // The coordinator persists transcript and results outside this filesystem.
         // No arbitrary public egress: only the Server's gateway is intercepted.
         const origin = new URL(this.env.PUBLIC_ORIGIN!)
-        container.start({ image: container.images.pi, instance: 'standard-1', enableInternet: false,
-          env: { LLLL_RUN_TOKEN: token, NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt' } })
         const gateway = this.ctx.exports.AgentOutbound({ props: { origin: origin.origin } })
         await container.interceptOutboundHttp(origin.hostname, gateway)
         await container.interceptOutboundHttps(origin.hostname, gateway)
+        container.start({ image: container.images.pi, instance: 'standard-1', enableInternet: false,
+          env: { LLLL_RUN_TOKEN: token, NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt' } })
         for (let attempt = 0; attempt < 60; attempt++) {
           try {
             const health = await container.getTcpPort(8080).fetch('http://container/health', { headers: { Authorization: `Bearer ${token}` } })

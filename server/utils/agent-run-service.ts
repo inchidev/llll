@@ -9,6 +9,7 @@ import { loadAuthorizationContext } from './authorization'
 import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import { getTask } from './task-service'
 import { fail } from './cf'
+import { putAgentTurn, fanoutAgentTurns } from '../../workers/agent-turns'
 
 const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id as channelId, initiated_by as initiatedBy,
  task_id as taskId, source_message_id as sourceMessageId, status, prompt, model, instructions, mandate_json as mandateJson, result_text as resultText,
@@ -56,6 +57,11 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
 
 export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate): Promise<AgentRun> {
   const input = runRequestSchema.parse(request)
+  if (input.sourceMessageId) {
+    const source = await env.DB.prepare('SELECT m.id FROM messages m JOIN channels c ON c.id=? WHERE m.id=? AND (m.channel_id=c.id OR c.parent_message_id=m.id)')
+      .bind(input.channelId, input.sourceMessageId).first()
+    if (!source) fail(404, 'not_found', 'Source message not found in this conversation')
+  }
   if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.useAgents))) fail(403, 'forbidden', 'Cannot invoke agents')
   if (!piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider before starting work')
   const previous = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?')
@@ -111,6 +117,11 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     const duplicate = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?').bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
     if (duplicate) return (await findAgentRun(env, duplicate.id))!
     fail(429, 'run_budget', 'Agent daily run limit reached')
+  }
+  if (input.sourceMessageId) {
+    await putAgentTurn(env, { submissionId: id, agentId: input.agentId, channelId: input.channelId, sourceMessageId: input.sourceMessageId,
+      initiatedBy: actor.principal.id, status: 'queued', detail: 'Queued' })
+    await fanoutAgentTurns(env, input.channelId, input.agentId)
   }
   await asRpc<{ wake: (id: string) => Promise<void> }>(env.AGENT_RUN_DO!.getByName(`run:${id}`)).wake(id)
   return (await findAgentRun(env, id))!
