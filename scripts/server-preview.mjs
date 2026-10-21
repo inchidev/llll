@@ -146,12 +146,16 @@ if (!auth || !claim)
   throw new Error('Configure private Preview auth and owner claims')
 // Optional isolated compute proof, built from this exact PR checkout in Workers Builds.
 if (process.env.LLLL_PREVIEW_PI === '1') {
+  const image = process.env.LLLL_PREVIEW_PI_IMAGE
+  if (image && !new RegExp(`^registry\\.cloudflare\\.com/${account}/[a-z0-9_-]+@sha256:[a-f0-9]{64}$`).test(image)) throw new Error('Pi Preview image must be digest-pinned in this account registry')
   config.compatibility_date = '2026-10-21'
   config.durable_objects.bindings.push({ name: 'AGENT_COMPUTE', class_name: 'AgentComputeDurableObject' })
   config.migrations.push({ tag: 'v4-pi-compute', new_sqlite_classes: ['AgentComputeDurableObject'] })
   config.containers = [{ class_name: 'AgentComputeDurableObject', scheduling_policy: 'durable_object',
-    images: { pi: { dockerfile: resolve(root, 'packages/agent-runtime/Dockerfile'), build_context: root } } }]
+    images: { pi: image ? { image } : { dockerfile: resolve(root, 'packages/agent-runtime/Dockerfile'), build_context: root } } }]
   config.ai = { binding: 'AI' }
+  config.observability = { enabled: true, head_sampling_rate: 1 }
+  config.containers[0].observability = { enabled: true }
 }
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })

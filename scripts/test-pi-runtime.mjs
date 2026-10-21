@@ -92,6 +92,8 @@ try {
     '--env', `LLLL_AGENT_NETWORK=${network}`, '--env', `LLLL_AGENT_IMAGE=${image}`, 'llll-agent-runner:local')
   runnerMode = true
   await new Promise(resolve => setTimeout(resolve, 500))
+  assert.equal((await request('/health')).status, 200)
+  assert.equal((await (await request('/run')).json()).status, 'idle', 'Readiness must not submit work')
   assert.equal((await request('/run', 'POST', { ...input, runId: secondId, prompt: 'Wait for cancellation' })).status, 202)
   assert.equal((await request('/run', 'DELETE')).status, 202)
   for (let attempt = 0; attempt < 100; attempt++) {
