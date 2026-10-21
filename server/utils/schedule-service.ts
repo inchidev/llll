@@ -117,29 +117,29 @@ export async function cancelSchedule(env: L4Env, auth: AuthorizationContext, id:
 
 export async function executeScheduledOccurrence(env: L4Env, item: Schedule, schedule: (promise: Promise<unknown>) => void) {
   if (item.status !== 'active' || !item.nextAt || Date.parse(item.nextAt) > Date.now()) return
-      const authorization = await scheduleAuthorization(env, item)
-      await env.DB.prepare('INSERT INTO agent_schedule_occurrences(schedule_id,due_at,message_id) VALUES (?,?,?) ON CONFLICT DO NOTHING')
-        .bind(item.id, item.nextAt, newId()).run()
-      const occurrence = await env.DB.prepare('SELECT message_id as messageId,completed_at as completedAt FROM agent_schedule_occurrences WHERE schedule_id=? AND due_at=?')
-        .bind(item.id, item.nextAt).first<{ messageId: string; completedAt: string | null }>()
-      let runId: string | null = null
-      if (!occurrence!.completedAt) {
-        if (item.kind === 'reminder') {
-          await sendChannelMessage(env, await scheduleMember(env, authorization, item.channelId), item.channelId,
-            { content: `Reminder: ${item.content}` }, schedule, occurrence!.messageId, false)
-        } else {
-          const human = authorization.principal.kind === 'human' ? authorization
-            : await loadAuthorizationContext(env, { principalId: item.createdBy, credential: { kind: 'session' } })
-          if (!human) throw Object.assign(new Error('Schedule creator unavailable'), { statusCode: 403 })
-          runId = (await createAgentRun(env, human, { agentId: item.agentId!, taskId: item.taskId!, channelId: item.channelId,
-            prompt: item.content, idempotencyKey: `schedule:${item.id}:${item.nextAt}` }, JSON.parse(item.mandateJson!) as RunMandate)).id
-        }
-      }
-      const nextAt = nextScheduleAt(item, item.nextAt, nowIso())
-      await env.DB.batch([
-        env.DB.prepare('UPDATE agent_schedule_occurrences SET completed_at=COALESCE(completed_at,?),run_id=COALESCE(run_id,?) WHERE schedule_id=? AND due_at=?')
-          .bind(nowIso(), runId, item.id, item.nextAt),
-        env.DB.prepare("UPDATE agent_schedules SET next_at=?,status=?,last_error=NULL WHERE id=? AND status='active' AND next_at=?")
-          .bind(nextAt, nextAt ? 'active' : 'completed', item.id, item.nextAt),
-      ])
+  const authorization = await scheduleAuthorization(env, item)
+  await env.DB.prepare('INSERT INTO agent_schedule_occurrences(schedule_id,due_at,message_id) VALUES (?,?,?) ON CONFLICT DO NOTHING')
+    .bind(item.id, item.nextAt, newId()).run()
+  const occurrence = await env.DB.prepare('SELECT message_id as messageId,completed_at as completedAt FROM agent_schedule_occurrences WHERE schedule_id=? AND due_at=?')
+    .bind(item.id, item.nextAt).first<{ messageId: string; completedAt: string | null }>()
+  let runId: string | null = null
+  if (!occurrence!.completedAt) {
+    if (item.kind === 'reminder') {
+      await sendChannelMessage(env, await scheduleMember(env, authorization, item.channelId), item.channelId,
+        { content: `Reminder: ${item.content}` }, schedule, occurrence!.messageId, false)
+    } else {
+      const human = authorization.principal.kind === 'human' ? authorization
+        : await loadAuthorizationContext(env, { principalId: item.createdBy, credential: { kind: 'session' } })
+      if (!human) throw Object.assign(new Error('Schedule creator unavailable'), { statusCode: 403 })
+      runId = (await createAgentRun(env, human, { agentId: item.agentId!, taskId: item.taskId!, channelId: item.channelId,
+        prompt: item.content, idempotencyKey: `schedule:${item.id}:${item.nextAt}` }, JSON.parse(item.mandateJson!) as RunMandate)).id
+    }
+  }
+  const nextAt = nextScheduleAt(item, item.nextAt, nowIso())
+  await env.DB.batch([
+    env.DB.prepare('UPDATE agent_schedule_occurrences SET completed_at=COALESCE(completed_at,?),run_id=COALESCE(run_id,?) WHERE schedule_id=? AND due_at=?')
+      .bind(nowIso(), runId, item.id, item.nextAt),
+    env.DB.prepare("UPDATE agent_schedules SET next_at=?,status=?,last_error=NULL WHERE id=? AND status='active' AND next_at=?")
+      .bind(nextAt, nextAt ? 'active' : 'completed', item.id, item.nextAt),
+  ])
 }
