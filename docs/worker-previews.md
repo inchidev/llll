@@ -6,6 +6,8 @@ The official `llll` Worker has a native Preview at `<preview-slug>.dev.llll.gg` 
 
 A Server Preview uses `scripts/server-preview.mjs` inside Workers Builds. It requires the exact head of an open mergeable PR, separate `llll-server-pr-N` D1/FILES/BACKUPS/TICKETS resources, private Preview secrets and an operator-owned HTTPS origin. Its source deployment is isolated from customer Servers and the official site. Connected Cloudflare tools configure the Worker, domain and Build; they never upload code.
 
+Update-flow verification can opt into `LLLL_PREVIEW_UPDATE_FIXTURE=1`. Only that isolated PR Worker receives managed-update metadata. `LLLL_PREVIEW_INSTALLED_VERSION` may identify an older version (never newer than the candidate package) to exercise a real upgrade to a published artifact without publishing a test release. After the upgrade, redeploy the same candidate from Git to inspect the persisted completion record and leave the Preview reviewable. Its own Build hook, backup state and fixture Accounts must never point at customer Servers.
+
 ## Local fixture
 
 ```sh

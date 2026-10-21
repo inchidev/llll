@@ -140,6 +140,7 @@ try {
               PUBLIC_ORIGIN: origins[name],
               LLLL_ACCOUNT_ID: 'a'.repeat(32),
               LLLL_WORKER_NAME: 'server-' + name,
+              LLLL_SERVER_MARKER: 'llll.gg/server-v1',
               BACKUP_BUCKET_NAME: name + '-backups',
               AUTH_SECRET: (name + '-server-secret-').repeat(4),
               APP_NAME: name,

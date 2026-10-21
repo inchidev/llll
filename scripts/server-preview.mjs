@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { compareVersions, parseVersion } from './release-policy.mjs'
 import {
   pullRequestCandidate,
   verifyMergeParents,
@@ -119,6 +120,21 @@ Object.assign(config, {
     EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
   },
 })
+if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
+  const version = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
+  const installed = process.env.LLLL_PREVIEW_INSTALLED_VERSION || version
+  parseVersion(installed)
+  if (compareVersions(installed, version) > 0) throw new Error('A Preview fixture cannot impersonate a newer release')
+  Object.assign(config.vars, {
+    LLLL_ACCOUNT_ID: account,
+    LLLL_WORKER_NAME: name,
+    LLLL_APP_HOSTNAME: new URL(origin).hostname,
+    LLLL_CUSTOM_DOMAIN: 'true',
+    LLLL_SERVER_MARKER: 'llll.gg/server-v1',
+    LLLL_VERSION: installed,
+    BACKUP_BUCKET_NAME: name + '-backups',
+  })
+}
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)

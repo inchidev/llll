@@ -19,7 +19,7 @@ export async function updateOwner(event: H3Event) {
 }
 
 export function updateStorage(env: L4Env, serverId: string): UpdateStore {
-  if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require an L4 Git-connected Cloudflare Build and a separate backup bucket. VPS operators use llll upgrade.')
+  if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_SERVER_MARKER !== 'llll.gg/server-v1' || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require an L4 Git-connected Cloudflare Build and a separate backup bucket. VPS operators use llll upgrade.')
   const bucket = env.BACKUPS
   const key = updateStateKey(serverId)
   return {
