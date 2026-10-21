@@ -71,7 +71,7 @@ async function decide(accept: boolean) {
         <legend class="mb-3 text-sm font-medium text-highlighted">Allow this application to</legend>
         <div class="space-y-3">
           <UCheckbox
-v-for="scope in consent.scopes" :key="scope" :label="MCP_SCOPE_LABELS[scope]"
+            v-for="scope in consent.scopes" :key="scope" :label="MCP_SCOPE_LABELS[scope]"
             :disabled="busy || !allowedScopes.includes(scope)" :model-value="scopes.includes(scope)"
             @update:model-value="checked => { scopes = checked === true ? [...new Set([...scopes, scope])] : scopes.filter(value => value !== scope) }" />
         </div>
