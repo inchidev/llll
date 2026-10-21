@@ -3,6 +3,7 @@ import { emailInboundProvider } from './inbound-email'
 import { authEmailAvailable, emailProvider } from './mail-transport'
 import {
   aiProvider,
+  piRuntimeConfigured,
   browserProvider,
   callsProvider,
   type L4Env,
@@ -18,16 +19,16 @@ export const UNAVAILABLE_CAPABILITIES: RuntimeCapabilities = {
   callsProvider: null,
 }
 
-/** Containers are not part of this product on any runtime. */
-export function containersAvailable(): boolean {
-  return false
+/** Pi is available only when its isolated execution provider and persistence are configured. */
+export function containersAvailable(env?: L4Env): boolean {
+  return env ? piRuntimeConfigured(env) : false
 }
 
 export function serverCapabilities(env: L4Env): RuntimeCapabilities {
   const calls = callsProvider(env)
   return {
     calls: calls !== null,
-    containers: containersAvailable(),
+    containers: containersAvailable(env),
     browser: browserProvider(env),
     emailOutbound: authEmailAvailable(env),
     emailInbound: emailInboundProvider(env),

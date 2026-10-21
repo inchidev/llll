@@ -99,10 +99,19 @@ export async function readChannelMessages(env: L4Env, member: Membership, channe
   return { frozen: access.frozen, messages: dtos, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
 }
 
-export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void) {
+export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void, deliveryId?: string, notifyAgents = true) {
   authorizeMcpCredential(actor.authorization, 'messages:write')
   const member = await requireChannelAccessForMember(env, actor, channelId, Permission.sendMessages, 'POST')
   const body = sendMessageSchema.parse(input)
+  if (deliveryId) {
+    const previous = await env.DB.prepare('SELECT id FROM messages WHERE id=? AND channel_id=? AND author_id=?')
+      .bind(deliveryId, channelId, actor.user.id).first()
+    if (previous) {
+      const row = (await getDb(env.DB).select().from(messages).where(eq(messages.id, deliveryId)).limit(1))[0]!
+      const [message] = await hydrateMessages(env, [row], actor.user.id)
+      return { message }
+    }
+  }
   if (!body.content.trim() && !body.attachmentIds?.length) fail(400, 'bad_request', 'Empty message')
   if (body.attachmentIds?.length && !hasPermission(member.perms, Permission.attachFiles)) {
     fail(403, 'forbidden', 'Missing permission')
@@ -137,7 +146,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     mentionIds = (rows.results ?? []).map((row) => row.id)
   }
 
-  const id = newId()
+  const id = deliveryId ?? newId()
   const created = nowIso()
   const notification = await messageNotificationStatement(env, {
     id,
@@ -189,7 +198,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     await stub.fanout({ t: 'message', message: dto })
   }
   catch { /* local without DO */ }
-  schedule(signalAgentsForMessage(env, {
+  if (notifyAgents) schedule(signalAgentsForMessage(env, {
     messageId: id,
     channelId,
     authorId: member.user.id,

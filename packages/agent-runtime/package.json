@@ -1,0 +1,14 @@
+{
+  "name": "@llll/agent-runtime",
+  "version": "0.2.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "zod": "^4.5.4"
+  }
+}

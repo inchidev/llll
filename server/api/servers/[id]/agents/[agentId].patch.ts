@@ -1,3 +1,4 @@
+import { piConfigured } from '../../../../utils/agent-run-service'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { agents, users } from '../../../../../drizzle/schema'
@@ -13,6 +14,7 @@ import { resolveAgentModelId } from '../../../../../workers/env'
 import { signalMembersChanged } from '../../../../../workers/member-events'
 
 const bodySchema = z.object({
+  harness: z.enum(['pi', 'think']).optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
   model: z.string().trim().min(1).max(200).optional(),
   instructions: z.string().trim().max(12_000).optional(),
@@ -32,6 +34,8 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     .limit(1))[0]
   if (!current) fail(404, 'not_found', 'Agent not found')
 
+  const harness = body.harness ?? current.profile.harness
+  if (harness === 'pi' && !piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
   const now = nowIso()
   const displayName = body.displayName ?? current.user.displayName
   const model = body.model !== undefined ? resolveAgentModelId(env, body.model) : current.profile.model
@@ -40,7 +44,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
 
   await db.batch([
     db.update(users).set({ displayName, updatedAt: now }).where(eq(users.id, agentId)),
-    db.update(agents).set({ model, instructions, status, updatedAt: now }).where(eq(agents.userId, agentId)),
+    db.update(agents).set({ harness, model, instructions, status, updatedAt: now }).where(eq(agents.userId, agentId)),
   ])
   await writeAudit(env, {
     serverId,
@@ -62,6 +66,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   return {
     agent: {
       id: agentId,
+      harness,
       displayName,
       avatarR2Key: current.user.avatarR2Key,
       model,

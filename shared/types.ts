@@ -15,6 +15,7 @@ export type PublicUser = {
 }
 
 export type AgentDTO = {
+  harness?: 'think' | 'pi'
   id: string
   displayName: string
   avatarR2Key: string | null
@@ -610,7 +611,7 @@ export type CallsProviderName = 'realtimekit' | 'realtimekit-rest' | null
 export type RuntimeCapabilities = {
   /** RealtimeKit calls. False when neither Cloudflare's network nor its REST API is available. */
   calls: boolean
-  /** Agent containers, computers, and shells. This product does not provide them. */
+  /** An isolated Pi execution provider is configured; tools still require Role grants. */
   containers: boolean
   browser: BrowserProviderName
   emailOutbound: boolean

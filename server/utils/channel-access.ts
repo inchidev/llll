@@ -108,6 +108,12 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
   if (memberResult.status === 'rejected') throw memberResult.reason
   const baseMember = memberResult.value
   const user = baseMember.user
+  if (baseMember.authorization.delegation) {
+    const delegator = (await db.select().from(users).where(eq(users.id, baseMember.authorization.delegation.by)).limit(1))[0]
+    if (!delegator || delegator.kind !== 'human' || delegator.status !== 'active') fail(404, 'not_found', 'Channel not found')
+    // Agent identity must not expose private conversations to its token administrator.
+    await requireChannelAccessForMember(env, requireMemberForUser(env, toPublicUser(delegator), baseMember.serverId), channelId, flag, method)
+  }
 
   const [privateParts, mailboxes, grants, discussions] = await Promise.all([
     accessRoot.visibility === 'private'

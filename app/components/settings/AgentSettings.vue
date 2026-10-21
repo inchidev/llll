@@ -62,6 +62,7 @@ const statusOptions = [
 ]
 
 const schema = z.object({
+  harness: z.enum(['pi', 'think']),
   displayName: z.string().trim().min(1, 'Enter a name').max(80),
   model: z.string().trim().min(1, 'Choose a model').max(200),
   instructions: z.string().trim().max(12_000),
@@ -70,6 +71,7 @@ const schema = z.object({
 type AgentForm = z.output<typeof schema>
 
 const form = reactive<AgentForm>({
+  harness: session.health?.capabilities.containers ? 'pi' : 'think',
   displayName: '',
   model: defaultModel(),
   instructions: '',
@@ -89,6 +91,7 @@ function agentAvatarUser(agent: AgentDTO) {
   return {
     id: agent.id,
     kind: 'agent' as const,
+    harness: agent.harness ?? 'think',
     displayName: agent.displayName,
     avatarR2Key: agent.avatarR2Key,
   }
@@ -110,6 +113,7 @@ function selectAgent(agent: AgentDTO) {
   avatarFile.value = null
   removeCurrentAvatar.value = false
   Object.assign(form, {
+    harness: agent.harness ?? 'think',
     displayName: agent.displayName,
     model: openAiCompatible.value && agent.model.startsWith('@cf/')
       ? (session.health?.aiModel || agent.model)
@@ -125,6 +129,7 @@ function createAgent() {
   avatarFile.value = null
   removeCurrentAvatar.value = false
   Object.assign(form, {
+    harness: session.health?.capabilities.containers ? 'pi' : 'think',
     displayName: '',
     model: defaultModel(),
     instructions: '',
@@ -309,6 +314,11 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         />
       </UFormField>
 
+      <UFormField name="harness" label="Agent runtime" description="Permissions come from the assigned Role. Changing the runtime starts a separate conversation context.">
+        <USelect v-model="form.harness" :items="[{ label: 'Pi', value: 'pi', disabled: !session.health?.capabilities.containers }, { label: 'Think', value: 'think' }]" class="w-full" />
+        <p v-if="!session.health?.capabilities.containers" class="mt-2 text-sm text-muted">Pi needs an execution provider configured by the Server operator.</p>
+      </UFormField>
+
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />
       </UFormField>
@@ -321,9 +331,9 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <dt class="text-muted">Browser</dt>
         <dd :class="browserCopy.startsWith('Public page') ? 'text-muted' : ''">{{ browserCopy }}</dd>
         <dt class="text-muted">Containers</dt>
-        <dd class="text-muted">Agents have no container, computer, or shell on this server.</dd>
+        <dd class="text-muted">{{ session.health?.capabilities.containers ? 'Pi execution is available. Computer tools require an authorized task and the computer grant.' : 'No isolated execution provider is configured.' }}</dd>
         <dt class="text-muted">Tasks</dt>
-        <dd>Can read tasks and create new tasks.</dd>
+        <dd>Tools follow the assigned Role and the permissions of the person giving the instruction.</dd>
         <template v-if="selectedAgent">
           <dt class="text-muted">Last active</dt>
           <dd>{{ selectedAgent.lastActiveAt ? new Date(selectedAgent.lastActiveAt).toLocaleString() : 'Never' }}</dd>

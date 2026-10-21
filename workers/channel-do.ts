@@ -61,6 +61,7 @@ const updateSchema = z.object({
 })
 
 const agentPostSchema = z.object({
+  sourceRunId: z.string().uuid().optional(),
   agentId: z.string().min(8),
   content: z.string().trim().min(1).max(2000),
 })
@@ -204,7 +205,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       throw new Error('Agent cannot send in this mailbox')
     }
 
-    const id = newId()
+    let id = newId()
+    if (body.sourceRunId) {
+      const run = await this.env.DB.prepare("SELECT result_message_id as messageId FROM agent_runs WHERE id=? AND agent_id=? AND channel_id=? AND status='completed'")
+        .bind(body.sourceRunId, body.agentId, channel.id).first<{ messageId: string }>()
+      if (!run?.messageId) throw new Error('Completed Run not found')
+      id = run.messageId
+      const previous = await this.env.DB.prepare('SELECT id FROM messages WHERE id=? AND channel_id=? AND author_id=?').bind(id, channel.id, agent.id).first()
+      if (previous) return { id, channelId: channel.id }
+    }
     const createdAt = nowIso()
     const message: MessageDTO = {
       id,
@@ -559,10 +568,21 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
        WHERE channel_id = ? AND agent_id = ?
          AND (? IS NULL OR approval_json LIKE ?)
        LIMIT 1`,
-    ).bind(this.channelId(), body.agentId, body.executionId ?? null, body.executionId ? `%${body.executionId}%` : null).first()
+    ).bind(this.channelId(), body.agentId, body.executionId ?? null, body.executionId ? `%${body.executionId}%` : null).first<{ submission_id: string }>()
     if (!turn) {
       this.send(ws, { t: 'error', code: 'not_found', message: 'Agent run not found' })
       return
+    }
+    if (body.action === 'stop' && this.env.AGENT_RUN_DO) {
+      const run = await this.env.DB.prepare("SELECT id,initiated_by as initiatedBy FROM agent_runs WHERE id=? AND channel_id=? AND agent_id=? AND status IN ('queued','running')")
+        .bind(turn.submission_id, this.channelId(), body.agentId).first<{ id: string; initiatedBy: string }>()
+      if (run) {
+        if (sock.user.id !== run.initiatedBy && sock.user.id !== authz.ownerId && !hasPermission(authz.perms, Permission.manageAgents)) {
+          this.send(ws, { t: 'error', code: 'forbidden', message: 'Cannot stop this run' }); return
+        }
+        await asRpc<{ cancel: () => Promise<void> }>(this.env.AGENT_RUN_DO.getByName(`run:${run.id}`)).cancel()
+        return
+      }
     }
     const agent = asRpc<{
       controlConversation: (input: { channelId: string; action: 'stop' | 'approve' | 'reject'; executionId?: string }) => Promise<void>

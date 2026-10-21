@@ -127,6 +127,15 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     await expect(read('private-thread')).rejects.toMatchObject({ statusCode: 404 })
   })
 
+  it('does not expose an Agent’s private DM to its MCP token administrator', async () => {
+    const auth = context('owner-user')
+    auth.principal = { ...auth.principal, id: agentId, kind: 'agent', isOwner: false, permissions: Permission.mcpConnect | Permission.sendMessages }
+    auth.delegation = { by: 'owner-user', isOwner: true, permissions: Permission.mcpConnect | Permission.sendMessages }
+    const member = await requireMessageMember(env, auth, 'messages:read')
+    await expect(readChannelMessages(env, member, 'agent-dm')).rejects.toMatchObject({ statusCode: 404 })
+    expect((await listMessageChannels(env, member)).channels.map(channel => channel.id)).not.toContain('agent-dm')
+  })
+
   it('applies channel allow/deny and DM participation instead of requiring a global send grant', async () => {
     sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='member-role'").run(Permission.mcpConnect)
     await expect(send()).rejects.toMatchObject({ statusCode: 403 })

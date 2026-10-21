@@ -1,6 +1,8 @@
 import type { PublicUser } from './types'
 
 export const MCP_SCOPES = [
+  'data:read',
+  'data:write',
   'tasks:read',
   'tasks:write',
   'documents:read',
@@ -12,6 +14,8 @@ export const MCP_SCOPES = [
 export type McpScope = typeof MCP_SCOPES[number]
 
 export const MCP_SCOPE_LABELS: Record<McpScope, string> = {
+  'data:read': 'Read tables and records',
+  'data:write': 'Create and update records',
   'tasks:read': 'Read tasks',
   'tasks:write': 'Create and update tasks',
   'documents:read': 'Read documents',

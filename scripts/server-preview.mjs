@@ -144,6 +144,15 @@ const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
   throw new Error('Configure private Preview auth and owner claims')
+// Optional isolated compute proof, built from this exact PR checkout in Workers Builds.
+if (process.env.LLLL_PREVIEW_PI === '1') {
+  config.compatibility_date = '2026-10-21'
+  config.durable_objects.bindings.push({ name: 'AGENT_COMPUTE', class_name: 'AgentComputeDurableObject' })
+  config.migrations.push({ tag: 'v4-pi-compute', new_sqlite_classes: ['AgentComputeDurableObject'] })
+  config.containers = [{ class_name: 'AgentComputeDurableObject', scheduling_policy: 'durable_object',
+    images: { pi: { dockerfile: resolve(root, 'packages/agent-runtime/Dockerfile'), build_context: root } } }]
+  config.ai = { binding: 'AI' }
+}
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })
 const file = resolve(dir, 'server-preview.json'),

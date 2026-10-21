@@ -147,6 +147,7 @@ export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void
   const action = scope === 'tasks:read' ? ServerAction.readTasks
     : scope === 'tasks:write' ? ServerAction.writeTasks
       : scope === 'documents:read' ? ServerAction.readDocuments
-        : ServerAction.writeDocuments
+        : scope === 'documents:write' ? ServerAction.writeDocuments
+          : scope === 'data:read' ? ServerAction.readRecords : ServerAction.writeRecords
   authorize(principal.authorization, action)
 }

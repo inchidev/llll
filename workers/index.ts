@@ -7,6 +7,10 @@ import { NotificationDurableObject } from './notification-do'
 import { L4Agent, L4Think } from './llll-agent'
 import { receiveMailGatewayRequest } from './mail-gateway-ingress'
 import { routeServerEmail } from './server-mail-router'
+export { AgentRunDurableObject } from './agent-run-do'
+export { AgentScheduleDurableObject } from './agent-schedule-do'
+export { AgentComputeDurableObject } from './agent-compute'
+export { AgentOutbound } from './agent-outbound'
 
 export { ChannelDurableObject, ServerDurableObject, RateLimitDurableObject, NotificationDurableObject, L4Agent, L4Think }
 

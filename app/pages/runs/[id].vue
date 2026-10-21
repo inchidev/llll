@@ -1,0 +1,42 @@
+<script setup lang="ts">
+import { useQuery } from '@tanstack/vue-query'
+import type { AgentRun } from '~~/shared/agent-execution'
+
+definePageMeta({ layout: 'server', middleware: ['auth'] })
+const route = useRoute()
+const { api } = useApi()
+const cancelling = ref(false)
+const runQ = useQuery({
+  queryKey: computed(() => ['agent-run', route.params.id]),
+  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson'>; canCancel: boolean }>(`/api/agent-runs/${route.params.id}`),
+  refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') ? 2000 : false,
+})
+const run = computed(() => runQ.data.value?.run)
+async function cancel() {
+  cancelling.value = true
+  try { await api(`/api/agent-runs/${route.params.id}/cancel`, { method: 'POST' }); await runQ.refetch() }
+  finally { cancelling.value = false }
+}
+</script>
+
+<template>
+  <main class="mx-auto w-full max-w-3xl space-y-6 overflow-auto p-4 sm:p-8">
+    <LayoutSkeleton v-if="runQ.isPending.value" variant="form" />
+    <LayoutLoadError v-else-if="runQ.error.value" message="This run did not load." :retry="runQ.refetch" />
+    <template v-else-if="run">
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="text-lg font-medium text-highlighted">Agent run</h1>
+        <UBadge :label="run.status" color="neutral" variant="subtle" />
+      </div>
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <dt class="text-muted">Started</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
+        <dt class="text-muted">Model calls</dt><dd>{{ run.modelCalls }}</dd>
+        <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
+      </dl>
+      <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <section class="space-y-2"><h2 class="text-sm font-medium">Instruction</h2><p class="whitespace-pre-wrap text-sm text-muted">{{ run.prompt }}</p></section>
+      <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><div class="whitespace-pre-wrap text-sm text-default">{{ run.resultText }}</div></section>
+      <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
+    </template>
+  </main>
+</template>

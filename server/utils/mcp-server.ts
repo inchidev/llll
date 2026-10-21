@@ -6,6 +6,7 @@ import { createDocument, getDocument, listAuthorizedDataResources, updateDocumen
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from './message-service'
+import { createRecord, createRecordSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
 
 type McpServerContext = {
   env: L4Env
@@ -24,6 +25,22 @@ const taskReferenceSchema = z.union([z.string().trim().min(1), z.number().int().
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
+
+  server.registerTool('read_records', {
+    description: 'Read fields and a page of records from an authorized table.',
+    inputSchema: { databaseId: z.string().min(1), page: z.number().int().positive().default(1) },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ databaseId, page }) => result(await readRecords(env, principal.authorization, databaseId, page)))
+  server.registerTool('create_record', {
+    description: 'Create a record in an authorized table. Requires data:write scope and role permission.',
+    inputSchema: { databaseId: z.string().min(1), ...createRecordSchema.shape },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async ({ databaseId, ...input }) => result({ item: await createRecord(env, principal.authorization, databaseId, input) }))
+  server.registerTool('update_record', {
+    description: 'Update an authorized record using its current version.',
+    inputSchema: { recordId: z.string().min(1), ...updateRecordSchema.shape },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async ({ recordId, ...input }) => result({ item: await updateRecord(env, principal.authorization, recordId, input) }))
 
   server.registerTool('list_task_boards', {
     description: 'List task boards with their tasks, labels, dependencies, and checklist counts.',

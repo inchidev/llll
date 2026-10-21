@@ -14,3 +14,10 @@ Agent is a persistent non-human Member. Session is conversation-local context. T
 No shared private memory across conversations. No host Docker socket or production credentials in agent containers. No privilege increase through owner invocation or generated subtasks. Protected release policy stays outside agent-editable code. Persist results and audit facts outside ephemeral compute. Restore must not replay completed external writes.
 
 Validation: denied paths as well as allowed paths; removal and role revocation; cross-conversation and cross-resource denial; interrupted runs; duplicate delivery; spend/concurrency limits; actual Docker and Cloudflare Preview acceptance. All application deployments use Workers Builds from Git. Feature PRs do not publish production.
+
+## Implementation evidence
+
+- Role/action/resource foundation merged in PR #41. Ordinary merge, no production promotion.
+- Pi 1.3.0 SDK and isolated Docker proofs pass: explicit tools, transcript restore, gateway callbacks, repeated admission, restart, public-egress denial, Runner cancellation and resource cleanup. The model fixture is deterministic and does not certify real-model behavior.
+- Durable Runs/Sessions, scoped research/Data/Tasks tools, inherited subtask execution, role revocation and occurrence-based schedules are implemented for review. Local Server integration validates the current schema and exports; Cloudflare compute acceptance remains required before claiming that provider is verified.
+- GitHub repository environments, repository capability broker, code-to-PR/Preview and separately controlled publishing remain the next implementation slice. No production credential has been added to an execution image.

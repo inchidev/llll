@@ -4,6 +4,11 @@ import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
 
 export const ServerAction = {
+  executeTasks: 'tasks:execute',
+  manageSchedules: 'schedules:manage',
+  browseWeb: 'web:read',
+  readRecords: 'data:read',
+  writeRecords: 'data:write',
   readTasks: 'tasks:read',
   writeTasks: 'tasks:write',
   readDocuments: 'documents:read',
@@ -46,6 +51,11 @@ export type AuthorizationContext = {
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
 const ACTION_RULES: Record<ServerAction, ActionRule> = {
+  [ServerAction.executeTasks]: { permission: Permission.executeTasks },
+  [ServerAction.manageSchedules]: { permission: Permission.manageSchedules },
+  [ServerAction.browseWeb]: { permission: Permission.browseWeb },
+  [ServerAction.readRecords]: { permission: Permission.readData, scope: 'data:read' },
+  [ServerAction.writeRecords]: { permission: Permission.writeData, scope: 'data:write' },
   [ServerAction.readTasks]: { permission: Permission.readTasks, scope: 'tasks:read' },
   [ServerAction.writeTasks]: { permission: Permission.writeTasks, scope: 'tasks:write' },
   [ServerAction.readDocuments]: { permission: Permission.readData, scope: 'documents:read' },

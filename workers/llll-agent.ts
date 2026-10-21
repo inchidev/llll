@@ -1,3 +1,4 @@
+import { createAgentRun } from '../server/utils/agent-run-service'
 import {
   Think,
   action,
@@ -768,6 +769,22 @@ export class L4Think extends Think<L4Env> {
 /** Stable top-level coordinator. Each channel or thread receives its own Think facet. */
 export class L4Agent extends Agent<L4Env> {
   async receiveMessage(input: AgentMessageInput): Promise<string> {
+    const profile = await this.env.DB.prepare('SELECT harness FROM agents WHERE user_id=?').bind(this.name.replace(/^agent:/u, '')).first<{ harness: string }>()
+    if (profile?.harness === 'pi') {
+      const actor = await loadAuthorizationContext(this.env, { principalId: input.authorId, credential: { kind: 'session' } })
+      if (!actor) throw new Error('Invoking member unavailable')
+      const target = await ensureAgentReplyTarget(this.env.DB, input.channelId, input.messageId)
+      if (target.parentChannelId && target.parentMessageId) {
+        const parent = this.env.CHANNEL_DO.getByName(`channel:${target.parentChannelId}`) as DurableObjectStub & { fanout: (event: unknown) => Promise<void> }
+        await parent.fanout({ t: 'thread.created', messageId: target.parentMessageId, threadId: target.channelId })
+      }
+      const run = await createAgentRun(this.env, actor, { agentId: this.name.replace(/^agent:/u, ''), channelId: target.channelId, prompt: input.content || 'The user attached an image. Visual input is unavailable in this runtime; explain that limitation without claiming to inspect it.',
+        sourceMessageId: input.messageId, idempotencyKey: input.messageId })
+      await putAgentTurn(this.env, { submissionId: run.id, agentId: run.agentId, channelId: run.channelId,
+        sourceMessageId: input.messageId, initiatedBy: run.initiatedBy, status: 'queued', detail: 'Queued' })
+      await fanoutAgentTurns(this.env, run.channelId, run.agentId)
+      return run.id
+    }
     const conversation = await this.subAgent(L4Think, `channel-${input.channelId}`)
     return conversation.receiveMessage(input)
   }
@@ -777,6 +794,12 @@ export class L4Agent extends Agent<L4Env> {
     action: 'stop' | 'approve' | 'reject'
     executionId?: string
   }): Promise<void> {
+    const pending = await this.env.DB.prepare("SELECT id FROM agent_runs WHERE agent_id=? AND channel_id=? AND status IN ('queued','running') ORDER BY created_at LIMIT 1")
+      .bind(this.name.replace(/^agent:/u, ''), input.channelId).first<{ id: string }>()
+    if (pending && input.action === 'stop' && this.env.AGENT_RUN_DO) {
+      await (this.env.AGENT_RUN_DO.getByName(`run:${pending.id}`) as DurableObjectStub & { cancel: () => Promise<void> }).cancel()
+      return
+    }
     const conversation = await this.subAgent(L4Think, `channel-${input.channelId}`)
     await conversation.controlConversation(input)
   }

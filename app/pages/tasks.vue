@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { Permission } from '~~/shared/permissions'
 import type {
   ChannelDTO,
   MemberDTO,
@@ -16,10 +17,25 @@ import { boardPath } from '~~/shared/paths'
 definePageMeta({ layout: 'server', middleware: ['auth', 'manage-tasks'] })
 
 const { serverId } = useServer()
+const { can } = useRoleGrants()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const qc = useQueryClient()
 const toast = useToast()
+const startingRun = ref(false)
+async function runSelectedTask() {
+  const task = selectedTask.value
+  if (!task?.assigneeId || !task.channelId) return
+  startingRun.value = true
+  try {
+    const result = await api<{ run: { id: string } }>('/api/agent-runs', { method: 'POST', body: {
+      agentId: task.assigneeId, taskId: task.id, channelId: task.channelId,
+      prompt: `${task.title}\n\n${task.description}`, idempotencyKey: crypto.randomUUID(),
+    } })
+    await navigateTo(`/runs/${result.run.id}`)
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { startingRun.value = false }
+}
 
 /** Board and the archived view live in the URL so the sidebar can link to them. */
 const route = useRoute()
@@ -397,7 +413,7 @@ async function setStatus(taskId: string, status: TaskStatus, position?: number) 
 async function dropTask(status: TaskStatus, beforeTaskId: string | null = null) {
   const taskId = draggedTaskId.value
   draggedTaskId.value = null
-  if (!taskId || showArchived.value) return
+  if (!taskId || showArchived.value || !can(Permission.writeTasks)) return
   await mutate(() => api(`/api/boards/${activeBoard.value!.id}/tasks/reorder`, {
     method: 'PATCH',
     body: { taskId, status, beforeTaskId: beforeTaskId === taskId ? null : beforeTaskId },
@@ -504,10 +520,10 @@ const boardMenu = computed(() => [[
         </template>
         <template #actions>
           <UInput v-if="activeBoard" v-model="taskSearch" icon="i-ph-magnifying-glass" placeholder="Search tasks" aria-label="Search tasks" class="w-28 sm:w-44" />
-          <UDropdownMenu v-if="activeBoard" :items="boardMenu">
+          <UDropdownMenu v-if="activeBoard && can(Permission.manageTasks)" :items="boardMenu">
             <UButton color="neutral" variant="ghost" icon="i-ph-dots-three" aria-label="Board actions" />
           </UDropdownMenu>
-          <UButton v-if="!showArchived && activeBoard" icon="i-ph-plus" :label="isMobile ? undefined : 'Task'" aria-label="New task" @click="openCreateTask" />
+          <UButton v-if="!showArchived && activeBoard && can(Permission.writeTasks)" icon="i-ph-plus" :label="isMobile ? undefined : 'Task'" aria-label="New task" @click="openCreateTask" />
         </template>
       </LayoutPageHeader>
 
@@ -515,7 +531,7 @@ const boardMenu = computed(() => [[
       <LayoutLoadError v-else-if="boardsQ.error.value" message="Task boards did not load." :retry="boardsQ.refetch" />
       <LayoutEmptyState v-else-if="!activeBoard && showArchived" icon="i-ph-archive" title="Nothing archived" description="Boards you archive show up here." />
       <LayoutEmptyState v-else-if="!activeBoard" icon="i-ph-kanban" title="No boards yet" description="A board collects the tasks for one team or project, in columns from to-do to done.">
-        <UButton icon="i-ph-plus" label="Create first board" @click="openCreateBoard" />
+        <UButton v-if="can(Permission.manageTasks)" icon="i-ph-plus" label="Create first board" @click="openCreateBoard" />
       </LayoutEmptyState>
       <div v-else class="flex-1 min-h-0 overflow-auto p-4">
         <div class="grid grid-flow-col auto-cols-[minmax(260px,1fr)] gap-3 min-w-max h-full items-start">
@@ -534,7 +550,7 @@ const boardMenu = computed(() => [[
                 v-for="task in tasksFor(column.status)"
                 :key="task.id"
                 class="df-panel rounded-lg p-3 space-y-2 cursor-pointer"
-                :draggable="!showArchived"
+                :draggable="!showArchived && can(Permission.writeTasks)"
                 @dragstart="draggedTaskId = task.id"
                 @dragend="draggedTaskId = null"
                 @dragover.prevent
@@ -564,7 +580,7 @@ const boardMenu = computed(() => [[
                 <div v-if="task.dueAt" class="text-[11px] text-muted">{{ formatDate(task.dueAt) }}</div>
                 <UAlert v-if="task.lastError" color="error" :description="task.lastError" />
                 <div v-if="task.resultSummary" class="text-xs border-t border-default pt-2 line-clamp-3">{{ task.resultSummary }}</div>
-                <div v-if="!showArchived" class="flex items-center gap-1 pt-1" @click.stop>
+                <div v-if="!showArchived && can(Permission.writeTasks)" class="flex items-center gap-1 pt-1" @click.stop>
                   <USelect
                     :model-value="task.status"
                     :items="manualStatusOptions"
@@ -642,7 +658,7 @@ const boardMenu = computed(() => [[
       <template #body>
         <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
         <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
-        <div v-else-if="selectedTask" class="space-y-8">
+        <fieldset v-else-if="selectedTask" :disabled="!can(Permission.writeTasks)" class="space-y-8 min-w-0">
           <section class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Title" class="sm:col-span-2"><UInput v-model="editTask.title" class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
             <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="editTask.description" :rows="5" autoresize class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
@@ -723,13 +739,17 @@ const boardMenu = computed(() => [[
             :members="members"
           />
 
-          <div class="flex items-center gap-2 border-t border-default pt-4">
+          <div v-if="can(Permission.manageTasks)" class="flex items-center gap-2 border-t border-default pt-4">
             <UButton color="neutral" variant="ghost" size="sm" :icon="selectedTask.archivedAt ? 'i-ph-arrow-counter-clockwise' : 'i-ph-archive'" :label="selectedTask.archivedAt ? 'Restore task' : 'Archive task'" @click="archiveTask" />
             <UButton color="error" variant="ghost" size="sm" icon="i-ph-trash" label="Delete task" @click="deleteTask" />
           </div>
 
-          <LayoutSaveBar :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
-        </div>
+          <LayoutSaveBar v-if="can(Permission.writeTasks)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
+        </fieldset>
+        <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mt-6 space-y-2 border-t border-default pt-4">
+          <UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="!selectedTask.channelId || !agents.some(agent => agent.id === selectedTask!.assigneeId && agent.status === 'active')" @click="runSelectedTask" />
+          <p v-if="!selectedTask.channelId" class="text-xs text-muted">Choose and save a report channel before starting the task.</p>
+        </section>
       </template>
     </USlideover>
 

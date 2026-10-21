@@ -35,6 +35,19 @@ export async function resolveMcpPrincipal(
   const perms = isOwner ? ALL_PERMISSIONS : row.perms
   if (!hasPermission(perms, Permission.mcpConnect)) return null
   const delegatedBy = credential.createdBy === credential.subjectId ? null : credential.createdBy
+  let delegation: AuthorizationContext['delegation']
+  if (delegatedBy) {
+    if (row.kind !== 'agent') return null
+    const creator = await env.DB.prepare(`SELECT r.name as roleName,r.permissions_bitmask as permissions,r.resource_access_json as resourceAccessJson
+      FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.kind='human' AND u.status='active'`)
+      .bind(delegatedBy).first<{ roleName: string; permissions: number; resourceAccessJson: string }>()
+    const creatorOwner = delegatedBy === row.ownerId
+    if (!creator || (!creatorOwner && (!hasPermission(creator.permissions, Permission.manageAgents) || !hasPermission(creator.permissions, Permission.mcpConnect)))) return null
+    const profile = await env.DB.prepare("SELECT status FROM agents WHERE user_id=?").bind(credential.subjectId).first<{ status: string }>()
+    if (profile && profile.status !== 'active') return null
+    delegation = { by: delegatedBy, permissions: creatorOwner ? ALL_PERMISSIONS : creator.permissions,
+      isOwner: creatorOwner, roleName: creator.roleName, resourceAccess: creatorOwner ? {} : parseResourceAccess(creator.resourceAccessJson) }
+  }
   return {
     tokenId: credential.id, userId: credential.subjectId, serverId,
     roleId: row.roleId, roleName: row.roleName, perms, isOwner, scopes: credential.scopes, delegatedBy,
@@ -42,7 +55,7 @@ export async function resolveMcpPrincipal(
       serverId,
       principal: { id: credential.subjectId, kind: row.kind, roleId: row.roleId, roleName: row.roleName, permissions: perms, isOwner, resourceAccess: parseResourceAccess(row.resourceAccessJson) },
       credential: { kind: 'mcp', id: credential.id, scopes: credential.scopes, ...(credential.clientId ? { clientId: credential.clientId } : {}) },
-      ...(delegatedBy ? { delegation: { by: delegatedBy } } : {}),
+      ...(delegation ? { delegation } : {}),
     },
   }
 }

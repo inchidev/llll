@@ -8,6 +8,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import { isPublicAssetURL } from '#nitro-internal-virtual/public-assets'
 import type { L4Env } from '../workers/env'
 import { routeServerEmail } from '../workers/server-mail-router'
+import { agentGateway } from './utils/agent-gateway'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 
 export { ChannelDurableObject } from '../workers/channel-do'
@@ -15,12 +16,18 @@ export { ServerDurableObject } from '../workers/server-do'
 export { RateLimitDurableObject } from '../workers/rate-limit-do'
 export { NotificationDurableObject } from '../workers/notification-do'
 export { L4Agent, L4Think } from '../workers/llll-agent'
+export { AgentRunDurableObject } from '../workers/agent-run-do'
+export { AgentScheduleDurableObject } from '../workers/agent-schedule-do'
+export { AgentComputeDurableObject } from '../workers/agent-compute'
+export { AgentOutbound } from '../workers/agent-outbound'
 
 const nitroApp = useNitroApp()
 
 export default {
   async fetch(request: Request, env: L4Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
+    const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools)$/u)
+    if (gateway) return agentGateway(request, env, gateway[1]!, gateway[2]!, promise => context.waitUntil(promise))
     if (url.pathname === '/.llll/mail/inbound') return receiveMailGatewayRequest(request, env)
     if (request.headers.get('Upgrade') === 'websocket') {
       const channel = url.pathname.match(/^\/ws\/channel\/([^/]+)/)

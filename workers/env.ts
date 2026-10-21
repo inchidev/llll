@@ -9,6 +9,17 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 }
 
 export type L4Env = {
+  /** Isolated Pi executor transport. Never exposed to agents or browser clients. */
+  AGENT_RUN_DO?: DurableObjectNamespace
+  AGENT_SCHEDULE_DO?: DurableObjectNamespace
+  AGENT_COMPUTE?: DurableObjectNamespace
+  AGENT_RUNNER_URL?: string
+  AGENT_RUNNER_TOKEN?: string
+  /** Server address reachable from a VPS agent's private Docker network. */
+  AGENT_CALLBACK_ORIGIN?: string
+  /** Optional search provider credential; never sent to compute. */
+  EXA_API_KEY?: string
+
   /** Additional origins allowed to embed this Server client. */
   EMBED_ORIGINS?: string
   TELEGRAM_TRUSTED_BOT_ID?: string
@@ -176,4 +187,8 @@ export function resolveAgentModelId(env: L4Env, profileModel?: string | null): s
     return env.AI_MODEL!.trim()
   }
   return profile || env.AGENT_MODEL?.trim() || DEFAULT_WORKERS_MODEL
+}
+
+export function piRuntimeConfigured(env: L4Env): boolean {
+  return Boolean(env.AGENT_RUN_DO && env.FILES && (env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)))
 }

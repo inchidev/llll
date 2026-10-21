@@ -317,6 +317,7 @@ export const users = sqliteTable('users', {
 
 /** Stateful AI participant profile. Runtime memory lives in its Agent Durable Object. */
 export const agents = sqliteTable('agents', {
+  harness: text('harness', { enum: ['think', 'pi'] }).notNull().default('think'),
   userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   model: text('model').notNull().default('@cf/moonshotai/kimi-k2.7-code'),
   instructions: text('instructions').notNull().default(''),

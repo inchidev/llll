@@ -22,6 +22,7 @@ export const Permission = {
   writeTasks: 1 << 20,
   readData: 1 << 21,
   writeData: 1 << 22,
+  browseWeb: 1 << 23,
 } as const
 
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
@@ -42,7 +43,7 @@ export const ALL_PERMISSIONS =
   | Permission.mcpConnect
   | Permission.useAgents | Permission.manageAgents | Permission.approveAgentActions
   | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules
-  | Permission.readTasks | Permission.writeTasks | Permission.readData | Permission.writeData
+  | Permission.readTasks | Permission.writeTasks | Permission.readData | Permission.writeData | Permission.browseWeb
 
 export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
@@ -70,6 +71,7 @@ export const PermissionGrants = [
   { key: 'writeTasks', flag: Permission.writeTasks, label: 'Create and update tasks', description: 'Create and update authorized tasks without managing or deleting boards.' },
   { key: 'readData', flag: Permission.readData, label: 'Read data', description: 'Read authorized tables, records, and documents.' },
   { key: 'writeData', flag: Permission.writeData, label: 'Write data', description: 'Create and edit records and documents without deleting resources or changing table structure.' },
+  { key: 'browseWeb', flag: Permission.browseWeb, label: 'Research the web', description: 'Search and read public web sources through the Server’s configured providers.' },
   { key: 'mcp.connect', flag: Permission.mcpConnect, label: 'Connect MCP clients', description: 'Allow external MCP clients to act as this member within their role and approved scopes.' },
 ] as const
 

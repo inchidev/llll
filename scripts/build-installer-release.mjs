@@ -108,6 +108,8 @@ const manifest = {
     { binding: 'NOTIFICATION_DO', className: 'NotificationDurableObject', migration: 'v1' },
     { binding: 'AGENT_DO', className: 'L4Agent', migration: 'v1' },
     { binding: 'AGENT_THINK', className: 'L4Think', migration: 'v1' },
+    { binding: 'AGENT_RUN_DO', className: 'AgentRunDurableObject', migration: 'v2-agent-runs' },
+    { binding: 'AGENT_SCHEDULE_DO', className: 'AgentScheduleDurableObject', migration: 'v3-agent-schedules' },
   ],
 
 }

@@ -114,7 +114,7 @@ describe('MCP access tokens', () => {
   it.each(['human', 'agent'])('blocks an existing %s bearer token as soon as mcp.connect is removed', async (kind) => {
     sqlite.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('test-role','test','MCP test',?)").run(Permission.manageTasks | Permission.mcpConnect)
     sqlite.prepare("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('test-member',?,'Test','active','test-role','2026-10-21')").run(kind)
-    const input = { createdBy: 'owner-user', subjectId: 'test-member', name: 'MCP', scopes: ['tasks:read'] as const }
+    const input = { createdBy: kind === 'human' ? 'test-member' : 'owner-user', subjectId: 'test-member', name: 'MCP', scopes: ['tasks:read'] as const }
     const issue = () => issueMcpAccessToken(env, { ...input, scopes: [...input.scopes] })
     const issued = await issue()
     const request = new Request('https://server.example/mcp', { headers: { Authorization: `Bearer ${issued.token}` } })

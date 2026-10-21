@@ -7,7 +7,7 @@ import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
 import { publicIconPath } from '~~/shared/server-appearance'
 
-type Mode = 'chat' | 'tasks' | 'mail' | 'databases' | 'gadgets'
+type Mode = 'chat' | 'tasks' | 'mail' | 'databases' | 'gadgets' | 'schedules'
 
 const props = defineProps<{ serverId: string }>()
 const route = useRoute()
@@ -57,6 +57,7 @@ const connectedPath = computed(() => {
 
 /** The mode is read off the route, so a deep link lands in the right one. */
 const mode = computed<Mode>(() => {
+  if (route.path.startsWith('/schedules')) return 'schedules'
   if (route.path.startsWith('/tasks')) return 'tasks'
   if (route.path.startsWith('/mail')) return 'mail'
   if (route.path.startsWith('/databases')) return 'databases'
@@ -80,10 +81,11 @@ const mailTarget = computed(() => {
 })
 
 const modes = computed(() => [
+  ...(can(Permission.manageSchedules) ? [{ value: 'schedules' as const, label: 'Schedules', icon: 'i-ph-clock', to: '/schedules', dot: false }] : []),
   { value: 'chat' as const, label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, dot: chatUnread.value },
-  ...(can(Permission.manageTasks) ? [{ value: 'tasks' as const, label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', dot: false }] : []),
+  ...(can(Permission.readTasks) ? [{ value: 'tasks' as const, label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', dot: false }] : []),
   { value: 'mail' as const, label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, dot: mailUnread.value },
-  ...(can(Permission.manageDatabases) ? [{ value: 'databases' as const, label: 'Data', icon: 'i-ph-table', to: '/databases', dot: false }] : []),
+  ...(can(Permission.readData) ? [{ value: 'databases' as const, label: 'Data', icon: 'i-ph-table', to: '/databases', dot: false }] : []),
   ...(can(Permission.useGadgets) || can(Permission.manageGadgets) ? [{ value: 'gadgets' as const, label: 'Apps', icon: 'i-ph-squares-four', to: '/gadgets', dot: false }] : []),
 ])
 

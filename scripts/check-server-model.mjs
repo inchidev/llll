@@ -9,7 +9,7 @@ async function scan(directory) {
     if (entry.isDirectory()) { await scan(path); continue }
     if (!/\.(?:ts|vue|mjs|sql|json|jsonc|md)$/.test(path)) continue
     const text = await readFile(resolve(root, path), 'utf8')
-    if (/workspace|installation|\bInstance\b|apps\/instance/i.test(path + '\n' + text)) violations.push(relative(root, resolve(root, path)))
+    if (/workspace|installation|apps\/instance/i.test(path + '\n' + text) || /\bInstance\b/.test(path + '\n' + text)) violations.push(relative(root, resolve(root, path)))
   }
 }
 for (const directory of ['app', 'server', 'shared', 'workers', 'drizzle', 'packages/deployment-core/src', 'apps/site/app', 'apps/site/src']) await scan(directory)

@@ -57,6 +57,14 @@
       {
         "name": "AGENT_THINK",
         "class_name": "L4Think"
+      },
+      {
+        "name": "AGENT_RUN_DO",
+        "class_name": "AgentRunDurableObject"
+      },
+      {
+        "name": "AGENT_SCHEDULE_DO",
+        "class_name": "AgentScheduleDurableObject"
       }
     ]
   },
@@ -70,6 +78,18 @@
         "NotificationDurableObject",
         "L4Agent",
         "L4Think"
+      ]
+    },
+    {
+      "tag": "v2-agent-runs",
+      "new_sqlite_classes": [
+        "AgentRunDurableObject"
+      ]
+    },
+    {
+      "tag": "v3-agent-schedules",
+      "new_sqlite_classes": [
+        "AgentScheduleDurableObject"
       ]
     }
   ],

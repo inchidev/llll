@@ -1,3 +1,4 @@
+import { piConfigured } from '../../../utils/agent-run-service'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { agents, roles, users } from '../../../../drizzle/schema'
@@ -13,6 +14,7 @@ import { signalMembersChanged } from '../../../../workers/member-events'
 import { agentRuntimeConfigured, aiProvider, resolveAgentModelId } from '../../../../workers/env'
 
 const bodySchema = z.object({
+  harness: z.enum(['pi', 'think']).optional(),
   displayName: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(200).default('@cf/moonshotai/kimi-k2.7-code'),
   instructions: z.string().trim().max(12_000).default(''),
@@ -23,6 +25,8 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   const actor = await requireMember(event, serverId, Permission.manageAgents)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
+  const harness = body.harness ?? (piConfigured(env) ? 'pi' : 'think')
+  if (harness === 'pi' && !piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
   if (!agentRuntimeConfigured(env)) {
     const provider = aiProvider(env)
     fail(409, 'agent_runtime_disabled', provider
@@ -52,6 +56,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     }),
     db.insert(agents).values({
       userId: id,
+      harness,
       model,
       instructions: body.instructions,
       status: 'active',
@@ -73,6 +78,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   return {
     agent: {
       id,
+      harness,
       displayName: body.displayName,
       avatarR2Key: null,
       model,

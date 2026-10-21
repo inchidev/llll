@@ -8,7 +8,7 @@ import { requireMember } from '../../../utils/guards'
 
 export default defineEventHandler(async (event): Promise<{ agents: TaskAgentDTO[] }> => {
   const serverId = getRouterParam(event, 'id')!
-  await requireMember(event, serverId, Permission.manageTasks)
+  await requireMember(event, serverId, Permission.readTasks)
   const db = getDb(cf(event).env.DB)
   const rows = await db.select({ profile: agents, user: users }).from(agents)
     .innerJoin(users, eq(users.id, agents.userId))

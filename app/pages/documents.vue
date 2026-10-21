@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { Permission } from '~~/shared/permissions'
 import { documentPath } from '~~/shared/paths'
 import type { DataResourcesDTO, DocumentDTO } from '~~/shared/types'
 
 definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
 
 const { serverId } = useServer()
+const { can } = useRoleGrants()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const route = useRoute()
@@ -96,15 +98,15 @@ function retryLoad() {
       <template #actions>
         <span v-if="activeDocument" class="text-xs text-dimmed">{{ saving ? 'Saving…' : saveError ? 'Not saved' : dirty ? 'Unsaved' : 'Saved' }}</span>
         <DataBookmarkButton v-if="activeDocument" :server-id="serverId" target-type="document" :target-id="activeDocument.id" />
-        <UButton color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete document" :disabled="!activeDocument || saving || deleting" @click="showDelete = true" />
-        <UButton icon="i-ph-plus" :label="isMobile ? undefined : 'Document'" aria-label="New document" @click="nav.createDocumentOpen.value = true" />
+        <UButton v-if="can(Permission.manageDatabases)" color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete document" :disabled="!activeDocument || saving || deleting" @click="showDelete = true" />
+        <UButton v-if="can(Permission.writeData)" icon="i-ph-plus" :label="isMobile ? undefined : 'Document'" aria-label="New document" @click="nav.createDocumentOpen.value = true" />
       </template>
     </LayoutPageHeader>
 
     <div v-if="resourcesQ.isPending.value || (selectedId && documents.some(document => document.id === selectedId) && documentQ.isPending.value)"><LayoutSkeleton variant="document" /></div>
     <LayoutLoadError v-else-if="resourcesQ.error.value || documentQ.error.value" message="Documents did not load." :retry="retryLoad" />
     <div v-else-if="!activeDocument" class="grid flex-1 place-items-center p-6">
-      <UButton icon="i-ph-plus" label="Create first document" @click="nav.createDocumentOpen.value = true" />
+      <UButton v-if="can(Permission.writeData)" icon="i-ph-plus" label="Create first document" @click="nav.createDocumentOpen.value = true" />
     </div>
     <main v-else class="min-h-0 flex-1 overflow-y-auto">
       <UAlert v-if="saveError" color="error" title="Document not saved" :description="errorMessage(saveError)" class="m-4 w-auto">
@@ -116,6 +118,7 @@ function retryLoad() {
       <div class="mx-auto w-full max-w-4xl px-5 py-8 sm:px-10">
         <UInput
           v-model="title"
+          :readonly="!can(Permission.writeData)"
           variant="none"
           size="xl"
           aria-label="Document title"
@@ -123,9 +126,9 @@ function retryLoad() {
           :ui="{ base: 'px-0 text-3xl font-semibold' }"
           @update:model-value="scheduleSave"
         />
-        <UEditor v-model="content" content-type="html" placeholder="Start writing…" class="min-h-[60vh]" @update:model-value="scheduleSave">
+        <UEditor v-model="content" :editable="can(Permission.writeData)" content-type="html" placeholder="Start writing…" class="min-h-[60vh]" @update:model-value="scheduleSave">
           <template #default="{ editor }">
-            <UEditorToolbar :editor="editor" class="sticky top-0 z-10 mb-4 border-b border-default bg-default/95 py-2 backdrop-blur" />
+            <UEditorToolbar v-if="can(Permission.writeData)" :editor="editor" class="sticky top-0 z-10 mb-4 border-b border-default bg-default/95 py-2 backdrop-blur" />
           </template>
         </UEditor>
       </div>

@@ -19,6 +19,7 @@ export default defineEventHandler(async (event): Promise<{ agents: AgentDTO[] }>
       displayName: user.displayName,
       avatarR2Key: user.avatarR2Key,
       model: profile.model,
+      harness: profile.harness,
       instructions: profile.instructions,
       status: profile.status,
       lastActiveAt: profile.lastActiveAt,

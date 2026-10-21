@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { Permission } from '~~/shared/permissions'
 import { refDebounced } from '@vueuse/core'
 import { DatabaseColumnWidth, DatabaseFieldTypes, DatabaseSlotCounts, DatabaseViewFilterOperators, DatabaseViewLayouts, defaultDatabaseViewConfig, type DatabaseFieldType, type DatabaseValue, type DatabaseViewFilter, type DatabaseViewFilterOperator, type DatabaseViewLayout, type DatabaseViewSort } from '~~/shared/database'
 import { databasePath } from '~~/shared/paths'
@@ -8,6 +9,7 @@ import type { DataResourcesDTO, DatabaseDTO, DatabaseFieldDTO, DatabaseItemDTO, 
 definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
 
 const { serverId } = useServer()
+const { can } = useRoleGrants()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const route = useRoute()
@@ -546,6 +548,7 @@ function changeCalendarMonth(direction: -1 | 1) {
 }
 
 function dropBoard(group: string) {
+  if (!can(Permission.writeData)) return
   const item = visibleItems.value.find(candidate => candidate.id === draggedItemId.value)
   const field = boardField.value
   draggedItemId.value = null
@@ -772,10 +775,10 @@ function retryLoad() {
         </template>
         <template #actions>
           <DataBookmarkButton v-if="activeView" :server-id="serverId" target-type="database_view" :target-id="activeView.id" />
-          <UDropdownMenu v-if="activeDatabase" :items="databaseMenu">
+          <UDropdownMenu v-if="activeDatabase && can(Permission.manageDatabases)" :items="databaseMenu">
             <UButton color="neutral" variant="ghost" icon="i-ph-dots-three" aria-label="Database actions" />
           </UDropdownMenu>
-          <UButton v-if="!showArchived && activeDatabase" icon="i-ph-plus" :label="isMobile ? undefined : 'Record'" aria-label="New record" @click="addItem" />
+          <UButton v-if="!showArchived && activeDatabase && can(Permission.writeData)" icon="i-ph-plus" :label="isMobile ? undefined : 'Record'" aria-label="New record" @click="addItem" />
         </template>
       </LayoutPageHeader>
 
@@ -783,7 +786,7 @@ function retryLoad() {
       <LayoutLoadError v-else-if="resourcesQ.error.value || databaseQ.error.value" message="Data did not load." :retry="retryLoad" />
       <LayoutEmptyState v-else-if="!activeDatabase && showArchived" icon="i-ph-archive" title="Nothing archived" description="Databases you archive show up here." />
       <LayoutEmptyState v-else-if="!activeDatabase" icon="i-ph-table" title="No databases yet" description="A database holds structured records you can view as a table, board, calendar, or list.">
-        <UButton icon="i-ph-plus" label="Create first database" @click="openCreateDatabase" />
+        <UButton v-if="can(Permission.manageDatabases)" icon="i-ph-plus" label="Create first database" @click="openCreateDatabase" />
       </LayoutEmptyState>
       <template v-else-if="activeView">
         <!-- One toolbar, like Notion: views on the left, tools on the right, all the same height. -->
@@ -800,7 +803,7 @@ function retryLoad() {
               :class="view.id === activeView.id ? 'text-highlighted' : 'text-muted'"
               @click="navigateTo(databasePath(activeDatabase.id, showArchived, view.id))"
             />
-            <UButton v-if="!showArchived" color="neutral" variant="ghost" size="sm" icon="i-ph-plus" aria-label="Create view" @click="openCreateView" />
+            <UButton v-if="!showArchived" color="neutral" variant="ghost" size="sm" icon="i-ph-plus" :disabled="!can(Permission.manageDatabases)" aria-label="Create view" @click="openCreateView" />
           </div>
           <div class="ms-auto flex items-center gap-1">
             <UButton
@@ -822,7 +825,7 @@ function retryLoad() {
               @click="openEditView(activeView)"
             />
             <UInput v-model="search" size="sm" icon="i-ph-magnifying-glass" placeholder="Search" aria-label="Search this view" class="w-36 sm:w-48" />
-            <UDropdownMenu v-if="!showArchived" :items="viewMenu">
+            <UDropdownMenu v-if="!showArchived && can(Permission.manageDatabases)" :items="viewMenu">
               <UButton color="neutral" variant="ghost" size="sm" icon="i-ph-sliders-horizontal" aria-label="View options" />
             </UDropdownMenu>
           </div>
@@ -844,20 +847,20 @@ function retryLoad() {
                 <th class="sticky start-0 z-20 w-12 border-b border-e border-default bg-default px-3 py-2 text-start text-xs font-medium text-dimmed">#</th>
                 <th class="sticky start-12 z-20 border-b border-e border-default bg-default px-3 py-2 text-start" :style="{ width: `${columnWidth('title')}px` }">
                   <span class="flex items-center gap-1.5 text-xs font-medium text-muted"><UIcon name="i-ph-text-t" class="size-4" />Title</span>
-                  <LayoutResizeHandle :model-value="columnWidth('title')" :min="DatabaseColumnWidth.min" :max="DatabaseColumnWidth.max" label="Resize Title column" @update:model-value="setColumnWidth('title', $event)" @end="saveColumnWidths" />
+                  <LayoutResizeHandle v-if="can(Permission.manageDatabases)" :model-value="columnWidth('title')" :min="DatabaseColumnWidth.min" :max="DatabaseColumnWidth.max" label="Resize Title column" @update:model-value="setColumnWidth('title', $event)" @end="saveColumnWidths" />
                 </th>
                 <th v-for="field in visibleFields" :key="field.id" class="relative border-b border-e border-default bg-default p-0 text-start" :style="{ width: `${columnWidth(field.id)}px` }">
-                  <UDropdownMenu v-if="!showArchived" :items="fieldMenu(field)">
+                  <UDropdownMenu v-if="!showArchived && can(Permission.manageDatabases)" :items="fieldMenu(field)">
                     <button type="button" class="flex h-9 w-full items-center gap-1.5 px-3 text-xs font-medium text-muted hover:bg-elevated/60 hover:text-default">
                       <UIcon :name="fieldIcon(field.type)" class="size-4 shrink-0 text-dimmed" />
                       <span class="min-w-0 flex-1 truncate text-start">{{ field.name }}</span>
                     </button>
                   </UDropdownMenu>
                   <span v-else class="flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-muted"><UIcon :name="fieldIcon(field.type)" class="size-4 shrink-0 text-dimmed" /><span class="truncate">{{ field.name }}</span></span>
-                  <LayoutResizeHandle :model-value="columnWidth(field.id)" :min="DatabaseColumnWidth.min" :max="DatabaseColumnWidth.max" :label="`Resize ${field.name} column`" @update:model-value="setColumnWidth(field.id, $event)" @end="saveColumnWidths" />
+                  <LayoutResizeHandle v-if="can(Permission.manageDatabases)" :model-value="columnWidth(field.id)" :min="DatabaseColumnWidth.min" :max="DatabaseColumnWidth.max" :label="`Resize ${field.name} column`" @update:model-value="setColumnWidth(field.id, $event)" @end="saveColumnWidths" />
                 </th>
                 <th class="w-10 border-b border-default bg-default px-1 text-start">
-                  <UPopover v-if="!showArchived" v-model:open="newFieldOpen" :content="{ align: 'end' }">
+                  <UPopover v-if="!showArchived && can(Permission.manageDatabases)" v-model:open="newFieldOpen" :content="{ align: 'end' }">
                     <UButton color="neutral" variant="ghost" size="xs" icon="i-ph-plus" aria-label="Add field" />
                     <template #content>
                       <form class="w-64 space-y-2 p-2" @submit.prevent="createFieldQuick">
@@ -897,7 +900,7 @@ function retryLoad() {
                     <template v-else>
                       <!-- Touch screens cannot hover, so they always get the row menu. -->
                       <span :class="showArchived ? '' : 'group-hover:hidden pointer-coarse:hidden'">{{ (page - 1) * pageSize + index + 1 }}</span>
-                      <UDropdownMenu v-if="!showArchived" :items="rowMenu(item)">
+                      <UDropdownMenu v-if="!showArchived && can(Permission.manageDatabases)" :items="rowMenu(item)">
                         <UButton class="hidden group-hover:inline-flex pointer-coarse:inline-flex" color="neutral" variant="ghost" size="xs" icon="i-ph-dots-three" :aria-label="`${item.title} actions`" />
                       </UDropdownMenu>
                     </template>
@@ -905,7 +908,7 @@ function retryLoad() {
                 </td>
                 <td class="df-cell sticky start-12 z-[2] border-b border-e border-default bg-default group-hover:bg-elevated/40">
                   <div :data-record-title="item.id">
-                    <UInput :model-value="item.title" variant="none" aria-label="Record title" :disabled="showArchived" class="w-full" :ui="{ base: 'h-9 px-3 font-medium text-highlighted', trailing: 'pe-2' }" @change="updateTitle(item, $event)">
+                    <UInput :model-value="item.title" variant="none" aria-label="Record title" :disabled="showArchived || !can(Permission.writeData)" class="w-full" :ui="{ base: 'h-9 px-3 font-medium text-highlighted', trailing: 'pe-2' }" @change="updateTitle(item, $event)">
                       <template v-if="outsideViewIds.has(item.id)" #trailing>
                         <UTooltip text="Doesn't match this view's filters. It hides when you leave the view.">
                           <UIcon name="i-ph-eye-slash" class="size-4 text-dimmed" aria-label="Outside this view's filters" />
@@ -916,9 +919,9 @@ function retryLoad() {
                 </td>
                 <td v-for="field in visibleFields" :key="field.id" class="df-cell border-b border-e border-default group-hover:bg-elevated/40">
                   <div class="flex h-9 items-center" :class="field.type === 'boolean' ? 'px-3' : ''">
-                    <UCheckbox v-if="field.type === 'boolean'" :model-value="Boolean(item.values[field.id])" :disabled="showArchived" :aria-label="field.name" @update:model-value="updateFieldValue(item, field, Boolean($event))" />
-                    <USelect v-else-if="field.type === 'select'" :model-value="selectValue(item, field) ?? undefined" variant="none" placeholder=" " :aria-label="field.name" :items="[{ label: 'None', value: null }, ...field.options.map(option => ({ label: option, value: option }))]" :disabled="showArchived" class="h-9 w-full min-w-0" :ui="{ base: 'h-9 px-3', trailingIcon: 'opacity-0 group-hover:opacity-100' }" @update:model-value="updateSelectValue(item, field, $event)" />
-                    <UInput v-else :model-value="displayValue(item.values[field.id])" variant="none" :aria-label="field.name" :type="field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'" :disabled="showArchived" class="w-full min-w-0" :ui="{ base: 'h-9 px-3' }" @change="updateInput(item, field, $event)" />
+                    <UCheckbox v-if="field.type === 'boolean'" :model-value="Boolean(item.values[field.id])" :disabled="showArchived || !can(Permission.writeData)" :aria-label="field.name" @update:model-value="updateFieldValue(item, field, Boolean($event))" />
+                    <USelect v-else-if="field.type === 'select'" :model-value="selectValue(item, field) ?? undefined" variant="none" placeholder=" " :aria-label="field.name" :items="[{ label: 'None', value: null }, ...field.options.map(option => ({ label: option, value: option }))]" :disabled="showArchived || !can(Permission.writeData)" class="h-9 w-full min-w-0" :ui="{ base: 'h-9 px-3', trailingIcon: 'opacity-0 group-hover:opacity-100' }" @update:model-value="updateSelectValue(item, field, $event)" />
+                    <UInput v-else :model-value="displayValue(item.values[field.id])" variant="none" :aria-label="field.name" :type="field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'" :disabled="showArchived || !can(Permission.writeData)" class="w-full min-w-0" :ui="{ base: 'h-9 px-3' }" @change="updateInput(item, field, $event)" />
                   </div>
                 </td>
                 <td class="border-b border-default" />
@@ -928,7 +931,7 @@ function retryLoad() {
                 <td class="sticky start-12 z-[2] truncate border-b border-e border-default bg-default px-3 font-medium">{{ record.title }}</td>
                 <td :colspan="visibleFields.length + 1" class="border-b border-default" />
               </tr>
-              <tr v-if="!showArchived && !search">
+              <tr v-if="!showArchived && !search && can(Permission.writeData)">
                 <td class="sticky start-0 z-[2] border-b border-e border-default bg-default text-dimmed"><span class="flex h-9 items-center justify-center"><UIcon name="i-ph-plus" class="size-3.5" /></span></td>
                 <td class="df-cell sticky start-12 z-[2] border-b border-e border-default bg-default" data-new-record>
                   <UInput
@@ -951,9 +954,9 @@ function retryLoad() {
         <div v-else-if="activeView.layout === 'list'" class="min-h-0 flex-1 overflow-y-auto p-3">
           <div class="divide-y divide-default rounded-lg border border-default">
             <div v-for="item in visibleItems" :key="item.id" class="flex items-center gap-4 px-4 py-3 hover:bg-elevated">
-              <UInput :model-value="item.title" :data-record-title="item.id" variant="none" aria-label="Record title" :disabled="showArchived" class="min-w-48 flex-1" :ui="{ base: 'px-0 font-medium' }" @change="updateTitle(item, $event)" />
+              <UInput :model-value="item.title" :data-record-title="item.id" variant="none" aria-label="Record title" :disabled="showArchived || !can(Permission.writeData)" class="min-w-48 flex-1" :ui="{ base: 'px-0 font-medium' }" @change="updateTitle(item, $event)" />
               <span v-for="field in visibleFields.slice(0, 3)" :key="field.id" class="hidden max-w-40 truncate text-xs text-muted sm:block">{{ displayValue(item.values[field.id]) || '—' }}</span>
-              <UButton v-if="!showArchived" color="error" variant="ghost" size="xs" icon="i-ph-trash" :aria-label="`Delete ${item.title}`" @click="deleteItem(item)" />
+              <UButton v-if="!showArchived && can(Permission.manageDatabases)" color="error" variant="ghost" size="xs" icon="i-ph-trash" :aria-label="`Delete ${item.title}`" @click="deleteItem(item)" />
             </div>
           </div>
         </div>
@@ -963,7 +966,7 @@ function retryLoad() {
             <section v-for="group in boardGroups" :key="group.key" class="w-72 shrink-0 rounded-lg bg-muted/60 p-2" @dragover.prevent @drop="dropBoard(group.key)">
               <header class="mb-2 flex items-center gap-2 px-1 text-sm font-medium"><span>{{ group.label }}</span><span class="text-xs text-dimmed">{{ group.total }}</span></header>
               <div class="space-y-2">
-                <article v-for="item in group.items" :key="item.id" :draggable="!showArchived" class="rounded-md border border-default bg-default p-3 shadow-sm" @dragstart="draggedItemId = item.id">
+                <article v-for="item in group.items" :key="item.id" :draggable="!showArchived && can(Permission.writeData)" class="rounded-md border border-default bg-default p-3 shadow-sm" @dragstart="draggedItemId = item.id">
                   <p class="font-medium">{{ item.title }}</p>
                   <dl class="mt-2 space-y-1 text-xs text-muted"><div v-for="field in visibleFields.filter(field => field.id !== boardField?.id).slice(0, 3)" :key="field.id" class="flex gap-2"><dt class="shrink-0">{{ field.name }}</dt><dd class="ml-auto max-w-36 truncate text-default">{{ displayValue(item.values[field.id]) || '—' }}</dd></div></dl>
                 </article>
