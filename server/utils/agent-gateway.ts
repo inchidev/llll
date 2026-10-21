@@ -44,7 +44,8 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const tools = Object.fromEntries((input.tools ?? []).map(definition => [definition.function.name, tool({
     description: definition.function.description, inputSchema: jsonSchema(definition.function.parameters),
   })]))
-  const result = await generateText({ model, messages: messagesForModel(input.messages), tools, maxOutputTokens })
+  const instructions = input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
+  const result = await generateText({ model, instructions, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens })
   const used = result.usage.totalTokens ?? reservation
   // Never refund more than the reserved amount, and keep unexpected provider overruns visible.
   await env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?) WHERE id=?').bind(used - reservation, run.id).run()
