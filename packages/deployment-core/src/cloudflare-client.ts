@@ -1,5 +1,5 @@
 import Cloudflare from 'cloudflare'
-import { createError } from './errors.js'
+import { InstallerError } from './errors.js'
 
 export function cloudflareClient(accessToken: string) {
   return new Cloudflare({ apiToken: accessToken })
@@ -10,6 +10,34 @@ type ApiEnvelope<T> = {
   result?: T
   errors?: Array<{ message?: string }>
   messages?: Array<{ message?: string }>
+}
+
+class CloudflareApiError extends InstallerError {
+  readonly retryAfter: string | null
+  readonly retryAllowed: boolean
+
+  constructor(status: number, message: string, headers: Headers) {
+    super(status, message)
+    this.retryAfter = headers.get('retry-after')
+    this.retryAllowed = headers.get('x-should-retry') !== 'false'
+  }
+}
+
+/** Opt-in only: callers must reconcile state before replaying a write. */
+export function cloudflareRetryDelay(error: unknown, retry: number): number | null {
+  if (!(error instanceof CloudflareApiError)
+    || ![408, 429, 500, 502, 503, 504].includes(error.statusCode)
+    || !error.retryAllowed) return null
+  const header = error.retryAfter
+  let retryAfter = 0
+  if (header) {
+    const seconds = Number(header)
+    retryAfter = Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(header) - Date.now())
+    if (!Number.isFinite(retryAfter)) retryAfter = 0
+  }
+  // Do not retry earlier than requested, or hold a deployment indefinitely.
+  if (retryAfter > 30_000) return null
+  return Math.max(retryAfter, Math.round(1000 * 2 ** retry * (1 + Math.random() * 0.25)))
 }
 
 export async function cloudflareApi<T>(
@@ -33,10 +61,9 @@ export async function cloudflareApi<T>(
     const message = typeof payload === 'object' && payload
       ? payload.errors?.[0]?.message || payload.messages?.[0]?.message
       : String(payload)
-    throw createError({
-      statusCode: response.status >= 400 ? response.status : 502,
-      statusMessage: message || `Cloudflare API request failed (${response.status})`,
-    })
+    // A failure envelope with HTTP 200 is not a transient HTTP failure.
+    if (response.status < 400) throw new InstallerError(502, message || 'Cloudflare API operation failed')
+    throw new CloudflareApiError(response.status, message || `Cloudflare API request failed (${response.status})`, response.headers)
   }
 
   if (typeof payload === 'object' && payload && 'result' in payload) return payload.result as T

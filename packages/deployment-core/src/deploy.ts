@@ -1,7 +1,7 @@
 import type Cloudflare from 'cloudflare'
 import type { DeployProgressReporter, DeployProgressStep, DeployRequest, InstallerAssetsPayload, InstallerReleaseManifest } from './types.js'
-import { cloudflareApi, cloudflareClient } from './cloudflare-client.js'
-import { createError } from './errors.js'
+import { cloudflareApi, cloudflareClient, cloudflareRetryDelay } from './cloudflare-client.js'
+import { createError, InstallerError } from './errors.js'
 import { durableObjectMigrations } from './migrations.js'
 import { randomBase64Url } from './random.js'
 import { ensureCloudflareAccess, ensureWorkersHostname } from './access.js'
@@ -519,16 +519,42 @@ export async function deployL4Update(
       'workers/tag': `llll-${release.manifest.version}`,
     },
   }
-  const migrations = durableObjectMigrations(release.manifest, existing)
-  if (migrations) metadata.migrations = migrations
-  const form = new FormData()
-  form.append('metadata', JSON.stringify(metadata))
-  form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
-  await cloudflareApi(
-    accessToken,
-    `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`,
-    { method: 'PUT', body: form },
-  )
+  const version = (worker: ExistingWorker) => worker.bindings?.find(binding => binding.name === 'LLLL_VERSION')?.text
+  let current = existing
+  for (let attempt = 0; ; attempt++) {
+    metadata.bindings = updateWorkerBindings(current.bindings!, release.manifest)
+    const migrations = durableObjectMigrations(release.manifest, current)
+    if (migrations) metadata.migrations = migrations
+    else delete metadata.migrations
+    const form = new FormData()
+    form.append('metadata', JSON.stringify(metadata))
+    form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
+    try {
+      await cloudflareApi(
+        accessToken,
+        `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`,
+        { method: 'PUT', body: form, signal: AbortSignal.timeout(120_000) },
+      )
+      break
+    } catch (error) {
+      const delay = cloudflareRetryDelay(error, attempt)
+      if (delay === null) throw error
+      console.warn(JSON.stringify({ step: 'worker-upload-reconcile', failedAttempt: attempt + 1, maxAttempts: 4, statusCode: error instanceof InstallerError ? error.statusCode : undefined, delayMs: delay }))
+      await new Promise(resolve => setTimeout(resolve, delay))
+      current = await inspectWorker(client, accountId, workerName)
+      if (!current.exists || !current.bindings || current.databaseId !== existing.databaseId
+        || current.appHostname !== existing.appHostname || current.bucketName !== existing.bucketName || current.kvId !== existing.kvId) {
+        throw createError({ statusCode: 409, statusMessage: 'Server resources changed during the update; refusing to retry' })
+      }
+      // A 5xx response can arrive after Cloudflare accepted the upload. Keep
+      // verification below, but never replay its Durable Object migrations.
+      if (version(current) === release.manifest.version) break
+      if (version(current) !== version(existing)) {
+        throw createError({ statusCode: 409, statusMessage: 'Installed Server version changed during the update; refusing to retry' })
+      }
+      if (attempt === 3) throw error
+    }
+  }
   if (options.verify !== false) {
     await verifyDeployment(`https://${existing.appHostname}`, release.manifest.version, true)
   }
