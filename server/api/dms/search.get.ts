@@ -7,12 +7,14 @@ import { hasPermission, Permission } from '../../../shared/permissions'
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event)
+  const kind = getQuery(event).kind
+  if (kind !== undefined && kind !== 'human' && kind !== 'agent') fail(400, 'invalid_kind', 'Choose human or agent')
   const q = String(getQuery(event).q || '').trim().toLowerCase()
   const serverId = String(getQuery(event).serverId || (await getServerId(cf(event).env.DB)))
   if (serverId !== (await getServerId(cf(event).env.DB))) fail(404, 'not_found', 'Server not found')
   const member = await requireMember(event, serverId)
   const { env } = cf(event)
   return {
-    members: await searchDmMembers(env.DB, me.id, q, member.isOwner || hasPermission(member.perms, Permission.useAgents)),
+    members: await searchDmMembers(env.DB, me.id, q, member.isOwner || hasPermission(member.perms, Permission.useAgents), kind),
   }
 })

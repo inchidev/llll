@@ -67,4 +67,17 @@ describe('DM member search', () => {
 
     expect(members.map(member => member.displayName)).toEqual(['Ada'])
   })
+  it('filters by kind before applying the result limit', async () => {
+    sqlite.prepare("DELETE FROM users WHERE kind = 'agent'").run()
+    const insert = sqlite.prepare("INSERT INTO users VALUES (?, 'human', NULL, ?, NULL, 'active', NULL)")
+    for (let index = 0; index < 25; index++) insert.run(`human-${index}`, `Member ${index}`)
+    sqlite.prepare("INSERT INTO users VALUES ('late-agent', 'agent', NULL, 'Jev', NULL, 'active', NULL)").run()
+    expect(await searchDmMembers(db, 'viewer', '', true, 'agent')).toMatchObject([{ id: 'late-agent' }])
+    expect((await searchDmMembers(db, 'viewer', '', true, 'human')).every(member => member.kind === 'human')).toBe(true)
+  })
+
+  it('does not let an Agent-only search bypass permissions', async () => {
+    expect(await searchDmMembers(db, 'viewer', '', false, 'agent')).toEqual([])
+  })
+
 })

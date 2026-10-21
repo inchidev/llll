@@ -26,7 +26,7 @@ const rowComponent = computed(() => props.to ? NuxtLink : 'button')
     :is="rowComponent"
     :to="to"
     :type="to ? undefined : 'button'"
-    class="relative flex w-full items-center gap-1.5 rounded-md px-2 text-start"
+    class="relative flex w-full items-center gap-1.5 rounded-md px-2 text-start focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
     :class="[tone, dense ? 'h-10 text-sm md:h-7' : 'h-11 text-[15px] md:h-8']"
     :aria-current="active ? 'page' : undefined"
   >

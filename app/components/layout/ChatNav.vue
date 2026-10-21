@@ -29,7 +29,7 @@ const channelGroups = computed(() => {
     channels: channels.value.filter(channel => channel.categoryId === category.id),
   }))
   const uncategorized = channels.value.filter(channel => !channel.categoryId)
-  if (uncategorized.length) groups.push({ id: 'uncategorized', name: 'Uncategorized', channels: uncategorized })
+  if (uncategorized.length) groups.push({ id: 'uncategorized', name: categories.value.length ? 'Other channels' : 'Channels', channels: uncategorized })
   return groups
 })
 // The router's live route, so a thread-only URL change (same channel) updates the highlight.
@@ -83,6 +83,9 @@ watch(() => channelsQ.data.value?.channels, (list) => {
     <LayoutSkeleton v-if="channelsQ.isPending.value" variant="nav" />
     <LayoutLoadError v-else-if="channelsQ.error.value" inline class="mx-2" message="Channels did not load." :retry="channelsQ.refetch" />
     <template v-else>
+      <LayoutNavSection v-if="!channelGroups.length" label="Channels" collapse-key="channels:empty" :create-label="can(Permission.manageChannels) ? 'Create channel' : undefined" @create="nav.openCreateChannel(null)">
+        <p class="px-2 py-2 text-sm text-muted">No channels yet.</p>
+      </LayoutNavSection>
       <LayoutNavSection
         v-for="(group, index) in channelGroups"
         :key="group.id"
@@ -90,7 +93,7 @@ watch(() => channelsQ.data.value?.channels, (list) => {
         :collapse-key="`category:${group.id}`"
         :create-label="can(Permission.manageChannels) ? `Create channel in ${group.name}` : undefined"
         :class="index ? 'mt-3' : ''"
-        @create="nav.openCreateChannel(group.id)"
+        @create="nav.openCreateChannel(group.id === 'uncategorized' ? null : group.id)"
       >
         <ul>
           <li v-for="ch in group.channels" :key="ch.id">
@@ -169,7 +172,6 @@ watch(() => channelsQ.data.value?.channels, (list) => {
         </ul>
       </LayoutNavSection>
 
-      <LayoutDirectMessages :server-id="serverId" class="mt-3" />
     </template>
   </div>
 </template>

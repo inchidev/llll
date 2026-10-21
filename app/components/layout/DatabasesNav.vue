@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
+import { Permission } from '~~/shared/permissions'
 import type { DataResourcesDTO } from '~~/shared/types'
 
-const props = defineProps<{ serverId: string }>()
+const props = defineProps<{ serverId: string; view: 'databases' | 'documents' | 'canvases' }>()
 const route = useRoute()
 const { api } = useApi()
 const nav = useNavActions()
+const { can } = useRoleGrants()
 
 const archived = computed(() => route.path === '/databases' && route.query.archived === '1')
 const resourcesQ = useQuery({
@@ -25,18 +27,18 @@ const activeDatabaseId = computed(() => route.path === '/databases' ? String(rou
 const activeDocumentId = computed(() => route.path === '/documents' ? String(route.query.document || '') || documents.value[0]?.id || '' : '')
 const activeCanvasId = computed(() => route.path === '/canvases' ? String(route.query.canvas || '') || canvases.value[0]?.id || '' : '')
 const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMap((bookmark) => {
-  if (bookmark.targetType === 'database_view') {
+  if (props.view === 'databases' && bookmark.targetType === 'database_view') {
     for (const database of resourcesQ.data.value?.databases ?? []) {
       if (database.archivedAt) continue
       const view = database.views.find(candidate => candidate.id === bookmark.targetId)
       if (view) return [{ ...bookmark, label: `${database.name} / ${view.name}`, icon: 'i-ph-layout', to: databasePath(database.id, false, view.id) }]
     }
   }
-  if (bookmark.targetType === 'document') {
+  if (props.view === 'documents' && bookmark.targetType === 'document') {
     const document = documents.value.find(candidate => candidate.id === bookmark.targetId)
     if (document) return [{ ...bookmark, label: document.title, icon: 'i-ph-file-text', to: documentPath(document.id) }]
   }
-  if (bookmark.targetType === 'canvas') {
+  if (props.view === 'canvases' && bookmark.targetType === 'canvas') {
     const canvas = canvases.value.find(candidate => candidate.id === bookmark.targetId)
     if (canvas) return [{ ...bookmark, label: canvas.title, icon: 'i-ph-selection-background', to: canvasPath(canvas.id) }]
   }
@@ -58,9 +60,10 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
     </LayoutNavSection>
 
     <LayoutNavSection
+      v-if="view === 'databases'"
       label="Databases"
       collapse-key="data:databases"
-      :create-label="archived ? undefined : 'Create database'"
+      :create-label="!archived && can(Permission.manageDatabases) ? 'Create database' : undefined"
       @create="nav.createDatabaseOpen.value = true"
     >
       <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
@@ -77,8 +80,9 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
-    <LayoutNavSection label="Docs" collapse-key="data:documents" create-label="Create document" @create="nav.createDocumentOpen.value = true">
+    <LayoutNavSection v-if="view === 'documents'" label="Documents" collapse-key="data:documents" :create-label="can(Permission.writeData) ? 'Create document' : undefined" @create="nav.createDocumentOpen.value = true">
       <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
+      <LayoutLoadError v-else-if="resourcesQ.error.value" inline message="Documents did not load." :retry="resourcesQ.refetch" />
       <p v-else-if="!documents.length" class="px-2 py-2 text-sm text-muted">No documents yet.</p>
       <ul v-else>
         <li v-for="document in documents" :key="document.id">
@@ -90,8 +94,9 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
-    <LayoutNavSection label="Canvases" collapse-key="data:canvases" create-label="Create canvas" @create="nav.createCanvasOpen.value = true">
+    <LayoutNavSection v-if="view === 'canvases'" label="Canvases" collapse-key="data:canvases" :create-label="can(Permission.manageDatabases) ? 'Create canvas' : undefined" @create="nav.createCanvasOpen.value = true">
       <LayoutSkeleton v-if="resourcesQ.isPending.value" variant="nav" :rows="2" />
+      <LayoutLoadError v-else-if="resourcesQ.error.value" inline message="Canvases did not load." :retry="resourcesQ.refetch" />
       <p v-else-if="!canvases.length" class="px-2 py-2 text-sm text-muted">No canvases yet.</p>
       <ul v-else>
         <li v-for="canvas in canvases" :key="canvas.id">
@@ -104,7 +109,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       </ul>
     </LayoutNavSection>
 
-    <div v-if="!resourcesQ.isPending.value" class="px-2 pt-2">
+    <div v-if="view === 'databases' && !resourcesQ.isPending.value" class="px-2 pt-2">
       <LayoutNavRow :to="databasePath(null, !archived)" :active="archived">
         <template #leading><UIcon name="i-ph-archive" class="size-[18px] shrink-0 text-dimmed" /></template>
         Archived databases

@@ -7,13 +7,10 @@ import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
 import { publicIconPath } from '~~/shared/server-appearance'
 
-type Mode = 'chat' | 'tasks' | 'mail' | 'databases' | 'gadgets' | 'schedules'
-
 const props = defineProps<{ serverId: string }>()
 const route = useRoute()
 const qc = useQueryClient()
 const toast = useToast()
-const ui = useUiStore()
 const session = useSessionStore()
 const live = useLiveStore()
 const nav = useNavActions()
@@ -55,40 +52,33 @@ const connectedPath = computed(() => {
   return conversation ? channelPath(conversation) : `/channels/${id}`
 })
 
-/** The mode is read off the route, so a deep link lands in the right one. */
-const mode = computed<Mode>(() => {
-  if (route.path.startsWith('/schedules')) return 'schedules'
-  if (route.path.startsWith('/tasks')) return 'tasks'
-  if (route.path.startsWith('/mail')) return 'mail'
-  if (route.path.startsWith('/databases')) return 'databases'
-  if (route.path.startsWith('/documents')) return 'databases'
-  if (route.path.startsWith('/canvases')) return 'databases'
-  if (route.path.startsWith('/gadgets')) return 'gadgets'
-  return 'chat'
-})
-
-const chatUnread = computed(() => [...channels.value, ...(dmsQ.data.value?.channels ?? [])].some(channel => channel.unread))
+const { unreadConversations } = useInbox(computed(() => props.serverId))
 const mailUnread = computed(() => mailboxes.value.some(mailbox => mailbox.unreadCount > 0))
-
-const chatTarget = computed(() => {
-  const last = ui.last()
-  return last?.serverId === props.serverId ? channelPath(last.channelId) : '/channels'
-})
-
 const mailTarget = computed(() => {
   const first = mailboxes.value[0]
   return first ? mailPath(first.channelId) : '/mail'
 })
-
-const modes = computed(() => [
-  { value: 'chat' as const, label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, dot: chatUnread.value },
-  ...(can(Permission.readTasks) ? [{ value: 'tasks' as const, label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', dot: false }] : []),
-  ...(can(Permission.manageSchedules) ? [{ value: 'schedules' as const, label: 'Schedules', icon: 'i-ph-clock', to: '/schedules', dot: false }] : []),
-  { value: 'mail' as const, label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, dot: mailUnread.value },
-  ...(can(Permission.readData) ? [{ value: 'databases' as const, label: 'Data', icon: 'i-ph-table', to: '/databases', dot: false }] : []),
-  ...(can(Permission.useGadgets) || can(Permission.manageGadgets) ? [{ value: 'gadgets' as const, label: 'Apps', icon: 'i-ph-squares-four', to: '/gadgets', dot: false }] : []),
+const dataView = computed(() => {
+  if (route.path === '/databases') return 'databases'
+  if (route.path === '/documents') return 'documents'
+  if (route.path === '/canvases') return 'canvases'
+  return null
+})
+const views = computed(() => [
+  { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: unreadConversations.value.length, dot: false },
+  ...(can(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),
+  ...(can(Permission.manageSchedules) ? [{ label: 'Schedule', icon: 'i-ph-calendar-blank', to: '/schedules', path: '/schedules', count: 0, dot: false }] : []),
+  { label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, path: '/mail', count: 0, dot: mailUnread.value },
+  ...(can(Permission.readData) ? [
+    { label: 'Databases', icon: 'i-ph-table', to: '/databases', path: '/databases', count: 0, dot: false },
+    { label: 'Documents', icon: 'i-ph-file-text', to: '/documents', path: '/documents', count: 0, dot: false },
+    { label: 'Canvases', icon: 'i-ph-selection-background', to: '/canvases', path: '/canvases', count: 0, dot: false },
+  ] : []),
+  ...(can(Permission.useGadgets) || can(Permission.manageGadgets) ? [{ label: 'Apps', icon: 'i-ph-squares-four', to: '/gadgets', path: '/gadgets', count: 0, dot: false }] : []),
 ])
-
+function isViewActive(path: string) {
+  return route.path === path || route.path.startsWith(`${path}/`)
+}
 function leaveLiveOnPageExit() {
   if (!live.currentChannelId || live.connection !== 'connected') return
   navigator.sendBeacon?.(`/api/channels/${live.currentChannelId}/live/leave`)
@@ -243,44 +233,42 @@ watch(nav.inviteOpen, (open) => {
       </button>
     </UDropdownMenu>
 
-    <nav
-      class="l4-segmented-track m-2 grid shrink-0"
-      :class="modes.length > 5 ? 'grid-cols-3' : 'grid-flow-col auto-cols-fr'"
-      aria-label="App"
-    >
-      <!-- Which apps show depends on permissions; hold their place until they are known. -->
-      <template v-if="membersQ.isPending.value">
-        <div v-for="index in 5" :key="index" class="flex h-[46px] flex-col items-center justify-center gap-1.5 rounded-md">
-          <USkeleton class="size-[18px] rounded bg-accented" />
-          <USkeleton class="h-2 w-7 bg-accented" />
-        </div>
-      </template>
-      <template v-else>
-        <NuxtLink
-          v-for="item in modes"
-          :key="item.value"
-          :to="item.to"
-          class="l4-segmented-item relative flex flex-col items-center gap-0.5 py-1.5 text-[11px]"
-          :aria-current="mode === item.value ? 'page' : undefined"
-        >
-          <UIcon :name="item.icon" class="size-[18px]" />
-          <span>{{ item.label }}</span>
-          <span
-            v-if="item.dot && mode !== item.value"
-            class="absolute end-[calc(50%-15px)] top-1 size-1.5 rounded-full bg-primary"
-            aria-hidden="true"
-          />
-        </NuxtLink>
-      </template>
-    </nav>
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
+      <nav aria-label="Server views" class="px-2">
+        <LayoutSkeleton v-if="membersQ.isPending.value" variant="nav" :rows="8" />
+        <LayoutLoadError v-else-if="membersQ.error.value" inline message="Views did not load." :retry="membersQ.refetch" />
+        <ul v-else class="space-y-0.5">
+          <li v-for="item in views" :key="item.path">
+            <LayoutNavRow :to="item.to" :active="isViewActive(item.path)" :unread="Boolean(item.count || item.dot)">
+              <template #leading><UIcon :name="item.icon" class="size-[18px] shrink-0" /></template>
+              {{ item.label }}
+              <template #trailing>
+                <span v-if="item.count" class="text-xs tabular-nums text-muted" :aria-label="`${item.count} unread conversations`">{{ item.count > 99 ? '99+' : item.count }}</span>
+                <span v-else-if="item.dot" class="size-1.5 shrink-0 rounded-full bg-primary" role="img" aria-label="Unread mail" />
+              </template>
+            </LayoutNavRow>
+          </li>
+        </ul>
+      </nav>
 
-    <div class="flex-1 overflow-y-auto pb-2">
-      <LayoutChatNav v-if="mode === 'chat'" :server-id="serverId" />
-      <LayoutTasksNav v-else-if="mode === 'tasks'" :server-id="serverId" />
-      <LayoutDatabasesNav v-else-if="mode === 'databases'" :server-id="serverId" />
-      <LayoutGadgetsNav v-else-if="mode === 'gadgets'" :server-id="serverId" />
-      <div v-else-if="mode === 'schedules'" class="flex-1" />
-      <LayoutMailNav v-else />
+      <div v-if="route.path === '/tasks' && can(Permission.readTasks)" class="mt-4 border-t border-default pt-3">
+        <LayoutTasksNav :server-id="serverId" />
+      </div>
+      <div v-else-if="dataView && can(Permission.readData)" class="mt-4 border-t border-default pt-3">
+        <LayoutDatabasesNav :server-id="serverId" :view="dataView" />
+      </div>
+      <div v-else-if="route.path === '/gadgets' && (can(Permission.useGadgets) || can(Permission.manageGadgets))" class="mt-4 border-t border-default pt-3">
+        <LayoutGadgetsNav :server-id="serverId" />
+      </div>
+      <div v-else-if="isViewActive('/mail')" class="mt-4 border-t border-default pt-3">
+        <LayoutMailNav />
+      </div>
+
+      <nav aria-label="Conversations" class="mt-4 space-y-4 border-t border-default pt-3">
+        <LayoutChatNav :server-id="serverId" />
+        <LayoutDirectMessages :server-id="serverId" kind="human" />
+        <LayoutDirectMessages :server-id="serverId" kind="agent" />
+      </nav>
     </div>
 
     <button
