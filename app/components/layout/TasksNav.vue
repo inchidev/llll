@@ -39,7 +39,7 @@ const activeBoardId = computed(() => String(route.query.board || '') || boards.v
       </p>
       <ul v-else>
         <li v-for="board in boards" :key="board.id">
-          <LayoutNavRow :to="boardPath(board.id, archived)" :active="board.id === activeBoardId">
+          <LayoutNavRow :to="boardPath(board.id, archived)" :title="board.name" :active="board.id === activeBoardId">
             <template #leading>
               <UIcon name="i-ph-kanban" class="size-[18px] shrink-0 text-dimmed" />
             </template>

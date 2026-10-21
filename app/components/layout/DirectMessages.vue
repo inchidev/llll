@@ -124,6 +124,7 @@ function searchName(member: DmSearchMember) {
         <li v-for="ch in conversations" :key="ch.id" class="group relative">
           <NuxtLink
             :to="channelPath(ch)"
+            :title="titleOf(ch)"
             class="flex h-11 items-center gap-2 rounded-md px-2 pe-9 text-[15px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary md:h-8"
             :class="selected === ch.id ? 'bg-accented text-highlighted' : 'text-muted hover:bg-elevated/80 hover:text-default'"
             :aria-current="selected === ch.id ? 'page' : undefined"

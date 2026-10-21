@@ -51,7 +51,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
     <LayoutNavSection v-if="bookmarks.length" label="Bookmarks" collapse-key="data:bookmarks">
       <ul>
         <li v-for="bookmark in bookmarks" :key="`${bookmark.targetType}:${bookmark.targetId}`">
-          <LayoutNavRow :to="bookmark.to" :active="route.fullPath === bookmark.to">
+          <LayoutNavRow :to="bookmark.to" :title="bookmark.label" :active="route.fullPath === bookmark.to">
             <template #leading><UIcon :name="bookmark.icon" class="size-[18px] shrink-0 text-dimmed" /></template>
             {{ bookmark.label }}
           </LayoutNavRow>
@@ -71,7 +71,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       <p v-else-if="!databases.length" class="px-2 py-2 text-sm text-muted">{{ archived ? 'Nothing archived.' : 'No databases yet.' }}</p>
       <ul v-else>
         <li v-for="database in databases" :key="database.id">
-          <LayoutNavRow :to="databasePath(database.id, archived, database.views[0]?.id)" :active="database.id === activeDatabaseId">
+          <LayoutNavRow :to="databasePath(database.id, archived, database.views[0]?.id)" :title="database.name" :active="database.id === activeDatabaseId">
             <template #leading><UIcon name="i-ph-table" class="size-[18px] shrink-0 text-dimmed" /></template>
             {{ database.name }}
             <template #trailing><span v-if="database.itemCount" class="shrink-0 text-[11px] text-dimmed">{{ database.itemCount }}</span></template>
@@ -86,7 +86,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       <p v-else-if="!documents.length" class="px-2 py-2 text-sm text-muted">No documents yet.</p>
       <ul v-else>
         <li v-for="document in documents" :key="document.id">
-          <LayoutNavRow :to="documentPath(document.id)" :active="document.id === activeDocumentId">
+          <LayoutNavRow :to="documentPath(document.id)" :title="document.title" :active="document.id === activeDocumentId">
             <template #leading><UIcon name="i-ph-file-text" class="size-[18px] shrink-0 text-dimmed" /></template>
             {{ document.title }}
           </LayoutNavRow>
@@ -100,7 +100,7 @@ const bookmarks = computed(() => (resourcesQ.data.value?.bookmarks ?? []).flatMa
       <p v-else-if="!canvases.length" class="px-2 py-2 text-sm text-muted">No canvases yet.</p>
       <ul v-else>
         <li v-for="canvas in canvases" :key="canvas.id">
-          <LayoutNavRow :to="canvasPath(canvas.id)" :active="canvas.id === activeCanvasId">
+          <LayoutNavRow :to="canvasPath(canvas.id)" :title="canvas.title" :active="canvas.id === activeCanvasId">
             <template #leading><UIcon name="i-ph-selection-background" class="size-[18px] shrink-0 text-dimmed" /></template>
             {{ canvas.title }}
             <template #trailing><span v-if="canvas.nodeCount" class="shrink-0 text-[11px] text-dimmed">{{ canvas.nodeCount }}</span></template>

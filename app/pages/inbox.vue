@@ -17,7 +17,7 @@ const groups = computed(() => [
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
     <LayoutPageHeader title="Inbox" icon="i-ph-tray">
-      <template #meta><span v-if="!pending && !error" class="text-xs tabular-nums text-muted">{{ unreadConversations.length }} unread</span></template>
+      <template #meta><span v-if="!pending && !error" class="text-xs tabular-nums text-muted">{{ unreadConversations.length }} {{ unreadConversations.length === 1 ? 'conversation' : 'conversations' }}</span></template>
       <template #actions><UButton icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" aria-label="Refresh inbox" :loading="pending" @click="refresh" /></template>
     </LayoutPageHeader>
     <main class="min-h-0 flex-1 overflow-y-auto">
@@ -34,7 +34,7 @@ const groups = computed(() => [
             <h3 class="mb-2 text-xs font-medium text-muted">{{ group.label }}</h3>
             <ul class="divide-y divide-default">
               <li v-for="channel in group.channels" :key="channel.id">
-                <NuxtLink :to="channelPath(channel)" class="flex min-h-16 items-center gap-3 rounded-md px-2 py-3 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" @pointerenter="warm.intent(channel.id)" @pointerleave="warm.cancel()" @focus="warm.prefetch(channel.id)">
+                <NuxtLink :to="channelPath(channel)" :title="conversationTitle(channel, session.user?.id || '')" class="flex min-h-16 items-center gap-3 rounded-md px-2 py-3 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" @pointerenter="warm.intent(channel.id)" @pointerleave="warm.cancel()" @focus="warm.prefetch(channel.id)">
                   <UIcon :name="group.icon" class="size-5 shrink-0 text-muted" />
                   <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-medium text-highlighted">{{ conversationTitle(channel, session.user?.id || '') }}</p>

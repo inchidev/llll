@@ -45,7 +45,7 @@ async function compose() {
     <ul v-else>
       <li v-for="mailbox in mailboxes" :key="mailbox.channelId">
         <LayoutNavRow
-          :to="mailPath(mailbox.channelId)"
+          :to="mailPath(mailbox.channelId)" :title="mailbox.address"
           :ancestor="mailbox.channelId === activeMailboxId"
           :unread="Boolean(mailbox.unreadCount)"
         >

@@ -29,7 +29,7 @@ const activeId = computed(() => String(route.query.gadget || '') || gadgets.valu
     <p v-else-if="!gadgets.length" class="px-2 py-2 text-sm text-muted">No apps yet.</p>
     <ul v-else>
       <li v-for="gadget in gadgets" :key="gadget.id">
-        <LayoutNavRow :to="gadgetPath(gadget.id)" :active="gadget.id === activeId">
+        <LayoutNavRow :to="gadgetPath(gadget.id)" :title="gadget.name" :active="gadget.id === activeId">
           <template #leading><UIcon name="i-ph-app-window" class="size-[18px] shrink-0 text-dimmed" /></template>
           {{ gadget.name }}
           <template #trailing>

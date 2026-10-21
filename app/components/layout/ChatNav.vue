@@ -99,6 +99,7 @@ watch(() => channelsQ.data.value?.channels, (list) => {
           <li v-for="ch in group.channels" :key="ch.id">
             <LayoutNavRow
               :to="channelPath(ch)"
+              :title="ch.name"
               :active="isActive(ch)"
               :ancestor="hasActiveThread(ch)"
               :unread="Boolean(ch.unread)"
@@ -134,6 +135,7 @@ watch(() => channelsQ.data.value?.channels, (list) => {
                 <span v-if="threadIndex < threadsFor(ch).length - 1" class="pointer-events-none absolute bottom-0 start-0 top-1/2 border-s border-accented" aria-hidden="true" />
                 <LayoutNavRow
                   :to="channelPath(ch, thread.id)"
+                  :title="thread.title"
                   :active="selectedThread === thread.id"
                   :unread="thread.unread"
                   dense
