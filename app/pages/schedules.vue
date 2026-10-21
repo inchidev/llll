@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
+import { Temporal } from '@js-temporal/polyfill'
 import type { ChannelDTO, TaskBoardDTO } from '~~/shared/types'
 import type { Schedule } from '~~/shared/schedules'
 import { Permission } from '~~/shared/permissions'
@@ -30,7 +31,7 @@ async function create() {
   try {
     const task = tasks.value.find(task => task.id === taskId.value)
     await api('/api/schedules', { method: 'POST', body: { kind: kind.value, channelId: channelId.value, content: content.value,
-      firstAt: new Date(firstAt.value).toISOString(), timezone: timezone.value, recurrence: recurrence.value,
+      firstAt: Temporal.PlainDateTime.from(firstAt.value).toZonedDateTime(timezone.value).toInstant().toString(), timezone: timezone.value, recurrence: recurrence.value,
       ...(kind.value === 'work' ? { taskId: taskId.value, agentId: task?.assigneeId } : {}) } })
     content.value = ''; await schedules.refetch()
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
@@ -53,9 +54,9 @@ async function cancel(id: string) {
           <UFormField label="Action"><USelect v-model="kind" class="w-full" :items="[{ label: 'Reminder', value: 'reminder' }, ...(can(Permission.executeTasks) ? [{ label: 'Run an assigned task', value: 'work' }] : [])]" /></UFormField>
           <UFormField label="Conversation"><USelect v-model="channelId" :items="channelOptions" class="w-full" required /></UFormField>
           <UFormField v-if="kind === 'work'" label="Assigned task"><USelect v-model="taskId" :items="tasks.map(task => ({ label: task.title, value: task.id }))" class="w-full" required /></UFormField>
-          <UFormField label="First time" help="Enter time in your device’s timezone."><UInput v-model="firstAt" type="datetime-local" class="w-full" required /></UFormField>
+          <UFormField label="First time" help="Enter time in the selected timezone."><UInput v-model="firstAt" type="datetime-local" class="w-full" required /></UFormField>
           <UFormField label="Repeat"><USelect v-model="recurrence" class="w-full" :items="[{ label: 'Once', value: 'once' }, { label: 'Daily', value: 'daily' }, { label: 'Weekly', value: 'weekly' }]" /></UFormField>
-          <UFormField label="Timezone for repetitions"><UInput v-model="timezone" class="w-full" required /></UFormField>
+          <UFormField label="Timezone"><UInput v-model="timezone" class="w-full" required /></UFormField>
         </div>
         <UButton type="submit" label="Schedule" :loading="busy" :disabled="!content.trim() || !channelId || !firstAt" />
       </form>

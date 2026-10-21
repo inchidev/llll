@@ -5,7 +5,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
 RUN pnpm install --filter @llll/agent-runtime --frozen-lockfile --ignore-scripts
 COPY packages/agent-runtime/src packages/agent-runtime/src
-RUN pnpm --filter @llll/agent-runtime deploy --legacy --prod /out
+# The modern deploy path derives a dedicated frozen lockfile. Legacy deploy
+# re-resolves dependencies and can silently change the runtime between builds.
+RUN pnpm --config.inject-workspace-packages=true --filter @llll/agent-runtime deploy --prod /out
 
 FROM node:24.21.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep ca-certificates tini && rm -rf /var/lib/apt/lists/*

@@ -81,9 +81,9 @@ const mailTarget = computed(() => {
 })
 
 const modes = computed(() => [
-  ...(can(Permission.manageSchedules) ? [{ value: 'schedules' as const, label: 'Schedules', icon: 'i-ph-clock', to: '/schedules', dot: false }] : []),
   { value: 'chat' as const, label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, dot: chatUnread.value },
   ...(can(Permission.readTasks) ? [{ value: 'tasks' as const, label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', dot: false }] : []),
+  ...(can(Permission.manageSchedules) ? [{ value: 'schedules' as const, label: 'Schedules', icon: 'i-ph-clock', to: '/schedules', dot: false }] : []),
   { value: 'mail' as const, label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, dot: mailUnread.value },
   ...(can(Permission.readData) ? [{ value: 'databases' as const, label: 'Data', icon: 'i-ph-table', to: '/databases', dot: false }] : []),
   ...(can(Permission.useGadgets) || can(Permission.manageGadgets) ? [{ value: 'gadgets' as const, label: 'Apps', icon: 'i-ph-squares-four', to: '/gadgets', dot: false }] : []),
@@ -278,6 +278,7 @@ watch(nav.inviteOpen, (open) => {
       <LayoutTasksNav v-else-if="mode === 'tasks'" :server-id="serverId" />
       <LayoutDatabasesNav v-else-if="mode === 'databases'" :server-id="serverId" />
       <LayoutGadgetsNav v-else-if="mode === 'gadgets'" :server-id="serverId" />
+      <div v-else-if="mode === 'schedules'" class="flex-1" />
       <LayoutMailNav v-else />
     </div>
 

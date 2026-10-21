@@ -72,6 +72,16 @@ const server = createServer(async (request, response) => {
     const execute = async () => {
       let result
       try {
+        // Fail with a useful transport diagnosis before entering the SDK's model loop.
+        // This authenticated GET cannot invoke a model or a Server tool.
+        let probe
+        try {
+          probe = await fetch(input.toolEndpoint, { headers: { Authorization: `Bearer ${input.modelGateway.token}` }, signal: AbortSignal.timeout(10000) })
+        } catch (error) {
+          const code = typeof error.cause?.code === 'string' ? error.cause.code.slice(0, 80) : error.name
+          throw new Error(`Gateway connection failed (${code})`)
+        }
+        if (probe.status !== 405) throw new Error(`Gateway rejected readiness check (${probe.status})`)
         const pi = await openPi(input, { directory: sessionDirectory, emit, signal: controller.signal,
           callTool: async (call, signal) => {
             const tool = await fetch(input.toolEndpoint, { method: 'POST', signal,

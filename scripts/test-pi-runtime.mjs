@@ -23,6 +23,7 @@ const image = process.env.LLLL_TEST_PI_IMAGE || 'llll-agent:pi-1.3.0'
 const fixture = `
 const http = require('node:http'); let calls=0; let tools=0;
 http.createServer(async (req,res)=>{
+ if(req.method==='GET'&&req.url==='/tools'){res.writeHead(405).end();return;}
  let body='';for await(const chunk of req)body+=chunk;
  if(req.url==='/stats'){res.end(JSON.stringify({calls,tools}));return;}
  if(req.url==='/tools'){tools++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({evidence:'Fixture source'}));return;}
