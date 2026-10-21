@@ -164,6 +164,10 @@ describe('backup format', () => {
         INSERT INTO documents (id, title, content, created_by) VALUES ('doc', 'Plan', '<p>Hello</p>', 'owner');
         INSERT INTO canvases (id, title, created_by) VALUES ('canvas', 'Launch', 'owner');
         INSERT INTO canvas_nodes (id, canvas_id, content, created_by) VALUES ('node', 'canvas', 'Start', 'owner');
+        INSERT INTO auth_oauth_client (id,client_id,redirect_uris) VALUES ('oauth-client-row','oauth-client','["https://client.example/callback"]');
+        INSERT INTO auth_oauth_resource (id,identifier,name) VALUES ('oauth-resource','https://server.example/mcp','MCP');
+        INSERT INTO auth_oauth_client_resource (id,client_id,resource_id) VALUES ('oauth-link','oauth-client','https://server.example/mcp');
+        INSERT INTO auth_oauth_access_token (id,token,client_id,expires_at,created_at,scopes) VALUES ('oauth-token','token-digest','oauth-client',9999999999999,1,'["tasks:read"]');
       `)
       const richDocument = '<p>日本語🙂 long document</p>'.repeat(6000)
       source.prepare('UPDATE documents SET content = ? WHERE id = ?').run(richDocument, 'doc')
@@ -196,6 +200,8 @@ describe('backup format', () => {
       restored.exec(sql)
       restored.exec('COMMIT;')
       expect(restored.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+      expect(restored.prepare('SELECT client_id FROM auth_oauth_access_token WHERE id=?').get('oauth-token')).toEqual({ client_id: 'oauth-client' })
+      expect(restored.prepare('SELECT resource_id FROM auth_oauth_client_resource WHERE id=?').get('oauth-link')).toEqual({ resource_id: 'https://server.example/mcp' })
       expect(restored.prepare('SELECT parent_message_id FROM channels WHERE id = ?').get('thread')).toEqual({ parent_message_id: 'message' })
       expect(restored.prepare('SELECT channel_id FROM messages WHERE id = ?').get('reply')).toEqual({ channel_id: 'thread' })
       expect(restored.prepare('SELECT content FROM documents WHERE id = ?').get('doc')).toEqual({ content: richDocument })

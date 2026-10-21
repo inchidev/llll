@@ -77,7 +77,6 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   const form = { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'http://127.0.0.1:43871/callback' }
   const exchanged = await token(form)
   assert.equal(exchanged.response.status, 200, JSON.stringify(exchanged.payload))
-  assert.equal((await token(form)).response.status, 400, 'OAuth code replay must fail')
 
   async function mcp(accessToken, name, args = {}, server = 'alpha') {
     const response = await runtimes[server].dispatchFetch(`${origins[server]}/mcp`, {
@@ -89,8 +88,8 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
     const json = text.startsWith('event:') ? text.split('\ndata: ')[1]?.trim() : text
     return { response, payload: JSON.parse(json) }
   }
-  const boards = await api('alpha', `/api/servers/${ids.alpha}/boards`)
-  const boardId = boards.payload.boards[0].id
+  const board = await api('alpha', `/api/servers/${ids.alpha}/boards`, { method: 'POST', body: { name: 'OAuth integration' } })
+  const boardId = board.payload.board.id
   const created = await mcp(exchanged.payload.access_token, 'create_task', { boardId, title: 'OAuth integration task' })
   assert.equal(created.response.status, 200, JSON.stringify(created.payload))
   assert.ok(!created.payload.result.isError, JSON.stringify(created.payload))
@@ -112,6 +111,8 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   await api('alpha', `/api/mcp/connections/${connection.id}`, { method: 'DELETE' })
   assert.equal((await mcp(refreshed.payload.access_token, 'list_task_boards')).response.status, 401)
   assert.equal((await token({ grant_type: 'refresh_token', refresh_token: refreshed.payload.refresh_token })).response.status, 400)
+  // Code replay can revoke tokens issued by that code; test it after this connection's tool calls.
+  assert.equal((await token(form)).response.status, 400, 'OAuth code replay must fail')
 
   const originalMemberRole = await db.prepare('SELECT role_id FROM users WHERE id=?').bind(memberId).first()
   await db.prepare("UPDATE users SET role_id='oauth-test-role' WHERE id=?").bind(memberId).run()

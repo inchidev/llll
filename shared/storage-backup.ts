@@ -91,7 +91,11 @@ async function* backupEntries(env: { DB: BackupDatabase; FILES?: BackupFiles }, 
   const database = env.DB.withSession('first-primary')
   const schema = await schemaRows(database)
   const tables = schema.filter(item => item.type === 'table')
-  const deferred = schema.filter(item => item.type !== 'table')
+  // Foreign keys can reference UNIQUE alternate keys (OAuth client/resource IDs).
+  // SQLite needs those indexes when preparing inserts, even with deferred checks.
+  const uniqueIndexes = schema.filter(item => item.type === 'index' && /^\s*CREATE\s+UNIQUE\s+INDEX\b/iu.test(item.sql))
+  const earlyIndexes = new Set(uniqueIndexes.map(item => item.name))
+  const deferred = schema.filter(item => item.type !== 'table' && !earlyIndexes.has(item.name))
   let databaseRows = 0
   let r2Objects = 0
   let r2Bytes = 0
@@ -106,7 +110,7 @@ async function* backupEntries(env: { DB: BackupDatabase; FILES?: BackupFiles }, 
     r2: { format: 'numbered-object-pairs-v1', path: 'r2/' },
   }, null, 2)}\n`, modifiedAt)
 
-  const tableSchema = tables.map(item => statement(item.sql)).join('\n\n')
+  const tableSchema = [...tables, ...uniqueIndexes].map(item => statement(item.sql)).join('\n\n')
   yield textEntry('database/000000-schema.sql', `PRAGMA defer_foreign_keys=ON;\n${tableSchema}\n`, modifiedAt)
 
   for (let tableIndex = 0; tableIndex < tables.length; tableIndex += 1) {
