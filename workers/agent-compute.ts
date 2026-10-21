@@ -24,9 +24,10 @@ export class AgentComputeDurableObject extends DurableObject<L4Env> {
         const origin = new URL(this.env.PUBLIC_ORIGIN!)
         const gateway = this.ctx.exports.AgentOutbound({ props: { origin: origin.origin } })
         await container.interceptOutboundHttp(origin.hostname, gateway)
-        await container.interceptOutboundHttps(origin.hostname, gateway)
+        // This HTTP hop stays inside Cloudflare's encrypted interception network.
+        // The trusted outbound Worker performs HTTPS to the Server.
         container.start({ image: container.images.pi, instance: 'standard-1', enableInternet: false,
-          env: { LLLL_RUN_TOKEN: token, NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt' } })
+          env: { LLLL_RUN_TOKEN: token } })
         for (let attempt = 0; attempt < 60; attempt++) {
           try {
             const health = await container.getTcpPort(8080).fetch('http://container/health', { headers: { Authorization: `Bearer ${token}` } })

@@ -129,7 +129,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         phase = 'readiness'
         const ready = await this.runtime(run, 'health')
         if (!ready.ok) throw new Error(`Executor readiness failed (${ready.status})`)
-        const origin = this.env.AGENT_CALLBACK_ORIGIN || this.env.PUBLIC_ORIGIN
+        const callback = this.env.AGENT_CALLBACK_ORIGIN || this.env.PUBLIC_ORIGIN
+        const intercepted = callback ? new URL(callback) : null
+        if (intercepted && this.env.AGENT_COMPUTE) intercepted.protocol = 'http:'
+        const origin = intercepted?.origin
         if (!origin) throw new Error('Pi needs a callback origin and file storage')
         const session = await this.env.DB.prepare('SELECT transcript_key as transcriptKey FROM agent_sessions WHERE id=?').bind(run.sessionId).first<{ transcriptKey: string | null }>()
         let transcript: string | null = null
