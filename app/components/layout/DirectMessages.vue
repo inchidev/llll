@@ -107,7 +107,7 @@ function searchName(member: DmSearchMember) {
     <div class="flex min-h-11 items-center pr-2 md:min-h-6">
       <button
         type="button"
-        class="flex-1 flex items-center gap-1 pl-3 pr-1 text-xs font-semibold text-muted hover:text-default"
+        class="min-h-11 flex-1 flex items-center gap-1 md:min-h-6 pl-3 pr-1 text-xs font-semibold text-muted hover:text-default"
         :aria-expanded="!collapsed"
         @click="collapsed = !collapsed"
       >

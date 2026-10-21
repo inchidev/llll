@@ -23,7 +23,7 @@ const collapsed = computed({
     <div class="flex min-h-11 items-center pr-2 md:min-h-6">
       <button
         type="button"
-        class="flex min-w-0 flex-1 items-center gap-1 pl-3 pr-1 text-xs font-semibold text-muted hover:text-default"
+        class="flex min-h-11 min-w-0 flex-1 items-center md:min-h-6 gap-1 pl-3 pr-1 text-xs font-semibold text-muted hover:text-default"
         :aria-expanded="!collapsed"
         @click="collapsed = !collapsed"
       >
