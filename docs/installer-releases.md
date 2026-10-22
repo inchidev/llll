@@ -8,7 +8,7 @@ One release contains Server, Shell/site, client assets, Docs and matching migrat
 | `llll-cloudflare-manifest.json` | Server runtime manifest with immutable asset URLs, hashes, compatibility flags and DO classes. |
 | `llll-worker.mjs` | Bundled server Worker. |
 | `llll-assets.json` | Server client assets and ordered server migrations. |
-| `llll-deployment-core-<version>.tgz` | Provisioning library for Workers Builds and operator tooling. |
+| `llll-deployment-core-<version>.tgz` | Provisioning library for the browser-bound installer and operator tooling. |
 | `llll-runtime-linux-amd64.tar.gz` | Portable Docker image, tagged `llll:<version>`, loaded with `docker load`. |
 | `llll.tgz` | Independently deployable web Worker (`llll`), public site/PWA assets and web migrations. |
 | `llll-docs.tgz` | Docs, README and domain context from the release commit. |
@@ -17,7 +17,7 @@ One release contains Server, Shell/site, client assets, Docs and matching migrat
 | `llll-compose.yml`, `compose.vps.yml`, `Caddyfile`, `Caddyfile.vps` | Exact common standalone Compose plus VPS HTTPS override. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
-`@llll/deployment-core` is a library used inside Workers Builds, not a deployed Admin or Server control plane. The browser-bound installer configures a Git-connected Build and removes its temporary encrypted OAuth grant after verified completion or expiry. Accounts, content and provider credentials remain on each Server.
+`@llll/deployment-core` is the provisioning library used by the browser-bound installer and by operator tooling, not a deployed Admin or Server control plane. The installer uploads only the selected published release artifact after verifying its checksums, through the customer's own Cloudflare OAuth grant. It keeps that grant only inside the bounded, encrypted, browser-bound installer session; it is never handed to a Server as a permanent credential. Accounts, content and provider credentials remain on each Server.
 
 Build with `pnpm release:installer`. Validate all module SHA-256, asset hashes/sizes, migration order and release provenance. Published tags and assets and merged SQL are immutable. The release workflow packages the portable runtime image and all components before publishing, then promotes the official web archive through Workers Builds.
 
