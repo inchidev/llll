@@ -10,7 +10,9 @@ import piRunsSql from '../../drizzle/server-migrations/0006_pi_runs.sql?raw'
 import schedulesSql from '../../drizzle/server-migrations/0007_schedules.sql?raw'
 import codeEnvironmentsSql from '../../drizzle/server-migrations/0008_code_environments.sql?raw'
 import serverOriginsSql from '../../drizzle/server-migrations/0009_server_origins.sql?raw'
+import serverSettingsSql from '../../drizzle/server-migrations/0010_server_settings.sql?raw'
 import { schema } from '../../drizzle/schema'
+import { isUuidV4 } from '../../shared/server-settings'
 
 export function getDb(d1: D1Database) {
   return drizzle(d1, { schema })
@@ -42,6 +44,7 @@ export const INIT_SQL = d1ExecSql([
   schedulesSql,
   codeEnvironmentsSql,
   serverOriginsSql,
+  serverSettingsSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */
@@ -54,7 +57,7 @@ function celldRuntime(env?: { LLLL_RUNTIME?: string }): boolean {
   return env?.LLLL_RUNTIME?.trim().toLowerCase() === 'celld'
 }
 
-export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: string }): Promise<boolean> {
+export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: string, SERVER_ID?: string }): Promise<boolean> {
   if (migratedDatabases.has(db)) return true
   const marker = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='server_schema'").first()
   if (!marker) {
@@ -64,6 +67,10 @@ export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: stri
   }
   const schemaVersion = await db.prepare('SELECT version FROM server_schema WHERE id = 1').first<{ version: string }>()
   if (schemaVersion?.version !== 'server-v1') throw new Error('Unsupported Server schema')
+  if (isUuidV4(env?.SERVER_ID)) {
+    await db.prepare('INSERT INTO server_identity(singleton,id) VALUES (1,?) ON CONFLICT(singleton) DO NOTHING')
+      .bind(env!.SERVER_ID!.toLowerCase()).run()
+  }
   await Promise.all([
     db.prepare('SELECT kind FROM users LIMIT 1').first(),
     db.prepare('SELECT user_id FROM agents LIMIT 1').first(),

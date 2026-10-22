@@ -13,6 +13,7 @@ const claimToken = ref('')
 const ownerEmail = ref('')
 
 const schema = z.object({
+  serverName: z.string().trim().min(1, 'Name the Server').max(80),
   name: z.string().trim().min(1, 'Name is required').max(80),
   password: z.string().min(12, 'Use at least 12 characters'),
   confirm: z.string().min(12),
@@ -20,7 +21,7 @@ const schema = z.object({
   if (value.password !== value.confirm) context.addIssue({ code: 'custom', path: ['confirm'], message: 'Passwords do not match' })
 })
 type Schema = z.output<typeof schema>
-const state = reactive<Partial<Schema>>({ name: '', password: '', confirm: '' })
+const state = reactive<Partial<Schema>>({ serverName: 'L4', name: '', password: '', confirm: '' })
 
 const missing = computed(() => {
   const bindings = health.value?.bindings
@@ -72,6 +73,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       body: {
         token: claimToken.value,
         name: event.data.name,
+        serverName: event.data.serverName,
         password: event.data.password,
       },
     })
@@ -120,7 +122,10 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
           <UFormField label="Email">
             <UInput :model-value="ownerEmail" name="email" type="email" autocomplete="username" readonly size="lg" class="w-full" />
           </UFormField>
-          <UFormField name="name" label="Name">
+          <UFormField name="serverName" label="Server name">
+            <UInput v-model="state.serverName" name="serverName" size="lg" class="w-full" />
+          </UFormField>
+          <UFormField name="name" label="Your name">
             <UInput v-model="state.name" name="name" size="lg" autocomplete="name" class="w-full" />
           </UFormField>
           <UFormField name="password" label="Password">

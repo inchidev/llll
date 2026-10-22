@@ -8,6 +8,7 @@ import { ensureMigrated, getDb, userCount } from './db'
 import { hashPassword } from './password'
 import type { L4Env } from '../../workers/env'
 import { ensureServerMailFromEnv } from './server-mail'
+import { migrateLegacySettings } from './legacy-settings'
 
 export type AdminSeed = {
   userId?: string
@@ -128,6 +129,7 @@ let bootstrappedInIsolate = false
 export async function ensureAdminFromEnv(event: H3Event): Promise<{ users: number; provisioned: boolean }> {
   const { env } = cf(event)
   await ensureMigrated(env.DB, env)
+  await migrateLegacySettings(env)
   const users = await userCount(env.DB)
   if (users > 0) {
     if (!bootstrappedInIsolate) {

@@ -114,10 +114,10 @@ put_var() {
 
 put_var PUBLIC_ORIGIN
 put_var LLLL_ORIGINS
+put_var SERVER_ID
 put_var AUTH_SECRET
 put_var ADMIN_EMAIL
 put_var SETUP_TOKEN
-put_var APP_NAME
 put_var CLOUDFLARE_ACCOUNT_ID
 put_var CLOUDFLARE_API_TOKEN
 put_var AI_BASE_URL

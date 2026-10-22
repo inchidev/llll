@@ -8,8 +8,7 @@ describe('owner setup', () => {
     expect(readOwnerSetupEnv({
       ADMIN_EMAIL: ' Owner@Example.com ',
       SETUP_TOKEN: 'x'.repeat(32),
-      APP_NAME: 'Example Server',
-    })).toEqual({
+    }, 'Example Server')).toEqual({
       email: 'owner@example.com',
       token: 'x'.repeat(32),
       serverName: 'Example Server',

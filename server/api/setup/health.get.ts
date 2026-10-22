@@ -4,8 +4,8 @@ import { cf } from '../../utils/cf'
 import { ensureMigrated, userCount, serverReady } from '../../utils/db'
 import type { SetupHealth } from '../../../shared/types'
 import { readAppBranding } from '../../../shared/app-branding'
-import { maskedOwnerEmail, readOwnerSetupEnv } from '../../utils/owner-setup'
-import { version as packageVersion } from '../../../package.json'
+import { maskedOwnerEmail, readOwnerSetup } from '../../utils/owner-setup'
+import { serverVersion } from '../../utils/version'
 import { publicServerAppearance } from '../../utils/server-appearance'
 import { ensurePrimaryServerOrigin, primaryServerOrigin } from '../../utils/server-origins'
 import { authMode } from '../../utils/cloudflare-access'
@@ -21,7 +21,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
   }
   catch {
     return {
-      version: packageVersion,
+      version: serverVersion(),
       authMode: 'builtin',
       ok: false,
       ready: false,
@@ -79,7 +79,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     }
   }
 
-  const ownerSetup = readOwnerSetupEnv(env)
+  const ownerSetup = await readOwnerSetup(env.DB, env)
   await checkFiles
   const requestOrigin = getRequestURL(event).origin
   if (migrated) await ensurePrimaryServerOrigin(env, requestOrigin)
@@ -88,7 +88,7 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
   const appearance = migrated ? await publicServerAppearance(env.DB, primaryOrigin, branding.appName) : null
 
   return {
-    version: env.LLLL_VERSION?.trim() || packageVersion,
+    version: serverVersion(env),
     authMode: authMode(env),
     ok: bindings.db && migrated,
     ready,

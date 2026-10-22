@@ -1,8 +1,9 @@
 import type { D1Database } from '@cloudflare/workers-types'
+import { isUuidV4 } from './server-settings'
 const serverIds = new WeakMap<D1Database, string>()
 
 /** Permanent UUIDv4 of this independently deployed Server, including before owner setup. */
-export async function getServerId(db: D1Database): Promise<string> {
+export async function getServerId(db: D1Database, configured?: string): Promise<string> {
   const cached = serverIds.get(db)
   if (cached) return cached
   const existing = await db
@@ -12,11 +13,12 @@ export async function getServerId(db: D1Database): Promise<string> {
     serverIds.set(db, existing.id)
     return existing.id
   }
+  const id = isUuidV4(configured) ? configured.toLowerCase() : crypto.randomUUID()
   await db
     .prepare(
       'INSERT INTO server_identity(singleton,id) VALUES (1,?) ON CONFLICT(singleton) DO NOTHING',
     )
-    .bind(crypto.randomUUID())
+    .bind(id)
     .run()
   const row = await db
     .prepare('SELECT id FROM server_identity WHERE singleton = 1')

@@ -7,6 +7,8 @@ import { authEmailAvailable } from '../../workers/mail-transport'
 import { decryptAuthSecret } from './auth-secrets'
 import { getDb } from './db'
 import { authMode } from './cloudflare-access'
+import { readServerMailDomains } from './server-mail'
+import { MAIL_DEFAULT_LOCAL_PART, readServerSetting } from '../../shared/server-settings'
 
 export const AUTH_PROVIDERS = ['github', 'google', 'twitter', 'telegram', 'linkedin', 'turnstile'] as const satisfies readonly AuthCredentialProvider[]
 export const LOGIN_METHODS = ['email', 'github', 'google', 'twitter', 'telegram', 'linkedin'] as const satisfies readonly AuthLoginMethod[]
@@ -46,6 +48,12 @@ export function installedMailboxSender(env: L4Env): string | null {
   let domain = ''
   try { domain = JSON.parse(env.LLLL_EMAIL_DOMAINS || '[]')[0]?.domain?.trim().toLowerCase() || '' } catch { /* No configured domain. */ }
   return localPart && domain ? `${localPart}@${domain}` : null
+}
+
+export async function installedMailboxSenderFromDb(env: L4Env): Promise<string | null> {
+  const localPart = (await readServerSetting(env.DB, MAIL_DEFAULT_LOCAL_PART) || env.MAIL_DEFAULT_LOCAL_PART || '').trim().toLowerCase()
+  const [domain] = await readServerMailDomains(env)
+  return localPart && domain ? `${localPart}@${domain.domain}` : null
 }
 
 function envCredential(env: L4Env, provider: AuthCredentialProvider): Credential | null {
@@ -155,7 +163,7 @@ export async function loadAuthRuntimeConfig(env: L4Env, baseURL?: string): Promi
   }))
 
   const deploymentFrom = env.EMAIL_FROM?.trim() || null
-  const from = deploymentFrom ?? settings.emailFrom?.trim() ?? installedMailboxSender(env)
+  const from = deploymentFrom ?? settings.emailFrom?.trim() ?? await installedMailboxSenderFromDb(env)
   const fromName = env.EMAIL_FROM_NAME?.trim() || settings.emailFromName?.trim() || null
   const enabled = {
     email: settings.emailEnabled,

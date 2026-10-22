@@ -43,11 +43,12 @@ beforeEach(async () => {
     },
   } as unknown as D1Database
   id = await getServerId(db)
+  sqlite.prepare("INSERT INTO server_settings(key,value,updated_at) VALUES ('initial_name','L4-Four','2026-10-20T00:00:00.000Z')").run()
   files.clear(); getFile.mockClear()
 })
 afterEach(() => sqlite.close())
 async function request(path = '/.well-known/llll', headers: Record<string, string> = {}) {
-  const event = { context: { cloudflare: { env: { DB: db, APP_NAME: 'L4-Four', PUBLIC_ORIGIN: origin, FILES: { get: getFile } } } }, request: new Request(origin + path, { headers }), headers: new Headers(), status: 200 }
+  const event = { context: { cloudflare: { env: { DB: db, PUBLIC_ORIGIN: origin, FILES: { get: getFile } } } }, request: new Request(origin + path, { headers }), headers: new Headers(), status: 200 }
   try {
     const body = await (path.split('?')[0] === '/.well-known/llll' ? discovery : icon)(event as unknown as H3Event)
     return body instanceof Uint8Array ? new Response(body, { status: event.status, headers: event.headers }) : body === null ? new Response(null, { status: event.status, headers: event.headers }) : Response.json(body, { status: event.status, headers: event.headers })

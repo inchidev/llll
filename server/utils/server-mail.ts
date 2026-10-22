@@ -1,4 +1,5 @@
 import { getServerId } from '../../shared/server-id'
+import { MAIL_DEFAULT_LOCAL_PART, readServerSetting, writeServerSetting } from '../../shared/server-settings'
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { users } from '../../drizzle/schema'
@@ -24,6 +25,7 @@ function validDomainConfig(value: unknown): value is ServerMailDomainConfig {
     && typeof item.domain === 'string' && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(item.domain.trim().toLowerCase())
 }
 
+/** Legacy env shape, kept for migration and unit tests. */
 export function serverMailDomains(env: L4Env): ServerMailDomainConfig[] {
   const configured: ServerMailDomainConfig[] = []
   if (env.LLLL_EMAIL_DOMAINS) {
@@ -42,10 +44,62 @@ export function serverMailDomains(env: L4Env): ServerMailDomainConfig[] {
   return [...new Map(configured.map(item => [item.domain, item])).values()]
 }
 
+type StoredMailDomain = { id: string; zoneId: string; domain: string; appHostname: string }
+
+function parseMailDomains(value: string | null | undefined): ServerMailDomainConfig[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(validDomainConfig).map(item => ({
+      id: item.id.trim(),
+      zoneId: item.zoneId.trim(),
+      domain: item.domain.trim().toLowerCase(),
+    }))
+  }
+  catch {
+    return []
+  }
+}
+
+async function storedMailDomains(env: L4Env): Promise<StoredMailDomain[]> {
+  if (!env.DB) return []
+  try {
+    const rows = await env.DB.prepare(
+      'SELECT id, zone_id as zoneId, domain, app_hostname as appHostname FROM email_domains ORDER BY created_at, id',
+    ).all<StoredMailDomain>()
+    return rows.results || []
+  }
+  catch {
+    // A database without the mail tables keeps the legacy env configuration.
+    return []
+  }
+}
+
+/** D1 is authoritative once onboarding has run; env is only the one-time legacy source. */
+export async function readServerMailDomains(env: L4Env): Promise<ServerMailDomainConfig[]> {
+  const rows = await storedMailDomains(env)
+  if (rows.length) return rows.map(row => ({ id: row.id, zoneId: row.zoneId, domain: row.domain }))
+  let configured: ServerMailDomainConfig[] = []
+  try { configured = parseMailDomains(await readServerSetting(env.DB, 'mail_domains')) } catch { /* No settings table yet. */ }
+  return configured.length ? configured : serverMailDomains(env)
+}
+
 export async function ensureServerMailFromEnv(env: L4Env): Promise<void> {
-  const appHostname = env.MAIL_APP_HOSTNAME?.trim().toLowerCase()
-  const domains = serverMailDomains(env)
+  const [storedAppHostname, storedLocalPart, storedDomains, existingDomains] = await Promise.all([
+    readServerSetting(env.DB, 'mail_app_hostname'),
+    readServerSetting(env.DB, MAIL_DEFAULT_LOCAL_PART),
+    readServerSetting(env.DB, 'mail_domains'),
+    storedMailDomains(env),
+  ])
+  const appHostname = (storedAppHostname || env.MAIL_APP_HOSTNAME || existingDomains[0]?.appHostname || '').trim().toLowerCase()
+  const domains = parseMailDomains(storedDomains).length ? parseMailDomains(storedDomains) : serverMailDomains(env).length ? serverMailDomains(env) : existingDomains.map(row => ({ id: row.id, zoneId: row.zoneId, domain: row.domain }))
+  const localPartSetting = (storedLocalPart || env.MAIL_DEFAULT_LOCAL_PART || '').trim()
   if (!appHostname) return
+
+  if (!storedAppHostname) await writeServerSetting(env.DB, 'mail_app_hostname', appHostname)
+  if (!storedLocalPart && localPartSetting) await writeServerSetting(env.DB, MAIL_DEFAULT_LOCAL_PART, localPartSetting)
+  if (!storedDomains && domains.length) await writeServerSetting(env.DB, 'mail_domains', JSON.stringify(domains))
 
   const configuredIds = domains.map(domain => domain.id)
   if (!configuredIds.length) {
@@ -57,8 +111,8 @@ export async function ensureServerMailFromEnv(env: L4Env): Promise<void> {
   if (!owner) return
   const created = nowIso()
   const existing = await env.DB.prepare('SELECT channel_id as channelId, local_part as localPart FROM email_mailboxes LIMIT 1').first<{ channelId: string; localPart: string }>()
-  const createDefaultMailbox = !existing && Boolean(env.MAIL_DEFAULT_LOCAL_PART?.trim())
-  const localPart = existing?.localPart || normalizeMailLocalPart(env.MAIL_DEFAULT_LOCAL_PART || 'inbox')
+  const createDefaultMailbox = !existing && Boolean(localPartSetting)
+  const localPart = existing?.localPart || normalizeMailLocalPart(localPartSetting || 'inbox')
   const channelId = existing?.channelId || newId()
   const defaultDomain = domains[0]!
 

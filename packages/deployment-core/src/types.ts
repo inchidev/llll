@@ -13,6 +13,8 @@ export type CloudflareZone = {
 
 export type DeployRequest = {
   accountId: string
+  /** The one UUID used by the Worker, its resources and server_identity. */
+  serverId: string
   workerName: string
   adminEmail: string
   allowedEmails: string[]
@@ -33,7 +35,7 @@ export type DeployRequest = {
 }
 
 export type BaseInstallRequest = Pick<DeployRequest,
-  'accountId' | 'workerName' | 'adminEmail' | 'allowedEmails' | 'appName' | 'authMode' | 'registrationMode' | 'targetVersion' | 'filesEnabled' | 'backupBucketName'
+  'accountId' | 'serverId' | 'workerName' | 'adminEmail' | 'allowedEmails' | 'appName' | 'authMode' | 'registrationMode' | 'targetVersion' | 'filesEnabled' | 'backupBucketName'
 >
 
 export type DeployResponse = {

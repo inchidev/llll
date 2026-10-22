@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { activeUpdate, changeUpdateRecord, emptyUpdateRecord, requestServerUpdate, updateHookId, type ServerUpdateJob, type UpdateStore } from '../../shared/server-updates'
+import { activeUpdate, changeUpdateRecord, emptyUpdateRecord, requestServerUpdate, type ServerUpdateJob, type UpdateStore } from '../../shared/server-updates'
 import { executeServerUpdate } from '../../shared/server-update-runner'
 import { compareVersions } from '../../shared/release-version'
 
@@ -27,10 +27,6 @@ function fixture() {
   } }
 }
 describe('Server update requests and capabilities', () => {
-  it('accepts only the canonical Cloudflare hook endpoint, never arbitrary URLs', () => {
-    expect(updateHookId(`https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${uuid}`)).toBe(uuid)
-    for (const bad of [`https://evil.example/${uuid}`, `https://api.cloudflare.com.evil.example/client/v4/workers/builds/deploy_hooks/${uuid}`, `http://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${uuid}`, `https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${uuid}?secret=x`]) expect(() => updateHookId(bad)).toThrow()
-  })
   it('serializes concurrent requests and deduplicates retries without changing the backup capability', async () => {
     const data = memory()
     const requests = await Promise.allSettled([uuid, '22222222-2222-4222-8222-222222222222'].map(id => changeUpdateRecord(data.store, state => requestServerUpdate(state, { ...job(), id }))))

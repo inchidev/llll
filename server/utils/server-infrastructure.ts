@@ -11,14 +11,15 @@ import {
 } from './server-origins'
 import { serverDomainLaunchUrl } from './server-updates'
 
-function cloudflareManaged(env: L4Env): boolean {
-  return Boolean(env.LLLL_ACCOUNT_ID?.trim() && env.LLLL_WORKER_NAME?.trim())
-    && env.LLLL_RUNTIME?.trim().toLowerCase() !== 'celld'
+/** A Server manages its own Cloudflare domains only through the official installer grant. */
+async function cloudflareManaged(env: L4Env): Promise<boolean> {
+  if (env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return false
+  return Boolean(env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim())
 }
 
 /** Cloudflare Servers can request a domain change through the official installer. */
 export async function readManagedServerDomains(env: L4Env, fallbackOrigin?: string): Promise<ServerDomainSettingsDTO> {
-  const managed = cloudflareManaged(env)
+  const managed = await cloudflareManaged(env)
   const origins = await readServerOrigins(env, fallbackOrigin)
   return {
     managed,
@@ -47,7 +48,7 @@ async function requestDomainChange(
   fallbackOrigin: string | undefined,
   input: { action: ServerDomainRequestAction, hostname: string, makePrimary?: boolean },
 ) {
-  if (!cloudflareManaged(env)) operatorRequired()
+  if (!await cloudflareManaged(env)) operatorRequired()
   let hostname: string
   try {
     hostname = normalizeHostname(input.hostname)
@@ -71,7 +72,7 @@ async function requestDomainChange(
     fail(409, 'primary_domain', 'This is already the primary address')
   }
   const { request, token } = await createServerDomainRequest(env, { action: input.action, hostname })
-  const launchUrl = serverDomainLaunchUrl(env, request, token, {
+  const launchUrl = await serverDomainLaunchUrl(env, request, token, {
     makePrimary: input.makePrimary,
     fallbackOrigin,
     serverId: await getServerId(env.DB),

@@ -1,5 +1,5 @@
 import { uploadBackupToR2 } from '../../../../shared/r2-backup'
-import { version as packageVersion } from '../../../../package.json'
+import { serverVersion } from '../../../utils/version'
 import { eq } from 'drizzle-orm'
 import { backupDestinations } from '../../../../drizzle/schema'
 import type { BucketBackupResultDTO } from '../../../../shared/backups'
@@ -26,7 +26,7 @@ export default defineEventHandler(async (event): Promise<BucketBackupResultDTO> 
   }
 
   const createdAt = new Date().toISOString()
-  const version = env.LLLL_VERSION?.trim() || packageVersion
+  const version = serverVersion(env)
   const key = backupObjectKey(config.prefix, createdAt, version)
   let uploaded: { sizeBytes: number }
   try {

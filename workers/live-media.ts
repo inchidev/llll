@@ -1,3 +1,4 @@
+import { DEFAULT_APP_NAME } from '../shared/app-branding'
 import { cloudflareAccountId, cloudflareApiToken } from './cloudflare-rest'
 import { callsProvider, type L4Env } from './env'
 import {
@@ -48,7 +49,7 @@ async function restMedia(env: L4Env): Promise<LiveMedia | null> {
   const accountId = cloudflareAccountId(env)
   const apiToken = cloudflareApiToken(env)
   if (!accountId || !apiToken) return null
-  const appId = await findOrCreateApp(apiToken, accountId, env.APP_NAME?.trim() || 'L4')
+  const appId = await findOrCreateApp(apiToken, accountId, DEFAULT_APP_NAME)
   await ensureLivePresets(apiToken, accountId, appId)
   return mediaFor({
     accountId,

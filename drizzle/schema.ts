@@ -366,6 +366,23 @@ export const serverIdentity = sqliteTable('server_identity', {
   id: text('id').primaryKey(),
 }, table => [check('server_identity_singleton_check', sql`${table.singleton} = 1`), check('server_identity_uuid_check', sql`length(${table.id}) = 36 AND substr(${table.id},15,1) = '4' AND substr(${table.id},20,1) IN ('8','9','a','b')`)])
 
+/** Small, typed Server settings that do not deserve a dedicated table. */
+export const serverSettings = sqliteTable('server_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** One pending owner claim. The setup token is stored only as a digest and removed on success. */
+export const serverSetup = sqliteTable('server_setup', {
+  singleton: integer('singleton').primaryKey(),
+  email: text('email').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  serverName: text('server_name').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, table => [check('server_setup_singleton_check', sql`${table.singleton} = 1`)])
+
 export const connectionGrants = sqliteTable('connection_grants', {
   codeHash: text('code_hash').primaryKey(), userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }), sessionId: text('session_id').notNull().references(() => authSessions.id, { onDelete: 'cascade' }), challenge: text('challenge').notNull(), redirectUri: text('redirect_uri').notNull(), expiresAt: integer('expires_at').notNull(),
 })
@@ -1069,6 +1086,8 @@ export const schema = {
   serverSchema,
   serverUpdateControl,
   serverIdentity,
+  serverSettings,
+  serverSetup,
   connectionGrants,
   accountRecovery,
   authUsers,

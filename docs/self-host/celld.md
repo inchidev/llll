@@ -66,7 +66,6 @@ Edit `wrangler.celld.json`:
 
 - `PUBLIC_ORIGIN` is the origin members open, such as `http://127.0.0.1:8080` before you add TLS.
 - `ADMIN_EMAIL` is the first owner's email.
-- `APP_NAME` is the server name shown during setup.
 - `database_name` is the D1 name you will pass to migrations. The example uses `llll`. `database_id` and the KV `id` only need to be stable for this server.
 
 `AUTH_SECRET` and `SETUP_TOKEN` in that file are the placeholders `invalid`. Both are shorter than 32 characters, so they do not pass validation: owner setup ignores the token, and session signing rejects the secret. Leave those placeholders in the tracked `wrangler.celld.json`. Each real value must be a random string of at least 32 characters.
@@ -334,6 +333,6 @@ A `BROWSER` binding is used first. Without one, the Cloudflare API token calls B
 
 Without a binding, the Cloudflare token, and `BROWSER_CDP_URL`, page reading is off and the agent settings explain that.
 
-Calls and live sessions use Cloudflare RealtimeKit. On Cloudflare's network the existing connection flow stays. With `LLLL_RUNTIME=celld` and the Cloudflare API token, the first call creates a RealtimeKit app named with `APP_NAME` (or `L4`) and the host and participant presets. Live settings explain that. A pasted Realtime token is optional. Without the API token the call button stays disabled and the server refuses to start a room. Text chat keeps working.
+Calls and live sessions use Cloudflare RealtimeKit. On Cloudflare's network the existing connection flow stays. With `LLLL_RUNTIME=celld` and the Cloudflare API token, the first call creates a RealtimeKit app named `L4` with the host and participant presets. Live settings explain that. A pasted Realtime token is optional. Without the API token the call button stays disabled and the server refuses to start a room. Text chat keeps working.
 
 Agents do not get a container, computer, or shell on celld or on Cloudflare. That row in agent settings is the capability flag `containers: false`.

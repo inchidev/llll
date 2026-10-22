@@ -84,7 +84,7 @@ export async function createAuth(
   const telegram = config.credentials.telegram
   const turnstile = config.credentials.turnstile
   const requireEmailVerification = emailVerificationRequired(config)
-  const appName = readAppBranding(env).appName
+  const appName = readAppBranding().appName
 
   return betterAuth({
     secret: authSecret(env, baseURL),

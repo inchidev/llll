@@ -167,7 +167,7 @@ async function ensureAccessIdentity(event: H3Event, identity: CloudflareAccessId
         email: identity.email,
         handle: (identity.email.split('@')[0] || 'owner').slice(0, 32),
         displayName: identity.name,
-        serverName: (env.ADMIN_SERVER?.trim() || env.APP_NAME?.trim() || 'L4').slice(0, 80),
+        serverName: (env.ADMIN_SERVER?.trim() || 'L4').slice(0, 80),
       })
     }
     catch (error) {

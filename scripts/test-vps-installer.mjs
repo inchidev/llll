@@ -157,6 +157,10 @@ try {
   const upgradedEnv = readFileSync(join(target, '.env'), 'utf8')
   assert.ok(upgradedEnv.includes(next))
   for (const key of ['AUTH_SECRET', 'SETUP_TOKEN', 'RUSTFS_SECRET_KEY', 'RUSTFS_ACCESS_KEY']) assert.equal(new RegExp(`^${key}=.*$`, 'm').exec(upgradedEnv)[0], new RegExp(`^${key}=.*$`, 'm').exec(secrets)[0])
+  // One UUID: .env carries the permanent identity across upgrades.
+  const serverId = new RegExp(`^SERVER_ID='([0-9a-f-]{36})'$`, 'm').exec(secrets)[1]
+  assert.match(serverId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  assert.equal(new RegExp(`^SERVER_ID=.*$`, 'm').exec(upgradedEnv)[0], new RegExp(`^SERVER_ID=.*$`, 'm').exec(secrets)[0])
   run(cli, ['upgrade', first], {}, false)
   run(cli, ['upgrade', broken], {}, false)
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), upgradedEnv, 'rollback must restore exact old env')

@@ -31,7 +31,7 @@ export type UpdateState = UpdateRequest & {
 }
 export type DeploymentState = {
   state?: string; verifier?: string; grant?: CloudflareGrant
-  accountId?: string; name?: string; version?: string; worker?: string; ownerEmail?: string
+  accountId?: string; name?: string; version?: string; worker?: string; serverId?: string; ownerEmail?: string
   setupToken?: string; origin?: string
   step?: number; error?: string; completed?: boolean
   updateRequest?: UpdateRequest

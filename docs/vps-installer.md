@@ -90,7 +90,7 @@ sudo llll uninstall --purge            # additionally removes this Server's live
 | `LLLL_ACME_EMAIL` | Owner email, used for Caddy's ACME account. |
 | `LLLL_HTTP_PORT`, `LLLL_HTTPS_PORT` | `80`, `443`; custom public TLS ports require forwarding public ACME challenge ports. |
 | `LLLL_NO_TLS` | `false`; `true` enables HTTP for isolated tests/private development only. |
-| `APP_NAME` | `L4`. |
+| `SERVER_ID` | Generated UUIDv4 saved to `.env`; it names the Server, its resources and its backups. |
 | `LLLL_SKIP_DOCKER_INSTALL` | `false`; `true` requires an existing local Engine/Compose. |
 | `LLLL_BACKUP_DIR` | Separate `/var/backups/llll/<installation-key>`; never inside `LLLL_DIR`. |
 | `LLLL_BACKUP_KEEP` | `7`; first-install default saved to `.env`. |

@@ -9,11 +9,13 @@ import {
   parseDeployRequest,
   releaseManifestUrl,
   updateWorkerBindings,
+  type ExistingWorkerBinding,
   type InstallerReleaseManifest,
 } from '../../../packages/deployment-core/src/index'
 
 const request = {
   accountId: 'a'.repeat(32),
+  serverId: 'c1ea9a2c-3d7e-4f0a-9b1c-5e2f6a7b8c9d',
   workerName: 'LLLL-HQ',
   adminEmail: 'OWNER@EXAMPLE.COM',
   allowedEmails: [],
@@ -81,14 +83,33 @@ describe('published installer core integration', () => {
       { type: 'send_email', name: 'MAIL_EMAIL' },
       { type: 'assets', name: 'ASSETS' },
       { type: 'durable_object_namespace', name: 'CHANNEL_DO', class_name: 'ChannelDurableObject' },
-    ], manifest)
+    ], manifest, { accountId: 'a'.repeat(32), publicOrigin: 'https://server.example' })
 
     expect(bindings).toContainEqual({ type: 'inherit', name: 'LLLL_EMAIL_DOMAINS' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'AUTH_SECRET' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'MAIL_EMAIL' })
     expect(bindings).toContainEqual({ type: 'inherit', name: 'CHANNEL_DO' })
-    expect(bindings).toContainEqual({ type: 'plain_text', name: 'LLLL_VERSION', text: '0.1.1' })
+    expect(bindings).toContainEqual({ type: 'plain_text', name: 'ACCOUNT_ID', text: 'a'.repeat(32) })
+    expect(bindings.some(binding => binding.name === 'LLLL_VERSION')).toBe(false)
     expect(bindings.filter(binding => binding.name === 'ASSETS')).toEqual([{ type: 'assets', name: 'ASSETS' }])
+  })
+
+  it('drops migrated legacy env only in the minimal pass', () => {
+    const manifest = {
+      version: '0.1.1',
+      durableObjects: [],
+    } as InstallerReleaseManifest
+    const current = [
+      { type: 'plain_text', name: 'SETUP_TOKEN' },
+      { type: 'plain_text', name: 'AUTH_REGISTRATION_MODE', text: 'open' },
+      { type: 'plain_text', name: 'LLLL_APP_HOSTNAME', text: 'server.example.com' },
+      { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: 'https://server.example.com' },
+    ] as ExistingWorkerBinding[]
+    expect(updateWorkerBindings(current, manifest).map(binding => binding.name)).toContain('SETUP_TOKEN')
+    expect(updateWorkerBindings(current, manifest, { minimal: true }).map(binding => binding.name)).toEqual([
+      'PUBLIC_ORIGIN',
+      'ASSETS',
+    ] as string[])
   })
 
   it('pins requested updates to immutable GitHub Release manifests', () => {

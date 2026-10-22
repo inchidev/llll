@@ -33,17 +33,6 @@ export async function changeUpdateRecord(store: UpdateStore, change: (value: Ser
   throw new Error('Another update request changed this Server. Refresh and try again.')
 }
 
-/** A hook can start only a Build. Never accept an arbitrary URL or send an API token. */
-export function updateHookId(input: string): string {
-  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
-  const value = input.trim()
-  if (uuid.test(value)) return value.toLowerCase()
-  const url = new URL(value)
-  const match = /^\/client\/v4\/workers\/builds\/deploy_hooks\/([^/]+)$/.exec(url.pathname)
-  if (url.protocol !== 'https:' || url.hostname !== 'api.cloudflare.com' || url.port || url.username || url.password || url.search || url.hash || !match || !uuid.test(match[1]!)) throw new Error('Enter a Cloudflare Workers Build deploy hook URL or ID')
-  return match[1]!.toLowerCase()
-}
-
 export function readUpdateRecord(text: string): ServerUpdateRecord {
   const value = JSON.parse(text) as ServerUpdateRecord
   if (value.schemaVersion !== 1 || !('hook' in value) || !('job' in value)) throw new Error('Unrecognized update state; ask the Server operator to inspect it')

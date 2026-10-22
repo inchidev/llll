@@ -1,4 +1,4 @@
-import { version as packageVersion } from '../../../../package.json'
+import { serverVersion } from '../../../utils/version'
 import { cf, requireFiles, fail, originOk } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
 import { writeAudit } from '../../../utils/messages'
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   requireFiles(env)
   const createdAt = new Date().toISOString()
-  const version = env.LLLL_VERSION?.trim() || packageVersion
+  const version = serverVersion(env)
   await writeAudit(env, {
     serverId,
     actorId: member.user.id,

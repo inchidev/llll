@@ -20,12 +20,15 @@ export type ExistingWorkerBinding = {
 type ExistingWorker = {
   exists: boolean
   migrationTag?: string
+  version?: string
   mailZoneId?: string
   mailDomain?: string
   appHostname?: string
+  publicOrigin?: string
   customDomainEnabled?: boolean
   databaseId?: string
   bucketName?: string
+  backupBucketName?: string
   kvId?: string
   authMode?: 'access' | 'builtin'
   accessIssuer?: string
@@ -34,6 +37,8 @@ type ExistingWorker = {
   accessHealthApplicationId?: string
   lifecycleBindingNames?: string[]
   bindings?: ExistingWorkerBinding[]
+  tags?: string[]
+  annotations?: { 'workers/tag'?: string } | null
 }
 
 type EmailRoutingSettings = { enabled?: boolean; status?: string }
@@ -88,6 +93,45 @@ async function readDeploymentHealth(origin: string): Promise<DeploymentHealth | 
 
 export const installerMarker = 'llll.gg/server-v1'
 const bootstrapMarker = 'llll.gg/bootstrap/server-v1'
+export const serverTag = 'llll-server'
+const bootstrapTag = 'llll-server-bootstrap'
+
+/** Variables owned by the installer that a minimal Server env must never keep. */
+const legacyEnvBindings = new Set([
+  'ADMIN_EMAIL',
+  'AGENT_MODEL',
+  'APP_NAME',
+  'APP_SUBTITLE',
+  'APP_TITLE',
+  'AUTH_REGISTRATION_MODE',
+  'BACKUP_BUCKET_NAME',
+  'LLLL_ACCOUNT_ID',
+  'LLLL_APP_HOSTNAME',
+  'LLLL_APP_SUBDOMAIN',
+  'LLLL_APP_ZONE_ID',
+  'LLLL_APP_ZONE_NAME',
+  'LLLL_CUSTOM_DOMAIN',
+  'LLLL_EMAIL_DOMAINS',
+  'LLLL_SERVER_MARKER',
+  'LLLL_VERSION',
+  'LLLL_WORKER_NAME',
+  'LLLL_ZONE_ID',
+  'LLLL_ZONE_NAME',
+  'MAIL_APP_HOSTNAME',
+  'MAIL_DEFAULT_LOCAL_PART',
+  'SETUP_TOKEN',
+])
+
+/** Legacy env the Worker copies into D1 before the installer removes it. */
+const runtimeMigratedBindings = new Set([
+  'ADMIN_EMAIL',
+  'APP_NAME',
+  'AUTH_REGISTRATION_MODE',
+  'LLLL_EMAIL_DOMAINS',
+  'MAIL_APP_HOSTNAME',
+  'MAIL_DEFAULT_LOCAL_PART',
+  'SETUP_TOKEN',
+])
 
 /** Domain and mail routes already belong to a discovered server and are not part of a version upgrade. */
 export function requiresInitialInfrastructureProvisioning(existing: boolean): boolean {
@@ -98,7 +142,8 @@ function mailDomain(request: DeployRequest) {
   return `${request.mailSubdomain}.${request.zoneName}`
 }
 
-export function isL4Worker(bindings: ExistingWorkerBinding[]) {
+export function isL4Worker(bindings: ExistingWorkerBinding[], tags?: string[] | null) {
+  if (tags?.includes(serverTag)) return true
   const marker = bindings.find(binding => binding.name === 'LLLL_SERVER_MARKER')
   return marker?.type === 'plain_text' && marker.text === installerMarker
 }
@@ -108,12 +153,19 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
     if (worker.id !== workerName) continue
     const settings = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
     const bindings = settings.bindings as ExistingWorkerBinding[] || []
+    const tags = settings.tags || []
+    const annotations = settings.annotations || {}
     const marker = bindings.find(binding => binding.name === 'LLLL_SERVER_MARKER')
-    if (marker?.type === 'plain_text' && marker.text === bootstrapMarker) return { exists: false }
-    if (!isL4Worker(bindings)) {
+    if (tags.includes(bootstrapTag) || (marker?.type === 'plain_text' && marker.text === bootstrapMarker)) return { exists: false }
+    if (!isL4Worker(bindings, tags)) {
       throw createError({ statusCode: 409, statusMessage: `A non-L4 Worker named ${workerName} already exists` })
     }
     const text = (name: string) => bindings.find(binding => binding.name === name && binding.type === 'plain_text')?.text
+    const publicOrigin = text('PUBLIC_ORIGIN')
+    let appHostname = text('LLLL_APP_HOSTNAME') || text('MAIL_APP_HOSTNAME')
+    if (!appHostname && publicOrigin) {
+      try { appHostname = new URL(publicOrigin).hostname } catch { /* A malformed legacy env is handled below. */ }
+    }
     const lifecycleBindingNames = [
       'LLLL_EMAIL_DOMAINS',
       'LLLL_APP_ZONE_ID',
@@ -122,12 +174,15 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
     return {
       exists: true,
       migrationTag: worker.migration_tag,
+      version: annotations['workers/tag']?.replace(/^llll-/u, '') || text('LLLL_VERSION'),
       mailZoneId: JSON.parse(text('LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId,
       mailDomain: JSON.parse(text('LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain,
-      appHostname: text('LLLL_APP_HOSTNAME') || text('MAIL_APP_HOSTNAME'),
+      appHostname,
+      publicOrigin,
       customDomainEnabled: text('LLLL_CUSTOM_DOMAIN') === 'true',
       databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id,
       bucketName: bindings.find(binding => binding.name === 'FILES' && binding.type === 'r2_bucket')?.bucket_name,
+      backupBucketName: bindings.find(binding => binding.name === 'BACKUPS' && binding.type === 'r2_bucket')?.bucket_name,
       kvId: bindings.find(binding => binding.name === 'TICKETS' && binding.type === 'kv_namespace')?.namespace_id,
       authMode: text('AUTH_MODE') === 'access' ? 'access' : 'builtin',
       accessIssuer: text('CF_ACCESS_ISS'),
@@ -136,6 +191,8 @@ async function inspectWorker(client: Cloudflare, accountId: string, workerName: 
       accessHealthApplicationId: text('CF_ACCESS_HEALTH_APP_ID'),
       lifecycleBindingNames,
       bindings,
+      tags,
+      annotations,
     }
   }
   return { exists: false }
@@ -168,13 +225,14 @@ async function ensureKv(client: Cloudflare, accountId: string, title: string) {
   return (await client.kv.namespaces.create({ account_id: accountId, title })).id
 }
 
-export async function provisionServerStorage(client: Cloudflare, request: Pick<DeployRequest, 'accountId' | 'workerName' | 'filesEnabled'>, existing: Pick<ExistingWorker, 'exists' | 'databaseId' | 'bucketName' | 'kvId'>) {
+export async function provisionServerStorage(client: Cloudflare, request: Pick<DeployRequest, 'accountId' | 'serverId' | 'workerName' | 'filesEnabled'>, existing: Pick<ExistingWorker, 'exists' | 'databaseId' | 'bucketName' | 'kvId'>) {
+  const prefix = request.serverId ? `llll-${request.serverId}` : request.workerName
   const [databaseId, bucketName, kvId] = existing.exists
     ? [existing.databaseId, existing.bucketName, existing.kvId]
     : await Promise.all([
-        ensureD1(client, request.accountId, `${request.workerName}-db`),
-        request.filesEnabled !== false ? ensureR2(client, request.accountId, `${request.workerName}-files`) : undefined,
-        ensureKv(client, request.accountId, `${request.workerName}-tickets`),
+        ensureD1(client, request.accountId, `${prefix}-db`),
+        request.filesEnabled !== false ? ensureR2(client, request.accountId, `${prefix}-files`) : undefined,
+        ensureKv(client, request.accountId, `${prefix}-tickets`),
       ])
   if (!databaseId || !kvId) throw createError({ statusCode: 409, statusMessage: 'Existing L4 storage bindings are incomplete' })
   return { databaseId, bucketName, kvId }
@@ -308,6 +366,91 @@ async function applyD1Migrations(accessToken: string, accountId: string, databas
   return pending.map(migration => migration.name)
 }
 
+async function d1Query(
+  accessToken: string,
+  accountId: string,
+  databaseId: string,
+  sql: string,
+  params: Array<string | number | null> = [],
+) {
+  const results = await cloudflareApi<Array<{ success?: boolean }>>(
+    accessToken,
+    `/accounts/${accountId}/d1/database/${databaseId}/query`,
+    { method: 'POST', body: JSON.stringify({ sql, params }) },
+  )
+  if (results.some(statement => statement.success === false)) {
+    throw createError({ statusCode: 502, statusMessage: 'L4 database setup did not complete' })
+  }
+  return results
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Establish the one UUID before the Worker handles a request. The same value
+ * names the Worker and its D1/R2/KV resources, and is the permanent Server ID.
+ */
+async function seedNewServer(
+  accessToken: string,
+  accountId: string,
+  databaseId: string,
+  request: DeployRequest,
+  origin: string,
+  setupToken: string | null,
+) {
+  const now = new Date().toISOString()
+  await d1Query(accessToken, accountId, databaseId,
+    'INSERT INTO server_identity (singleton, id) VALUES (1, ?) ON CONFLICT(singleton) DO NOTHING',
+    [request.serverId])
+  const backupBucketName = serverBackupBucketName(request)
+  if (backupBucketName) {
+    await d1Query(accessToken, accountId, databaseId,
+      `INSERT INTO server_settings (key, value, updated_at) VALUES ('backup_bucket', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [backupBucketName, now])
+  }
+  await d1Query(accessToken, accountId, databaseId,
+    'INSERT INTO auth_settings (id, registration_mode) VALUES (1, ?) ON CONFLICT(id) DO NOTHING',
+    [request.registrationMode])
+  if (request.mailEnabled) {
+    const domains = JSON.stringify([{
+      id: crypto.randomUUID(),
+      domain: mailDomain(request),
+      zoneId: request.zoneId,
+    }])
+    await d1Query(accessToken, accountId, databaseId,
+      `INSERT INTO server_settings (key, value, updated_at) VALUES ('mail_domains', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [domains, now])
+    await d1Query(accessToken, accountId, databaseId,
+      `INSERT INTO server_settings (key, value, updated_at) VALUES ('mail_app_hostname', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [new URL(origin).hostname, now])
+    await d1Query(accessToken, accountId, databaseId,
+      `INSERT INTO server_settings (key, value, updated_at) VALUES ('mail_default_local_part', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [request.mailLocalPart, now])
+  }
+  if (setupToken) {
+    await d1Query(accessToken, accountId, databaseId,
+      `INSERT INTO server_setup (singleton, email, token_hash, server_name, created_at, updated_at)
+       VALUES (1, ?, ?, ?, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET email = excluded.email, token_hash = excluded.token_hash,
+         server_name = excluded.server_name, updated_at = excluded.updated_at`,
+      [request.adminEmail, await sha256Hex(setupToken), request.appName, now, now])
+  }
+}
+
+async function rememberWorkerName(accessToken: string, accountId: string, databaseId: string, workerName: string) {
+  await d1Query(accessToken, accountId, databaseId,
+    `INSERT INTO server_settings (key, value, updated_at) VALUES ('worker_name', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [workerName, new Date().toISOString()])
+}
+
 export async function uploadAssets(accessToken: string, accountId: string, workerName: string, payload: InstallerAssetsPayload) {
   const manifest = Object.fromEntries(payload.assets.map(asset => [asset.path, { hash: asset.hash, size: asset.size }]))
   const session = await cloudflareApi<{ jwt: string, buckets?: string[][] }>(
@@ -339,7 +482,8 @@ async function ensureBootstrapWorkerTarget(accessToken: string, accountId: strin
   const metadata = {
     main_module: 'llll-bootstrap.mjs',
     compatibility_date: compatibilityDate,
-    bindings: [{ type: 'plain_text', name: 'LLLL_SERVER_MARKER', text: bootstrapMarker }],
+    bindings: [],
+    tags: [bootstrapTag],
   }
   const source = "export default { fetch() { return new Response('L4 is being installed.', { status: 503 }) } }"
   const form = new FormData()
@@ -370,41 +514,30 @@ async function uploadWorker(
   ownerSetupToken: string | null,
   access: { issuer: string, audience: string, applicationId: string, healthApplicationId: string } | null,
 ) {
-  if (request.backupBucketName) {
-    if (request.backupBucketName === resources.bucketName) throw createError({ statusCode: 400, statusMessage: 'Backup bucket must be separate from live files' })
-    await ensureR2(cloudflareClient(accessToken), accountId, request.backupBucketName)
+  const backupBucketName = serverBackupBucketName(request, existing)
+  if (backupBucketName) {
+    if (backupBucketName === resources.bucketName) throw createError({ statusCode: 400, statusMessage: 'Backup bucket must be separate from live files' })
+    await ensureR2(cloudflareClient(accessToken), accountId, backupBucketName)
   }
-  const hostname = new URL(resources.origin).hostname
-  const bindings: Array<Record<string, unknown>> = [
-    { type: 'd1', name: 'DB', database_id: resources.databaseId },
-    { type: 'kv_namespace', name: 'TICKETS', namespace_id: resources.kvId },
-    { type: 'ai', name: 'AI' },
-    { type: 'browser', name: 'BROWSER' },
-    { type: 'assets', name: 'ASSETS' },
-    { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: resources.origin },
-    { type: 'plain_text', name: 'APP_NAME', text: request.appName },
-    { type: 'plain_text', name: 'APP_TITLE', text: 'One server for humans and agents.' },
-    { type: 'plain_text', name: 'APP_SUBTITLE', text: 'Built on your Cloudflare stack.' },
-    { type: 'plain_text', name: 'AUTH_REGISTRATION_MODE', text: request.registrationMode },
-    { type: 'plain_text', name: 'AUTH_MODE', text: request.authMode },
-    { type: 'plain_text', name: 'AGENT_MODEL', text: '@cf/moonshotai/kimi-k2.7-code' },
-    { type: 'plain_text', name: 'LLLL_APP_HOSTNAME', text: hostname },
-    { type: 'plain_text', name: 'LLLL_ACCOUNT_ID', text: accountId },
-    { type: 'plain_text', name: 'LLLL_WORKER_NAME', text: request.workerName },
-    { type: 'plain_text', name: 'LLLL_CUSTOM_DOMAIN', text: request.customDomainEnabled ? 'true' : 'false' },
-    { type: 'plain_text', name: 'LLLL_SERVER_MARKER', text: installerMarker },
-    { type: 'plain_text', name: 'LLLL_VERSION', text: manifest.version },
-    ...manifest.durableObjects.map(item => ({ type: 'durable_object_namespace', name: item.binding, class_name: item.className })),
-  ]
-  if (request.backupBucketName) bindings.push({ type: 'r2_bucket', name: 'BACKUPS', bucket_name: request.backupBucketName }, { type: 'plain_text', name: 'BACKUP_BUCKET_NAME', text: request.backupBucketName })
+  const bindings: Array<Record<string, unknown>> = existing.exists && existing.bindings?.length
+    ? updateWorkerBindings(existing.bindings, manifest, {
+        accountId,
+        publicOrigin: resources.origin,
+        authMode: existing.authMode,
+      })
+    : [
+        { type: 'd1', name: 'DB', database_id: resources.databaseId },
+        { type: 'kv_namespace', name: 'TICKETS', namespace_id: resources.kvId },
+        { type: 'ai', name: 'AI' },
+        { type: 'browser', name: 'BROWSER' },
+        { type: 'assets', name: 'ASSETS' },
+        { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: resources.origin },
+        { type: 'plain_text', name: 'AUTH_MODE', text: request.authMode },
+        { type: 'plain_text', name: 'ACCOUNT_ID', text: accountId },
+        ...manifest.durableObjects.map(item => ({ type: 'durable_object_namespace', name: item.binding, class_name: item.className })),
+      ]
+  if (backupBucketName) bindings.push({ type: 'r2_bucket', name: 'BACKUPS', bucket_name: backupBucketName })
   if (resources.bucketName) bindings.push({ type: 'r2_bucket', name: 'FILES', bucket_name: resources.bucketName })
-  if (request.customDomainEnabled || request.mailEnabled) {
-    bindings.push(
-      { type: 'plain_text', name: 'LLLL_ZONE_ID', text: request.zoneId },
-      { type: 'plain_text', name: 'LLLL_ZONE_NAME', text: request.zoneName },
-      { type: 'plain_text', name: 'LLLL_APP_SUBDOMAIN', text: request.appSubdomain },
-    )
-  }
   if (access) {
     bindings.push(
       { type: 'plain_text', name: 'CF_ACCESS_ISS', text: access.issuer },
@@ -413,21 +546,8 @@ async function uploadWorker(
       { type: 'plain_text', name: 'CF_ACCESS_HEALTH_APP_ID', text: access.healthApplicationId },
     )
   }
-  if (request.mailEnabled) {
-    bindings.push(
-      { type: 'send_email', name: 'MAIL_EMAIL' },
-      { type: 'plain_text', name: 'LLLL_EMAIL_DOMAINS', text: JSON.stringify([{ id: crypto.randomUUID(), domain: mailDomain(request), zoneId: request.zoneId }]) },
-      { type: 'plain_text', name: 'MAIL_APP_HOSTNAME', text: hostname },
-      { type: 'plain_text', name: 'MAIL_DEFAULT_LOCAL_PART', text: request.mailLocalPart },
-    )
-  }
-  if (!existing.exists) {
-    bindings.push(
-      { type: 'secret_text', name: 'AUTH_SECRET', text: randomBase64Url(48) },
-      { type: 'secret_text', name: 'ADMIN_EMAIL', text: request.adminEmail },
-    )
-    if (ownerSetupToken) bindings.push({ type: 'secret_text', name: 'SETUP_TOKEN', text: ownerSetupToken })
-  }
+  if (request.mailEnabled) bindings.push({ type: 'send_email', name: 'MAIL_EMAIL' })
+  if (!existing.exists) bindings.push({ type: 'secret_text', name: 'AUTH_SECRET', text: randomBase64Url(48) })
 
   const definedBindings = new Set(bindings.map(binding => String(binding.name)))
   for (const name of existing.lifecycleBindingNames || []) {
@@ -443,13 +563,13 @@ async function uploadWorker(
     bindings,
     assets: { jwt: resources.assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
+    tags: [serverTag],
     annotations: {
       'workers/message': `L4 ${manifest.version} via installer`,
       'workers/tag': `llll-${manifest.version}`,
     },
   }
   if (migrations) metadata.migrations = migrations
-  if (existing.exists) metadata.keep_bindings = ['secret_text']
 
   const form = new FormData()
   form.append('metadata', JSON.stringify(metadata))
@@ -461,28 +581,78 @@ async function uploadWorker(
   )
 }
 
+export function serverBackupBucketName(
+  request: Pick<DeployRequest, 'backupBucketName' | 'serverId' | 'filesEnabled'>,
+  existing?: Pick<ExistingWorker, 'exists' | 'backupBucketName'>,
+) {
+  return request.backupBucketName
+    || (existing?.exists ? existing.backupBucketName : request.filesEnabled !== false && request.serverId ? `llll-${request.serverId}-backups` : undefined)
+}
+
 export function updateWorkerBindings(
   current: ExistingWorkerBinding[],
   manifest: InstallerReleaseManifest,
+  options: { minimal?: boolean, accountId?: string, publicOrigin?: string, authMode?: 'access' | 'builtin' } = {},
 ) {
-  const durable = new Map(manifest.durableObjects.map(item => [item.binding, item]))
   const replaced = new Set([
     'ASSETS',
     'LLLL_VERSION',
-    ...durable.keys(),
+    'LLLL_SERVER_MARKER',
+    ...(options.minimal ? legacyEnvBindings : []),
+    ...manifest.durableObjects.map(item => item.binding),
   ])
   const bindings: Array<Record<string, unknown>> = current
     .filter(binding => binding.name && !replaced.has(binding.name))
     .map(binding => ({ type: 'inherit', name: binding.name }))
   const currentNames = new Set(current.map(binding => binding.name))
+  if (!currentNames.has('PUBLIC_ORIGIN') && options.publicOrigin) {
+    bindings.push({ type: 'plain_text', name: 'PUBLIC_ORIGIN', text: options.publicOrigin })
+  }
+  if (!currentNames.has('AUTH_MODE') && options.authMode) {
+    bindings.push({ type: 'plain_text', name: 'AUTH_MODE', text: options.authMode })
+  }
   bindings.push(
     { type: 'assets', name: 'ASSETS' },
-    { type: 'plain_text', name: 'LLLL_VERSION', text: manifest.version },
+    ...(options.accountId ? [{ type: 'plain_text', name: 'ACCOUNT_ID', text: options.accountId }] : []),
     ...manifest.durableObjects.map(item => currentNames.has(item.binding)
       ? { type: 'inherit', name: item.binding }
       : { type: 'durable_object_namespace', name: item.binding, class_name: item.className }),
   )
   return bindings
+}
+
+/** Copy non-secret legacy settings that the new Worker no longer reads from env. */
+async function migrateLegacyBindings(
+  accessToken: string,
+  accountId: string,
+  databaseId: string,
+  workerName: string,
+  bindings: ExistingWorkerBinding[],
+) {
+  const text = (name: string) => bindings.find(binding => binding.name === name && binding.type === 'plain_text')?.text?.trim() || ''
+  const settings: Array<[string, string]> = [['worker_name', workerName]]
+  const backupBucket = text('BACKUP_BUCKET_NAME') || bindings.find(binding => binding.name === 'BACKUPS' && binding.type === 'r2_bucket')?.bucket_name || ''
+  if (backupBucket) settings.push(['backup_bucket', backupBucket])
+  const appName = text('APP_NAME')
+  if (appName) settings.push(['initial_name', appName])
+  const mailDomains = text('LLLL_EMAIL_DOMAINS')
+  const mailAppHostname = text('MAIL_APP_HOSTNAME') || text('LLLL_APP_HOSTNAME')
+  const mailLocalPart = text('MAIL_DEFAULT_LOCAL_PART')
+  if (mailDomains) settings.push(['mail_domains', mailDomains])
+  if (mailAppHostname) settings.push(['mail_app_hostname', mailAppHostname])
+  if (mailLocalPart) settings.push(['mail_default_local_part', mailLocalPart])
+  const placeholders = settings.map(() => 'SELECT ? AS key, ? AS value, ? AS updated_at').join(' UNION ALL ')
+  const now = new Date().toISOString()
+  await d1Query(accessToken, accountId, databaseId,
+    `INSERT INTO server_settings (key, value, updated_at) ${placeholders}
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    settings.flatMap(([key, value]) => [key, value, now]))
+  const registrationMode = text('AUTH_REGISTRATION_MODE')
+  if (registrationMode === 'open' || registrationMode === 'invite_only') {
+    await d1Query(accessToken, accountId, databaseId,
+      'INSERT INTO auth_settings (id, registration_mode) VALUES (1, ?) ON CONFLICT(id) DO NOTHING',
+      [registrationMode])
+  }
 }
 
 export type InstallVerifyOptions = {
@@ -508,23 +678,35 @@ export async function deployL4Update(
   }
 
   const appliedMigrations = await applyD1Migrations(accessToken, accountId, existing.databaseId, release.assets)
+  await migrateLegacyBindings(accessToken, accountId, existing.databaseId, workerName, existing.bindings)
   const assetsJwt = await uploadAssets(accessToken, accountId, workerName, release.assets)
+  const origin = existing.publicOrigin || `https://${existing.appHostname}`
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
     compatibility_date: release.manifest.compatibilityDate,
     compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
-    bindings: updateWorkerBindings(existing.bindings, release.manifest),
+    bindings: updateWorkerBindings(existing.bindings, release.manifest, {
+      accountId,
+      publicOrigin: origin,
+      authMode: existing.authMode,
+    }),
     assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
+    tags: [serverTag],
     annotations: {
       'workers/message': `L4 ${release.manifest.version} via installer update`,
       'workers/tag': `llll-${release.manifest.version}`,
     },
   }
-  const version = (worker: ExistingWorker) => worker.bindings?.find(binding => binding.name === 'LLLL_VERSION')?.text
+  const version = (worker: ExistingWorker) => worker.annotations?.['workers/tag']?.replace(/^llll-/u, '')
+    || worker.bindings?.find(binding => binding.name === 'LLLL_VERSION')?.text
   let current = existing
   for (let attempt = 0; ; attempt++) {
-    metadata.bindings = updateWorkerBindings(current.bindings!, release.manifest)
+    metadata.bindings = updateWorkerBindings(current.bindings!, release.manifest, {
+      accountId,
+      publicOrigin: origin,
+      authMode: existing.authMode,
+    })
     const migrations = durableObjectMigrations(release.manifest, current)
     if (migrations) metadata.migrations = migrations
     else delete metadata.migrations
@@ -558,10 +740,42 @@ export async function deployL4Update(
     }
   }
   if (options.verify !== false) {
-    await verifyDeployment(`https://${existing.appHostname}`, release.manifest.version, true)
+    await verifyDeployment(origin, release.manifest.version, true)
+    // The new Worker copied legacy secret settings into D1 during its first
+    // health request. A second metadata-only upload can now remove the old
+    // env without ever exposing those values to the installer.
+    const runtimeMigration = existing.bindings.some(binding => binding.name && runtimeMigratedBindings.has(binding.name))
+    if (runtimeMigration) {
+      metadata.bindings = updateWorkerBindings(current.bindings!, release.manifest, {
+        minimal: true,
+        accountId,
+        publicOrigin: origin,
+        authMode: existing.authMode,
+      })
+      delete metadata.migrations
+      for (let attempt = 0; ; attempt++) {
+        const form = new FormData()
+        form.append('metadata', JSON.stringify(metadata))
+        form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
+        try {
+          await cloudflareApi(
+            accessToken,
+            `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`,
+            { method: 'PUT', body: form, signal: AbortSignal.timeout(120_000) },
+          )
+          break
+        } catch (error) {
+          const delay = cloudflareRetryDelay(error, attempt)
+          if (delay === null) throw error
+          if (attempt === 3) throw error
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+      }
+      await verifyDeployment(origin, release.manifest.version, true)
+    }
   }
   return {
-    url: `https://${existing.appHostname}`,
+    url: origin,
     version: release.manifest.version,
     updated: true,
     appliedMigrations,
@@ -698,6 +912,8 @@ export async function deployL4(
 
   await progress('database', 'active')
   const appliedMigrations = await applyD1Migrations(accessToken, request.accountId, databaseId, release.assets)
+  if (!existing.exists) await seedNewServer(accessToken, request.accountId, databaseId, request, origin, ownerSetupToken)
+  else await rememberWorkerName(accessToken, request.accountId, databaseId, request.workerName)
   await progress('database', 'complete', appliedMigrations.length ? `${appliedMigrations.length} applied` : 'Up to date')
 
   await progress('assets', 'active')

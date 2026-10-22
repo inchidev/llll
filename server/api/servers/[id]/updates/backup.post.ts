@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { changeUpdateRecord } from '../../../../../shared/server-updates'
 import { getServerId } from '../../../../../shared/server-id'
 import { uploadBackupToR2 } from '../../../../../shared/r2-backup'
+import { SERVER_BACKUP_BUCKET, readServerSetting } from '../../../../../shared/server-settings'
 import { cf, fail } from '../../../../utils/cf'
 import { createServerBackup } from '../../../../utils/server-backup'
 import { updateStorage } from '../../../../utils/server-updates'
@@ -34,7 +35,8 @@ export default defineEventHandler(async (event) => {
   const stream = createServerBackup(env, createdAt, value.job.sourceVersion).pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk) } }))
   try {
     const uploaded = await uploadBackupToR2(env.BACKUPS!, key, stream)
-    const backup = { key, bucket: env.BACKUP_BUCKET_NAME!, sizeBytes: uploaded.sizeBytes, sha256: [...hash.digest()].map(b => b.toString(16).padStart(2, '0')).join(''), createdAt, verified: false }
+    const bucket = await readServerSetting(env.DB, SERVER_BACKUP_BUCKET) || env.BACKUP_BUCKET_NAME || ''
+    const backup = { key, bucket, sizeBytes: uploaded.sizeBytes, sha256: [...hash.digest()].map(b => b.toString(16).padStart(2, '0')).join(''), createdAt, verified: false }
     await changeUpdateRecord(store, record => {
       if (record.job?.id !== body.requestId || record.job.buildId !== body.buildId || record.job.stage !== 'backing_up') throw new Error('Update request changed during backup')
       record.job.backup = backup

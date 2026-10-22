@@ -7,12 +7,13 @@ import { provisionServer } from '../../utils/bootstrap'
 import { cf, fail } from '../../utils/cf'
 import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { ensureServerMailFromEnv } from '../../utils/server-mail'
-import { ownerSetupTokenMatches, readOwnerSetupEnv } from '../../utils/owner-setup'
+import { readOwnerSetup, verifyOwnerSetupToken } from '../../utils/owner-setup'
 import { parseBody } from '../../utils/validate'
 
 const bodySchema = z.object({
   token: z.string().min(32).max(256),
   name: z.string().trim().min(1).max(80),
+  serverName: z.string().trim().min(1).max(80).optional(),
   password: z.string().min(12).max(200),
 })
 
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
   await ensureMigrated(env.DB, env)
   if (await serverReady(env.DB)) fail(409, 'server_ready', 'Server setup is already complete')
 
-  const setup = readOwnerSetupEnv(env)
+  const setup = await readOwnerSetup(env.DB, env)
   if (!setup) fail(503, 'setup_unavailable', 'Owner setup is not configured')
 
   const ip = getHeader(event, 'cf-connecting-ip') || getHeader(event, 'x-forwarded-for') || 'local'
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
     // nuxt cloudflare-dev does not export DOs
   }
   if (!allowed) fail(429, 'rate_limited', 'Too many setup attempts')
-  if (!ownerSetupTokenMatches(setup.token, body.token)) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
+  if (!await verifyOwnerSetupToken(setup, body.token)) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
 
   const handle = (setup.email.split('@')[0] || 'owner').slice(0, 32)
   let provisioned
@@ -45,7 +46,7 @@ export default defineEventHandler(async (event) => {
       password: body.password,
       handle,
       displayName: body.name,
-      serverName: setup.serverName,
+      serverName: body.serverName || setup.serverName,
     })
   }
   catch (error) {
@@ -53,6 +54,7 @@ export default defineEventHandler(async (event) => {
     throw error
   }
   await ensureServerMailFromEnv(env)
+  await env.DB.prepare('DELETE FROM server_setup WHERE singleton = 1').run()
 
   const auth = await authFromEvent(event)
   const response = await auth.api.signInEmail({

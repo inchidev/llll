@@ -25,7 +25,6 @@ const origins = {
 const runtimes = {}
 const cookies = {}
 const ids = {}
-let updateHookCalls = 0
 async function assets(request) {
   const url = new URL(request.url)
   let path = resolve(
@@ -142,13 +141,9 @@ try {
             outboundService: async request => {
               const url = new URL(request.url)
               if (url.hostname === 'api.github.com' && url.pathname === '/repos/inchidev/llll/releases') return Response.json([{
-                tag_name: 'v0.2.2', published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.2.2',
+                tag_name: 'v0.3.0', published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.3.0',
                 assets: ['llll-release.json', 'llll-cloudflare-manifest.json', 'llll-worker.mjs', 'llll-assets.json', 'SHA256SUMS'].map(name => ({ name })),
               }])
-              if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/workers/builds/deploy_hooks/11111111-1111-4111-8111-111111111111') {
-                assert.equal(request.method, 'POST'); updateHookCalls++
-                return Response.json({ success: true, result: { build_uuid: '44444444-4444-4444-8444-444444444444', status: 'queued' } })
-              }
               return fetch(request)
             },
             bindings: {
@@ -543,34 +538,34 @@ try {
   assert.ok(backup.payload.sizeBytes > 0)
   assert.ok(backup.payload.key.includes(ids.alpha))
   const bucket = await runtimes.alpha.getR2Bucket('BACKUPS')
-  // Update controls grant no membership, never reveal the Build hook/capability,
-  // and permit a single backup only for the Build that owns this exact job.
+  // Update controls grant no membership, never reveal the backup capability,
+  // and permit a single backup only for the job that owns this exact request.
   const hookId = '11111111-1111-4111-8111-111111111111'
   await api('alpha', `/api/servers/${ids.alpha}/updates/progress`, { actor: 'anonymous', expected: 401 })
-  for (const [path, method, body] of [['progress', 'GET', undefined], ['config', 'PATCH', { hook: hookId }], ['request', 'POST', { requestId: hookId, release: 'v0.3.0' }], ['resume', 'POST', { requestId: hookId }]]) {
+  for (const [path, method, body] of [['progress', 'GET', undefined], ['request', 'POST', { requestId: hookId, release: 'v0.3.0' }], ['resume', 'POST', { requestId: hookId }]]) {
     await api('alpha', `/api/servers/${ids.alpha}/updates/${path}`, { actor: 'alpha-member', method, body, expected: 403 })
   }
-  await api('alpha', `/api/servers/${ids.beta}/updates/config`, { method: 'PATCH', body: { hook: hookId }, expected: 404 })
-  await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: 'https://evil.example/hook' }, expected: 400 })
-  await api('alpha', `/api/servers/${ids.alpha}/updates/config`, { method: 'PATCH', body: { hook: hookId } })
-  // Exercise the actual workerd fetch implementation: redirect:error is rejected
-  // before a hook can be called, even though Node's fetch accepts it.
-  const ownerRequest = { requestId: '55555555-5555-4555-8555-555555555555', release: 'v0.2.2' }
-  const queued = (await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })).payload.job
-  assert.equal(queued.stage, 'queued'); assert.equal(queued.error, null)
-  await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })
-  assert.equal(updateHookCalls, 1)
+  await api('alpha', `/api/servers/${ids.beta}/updates/request`, { method: 'POST', body: { requestId: hookId, release: 'v0.3.0' }, expected: 404 })
+  // Exercise the actual workerd fetch implementation through the launch URL only:
+  // the Server never starts an upload itself.
+  const ownerRequest = { requestId: '55555555-5555-4555-8555-555555555555', release: 'v0.3.0' }
+  const queued = (await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })).payload
+  assert.equal(queued.job.stage, 'queued'); assert.equal(queued.job.error, null)
+  assert.ok(queued.launchUrl.startsWith('https://llll.gg/create?'))
+  assert.equal(queued.launchUrl.includes(hookId), false)
+  const requestAgain = (await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: ownerRequest })).payload
+  assert.equal(requestAgain.job.id, ownerRequest.requestId); assert.equal(requestAgain.launchUrl, queued.launchUrl)
   await api('alpha', `/api/servers/${ids.alpha}/updates/resume`, { method: 'POST', body: { requestId: ownerRequest.requestId, cancel: true } })
   const controlDb = await runtimes.alpha.getD1Database('DB')
   const readControl = async () => JSON.parse((await controlDb.prepare('SELECT payload FROM server_update_control WHERE id=1').first()).payload)
   const saveControl = async value => controlDb.prepare('UPDATE server_update_control SET payload=?,revision=revision+1 WHERE id=1').bind(JSON.stringify(value)).run()
   const updateRecord = await readControl()
-  assert.ok(updateRecord.hook.ciphertext); assert.equal(JSON.stringify(updateRecord).includes(hookId), false)
+  assert.equal(updateRecord.hook, null)
   const progress = (await api('alpha', `/api/servers/${ids.alpha}/updates/progress`)).payload
   assert.equal(progress.configured, true); assert.equal(JSON.stringify(progress).includes('ciphertext'), false)
   const requestId = '22222222-2222-4222-8222-222222222222', buildId = '33333333-3333-4333-8333-333333333333'
   updateRecord.backupToken = 'a'.repeat(64); updateRecord.backupBusy = false
-  updateRecord.job = { id: requestId, serverId: ids.alpha, requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: '0.2.2', stage: 'backing_up', buildId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
+  updateRecord.job = { id: requestId, serverId: ids.alpha, requestedBy: 'owner', sourceVersion: '0.2.0-alpha.8', targetVersion: '0.3.0', stage: 'backing_up', buildId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
   await saveControl(updateRecord)
   const capability = { actor: 'anonymous', method: 'POST', body: { requestId, buildId }, headers: { Authorization: `Bearer ${updateRecord.backupToken}` } }
   await api('alpha', `/api/servers/${ids.alpha}/updates/backup`, { ...capability, headers: { Authorization: `Bearer ${'b'.repeat(64)}` }, expected: 403 })

@@ -1,57 +1,80 @@
 import type { H3Event } from 'h3'
 import type { L4Env } from '../../workers/env'
-import { decryptSecret } from '../../shared/encrypted-secret'
-import { activeUpdate, changeUpdateRecord, updateHookId, type UpdateStore } from '../../shared/server-updates'
+import { getServerId } from '../../shared/server-id'
+import { SERVER_WORKER_NAME, readServerSetting } from '../../shared/server-settings'
+import { activeUpdate, type UpdateStore } from '../../shared/server-updates'
 import { createUpdateStore } from '../../shared/server-update-store'
-import { authSecret } from './auth-config'
 import { cf, fail } from './cf'
 import { requireMember } from './guards'
 
-export function serverUpdateBuildUrl(env: L4Env, buildId: string | null | undefined) {
-  if (!buildId || !/^[a-f0-9-]{36}$/i.test(buildId) || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
-  return `https://dash.cloudflare.com/${encodeURIComponent(env.LLLL_ACCOUNT_ID)}/workers/services/view/${encodeURIComponent(env.LLLL_WORKER_NAME)}/production/builds/${buildId}`
+/** Where this Server's owner starts install and update flows. */
+export type ServerDeployment = {
+  accountId: string
+  workerName: string
+  site: string
+  origin: string
 }
 
-/** The official installer performs the upload after the owner authorizes Cloudflare. */
-export function serverUpdateLaunchUrl(env: L4Env, job: { id: string } | null | undefined, fallbackOrigin?: string) {
-  if (!job || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
-  // The address the owner is using is the best probe: it was just reachable.
-  const origin = fallbackOrigin?.trim() || env.PUBLIC_ORIGIN?.trim()
+export async function serverDeployment(env: L4Env, fallbackOrigin?: string): Promise<ServerDeployment | null> {
+  const accountId = env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim() || ''
+  if (!accountId || env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return null
+  let storedWorkerName: string | null = null
+  try { storedWorkerName = await readServerSetting(env.DB, SERVER_WORKER_NAME) } catch { /* A Database stub without settings still launches. */ }
+  const workerName = storedWorkerName
+    || env.LLLL_WORKER_NAME?.trim()
+    || `llll-${await getServerId(env.DB)}`
+  const origin = fallbackOrigin?.trim() || env.PUBLIC_ORIGIN?.trim() || ''
   if (!origin) return null
-  const site = env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
+  const site = env.UPDATE_SITE?.trim() || env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
+  return { accountId, workerName, site, origin }
+}
+
+function launchUrl(base: ServerDeployment, path: string, params: Record<string, string>) {
   let url: URL
-  try { url = new URL('/create', site) } catch { return null }
-  url.searchParams.set('tab', 'cloudflare')
-  url.searchParams.set('server', origin)
-  url.searchParams.set('account', env.LLLL_ACCOUNT_ID)
-  url.searchParams.set('worker', env.LLLL_WORKER_NAME)
-  url.searchParams.set('update', job.id)
+  try { url = new URL(path, base.site) } catch { return null }
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
   return url.toString()
 }
 
+/** The official installer performs the upload after the owner authorizes Cloudflare. */
+export async function serverUpdateLaunchUrl(
+  env: L4Env,
+  job: { id: string } | null | undefined,
+  fallbackOrigin?: string,
+) {
+  if (!job) return null
+  const deployment = await serverDeployment(env, fallbackOrigin)
+  if (!deployment) return null
+  return launchUrl(deployment, '/create', {
+    tab: 'cloudflare',
+    server: deployment.origin,
+    account: deployment.accountId,
+    worker: deployment.workerName,
+    update: job.id,
+  })
+}
+
 /** Open the official domain flow with a single-use request token. */
-export function serverDomainLaunchUrl(
+export async function serverDomainLaunchUrl(
   env: L4Env,
   request: { id: string, action: string, hostname: string },
   token: string,
   options: { makePrimary?: boolean, fallbackOrigin?: string, serverId?: string } = {},
 ) {
-  if (!env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
-  const origin = options.fallbackOrigin?.trim() || env.PUBLIC_ORIGIN?.trim()
-  if (!origin) return null
-  const site = env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
-  let url: URL
-  try { url = new URL('/domain', site) } catch { return null }
-  url.searchParams.set('server', origin)
-  url.searchParams.set('account', env.LLLL_ACCOUNT_ID)
-  url.searchParams.set('worker', env.LLLL_WORKER_NAME)
-  if (options.serverId) url.searchParams.set('serverId', options.serverId)
-  url.searchParams.set('domainRequest', request.id)
-  url.searchParams.set('domainToken', token)
-  url.searchParams.set('action', request.action)
-  url.searchParams.set('hostname', request.hostname)
-  if (options.makePrimary) url.searchParams.set('primary', '1')
-  return url.toString()
+  const deployment = await serverDeployment(env, options.fallbackOrigin)
+  if (!deployment) return null
+  const params: Record<string, string> = {
+    server: deployment.origin,
+    account: deployment.accountId,
+    worker: deployment.workerName,
+    domainRequest: request.id,
+    domainToken: token,
+    action: request.action,
+    hostname: request.hostname,
+  }
+  if (options.serverId) params.serverId = options.serverId
+  if (options.makePrimary) params.primary = '1'
+  return launchUrl(deployment, '/domain', params)
 }
 
 export async function updateOwner(event: H3Event) {
@@ -62,7 +85,8 @@ export async function updateOwner(event: H3Event) {
 }
 
 export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
-  if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_SERVER_MARKER !== 'llll.gg/server-v1' || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require a separate backup bucket and a published L4 Server release. VPS operators use llll upgrade.')
+  const accountId = env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim()
+  if (!env.BACKUPS || !env.FILES || !accountId || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require a separate backup bucket and a published L4 Server release. VPS operators use llll upgrade.')
   // Reads must start on the primary so a fresh request cannot miss an active Build.
   const database = env.DB.withSession('first-primary')
   return createUpdateStore(async (sql, params) => (await database.prepare(sql).bind(...params).all<{ payload: string; revision: number }>()).results)
@@ -71,33 +95,7 @@ export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
 export async function updateConfiguration(event: H3Event, env: L4Env, serverId: string) {
   const store = updateStorage(env, serverId)
   const { value } = await store.read()
-  let hook: string | null
-  try {
-    hook = env.LLLL_UPDATE_HOOK?.trim() || (value.hook ? await decryptSecret(authSecret(env, getRequestURL(event).origin), `server-update-hook:${serverId}`, value.hook) : null)
-    if (hook) hook = updateHookId(hook)
-  } catch { hook = null /* Unreadable credentials remain private and can be replaced by the owner. */ }
-  return { store, value, hook }
-}
-
-export async function triggerServerUpdate(store: UpdateStore, jobId: string, hook: string) {
-  let issue: string | null = null
-  let responseStatus: number | null = null
-  try {
-    const response = await fetch(`https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/${updateHookId(hook)}`, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(15000) })
-    responseStatus = response.status
-    if (!response.ok) throw new Error('hook rejected')
-    const result = await response.json() as { success?: boolean }
-    if (result.success === false) throw new Error('hook rejected')
-  } catch {
-    // A timeout is ambiguous: the Build may already be running. Keep the same job locked.
-    issue = `The Build start could not be confirmed.${responseStatus ? ` Cloudflare returned HTTP ${responseStatus}.` : ''} Retry starting this request; do not create another update.`
-  }
-  await changeUpdateRecord(store, (record) => {
-    if (record.job?.id === jobId && ['queued', 'attention'].includes(record.job.stage)) {
-      record.job.error = issue
-      record.job.updatedAt = new Date().toISOString()
-    }
-  })
+  return { store, value }
 }
 
 export function assertQueuedJob(value: Awaited<ReturnType<UpdateStore['read']>>['value'], id: string) {

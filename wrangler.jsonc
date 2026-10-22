@@ -112,7 +112,6 @@
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",
     "AUTH_REGISTRATION_MODE": "invite_only",
-    "APP_NAME": "L4",
     "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
   },
   "previews": {}

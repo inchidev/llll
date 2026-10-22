@@ -6,6 +6,10 @@ export function parseDeployRequest(value: unknown): DeployRequest {
   if (!body || typeof body !== 'object') installerError(400, 'Invalid deploy request')
   const accountId = String(body.accountId || '').trim()
   const workerName = String(body.workerName || '').trim().toLowerCase()
+  const workerId = /^llll-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/iu.exec(workerName)?.[1]
+  const serverId = typeof body.serverId === 'string' && body.serverId.trim()
+    ? body.serverId.trim().toLowerCase()
+    : workerId || crypto.randomUUID()
   const appName = String(body.appName || '').trim()
   const authMode = body.authMode === undefined ? 'builtin' : body.authMode
   if (authMode !== 'builtin' && authMode !== 'access') installerError(400, 'Select a sign-in mode')
@@ -17,6 +21,7 @@ export function parseDeployRequest(value: unknown): DeployRequest {
   const mailSubdomain = String(body.mailSubdomain || '').trim().toLowerCase()
   const mailLocalPart = String(body.mailLocalPart || '').trim().toLowerCase()
   if (!/^[0-9a-f]{32}$/u.test(accountId)) installerError(400, 'Select a Cloudflare account')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(serverId)) installerError(400, 'Server ID is invalid')
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(workerName)) installerError(400, 'Worker name must use lowercase letters, numbers, and hyphens')
   if (!appName || appName.length > 80) installerError(400, 'App name must be 1–80 characters')
   const zoneRequired = customDomainEnabled || mailEnabled
@@ -42,6 +47,7 @@ export function parseDeployRequest(value: unknown): DeployRequest {
   return {
     ...(backupBucketName ? { backupBucketName } : {}),
     accountId,
+    serverId,
     workerName,
     appName,
     authMode,
@@ -74,6 +80,7 @@ export function parseBaseInstallRequest(value: unknown): BaseInstallRequest {
   })
   const {
     accountId,
+    serverId,
     workerName,
     adminEmail,
     allowedEmails,
@@ -84,5 +91,5 @@ export function parseBaseInstallRequest(value: unknown): BaseInstallRequest {
     filesEnabled,
     backupBucketName,
   } = parsed
-  return { accountId, workerName, adminEmail, allowedEmails, appName, authMode, registrationMode, targetVersion, filesEnabled, ...(backupBucketName ? { backupBucketName } : {}) }
+  return { accountId, serverId, workerName, adminEmail, allowedEmails, appName, authMode, registrationMode, targetVersion, filesEnabled, ...(backupBucketName ? { backupBucketName } : {}) }
 }

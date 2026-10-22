@@ -273,6 +273,9 @@ export async function advanceDeployment(
     state.grant = await refreshCloudflareGrant(state.grant)
     await save()
   }
+  const serverId = state.serverId || /^llll-([0-9a-f-]{36})$/u.exec(state.worker)?.[1]
+  if (!serverId) throw new Error('Start the deployment first with a Server ID')
+  state.serverId = serverId
   const token = state.grant.accessToken
   if (state.step === 0) {
     // Verify the published artifact before allocating any Cloudflare resource.
@@ -286,6 +289,7 @@ export async function advanceDeployment(
       token,
       {
         accountId: state.accountId,
+        serverId,
         workerName: state.worker,
         targetVersion: state.version,
         appName: state.name,
@@ -294,7 +298,7 @@ export async function advanceDeployment(
         authMode: 'builtin',
         registrationMode: 'invite_only',
         filesEnabled: true,
-        backupBucketName: state.worker + '-backups',
+        backupBucketName: `llll-${serverId}-backups`,
         customDomainEnabled: false,
         zoneId: '',
         zoneName: '',
@@ -347,12 +351,14 @@ export function deploymentParameters(
 ) {
   if (!VERSION_PATTERN.test(version))
     throw new Error('Choose a published release version')
+  const serverId = crypto.randomUUID()
   return {
     accountId,
     name,
     version,
     ownerEmail,
-    worker: 'llll-' + crypto.randomUUID(),
+    serverId,
+    worker: 'llll-' + serverId,
     setupToken: randomCode(),
     step: 0,
   }

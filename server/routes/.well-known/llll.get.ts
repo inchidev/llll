@@ -1,11 +1,13 @@
 import { SERVER_API_VERSION } from '../../../shared/server'
 import { embedOrigins } from '../../../shared/embed'
 import { readAppBranding } from '../../../shared/app-branding'
-import { version } from '../../../package.json'
+
 import { cf } from '../../utils/cf'
 import { ensureMigrated } from '../../utils/db'
 import { ensurePrimaryServerOrigin, readServerOrigins } from '../../utils/server-origins'
 import { publicServerAppearance } from '../../utils/server-appearance'
+import { serverRegistrationOpen } from '../../utils/server-flags'
+import { serverVersion } from '../../utils/version'
 
 export default defineEventHandler(async event => {
   if (getRequestURL(event).pathname !== '/.well-known/llll') return
@@ -26,10 +28,10 @@ export default defineEventHandler(async event => {
     kind: 'server',
     ...appearance,
     apiVersion: SERVER_API_VERSION,
-    version: env.LLLL_VERSION?.trim() || version,
+    version: serverVersion(env),
     origin,
     aliases,
-    registration: env.AUTH_REGISTRATION_MODE === 'open',
+    registration: await serverRegistrationOpen(env),
     telegram: Boolean(env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TRUSTED_BOT_ID),
     embedOrigins: allowed,
   }

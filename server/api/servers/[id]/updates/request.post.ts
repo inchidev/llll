@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { changeUpdateRecord, requestServerUpdate, type ServerUpdateJob } from '../../../../../shared/server-updates'
 import { compareVersions } from '../../../../../shared/release-version'
-import { version } from '../../../../../package.json'
-import { updateConfiguration, updateOwner, triggerServerUpdate, serverUpdateLaunchUrl } from '../../../../utils/server-updates'
+import { serverVersion } from '../../../../utils/version'
+import { updateConfiguration, updateOwner, serverUpdateLaunchUrl } from '../../../../utils/server-updates'
 import { fail } from '../../../../utils/cf'
 import { llllReleases } from '../../../../utils/releases'
 import { parseBody } from '../../../../utils/validate'
@@ -11,12 +11,12 @@ import { writeAudit } from '../../../../utils/messages'
 export default defineEventHandler(async (event) => {
   const { env, serverId, member } = await updateOwner(event)
   const body = parseBody(z.object({ requestId: z.string().uuid(), release: z.string().regex(/^v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/), prereleases: z.boolean().default(false) }), await readBody(event))
-  const { store, hook, value } = await updateConfiguration(event, env, serverId)
+  const { store, value } = await updateConfiguration(event, env, serverId)
   if (value.job?.id === body.requestId) {
     if (value.job.targetVersion !== body.release.slice(1) || value.job.requestedBy !== member.user.id) fail(409, 'request_conflict', 'This request ID belongs to another update')
-    return { job: value.job, launchUrl: serverUpdateLaunchUrl(env, value.job, getRequestURL(event).origin) }
+    return { job: value.job, launchUrl: await serverUpdateLaunchUrl(env, value.job, getRequestURL(event).origin) }
   }
-  const installed = env.LLLL_VERSION?.trim() || version
+  const installed = serverVersion(env)
   if (compareVersions(body.release.slice(1), installed) <= 0) fail(400, 'release_not_newer', 'Choose a release newer than the installed version')
   const releases = await llllReleases(undefined, { prereleases: body.prereleases, installable: true })
   if (!releases.some(r => r.tagName === body.release)) fail(400, 'release_unavailable', 'Choose an available published L4 release')
@@ -29,7 +29,6 @@ export default defineEventHandler(async (event) => {
   })
   if (created) {
     await writeAudit(env, { serverId, actorId: member.user.id, action: 'server.update.request', targetType: 'server', targetId: serverId, meta: { requestId: job.id, release: job.targetVersion } })
-    if (hook) await triggerServerUpdate(store, job.id, hook)
   }
-  return { job: (await store.read()).value.job, launchUrl: serverUpdateLaunchUrl(env, job, getRequestURL(event).origin) }
+  return { job: (await store.read()).value.job, launchUrl: await serverUpdateLaunchUrl(env, job, getRequestURL(event).origin) }
 })

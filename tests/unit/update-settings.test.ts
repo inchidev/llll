@@ -16,7 +16,7 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   api = vi.fn(async (url: string, options?: { body?: Record<string, unknown>; query?: { prereleases?: boolean } }) => {
     if (url.endsWith('/updates')) return { installedVersion: '0.2.1', releases: [release('v0.2.600'), release('v0.2.2'), release('v0.2.0'), ...(options?.query?.prereleases ? [release('v0.3.0-alpha.1')] : [])], updateControl: { available: true, configured: true, mode: 'build', source: 'binding', job: savedJob } }
-    if (url.endsWith('/progress')) return { installedVersion: '0.2.1', configured: true, mode: 'build', job: savedJob }
+    if (url.endsWith('/progress')) return { installedVersion: '0.2.1', configured: true, mode: 'installer', job: savedJob, launchUrl: 'https://llll.gg/create?update=x' }
     if (url.endsWith('/request')) {
       savedJob = { id: String(options?.body?.requestId), serverId: 'server', requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: String(options?.body?.release).slice(1), stage: 'queued', buildId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
       return { job: savedJob }
@@ -58,9 +58,9 @@ it('offers recovery when a persisted active job becomes stale without a page rel
   const v = view()
   try {
     await flushPromises()
-    expect(v.text()).not.toContain('Resume stopped Build')
+    expect(v.text()).not.toContain('Open the official installer')
     await vi.advanceTimersByTimeAsync(310000)
     await flushPromises()
-    expect(v.text()).toContain('Resume stopped Build')
+    expect(v.text()).toContain('Open the official installer')
   } finally { v.unmount(); client.clear(); vi.useRealTimers() }
 })

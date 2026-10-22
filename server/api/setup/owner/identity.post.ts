@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { cf, fail } from '../../../utils/cf'
 import { ensureMigrated, serverReady } from '../../../utils/db'
-import { readOwnerSetupEnv, verifiedOwnerSetupEmail } from '../../../utils/owner-setup'
+import { readOwnerSetup, verifyOwnerSetupToken } from '../../../utils/owner-setup'
 import { parseBody } from '../../../utils/validate'
 
 const bodySchema = z.object({
@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   await ensureMigrated(env.DB, env)
   if (await serverReady(env.DB)) fail(409, 'server_ready', 'Server setup is already complete')
 
-  const email = verifiedOwnerSetupEmail(readOwnerSetupEnv(env), body.token)
+  const email = await verifyOwnerSetupToken(await readOwnerSetup(env.DB, env), body.token)
   if (!email) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
   return { email }
 })

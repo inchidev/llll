@@ -1,13 +1,13 @@
-import { version as packageVersion } from '../../../../package.json'
+import { serverVersion } from '../../../utils/version'
 import type { UpdateStatusDTO } from '../../../../shared/releases'
 import { compareVersions } from '../../../../shared/release-version'
-import { serverUpdateBuildUrl, serverUpdateLaunchUrl, updateConfiguration, updateOwner } from '../../../utils/server-updates'
+import { serverUpdateLaunchUrl, updateConfiguration, updateOwner } from '../../../utils/server-updates'
 import { llllReleases } from '../../../utils/releases'
 
 export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
   setHeader(event, 'Cache-Control', 'no-store')
   const { env, serverId } = await updateOwner(event)
-  const installedVersion = env.LLLL_VERSION?.trim() || packageVersion
+  const installedVersion = serverVersion(env)
   const status: UpdateStatusDTO = {
     installedVersion, management: 'operator', latestRelease: null, releasesBehind: 0,
     updateAvailable: false, checkedAt: new Date().toISOString(), checkFailed: false, releases: [],
@@ -15,7 +15,7 @@ export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
   }
   try {
     const config = await updateConfiguration(event, env, serverId)
-    status.updateControl = { available: true, configured: Boolean(config.hook), mode: config.hook ? 'build' : 'installer', source: env.LLLL_UPDATE_HOOK ? 'binding' : config.value.hook ? 'saved' : null, job: config.value.job, buildUrl: serverUpdateBuildUrl(env, config.value.job?.buildId), launchUrl: serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
+    status.updateControl = { available: true, configured: true, mode: 'installer', source: null, job: config.value.job, buildUrl: null, launchUrl: await serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
   } catch {
     status.updateControl!.reason = 'Cloudflare updates need a separate backup bucket and the published L4 installer. On a VPS use llll upgrade.'
   }

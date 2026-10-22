@@ -221,12 +221,10 @@ export async function setPrimaryAppDomain(
   const normalized = hostnameInsideZone(zone, hostname)
   const client = cloudflareClient(accessToken)
   const current = await workerBindings(client, accountId, workerName)
+  // The Server reads its origins from D1 and PUBLIC_ORIGIN; zone/app metadata
+  // env bindings are gone.
   const replacements: Array<Record<string, unknown>> = [
     { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: `https://${normalized}` },
-    { type: 'plain_text', name: 'LLLL_APP_HOSTNAME', text: normalized },
-    { type: 'plain_text', name: 'LLLL_CUSTOM_DOMAIN', text: 'true' },
-    { type: 'plain_text', name: 'LLLL_APP_ZONE_ID', text: zone.id },
-    { type: 'plain_text', name: 'LLLL_APP_ZONE_NAME', text: zone.name },
   ]
   // Keep the legacy Build probe working when the deployment still has it.
   if (textBinding(current, 'LLLL_SERVER_ORIGIN')) {

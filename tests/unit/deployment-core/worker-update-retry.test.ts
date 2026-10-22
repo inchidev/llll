@@ -70,7 +70,7 @@ it.each([408, 429, 500, 502, 503, 504])('retries HTTP %i without repeating D1 mi
     expect(await (form.get('llll-worker.mjs') as Blob).text()).toBe('export default {}')
     expect(JSON.parse(String(form.get('metadata'))).migrations).toEqual({ old_tag: 'v1', new_tag: 'v2', steps: [{ new_sqlite_classes: ['AgentRun'] }] })
   }
-  expect(f.requests.filter(r => r.path.endsWith('/query'))).toHaveLength(3)
+  expect(f.requests.filter(r => r.path.endsWith('/query'))).toHaveLength(4)
   expect(f.requests.filter(r => r.path.endsWith('/assets-upload-session'))).toHaveLength(1)
 })
 

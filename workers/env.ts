@@ -29,6 +29,7 @@ export type L4Env = {
   TELEGRAM_BOT_TOKEN?: string
   DB: D1Database
   BACKUPS?: R2Bucket
+  /** Legacy installer binding; the updater removes it after moving to D1. */
   BACKUP_BUCKET_NAME?: string
   FILES?: R2Bucket
   TICKETS: KVNamespace
@@ -75,7 +76,12 @@ export type L4Env = {
    * Any other value, including `celld`, turns them off.
    */
   LLLL_RUNTIME?: string
+  /** Legacy installer binding; the updater removes it after moving to D1. */
   LLLL_EMAIL_DOMAINS?: string
+  /** The Server's own Cloudflare account, for update and domain launch URLs. */
+  ACCOUNT_ID?: string
+  /** The permanent Server UUID on runtimes that cannot seed D1 before boot. */
+  SERVER_ID?: string
   ASSETS?: { fetch: (request: Request) => Promise<Response> }
   REALTIMEKIT_ACCOUNT_ID?: string
   REALTIMEKIT_APP_ID?: string
@@ -109,9 +115,6 @@ export type L4Env = {
   VAPID_SUBJECT?: string
   VAPID_PUBLIC_KEY?: string
   VAPID_PRIVATE_KEY?: string
-  APP_NAME?: string
-  APP_TITLE?: string
-  APP_SUBTITLE?: string
   ADMIN_EMAIL?: string
   SETUP_TOKEN?: string
   ADMIN_PASSWORD?: string
@@ -119,6 +122,7 @@ export type L4Env = {
   ADMIN_HANDLE?: string
   ADMIN_SERVER?: string
   AGENT_MODEL?: string
+  /** Legacy installer bindings; the updater removes them after moving to D1. */
   LLLL_ACCOUNT_ID?: string
   LLLL_WORKER_NAME?: string
   LLLL_CUSTOM_DOMAIN?: string
@@ -127,14 +131,15 @@ export type L4Env = {
   LLLL_APP_SUBDOMAIN?: string
   LLLL_SERVER_MARKER?: string
   LLLL_VERSION?: string
-  /** Secret, limited to starting this Server's Git-connected Build. */
+  /** Legacy Build hook; kept only until the next #9 update removes it. */
   LLLL_UPDATE_HOOK?: string
   /** Official installer origin used to run an update with fresh Cloudflare consent. */
+  UPDATE_SITE?: string
   LLLL_UPDATE_SITE?: string
   LLLL_APP_HOSTNAME?: string
   /** Cloudflare account id used to call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. */
   CLOUDFLARE_ACCOUNT_ID?: string
-  /** Secret. Account API token for `CLOUDFLARE_ACCOUNT_ID`. Not `LLLL_ACCOUNT_ID`. */
+  /** Secret. Account API token for `CLOUDFLARE_ACCOUNT_ID`. Not `ACCOUNT_ID`. */
   CLOUDFLARE_API_TOKEN?: string
 }
 

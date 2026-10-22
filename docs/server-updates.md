@@ -24,20 +24,15 @@ The official installer performs the update in phases. Each phase is a separate b
    - every R2 metadata record against its matching payload and size;
    - the live D1 table count and total row count, and the live files-bucket object and byte inventory.
 
-   If the live inventory changed while the backup was made, the update stops **before** deployment and asks the Owner to retry with low Server activity. This is an inventory-level check, not an atomic cross-service snapshot. Unlike the legacy Build path, a Worker cannot restore the whole SQLite file on disk, so the site path does not repeat a SQLite restore and foreign-key check.
+   If the live inventory changed while the backup was made, the update stops **before** deployment and asks the Owner to retry with low Server activity. This is an inventory-level check, not an atomic cross-service snapshot. A Worker cannot restore the whole SQLite file on disk, so the site path does not repeat a SQLite restore and foreign-key check.
 4. **Direct upload.** Only after verification does the installer call the same published-release updater used by installation. It applies the release's ordered migrations and uploads its checksum-verified modules and assets. Existing bindings, encryption secrets, UUID and Durable Object namespaces are preserved. Unreleased or locally built code is never accepted; a published tag and its assets are immutable.
 5. **Verification and completion.** The installer checks the same Server UUID at any of the Server's listed addresses (primary or alias), the selected version in `/.well-known/llll`, and a ready, migrated `/api/setup/health`. It then records completion and clears the one-job backup capability. Settings shows the backup receipt and progress. When a new Client is waiting, use **Update Client** or its update banner.
 
-The backup preserves the update control table schema and encrypted hook, but clears its operation, capability and busy flag, so restoring a backup cannot revive an active update. Environment secrets, ephemeral Durable Object state, KV tickets and external provider data are not in the archive. Preserve the original encryption/provider secrets separately. Backups remain in their separate bucket after an update, cancellation or later Server removal.
+The backup preserves the update control table schema, but clears its operation, capability and busy flag, so restoring a backup cannot revive an active update. Environment secrets, ephemeral Durable Object state, KV tickets and external provider data are not in the archive. Preserve the original encryption/provider secrets separately. Backups remain in their separate bucket after an update, cancellation or later Server removal.
 
-## Legacy Build path
+## Git-connected Build path (legacy)
 
-A Server with a Git-connected Workers Build may still connect a deploy hook. This is optional and only needed for an existing Build-installed Server; it is not a prerequisite for updates.
-
-- The hook is supplied by the operator as `LLLL_UPDATE_HOOK` or saved encrypted in Settings. It can start only that Worker's branch Build and cannot read account resources or upload code.
-- The Build reads the saved request with its deployment token. It downloads the persisted backup, checks SHA-256, restores SQLite on disk, verifies the UUID, schema, foreign keys and file payloads, then applies the release and verifies health. This path retains the stronger restore verification because it runs outside the Worker.
-- The Build path is still shown in Settings when a hook is configured. A timeout starting a hook keeps the same request locked because a Build may already have started; it never silently creates a second operation.
-
+The deploy hook has been removed. A queued request is always continued on the official installer, which performs the verified upload with a fresh one-time OAuth grant; the Server never starts an upload itself.
 ## Retry and recovery
 
 - A queued request can be continued from Settings, or cancelled before execution. A request whose backup failed before deployment can be retried; an unverified archive is discarded and a fresh backup is made.
@@ -50,4 +45,4 @@ A Server with a Git-connected Workers Build may still connect a deploy hook. Thi
 
 VPS/celld updates remain operator-managed with `llll upgrade` and its mandatory full-volume backup/rollback. A Server without a live-files binding and a separate `BACKUPS` destination does not offer browser updates. An S3 destination selected for manual backups does not replace the operator-owned `BACKUPS` binding used by Cloudflare updates.
 
-`LLLL_UPDATE_SITE` optionally overrides the official installer origin; it defaults to `https://llll.gg`. The Server's `PUBLIC_ORIGIN` and every `server_domains` alias are HTTPS origins; the update launch starts at the address the owner used and probes the others if it is unreachable.
+`UPDATE_SITE` optionally overrides the official installer origin; it defaults to `https://llll.gg`. The Server's `PUBLIC_ORIGIN` and every `server_domains` alias are HTTPS origins; the update launch starts at the address the owner used and probes the others if it is unreachable.

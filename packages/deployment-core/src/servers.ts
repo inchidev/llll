@@ -24,13 +24,40 @@ function textBinding(bindings: ExistingWorkerBinding[], name: string) {
   return bindings.find(binding => binding.name === name && binding.type === 'plain_text')?.text?.trim() || ''
 }
 
+export type WorkerAnnotations = { 'workers/tag'?: string }
+
+export type WorkerMetadata = {
+  bindings: ExistingWorkerBinding[]
+  tags?: string[] | null
+  annotations?: WorkerAnnotations | null
+}
+
+function versionOf(worker: WorkerMetadata) {
+  return worker.annotations?.['workers/tag']?.replace(/^llll-/u, '')
+    || textBinding(worker.bindings, 'LLLL_VERSION')
+    || null
+}
+
+function originHost(worker: WorkerMetadata) {
+  const publicOrigin = textBinding(worker.bindings, 'PUBLIC_ORIGIN')
+  if (publicOrigin) {
+    try { return new URL(publicOrigin).hostname } catch { /* Fall back to legacy metadata. */ }
+  }
+  return textBinding(worker.bindings, 'LLLL_APP_HOSTNAME') || textBinding(worker.bindings, 'MAIL_APP_HOSTNAME')
+}
+
+function isBootstrap(worker: WorkerMetadata) {
+  return Boolean(worker.tags?.includes('llll-server-bootstrap'))
+}
+
 function serverConfiguration(
   accountId: string,
   workerName: string,
   hostname: string,
-  bindings: ExistingWorkerBinding[],
+  worker: WorkerMetadata,
   zones: CloudflareZone[],
 ): DeployRequest | null {
+  const bindings = worker.bindings
   const appZone = zones
     .filter(item => item.accountId === accountId && item.status === 'active' && (hostname === item.name || hostname.endsWith(`.${item.name}`)))
     .sort((left, right) => right.name.length - left.name.length)[0]
@@ -48,10 +75,11 @@ function serverConfiguration(
   const mode = textBinding(bindings, 'AUTH_MODE') === 'access' ? 'access' : 'builtin'
   return {
     accountId,
+    serverId: /^llll-([0-9a-f-]{36})$/iu.exec(workerName)?.[1] || '',
     workerName,
     adminEmail: '',
     allowedEmails: [],
-    appName: textBinding(bindings, 'APP_NAME') || textBinding(bindings, 'ADMIN_SERVER') || 'L4',
+    appName: 'L4',
     authMode: mode,
     registrationMode: registration === 'open' ? 'open' : 'invite_only',
     customDomainEnabled,
@@ -64,22 +92,23 @@ function serverConfiguration(
   }
 }
 
-function serverFromBindings(
+function serverFromMetadata(
   accountId: string,
   workerName: string,
-  bindings: ExistingWorkerBinding[],
+  worker: WorkerMetadata,
   zones: CloudflareZone[],
 ): CloudflareServer | null {
-  if (!isL4Worker(bindings)) return null
-  const hostname = textBinding(bindings, 'LLLL_APP_HOSTNAME') || textBinding(bindings, 'MAIL_APP_HOSTNAME')
+  if (isBootstrap(worker) || !isL4Worker(worker.bindings, worker.tags)) return null
+  const hostname = originHost(worker)
   if (!hostname) return null
-  const configuration = serverConfiguration(accountId, workerName, hostname, bindings, zones)
+  const configuration = serverConfiguration(accountId, workerName, hostname, worker, zones)
   if (!configuration) return null
+  const bindings = worker.bindings
   return {
     accountId,
     workerName,
     origin: `https://${hostname}`,
-    version: textBinding(bindings, 'LLLL_VERSION') || null,
+    version: versionOf(worker),
     configuration,
     resources: {
       databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,
@@ -122,18 +151,23 @@ async function mapConcurrent<T, R>(items: T[], limit: number, task: (item: T) =>
   return results
 }
 
-async function workerSettings(
+async function workerMetadata(
   client: ReturnType<typeof cloudflareClient>,
   accountId: string,
   workerIds: string[],
   strict = false,
-): Promise<Array<ExistingWorkerBinding[] | null>> {
+): Promise<Array<WorkerMetadata | null>> {
   return mapConcurrent(workerIds, SETTINGS_CONCURRENCY, async (workerId) => {
     const settings = await client.workers.scripts.scriptAndVersionSettings.get(workerId, { account_id: accountId }).catch(error => {
       if (strict && error?.status !== 404) throw error
       return null
     })
-    return (settings?.bindings as ExistingWorkerBinding[] | undefined) || null
+    if (!settings) return null
+    return {
+      bindings: (settings.bindings as ExistingWorkerBinding[] | undefined) || [],
+      tags: settings.tags || [],
+      annotations: settings.annotations || null,
+    }
   })
 }
 
@@ -145,7 +179,7 @@ export async function listL4Servers(
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account is invalid' })
   const client = cloudflareClient(accessToken)
   // Zones are only needed to interpret bindings, so they load alongside the workers instead of before them.
-  const [zones, { workerIds, settingsList }] = await Promise.all([
+  const [zones, { workerIds, metadataList }] = await Promise.all([
     options.zones || (async () => {
       const [account, fetchedZones] = await Promise.all([
         client.accounts.get({ account_id: accountId }),
@@ -159,13 +193,13 @@ export async function listL4Servers(
       for await (const worker of client.workers.scripts.list({ account_id: accountId })) {
         if (worker.id) workerIds.push(worker.id)
       }
-      return { workerIds, settingsList: await workerSettings(client, accountId, workerIds, options.strict) }
+      return { workerIds, metadataList: await workerMetadata(client, accountId, workerIds, options.strict) }
     })(),
   ])
   const servers: CloudflareServer[] = []
-  settingsList.forEach((bindings, index) => {
-    if (!bindings) return
-    const server = serverFromBindings(accountId, workerIds[index]!, bindings, zones)
+  metadataList.forEach((worker, index) => {
+    if (!worker) return
+    const server = serverFromMetadata(accountId, workerIds[index]!, worker, zones)
     if (server) servers.push(server)
   })
   return servers.sort((left, right) => left.workerName.localeCompare(right.workerName))
@@ -179,14 +213,20 @@ export async function readL4Server(
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account is invalid' })
   if (!workerName.trim()) return null
   const client = cloudflareClient(accessToken)
-  const [bindings, zones] = await Promise.all([
+  const [worker, zones] = await Promise.all([
     client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
       .catch(() => null)
-      .then(settings => (settings?.bindings as ExistingWorkerBinding[] | undefined) || null),
+      .then(settings => settings
+        ? {
+            bindings: (settings.bindings as ExistingWorkerBinding[] | undefined) || [],
+            tags: settings.tags || [],
+            annotations: settings.annotations || null,
+          }
+        : null),
     accountZones(client, accountId),
   ])
-  if (!bindings) return null
-  return serverFromBindings(accountId, workerName, bindings, zones)
+  if (!worker) return null
+  return serverFromMetadata(accountId, workerName, worker, zones)
 }
 
 export async function findL4Servers(accessToken: string, origin: unknown): Promise<CloudflareServer[]> {
@@ -212,20 +252,20 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
     for await (const worker of client.workers.scripts.list({ account_id: account.id })) {
       if (worker.id) workerIds.push(worker.id)
     }
-    const settingsList = await workerSettings(client, account.id, workerIds)
-    settingsList.forEach((bindings, index) => {
-      if (!bindings) return
+    const metadataList = await workerMetadata(client, account.id, workerIds)
+    metadataList.forEach((worker, index) => {
+      if (!worker) return
+      if (isBootstrap(worker) || !isL4Worker(worker.bindings, worker.tags)) return
+      if (originHost(worker)?.toLowerCase() !== hostname) return
       const workerName = workerIds[index]!
-      if (!isL4Worker(bindings)) return
-      const appHostname = textBinding(bindings, 'LLLL_APP_HOSTNAME') || textBinding(bindings, 'MAIL_APP_HOSTNAME')
-      if (appHostname.toLowerCase() !== hostname) return
-      const configuration = serverConfiguration(account.id, workerName, hostname, bindings, zones)
+      const configuration = serverConfiguration(account.id, workerName, hostname, worker, zones)
       if (!configuration) return
+      const bindings = worker.bindings
       servers.push({
         accountId: account.id,
         workerName,
         origin: `https://${hostname}`,
-        version: textBinding(bindings, 'LLLL_VERSION') || null,
+        version: versionOf(worker),
         configuration,
         resources: {
           databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,

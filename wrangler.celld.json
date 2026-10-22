@@ -96,7 +96,6 @@
   "vars": {
     "PUBLIC_ORIGIN": "http://127.0.0.1:8080",
     "AUTH_REGISTRATION_MODE": "invite_only",
-    "APP_NAME": "L4",
     "LLLL_RUNTIME": "celld",
     "AUTH_SECRET": "invalid",
     "ADMIN_EMAIL": "owner@example.com",

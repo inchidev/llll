@@ -39,6 +39,14 @@ replace_env() {
   rm -f -- "$tmp"
 }
 need() { command -v "$1" >/dev/null || fail "Install prerequisite $1 first (apt install ca-certificates curl jq openssl util-linux)."; }
+uuid4() {
+  # The one UUID this Server keeps forever: the Worker name, its resources and
+  # server_identity all share it.
+  local value
+  value=$(cat /proc/sys/kernel/random/uuid 2>/dev/null) || fail 'This kernel does not provide a random UUID source.'
+  [[ $value =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || fail 'Invalid UUID source.'
+  printf '%s' "$value"
+}
 version_newer() {
   # SemVer identifiers: numeric identifiers compare numerically (as strings of
   # arbitrary length), precede text identifiers, and a final release sorts last.
@@ -194,6 +202,7 @@ configure_new() {
   put_env LLLL_PROJECT "$project" "$stage/.env"
   put_env LLLL_VERSION "$pinned_version" "$stage/.env"
   put_env LLLL_IMAGE "llll:$pinned_version" "$stage/.env"
+  put_env SERVER_ID "$(uuid4)" "$stage/.env"
   put_env PUBLIC_ORIGIN "$origin" "$stage/.env"
   put_env LLLL_ORIGINS "$origin" "$stage/.env"
   put_env LLLL_SITE_ADDRESS "$address" "$stage/.env"
@@ -202,7 +211,6 @@ configure_new() {
   put_env LLLL_HTTPS_PORT "$https_port" "$stage/.env"
   put_env LLLL_ACME_EMAIL "${LLLL_ACME_EMAIL:-$admin}" "$stage/.env"
   put_env ADMIN_EMAIL "$admin" "$stage/.env"
-  put_env APP_NAME "${APP_NAME:-L4}" "$stage/.env"
   put_env RUSTFS_BUCKET cells "$stage/.env"
   put_env AWS_REGION us-east-1 "$stage/.env"
   put_env LLLL_CHANNEL "$channel" "$stage/.env"
