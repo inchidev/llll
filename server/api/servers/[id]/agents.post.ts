@@ -16,7 +16,8 @@ import { agentRuntimeConfigured, aiProvider, resolveAgentModelId } from '../../.
 const bodySchema = z.object({
   harness: z.enum(['pi', 'think']).optional(),
   displayName: z.string().trim().min(1).max(80),
-  model: z.string().trim().min(1).max(200).default('@cf/moonshotai/kimi-k2.7-code'),
+  // Empty model resolves to this Server's default profile (openai-compatible: AI_MODEL).
+  model: z.string().trim().max(200).default(''),
   instructions: z.string().trim().max(12_000).default(''),
 })
 

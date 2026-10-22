@@ -225,7 +225,7 @@ watch(nav.inviteOpen, (open) => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-full select-none flex-col">
+  <div class="relative flex h-full min-h-0 w-full select-none flex-col">
     <div class="flex min-h-0 flex-1">
       <div class="flex w-[72px] shrink-0 flex-col border-e border-default bg-muted">
         <UDropdownMenu :items="serverItems" :ui="{ content: 'w-56' }">
@@ -235,7 +235,7 @@ watch(nav.inviteOpen, (open) => {
             :aria-label="serverName || 'Server menu'"
             :title="serverName || 'Server menu'"
           >
-            <span class="flex size-11 items-center justify-center rounded-xl transition-colors group-hover:bg-accented group-data-[state=open]:bg-accented">
+            <span class="server-avatar flex size-11 items-center justify-center rounded-xl transition-colors group-data-[state=open]:bg-accented">
               <UAvatar v-if="serverIconUrl" size="xl" :src="serverIconUrl" :alt="serverName" class="size-10 rounded-lg" />
               <BrandLogo v-else size="xl" alt="" />
             </span>
@@ -273,6 +273,7 @@ watch(nav.inviteOpen, (open) => {
       <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted" @click.capture="selectResource">
         <header class="flex h-12 shrink-0 items-center gap-2 px-3 shadow-[0_1px_0_var(--ui-border)]">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
+          <UButton v-if="section === 'agents' && can(Permission.manageAgents)" icon="i-ph-plus" color="neutral" variant="ghost" square class="size-9 justify-center" aria-label="Create agent" @click="nav.createAgentOpen.value = true" />
           <UButton icon="i-ph-x" color="neutral" variant="ghost" class="size-9 justify-center md:hidden" aria-label="Close navigation" @click="ui.mobilePane = 'chat'" />
         </header>
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
@@ -291,7 +292,7 @@ watch(nav.inviteOpen, (open) => {
         <button
           v-if="live.connection === 'connected' && live.currentChannelId"
           type="button"
-          class="mx-2 mb-0 rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
+          class="pointer-events-auto rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
           @click="navigateTo(connectedPath)"
         >
           <p class="flex items-center gap-1.5 text-xs font-semibold text-success"><UIcon :name="live.currentKind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" class="size-3.5" />Connected</p>
@@ -299,7 +300,22 @@ watch(nav.inviteOpen, (open) => {
         </button>
       </div>
     </div>
-    <LayoutUserPanel :compact="!hasMenu" />
+    <LayoutUserPanel v-if="!hasMenu" compact />
+    <div
+      v-if="hasMenu"
+      class="pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-1 bg-gradient-to-t from-muted to-transparent px-2 pb-4 pt-8 sm:px-4 sm:pb-6"
+    >
+      <button
+        v-if="live.connection === 'connected' && live.currentChannelId"
+        type="button"
+        class="pointer-events-auto rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
+        @click="navigateTo(connectedPath)"
+      >
+        <p class="flex items-center gap-1.5 text-xs font-semibold text-success"><UIcon :name="live.currentKind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" class="size-3.5" />Connected</p>
+        <p class="truncate text-[11px] text-muted">{{ live.currentTitle || 'Live' }}</p>
+      </button>
+      <LayoutUserPanel class="pointer-events-auto" />
+    </div>
     <SettingsAgentEditorModal v-if="can(Permission.manageAgents)" v-model:open="nav.createAgentOpen.value" :server-id="serverId" />
     <SettingsServerSettings v-if="canOpenServerSettings" v-model:open="nav.serverSettingsOpen.value" v-model:section="nav.serverSettingsSection.value" :server-id="serverId" />
 
@@ -359,3 +375,18 @@ watch(nav.inviteOpen, (open) => {
     <LiveIncomingCall />
   </div>
 </template>
+
+<style scoped>
+/* The rail's hover language does not paint filled boxes behind avatars, and the
+   accent square also matched the avatar's own background. Hover and open states
+   morph the avatar radius instead. */
+.server-avatar img {
+  border-radius: 0.5rem;
+  transition: border-radius 150ms ease;
+}
+
+.group:hover .server-avatar img,
+.group[data-state='open'] .server-avatar img {
+  border-radius: 0.25rem;
+}
+</style>

@@ -199,6 +199,8 @@ watch([() => live.pendingJoin, channelId], ([pending]) => {
 
 watch(() => oneQ.data.value?.channel, (ch) => {
   if (!ch) return
+  // The Agents section owns its conversation route; no canonicalizing navigation.
+  if (liveRoute.value.path.startsWith('/agents/')) return
   const want = channelPath(ch, linkedThread.value ?? undefined)
   if (liveRoute.value.path !== want) void navigateTo(want, { replace: true })
 })

@@ -6,6 +6,7 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../shared/agent-executi
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
+import { runEmbeddedPi } from './agent-pi-durable'
 import { authorize, ServerAction } from '../shared/authorization'
 import { getTask } from '../server/utils/task-service'
 import { signalTasksChanged } from './task-events'
@@ -33,11 +34,54 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       headers: { 'Content-Type': 'application/json', 'x-run-capability': capability },
       body: input === undefined ? undefined : JSON.stringify(input), signal: AbortSignal.timeout(30000) })
     if (this.env.AGENT_COMPUTE) return this.env.AGENT_COMPUTE.getByName(`compute:${run.id}`).fetch(request)
-    if (!this.env.AGENT_RUNNER_URL || !this.env.AGENT_RUNNER_TOKEN) throw new Error('Pi executor not configured')
-    const url = new URL(`/runs/${run.id}/${path}`, this.env.AGENT_RUNNER_URL)
-    const headers = new Headers(request.headers)
-    headers.set('Authorization', `Bearer ${this.env.AGENT_RUNNER_TOKEN}`)
-    return fetch(new Request(url, { method, headers, body: request.body, signal: AbortSignal.timeout(30000) }))
+    if (this.env.AGENT_RUNNER_URL && this.env.AGENT_RUNNER_TOKEN) {
+      const url = new URL(`/runs/${run.id}/${path}`, this.env.AGENT_RUNNER_URL)
+      const headers = new Headers(request.headers)
+      headers.set('Authorization', `Bearer ${this.env.AGENT_RUNNER_TOKEN}`)
+      return fetch(new Request(url, { method, headers, body: request.body, signal: AbortSignal.timeout(30000) }))
+    }
+    // No container executor is configured: the experimental embedded path runs
+    // the harness inside this Durable Object instead.
+    return this.embedded(run, path, method, input)
+  }
+
+  private respond(value: unknown, status = 200): Response {
+    return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  private async embedded(run: AgentRun, path: string, method: string, input?: unknown): Promise<Response> {
+    if (path === 'health') return this.respond({ ok: true, executor: 'pi-durable-embedded' })
+    if (path === 'run' && method === 'POST') {
+      if (await this.ctx.storage.get('pi-embedded-result')) return this.respond({ ok: false }, 409)
+      const body = (input ?? {}) as { prompt?: string, instructions?: string, modelGateway?: { url: string, token: string, model: string } }
+      if (!body.modelGateway) return this.respond({ ok: false }, 400)
+      await this.ctx.storage.put('pi-embedded-events', [] satisfies RuntimeEvent[])
+      const generation = runEmbeddedPi({ prompt: body.prompt ?? '', instructions: body.instructions ?? '', modelGateway: body.modelGateway, transcript: body.transcript ?? null }, this.ctx.storage)
+      this.ctx.waitUntil(generation.then(async outcome => {
+        await this.ctx.storage.put('pi-embedded-events', outcome.events)
+        await this.ctx.storage.put('pi-embedded-result', outcome.result)
+        if (outcome.transcript) await this.ctx.storage.put('pi-embedded-transcript', outcome.transcript)
+      }, async () => undefined))
+      return this.respond({ ok: true })
+    }
+    if (path.startsWith('run') && method === 'GET') {
+      const after = Number(path.split('after=')[1] ?? '0') || 0
+      const events = (await this.ctx.storage.get<RuntimeEvent[]>('pi-embedded-events')) ?? []
+      const result = (await this.ctx.storage.get<RuntimeEvent | null>('pi-embedded-result')) ?? null
+      const page = events.slice(after)
+      // The cursor contract of the container executor: nextCursor follows every delivered event.
+      return result
+      ? this.respond({ status: 'finished', events: page, nextCursor: after + page.length, result })
+      : this.respond({ status: 'running', events: page, nextCursor: after + page.length, result: null })
+    }
+    if (path === 'session') return this.respond({ transcript: (await this.ctx.storage.get<string | null>('pi-embedded-transcript')) ?? null })
+    if (path === 'run' && method === 'DELETE') return this.respond({ ok: true })
+    if (path === 'lifecycle' && method === 'DELETE') {
+      await this.ctx.storage.delete('pi-embedded-events')
+      await this.ctx.storage.delete('pi-embedded-result')
+      return this.respond({ ok: true })
+    }
+    return this.respond({ ok: false }, 404)
   }
 
   private async release(run: AgentRun): Promise<void> {

@@ -16,8 +16,8 @@ const workersAiRest = computed(() => session.health?.aiProvider === 'workers-ai-
 const workersAi = computed(() => session.health?.aiProvider === 'workers-ai' || workersAiRest.value)
 const agentsUnavailable = computed(() => session.health?.aiProvider === null)
 function defaultModel() {
-  if (session.health?.aiProvider === 'openai-compatible' && session.health.aiModel) return session.health.aiModel
-  return '@cf/moonshotai/kimi-k2.7-code'
+  // The Server resolves an empty model to its default provider profile.
+  return ''
 }
 const saving = ref(false)
 const avatarFile = shallowRef<File | null>(null)
@@ -51,7 +51,7 @@ const statusOptions = [
 const schema = z.object({
   harness: z.enum(['pi', 'think']),
   displayName: z.string().trim().min(1, 'Enter a name').max(80),
-  model: z.string().trim().min(1, 'Choose a model').max(200),
+  model: z.string().trim().max(200),
   instructions: z.string().trim().max(12_000),
   status: z.enum(['active', 'paused']),
 })
@@ -205,36 +205,38 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         title="Agents need a model provider"
         description="Ask the Server operator to connect a model provider."
       />
-      <UFormField name="displayName" label="Name">
-        <UInput v-model="form.displayName" autofocus class="w-full" />
+      <UFormField label="Avatar">
+        <div class="flex items-center gap-4">
+          <UserAvatar :user="formAvatarUser" size="2xl" />
+          <div class="space-y-2">
+            <UFileUpload
+              v-model="avatarFile"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              variant="button"
+              label="Choose image"
+              :disabled="session.health?.bindings.r2 === false"
+            />
+            <UButton
+              v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"
+              label="Remove"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              @click="removeCurrentAvatar = true"
+            />
+          </div>
+        </div>
       </UFormField>
 
-      <UFormField label="Avatar">
-        <div class="flex items-center gap-3">
-          <UserAvatar :user="formAvatarUser" size="lg" />
-          <UFileUpload
-            v-model="avatarFile"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            variant="button"
-            label="Choose image"
-            :disabled="session.health?.bindings.r2 === false"
-          />
-          <UButton
-            v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"
-            label="Remove"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            @click="removeCurrentAvatar = true"
-          />
-        </div>
+      <UFormField name="displayName" label="Name">
+        <UInput v-model="form.displayName" autofocus class="w-full" />
       </UFormField>
 
       <UFormField
         v-if="workersAi || openAiCompatible"
         name="model"
-        label="Model"
-        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. This Server's AI_MODEL is ${session.health?.aiModel}.` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API.' : undefined"
+        label="Model (optional)"
+        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. Empty uses this Server's AI_MODEL (${session.health?.aiModel}).` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API. Empty uses the Server default.' : undefined"
       >
         <template v-if="workersAi" #hint>
           <ULink
@@ -247,7 +249,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
             <UIcon name="i-ph-arrow-square-out" class="size-3" />
           </ULink>
         </template>
-        <UInput v-if="openAiCompatible" v-model="form.model" class="w-full" />
+        <UInput v-if="openAiCompatible" v-model="form.model" class="w-full" placeholder="Server default" />
         <USelect
           v-else
           v-model="form.model"
