@@ -30,6 +30,14 @@ put_env() {
   [[ $value != *"'"* && $value != *$'\n'* && $value != *$'\r'* && $value != *'\'* ]] || fail "Unsupported characters in $key"
   printf "%s='%s'\n" "$key" "$value" >> "$target"
 }
+replace_env() {
+  local key=$1 value=$2 file=$3 tmp
+  tmp=$(mktemp "$stage/env.XXXXXXXX")
+  sed "/^$key=/d" "$file" > "$tmp"
+  put_env "$key" "$value" "$tmp"
+  install -m 600 "$tmp" "$file"
+  rm -f -- "$tmp"
+}
 need() { command -v "$1" >/dev/null || fail "Install prerequisite $1 first (apt install ca-certificates curl jq openssl util-linux)."; }
 version_newer() {
   # SemVer identifiers: numeric identifiers compare numerically (as strings of
@@ -187,6 +195,7 @@ configure_new() {
   put_env LLLL_VERSION "$pinned_version" "$stage/.env"
   put_env LLLL_IMAGE "llll:$pinned_version" "$stage/.env"
   put_env PUBLIC_ORIGIN "$origin" "$stage/.env"
+  put_env LLLL_ORIGINS "$origin" "$stage/.env"
   put_env LLLL_SITE_ADDRESS "$address" "$stage/.env"
   put_env LLLL_BIND 0.0.0.0 "$stage/.env"
   put_env LLLL_HTTP_PORT "$http_port" "$stage/.env"
@@ -212,14 +221,164 @@ apply_files() {
   printf '%s\n' "$project" > "$dir/.llll-managed"
   install -m 700 "$stage/llll" "$dir/llll"
 }
+check_origin() {
+  local origin=$1 version=$2
+  for _ in $(seq 1 60); do
+    if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$origin/.well-known/llll" -o "$stage/health.json" 2>/dev/null && jq -e --arg version "$version" --arg origin "$origin" '.product == "llll" and .kind == "server" and .version == $version and (.id | test("^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$")) and ((.origin == $origin) or (((.aliases // []) | index($origin)) != null))' "$stage/health.json" >/dev/null; then return 0; fi
+    sleep 2
+  done
+  return 1
+}
 health() {
   local origin
   origin=$(get_env PUBLIC_ORIGIN)
-  for _ in $(seq 1 60); do
-    if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$origin/.well-known/llll" -o "$stage/health.json" 2>/dev/null && jq -e --arg version "${1:-$pinned_version}" --arg origin "$origin" '.product == "llll" and .kind == "server" and .version == $version and .origin == $origin and (.id | test("^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"))' "$stage/health.json" >/dev/null; then return; fi
-    sleep 2
+  check_origin "$origin" "${1:-$pinned_version}" || fail "Gateway discovery failed at $origin. Check DNS/firewall/certificates; inspect with: LLLL_DIR=$dir $dir/llll logs"
+}
+domain_origins() {
+  local primary item
+  primary=$(get_env PUBLIC_ORIGIN)
+  [[ -n $primary ]] || fail 'PUBLIC_ORIGIN is missing from .env'
+  local -a values=() result=("$primary")
+  if [[ -n $(get_env LLLL_ORIGINS) ]]; then
+    IFS=',' read -r -a values <<< "$(get_env LLLL_ORIGINS)"
+  fi
+  for item in "${values[@]}"; do
+    item=${item//[[:space:]]/}
+    [[ -z $item || $item == "$primary" ]] && continue
+    printf '%s\n' "${result[@]}" | grep -Fxq -- "$item" && continue
+    result+=("$item")
   done
-  fail "Gateway discovery failed. Check DNS/firewall/certificates; inspect with: LLLL_DIR=$dir $dir/llll logs"
+  printf '%s\n' "${result[@]}"
+}
+domain_validate_host() {
+  local host=$1
+  [[ $host =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ && $host == *.* && $host != *..* ]] || fail 'Enter a hostname such as chat.example.com (no scheme or path).'
+  [[ ${host,,} != *localhost* ]] || fail 'localhost is not a public Server address.'
+}
+domain_origin() {
+  local host=$1 primary scheme authority port='' origin
+  primary=$(get_env PUBLIC_ORIGIN)
+  scheme=${primary%%://*}
+  authority=${primary#*://}
+  if [[ $authority == *:* ]]; then port=${authority##*:}; fi
+  [[ $scheme == http || $scheme == https ]] || fail 'PUBLIC_ORIGIN must be an http or https origin.'
+  origin="$scheme://$host"
+  if [[ -n $port && ( ( $scheme == http && $port != 80 ) || ( $scheme == https && $port != 443 ) ) ]]; then origin="$origin:$port"; fi
+  printf '%s' "$origin"
+}
+domain_health() {
+  local origin
+  for origin in "$@"; do
+    if ! check_origin "$origin" "$version"; then
+      say "Address $origin did not pass health checks." >&2
+      return 1
+    fi
+  done
+}
+domain_apply() {
+  local -a origins=("$@") hosts=() seen=()
+  local primary origin host scheme value
+  primary=$(get_env PUBLIC_ORIGIN)
+  scheme=${primary%%://*}
+  [[ " ${origins[*]} " == *" $primary "* ]] || origins=("$primary" "${origins[@]}")
+  for origin in "${origins[@]}"; do
+    [[ $origin == "$scheme://"* ]] || { say "Every address must use $scheme." >&2; return 1; }
+    [[ " ${seen[*]} " == *" $origin "* ]] && continue
+    seen+=("$origin")
+    host=${origin#*://}; host=${host%%:*}
+    hosts+=("$host")
+  done
+  value=$(IFS=,; printf '%s' "${seen[*]}")
+  replace_env LLLL_ORIGINS "$value" "$dir/.env" || return 1
+  if [[ $scheme == http ]]; then
+    replace_env LLLL_SITE_ADDRESS 'http://:80' "$dir/.env" || return 1
+  else
+    value=$(IFS=,; printf '%s' "${hosts[*]}")
+    replace_env LLLL_SITE_ADDRESS "$value" "$dir/.env" || return 1
+  fi
+  compose up -d --wait --wait-timeout 600 >/dev/null || return 1
+  domain_health "${seen[@]}"
+}
+domain_change() {
+  local next_primary=$1 previous
+  shift
+  previous=$(mktemp "$stage/env.XXXXXXXX")
+  cp -p "$dir/.env" "$previous"
+  if [[ -n $next_primary ]]; then replace_env PUBLIC_ORIGIN "$next_primary" "$dir/.env"; fi
+  if ! domain_apply "$@"; then
+    install -m 600 "$previous" "$dir/.env"
+    compose up -d --wait --wait-timeout 600 >/dev/null || true
+    rm -f -- "$previous"
+    fail 'The address change did not pass its checks; the previous configuration was restored.'
+  fi
+  rm -f -- "$previous"
+}
+domain_add() {
+  local host=${1:-} origin item
+  [[ -n $host ]] || fail 'Usage: llll domain add <hostname>'
+  domain_validate_host "$host"
+  host=${host,,}
+  origin=$(domain_origin "$host")
+  local -a origins=()
+  mapfile -t origins < <(domain_origins)
+  for item in "${origins[@]}"; do
+    [[ $item == "$origin" ]] && { say "Already connected: $origin"; return; }
+  done
+  origins+=("$origin")
+  say "Point DNS for $host at this VPS; checking every address after the change."
+  domain_change '' "${origins[@]}"
+  say "Added $origin. Keep DNS pointed here so certificates keep renewing."
+}
+domain_remove() {
+  local host=${1:-} origin primary item
+  [[ -n $host ]] || fail 'Usage: llll domain remove <hostname>'
+  domain_validate_host "$host"
+  host=${host,,}
+  origin=$(domain_origin "$host")
+  primary=$(get_env PUBLIC_ORIGIN)
+  [[ $origin != "$primary" ]] || fail 'Choose another primary before removing this address.'
+  local -a origins=() next=()
+  mapfile -t origins < <(domain_origins)
+  for item in "${origins[@]}"; do
+    [[ $item == "$origin" ]] || next+=("$item")
+  done
+  [[ ${#next[@]} -lt ${#origins[@]} ]] || fail "Not connected: $origin"
+  domain_change '' "${next[@]}"
+  say "Removed $origin"
+}
+domain_primary() {
+  local host=${1:-} origin primary item found=false
+  [[ -n $host ]] || fail 'Usage: llll domain primary <hostname>'
+  domain_validate_host "$host"
+  host=${host,,}
+  origin=$(domain_origin "$host")
+  primary=$(get_env PUBLIC_ORIGIN)
+  [[ $origin == "$primary" ]] && { say "$origin is already primary."; return; }
+  local -a origins=() next=("$origin")
+  mapfile -t origins < <(domain_origins)
+  for item in "${origins[@]}"; do
+    if [[ $item == "$origin" ]]; then found=true; else next+=("$item"); fi
+  done
+  [[ $found == true ]] || fail "Connect the address first: llll domain add $host"
+  domain_change "$origin" "${next[@]}"
+  say "Primary address: $origin"
+}
+domain_list() {
+  local origin primary
+  primary=$(get_env PUBLIC_ORIGIN)
+  while IFS= read -r origin; do
+    if [[ $origin == "$primary" ]]; then printf 'primary  %s\n' "$origin"; else printf 'alias    %s\n' "$origin"; fi
+  done < <(domain_origins)
+}
+domain_command() {
+  local action=${1:-list}
+  case "$action" in
+    list) domain_list ;;
+    add) [[ $# == 2 ]] || fail 'Usage: llll domain add <hostname>'; domain_add "$2" ;;
+    remove) [[ $# == 2 ]] || fail 'Usage: llll domain remove <hostname>'; domain_remove "$2" ;;
+    primary) [[ $# == 2 ]] || fail 'Usage: llll domain primary <hostname>'; domain_primary "$2" ;;
+    *) fail 'Usage: llll domain list|add <hostname>|remove <hostname>|primary <hostname>' ;;
+  esac
 }
 print_result() {
   say "Server $pinned_version: $(get_env PUBLIC_ORIGIN)"
@@ -227,7 +386,7 @@ print_result() {
     # No installer log or setup.url file. Explicit operator terminal output only.
     printf 'Claim owner: %s/setup#claim=%s\n' "$(get_env PUBLIC_ORIGIN)" "$(get_env SETUP_TOKEN)"
   fi
-  say 'Keep an encrypted off-host copy of .env and backups. Operations: llll status | logs | backup | upgrade | restore | uninstall'
+  say 'Keep an encrypted off-host copy of .env and backups. Operations: llll status | logs | backup | upgrade | restore | domain | uninstall'
 }
 backup_stack() {
   check_owned_volumes
@@ -467,8 +626,9 @@ main() {
         stop) compose stop ;;
         backup) backup_stack ;;
         upgrade) upgrade_server "${1:-}" ;;
+        domain) domain_command "$@" ;;
         uninstall) uninstall_server "$@" ;;
-        *) fail 'Usage: llll status|logs|start|stop|backup|restore <file>|upgrade [version]|uninstall [--purge] [--yes] [--no-backup]' ;;
+        *) fail 'Usage: llll status|logs|start|stop|backup|restore <file>|upgrade [version]|domain list|add <hostname>|remove <hostname>|primary <hostname>|uninstall [--purge] [--yes] [--no-backup]' ;;
       esac
       ;;
   esac

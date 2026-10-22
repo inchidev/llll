@@ -15,7 +15,8 @@ export function serverUpdateBuildUrl(env: L4Env, buildId: string | null | undefi
 /** The official installer performs the upload after the owner authorizes Cloudflare. */
 export function serverUpdateLaunchUrl(env: L4Env, job: { id: string } | null | undefined, fallbackOrigin?: string) {
   if (!job || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
-  const origin = env.PUBLIC_ORIGIN?.trim() || fallbackOrigin?.trim()
+  // The address the owner is using is the best probe: it was just reachable.
+  const origin = fallbackOrigin?.trim() || env.PUBLIC_ORIGIN?.trim()
   if (!origin) return null
   const site = env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
   let url: URL
@@ -25,6 +26,31 @@ export function serverUpdateLaunchUrl(env: L4Env, job: { id: string } | null | u
   url.searchParams.set('account', env.LLLL_ACCOUNT_ID)
   url.searchParams.set('worker', env.LLLL_WORKER_NAME)
   url.searchParams.set('update', job.id)
+  return url.toString()
+}
+
+/** Open the official domain flow with a single-use request token. */
+export function serverDomainLaunchUrl(
+  env: L4Env,
+  request: { id: string, action: string, hostname: string },
+  token: string,
+  options: { makePrimary?: boolean, fallbackOrigin?: string, serverId?: string } = {},
+) {
+  if (!env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
+  const origin = options.fallbackOrigin?.trim() || env.PUBLIC_ORIGIN?.trim()
+  if (!origin) return null
+  const site = env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
+  let url: URL
+  try { url = new URL('/domain', site) } catch { return null }
+  url.searchParams.set('server', origin)
+  url.searchParams.set('account', env.LLLL_ACCOUNT_ID)
+  url.searchParams.set('worker', env.LLLL_WORKER_NAME)
+  if (options.serverId) url.searchParams.set('serverId', options.serverId)
+  url.searchParams.set('domainRequest', request.id)
+  url.searchParams.set('domainToken', token)
+  url.searchParams.set('action', request.action)
+  url.searchParams.set('hostname', request.hostname)
+  if (options.makePrimary) url.searchParams.set('primary', '1')
   return url.toString()
 }
 

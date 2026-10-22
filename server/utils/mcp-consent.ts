@@ -4,21 +4,22 @@ import type { McpConsentDTO } from '../../shared/mcp'
 import { MCP_SCOPES } from '../../shared/mcp'
 import { cf, fail } from './cf'
 import { authSecret } from './auth-config'
-import { resolveAuthBaseURL } from './better-auth'
+import { authRequestContext } from './better-auth'
 import { mcpConsentSubjects } from './mcp-oauth'
 
-export function mcpOrigin(event: H3Event) {
-  return resolveAuthBaseURL(cf(event).env.PUBLIC_ORIGIN, getRequestURL(event).origin)
+export async function mcpOrigin(event: H3Event) {
+  return (await authRequestContext(event)).baseURL
 }
 
 export async function readMcpConsent(event: H3Event, query: string, actorId: string): Promise<McpConsentDTO> {
   const { env } = cf(event)
-  if (!query || query.length > 16_384 || !await verifyOAuthQueryParams(query, authSecret(env, mcpOrigin(event)))) {
+  const origin = await mcpOrigin(event)
+  if (!query || query.length > 16_384 || !await verifyOAuthQueryParams(query, authSecret(env, origin))) {
     fail(400, 'invalid_request', 'This connection request is invalid or expired. Start again from your MCP client.')
   }
   const params = new URLSearchParams(query)
   const resources = params.getAll('resource')
-  if (resources.length !== 1 || resources[0] !== `${mcpOrigin(event)}/mcp`) {
+  if (resources.length !== 1 || resources[0] !== `${origin}/mcp`) {
     fail(400, 'invalid_target', 'This request must target this Server’s MCP endpoint')
   }
   const clientId = params.get('client_id') || ''

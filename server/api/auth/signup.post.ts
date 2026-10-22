@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { authUsers, invites } from '../../../drizzle/schema'
 import { ensureDomainUser, sessionUser, visibleAuthEmail } from '../../utils/auth'
 import { emailVerificationRequired, loadAuthRuntimeConfig, publicAuthConfig } from '../../utils/auth-config'
-import { authFromEvent, resolveAuthBaseURL } from '../../utils/better-auth'
+import { authFromEvent, authRequestContext } from '../../utils/better-auth'
 import { cf, fail } from '../../utils/cf'
 import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { parseBody } from '../../utils/validate'
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   await ensureMigrated(env.DB, env)
   if (!(await serverReady(env.DB))) fail(409, 'server_not_ready', 'The server owner must complete setup first')
-  const runtime = await loadAuthRuntimeConfig(env, getRequestURL(event).origin)
+  const runtime = await loadAuthRuntimeConfig(env, (await authRequestContext(event)).baseURL)
   const publicConfig = publicAuthConfig(runtime)
 
   if (!publicConfig.emailSignupEnabled) {
@@ -52,7 +52,7 @@ export default defineEventHandler(async (event) => {
   }
   if (!allowed) fail(429, 'rate_limited', 'Too many signup attempts')
 
-  const callback = new URL('/login', resolveAuthBaseURL(env.PUBLIC_ORIGIN, getRequestURL(event).origin))
+  const callback = new URL('/login', (await authRequestContext(event)).baseURL)
   callback.searchParams.set('verified', '1')
   if (body.inviteCode) callback.searchParams.set('next', `/invite/${encodeURIComponent(body.inviteCode)}`)
 

@@ -1,6 +1,7 @@
 import type { H3Event } from 'h3'
 import { createError } from 'h3'
 import type { L4Env } from '../../workers/env'
+import { allowedServerOrigins } from './server-origins'
 
 export type Rpc<T> = { fetch: (request: Request) => Promise<Response> } & T
 
@@ -39,7 +40,7 @@ export function requireFiles(env: Pick<L4Env, 'FILES'>): R2Bucket {
   return env.FILES
 }
 
-export function originOk(event: H3Event): boolean {
+export async function originOk(event: H3Event): Promise<boolean> {
   const method = event.method.toUpperCase()
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return true
   // Bundled clients cannot share the server's browser origin. The custom header
@@ -47,17 +48,41 @@ export function originOk(event: H3Event): boolean {
   // this path without first passing CORS preflight.
   if (['native', 'extension'].includes(getHeader(event, 'x-llll-client') ?? '')) return true
   const origin = getHeader(event, 'origin')
+  let origins: string[] = []
+  try {
+    const { env } = cf(event)
+    origins = await allowedServerOrigins(env, getRequestURL(event).origin)
+  }
+  catch { /* Isolated handler tests may only supply Host. */ }
+  // A Host that is not one of this Server's addresses must never authenticate.
+  if (origins.length) {
+    const request = getRequestURL(event)
+    const hostname = request.hostname.toLowerCase()
+    const port = request.port || (request.protocol === 'https:' ? '443' : '80')
+    if (!origins.some((value) => {
+      try {
+        const listed = new URL(value)
+        const listedPort = listed.port || (listed.protocol === 'https:' ? '443' : '80')
+        return listed.hostname.toLowerCase() === hostname && listedPort === port
+      }
+      catch {
+        return false
+      }
+    })) return false
+  }
   if (!origin) return true
+  let normalized: string
+  try { normalized = new URL(origin).origin } catch { return false }
+  if (origins.length) return origins.includes(normalized)
   let configured: string | undefined
-  try { configured = cf(event).env.PUBLIC_ORIGIN } catch { /* Isolated handler tests may only supply Host. */ }
+  try { configured = cf(event).env.PUBLIC_ORIGIN } catch { /* See above. */ }
   if (configured) {
-    try { return new URL(origin).origin === new URL(configured).origin } catch { return false }
+    try { return normalized === new URL(configured).origin } catch { return false }
   }
   const host = getHeader(event, 'host')
   if (!host) return false
   try {
-    const o = new URL(origin)
-    return o.host === host
+    return new URL(origin).host === host
   }
   catch {
     return false

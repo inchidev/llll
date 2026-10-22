@@ -8,7 +8,7 @@ import { mcpOrigin } from '../utils/mcp-consent'
 export default defineEventHandler(async (event) => {
   const request = toWebRequest(event)
   const { env, waitUntil } = cf(event)
-  const origin = mcpOrigin(event)
+  const origin = await mcpOrigin(event)
   const principal = await authenticateMcpRequest(env, request, waitUntil, `${origin}/mcp`)
   if (!principal) {
     return new Response(JSON.stringify({ error: 'invalid_token' }), {

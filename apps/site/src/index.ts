@@ -3,6 +3,7 @@ import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, rand
 import { uuidSchema } from '../../../shared/embed'
 import { advanceDeployment, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
+import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
 import { webSession, digest, clearDeployment } from './session'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
@@ -21,6 +22,10 @@ function publicOrigin(value: string, env: WebEnv) {
   const local = env.TEST_ALLOW_LOCAL_ORIGINS === 'true' && ['localhost', '127.0.0.1'].includes(url.hostname)
   if (url.origin !== value || (!local && (url.protocol !== 'https:' || !url.hostname.includes('.') || /^(?:\d|\[)/.test(url.hostname) || /\.(?:localhost|local|internal|test|invalid)$/.test(url.hostname)))) fail(400, 'Enter a public HTTPS server origin')
   return url.origin
+}
+function resumePath(data: { oauthNext?: 'create' | 'domain', updateRequest?: unknown }) {
+  if (data.oauthNext === 'domain') return '/domain?resume=1'
+  return '/create?tab=cloudflare' + (data.updateRequest ? '&resume=update' : '')
 }
 async function rateLimit(request: Request, env: WebEnv) {
   const key = await digest((request.headers.get('cf-connecting-ip') || 'local') + ':' + Math.floor(Date.now() / 60000))
@@ -50,8 +55,9 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const origin = publicOrigin(value.origin, env)
     const proof = await fetch(origin + '/.well-known/llll', { redirect: 'manual', signal: AbortSignal.timeout(10000) })
     if (!proof.ok) fail(400, 'The server could not verify this server')
-    const data = JSON.parse(await boundedText(proof)) as { id?: string; origin?: string }
-    if (data.id !== value.id || data.origin !== origin || (data as { kind?: string }).kind !== 'server') fail(400, 'Server ownership proof did not match')
+    const data = JSON.parse(await boundedText(proof)) as { id?: string; origin?: string; aliases?: unknown; kind?: string }
+    const aliases = Array.isArray(data.aliases) ? data.aliases.filter((item): item is string => typeof item === 'string' && item.length <= 2048) : []
+    if (data.id !== value.id || (data.origin !== origin && !aliases.includes(origin)) || data.kind !== 'server') fail(400, 'Server ownership proof did not match')
     const registered = await env.DB.prepare('INSERT INTO server_directory(id,origin,verified_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET verified_at=excluded.verified_at WHERE origin=excluded.origin RETURNING id').bind(value.id, origin, Date.now()).first()
     if (!registered) fail(409, 'This server ID is registered to another server')
     return json({ ok: true })
@@ -81,6 +87,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const session = await webSession(request, env, true)
     if (session.data.worker && !session.data.completed && url.searchParams.get('resume') !== '1') fail(409, 'Resume your current deployment before starting another')
     session.data.state = randomCode(); session.data.verifier = randomCode(); delete session.data.error
+    session.data.oauthNext = url.searchParams.get('next') === 'domain' ? 'domain' : 'create'
     await session.save()
     const target = new URL(CLOUDFLARE_AUTH_URL)
     target.search = new URLSearchParams({ response_type: 'code', client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback', scope: CLOUDFLARE_SCOPES, state: session.data.state, code_challenge: await pkceChallenge(session.data.verifier), code_challenge_method: 'S256' }).toString()
@@ -95,15 +102,25 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       // Surface Cloudflare's reason (it names the refused scope) instead of a generic cancellation.
       const detail = (url.searchParams.get('error_description') || '').slice(0, 300)
       session.data.error = detail ? `Cloudflare refused the authorization: ${detail}` : 'Cloudflare authorization was cancelled'
-      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare' + (session.data.updateRequest ? '&resume=update' : ''), 303)
+      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + resumePath(session.data), 303)
     }
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
-    if (session.data.accountId && !session.data.completed) {
+    const expectedAccount = session.data.oauthNext === 'domain'
+      ? session.data.domainRequest?.accountId
+      : session.data.accountId && !session.data.completed ? session.data.accountId : undefined
+    if (expectedAccount) {
       const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
-      if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this server') }
+      if (!accounts.some(account => account.id === expectedAccount)) {
+        delete session.data.grant
+        session.data.error = 'Reconnect the Cloudflare account that owns this Server'
+        await session.save()
+        if (session.data.oauthNext === 'domain')
+          return Response.redirect(env.PUBLIC_ORIGIN + resumePath(session.data), 303)
+        fail(403, 'Reconnect the same Cloudflare account to resume this server')
+      }
     }
     await session.save()
-    return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare' + (session.data.updateRequest ? '&resume=update' : ''), 303)
+    return Response.redirect(env.PUBLIC_ORIGIN + resumePath(session.data), 303)
   }
   if (path === '/api/deploy/session') {
     const session = await webSession(request, env); const data = session.data
@@ -116,7 +133,48 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
         delete data.grant; authorized = false; await session.save()
       }
     }
-    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data) })
+    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data), domainRequest: publicDomainRequest(data) })
+  }
+  if (path === '/api/deploy/domain/prepare' && request.method === 'POST') {
+    const session = await webSession(request, env, true)
+    try { rememberDomainRequest(session.data, await input(request)) }
+    catch (error) { fail(400, error instanceof Error ? error.message : 'Invalid domain request') }
+    await session.save()
+    const response = json({ ok: true, authorized: Boolean(session.data.grant && session.data.grant.expiresAt > Date.now()), domainRequest: publicDomainRequest(session.data) })
+    if (session.cookie) response.headers.set('Set-Cookie', session.cookie)
+    return response
+  }
+  if (path === '/api/deploy/domain/start' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    if (!session.data.domainRequest) fail(409, 'Open this page from your Server’s Settings')
+    if (!session.data.grant || session.data.grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
+    const renewedCookie = session.renew()
+    if (session.data.grant.expiresAt < Date.now() + 120000) {
+      try {
+        session.data.grant = await refreshCloudflareGrant(session.data.grant)
+      }
+      catch {
+        delete session.data.grant
+        await session.save()
+        fail(401, 'Reconnect Cloudflare first')
+      }
+    }
+    await session.save()
+    const leaseUntil = Date.now() + 300000
+    const lease = await env.DB.prepare('UPDATE deployment_sessions SET lease_until=? WHERE id_hash=? AND lease_until<? RETURNING id_hash').bind(leaseUntil, session.id, Date.now()).first()
+    if (!lease) fail(409, 'The domain change is already running; wait before retrying')
+    try {
+      const domain = await applyDomainChange(session.data, session.data.grant.accessToken)
+      const response = json({ domain })
+      response.headers.set('Set-Cookie', renewedCookie)
+      return response
+    }
+    catch (error) {
+      throw Object.assign(new Error(error instanceof Error ? error.message : 'The domain change did not complete.'), { status: 409 })
+    }
+    finally {
+      await env.DB.prepare('UPDATE deployment_sessions SET lease_until=0 WHERE id_hash=? AND lease_until=?').bind(session.id, leaseUntil).run()
+    }
   }
   if (path === '/api/deploy/servers' && request.method === 'GET') {
     const session = await webSession(request, env)

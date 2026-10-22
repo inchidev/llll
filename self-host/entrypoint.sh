@@ -113,6 +113,7 @@ put_var() {
 }
 
 put_var PUBLIC_ORIGIN
+put_var LLLL_ORIGINS
 put_var AUTH_SECRET
 put_var ADMIN_EMAIL
 put_var SETUP_TOKEN

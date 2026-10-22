@@ -159,12 +159,13 @@ export function useShell() {
       throw new Error(SERVER_UNREACHABLE)
     }
     const d = (await response.json()) as ServerDiscovery
+    const aliases = Array.isArray(d.aliases) ? d.aliases.filter((item): item is string => typeof item === 'string') : []
     if (
       !response.ok ||
       d.product !== 'llll' ||
       d.kind !== 'server' ||
       d.apiVersion !== SERVER_API_VERSION ||
-      d.origin !== origin ||
+      (d.origin !== origin && !aliases.includes(origin)) ||
       !uuidSchema.safeParse(d.id).success
     )
       throw new Error('This address is not a compatible L4 Server')
@@ -178,6 +179,9 @@ export function useShell() {
         'The Server identity at this address changed. Remove the old connection before reconnecting.',
       )
     if (!server) {
+      server = servers.value.find((s) => s.id === d.id)
+    }
+    if (!server) {
       server = {
         origin,
         id: d.id,
@@ -186,18 +190,19 @@ export function useShell() {
       }
       servers.value.push(server)
     }
-    updateMetadata(origin, d)
-    if (claim || !loaded.value.includes(origin)) await restoreClaim(origin, claim)
-    if (claims.value[origin]) starts.value[origin] = '/setup'
-    else if (!loaded.value.includes(origin)) {
-      starts.value[origin] = url.pathname.startsWith('/invite/')
+    if (server.origin === origin) updateMetadata(origin, d)
+    const targetOrigin = server.origin
+    if (claim || !loaded.value.includes(targetOrigin)) await restoreClaim(targetOrigin, claim)
+    if (claims.value[targetOrigin]) starts.value[targetOrigin] = '/setup'
+    else if (!loaded.value.includes(targetOrigin)) {
+      starts.value[targetOrigin] = url.pathname.startsWith('/invite/')
         ? url.pathname
         : d.ready
           ? '/'
           : '/setup'
     }
     persist()
-    open(server, server.id, starts.value[origin] || '/')
+    open(server, server.id, starts.value[targetOrigin] || '/')
     return server
   }
   function frameSrc(origin: string, parent: string) {

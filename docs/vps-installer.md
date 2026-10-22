@@ -52,7 +52,13 @@ sudo llll start
 sudo llll backup
 sudo llll upgrade                       # latest stable only
 sudo env LLLL_CHANNEL=prerelease llll upgrade <published-version>
+sudo llll domain list
+sudo llll domain add chat.example.com
+sudo llll domain primary chat.example.com
+sudo llll domain remove old.example.com
 ```
+
+`llll domain` manages every public address of the Server. Point the new hostname's DNS at the VPS first, then `domain add`: the command appends the origin to `LLLL_ORIGINS`, adds the name to the Caddy site address, restarts Compose, waits for a certificate and verifies discovery at every listed address. A failed change restores the previous `.env` and restarts the old configuration. `domain primary` changes `PUBLIC_ORIGIN` without removing the old address. The primary cannot be removed; promote another address first. Alias changes are not written to D1, because the installer-managed VPS uses `PUBLIC_ORIGIN` and `LLLL_ORIGINS` as its authority.
 
 An upgrade downloads the selected release's verified installer, checks SemVer (no downgrades), verifies/loads its runtime and takes a mandatory backup before changing the installation. If startup/discovery fails, it stops the failed stack and restores the old Compose, `.env`, CLI and all four volumes, then verifies the old version. The old image stays available locally for rollback. Single-node operations cause downtime. If recovery itself fails, the separate backup is retained and the command fails; inspect `llll logs` before further changes.
 
@@ -78,6 +84,7 @@ sudo llll uninstall --purge            # additionally removes this Server's live
 | Input | Default / meaning |
 | --- | --- |
 | `LLLL_DOMAIN`, `LLLL_ADMIN_EMAIL` | Required on first install. Domain without scheme/path; first owner email. |
+| `PUBLIC_ORIGIN`, `LLLL_ORIGINS` | Primary origin and comma-separated aliases. Managed by `llll domain`; do not edit by hand. |
 | `LLLL_DIR` | `/opt/llll`; canonical dedicated directory. Use the same value with each CLI command for a custom directory. |
 | `LLLL_CHANNEL` | `stable`; prerelease install/upgrade needs explicit `prerelease`. Until a stable release exists, `llll upgrade` without a version cannot select one. |
 | `LLLL_ACME_EMAIL` | Owner email, used for Caddy's ACME account. |

@@ -19,8 +19,8 @@ const classes = {
   AGENT_THINK: 'L4Think',
 }
 const origins = {
-  alpha: `http://localhost:${port}`,
-  beta: `http://localhost:${port + 1}`,
+  alpha: `http://127.0.0.1:${port}`,
+  beta: `http://127.0.0.1:${port + 1}`,
 }
 const runtimes = {}
 const cookies = {}

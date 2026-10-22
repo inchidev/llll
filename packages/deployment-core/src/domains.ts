@@ -3,8 +3,8 @@ import { cloudflareApi, cloudflareClient, publicErrorMessage } from './cloudflar
 import { createError } from './errors.js'
 import type { CloudflareZone } from './types.js'
 import type { ExistingWorkerBinding } from './deploy.js'
-import { ensureWorkersHostname } from './access.js'
 import { patchWorkerBindings } from './worker-settings.js'
+import { listAccountZones } from './servers.js'
 
 export type ManagedEmailDomain = {
   id: string
@@ -164,42 +164,81 @@ export async function connectAppDomain(
   hostname: string,
 ) {
   const normalized = hostnameInsideZone(zone, hostname)
-  const client = cloudflareClient(accessToken)
-  const domains = await cloudflareApi<WorkerDomain[]>(accessToken, `/accounts/${accountId}/workers/domains`)
+  const domains = await listWorkerDomains(accessToken, accountId)
   const occupied = domains.find(domain => domain.hostname.toLowerCase() === normalized)
   if (occupied && occupied.service !== workerName) {
     throw createError({ statusCode: 409, statusMessage: `${normalized} is already attached to Worker ${occupied.service}` })
-  }
-  const current = domains.find(domain => domain.service === workerName)
-  if (current && current.hostname.toLowerCase() !== normalized) {
-    throw createError({ statusCode: 409, statusMessage: `Disconnect ${current.hostname} before connecting another app domain` })
   }
   const attached = occupied || await cloudflareApi<WorkerDomain>(accessToken, `/accounts/${accountId}/workers/domains`, {
     method: 'PUT',
     body: JSON.stringify({ hostname: normalized, service: workerName, zone_id: zone.id, zone_name: zone.name }),
   })
-  await editBindings(accessToken, client, accountId, workerName, [
+  // Attaching an alias must not disable workers.dev or replace the current origin.
+  return { id: attached.id, hostname: normalized }
+}
+
+async function listWorkerDomains(accessToken: string, accountId: string) {
+  const domains: WorkerDomain[] = []
+  for (let page = 1; page <= 20; page++) {
+    const batch = await cloudflareApi<WorkerDomain[]>(accessToken, `/accounts/${accountId}/workers/domains?per_page=50&page=${page}`)
+    domains.push(...batch)
+    if (batch.length < 50) break
+  }
+  return domains
+}
+
+export async function findAppDomain(accessToken: string, accountId: string, workerName: string, hostname: string) {
+  const domains = await listWorkerDomains(accessToken, accountId)
+  const normalized = hostname.trim().toLowerCase()
+  return domains.find(domain => domain.service === workerName && domain.hostname.toLowerCase() === normalized) || null
+}
+
+/** Pick the most specific active zone in the connected account; the settings flow never asks for a zone ID. */
+export async function findAppDomainZone(accessToken: string, accountId: string, hostname: string) {
+  const normalized = hostname.trim().toLowerCase()
+  const zones = await listAccountZones(accessToken, accountId)
+  const zone = zones
+    .filter(item => item.status === 'active' && (normalized === item.name.toLowerCase() || normalized.endsWith(`.${item.name.toLowerCase()}`)))
+    .sort((left, right) => right.name.length - left.name.length)[0]
+  if (!zone) {
+    throw createError({ statusCode: 400, statusMessage: 'Add this hostname to an active Cloudflare zone first, then retry.' })
+  }
+  hostnameInsideZone(zone, normalized)
+  return zone
+}
+
+/**
+ * Change the primary without touching workers.dev. The origin list in D1 is
+ * updated by the caller after this succeeds.
+ */
+export async function setPrimaryAppDomain(
+  accessToken: string,
+  accountId: string,
+  workerName: string,
+  zone: CloudflareZone,
+  hostname: string,
+) {
+  const normalized = hostnameInsideZone(zone, hostname)
+  const client = cloudflareClient(accessToken)
+  const current = await workerBindings(client, accountId, workerName)
+  const replacements: Array<Record<string, unknown>> = [
     { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: `https://${normalized}` },
     { type: 'plain_text', name: 'LLLL_APP_HOSTNAME', text: normalized },
     { type: 'plain_text', name: 'LLLL_CUSTOM_DOMAIN', text: 'true' },
     { type: 'plain_text', name: 'LLLL_APP_ZONE_ID', text: zone.id },
     { type: 'plain_text', name: 'LLLL_APP_ZONE_NAME', text: zone.name },
-  ])
-  await client.workers.scripts.subdomain.create(workerName, { account_id: accountId, enabled: false, previews_enabled: false })
-  return { id: attached.id, hostname: normalized }
+  ]
+  // Keep the legacy Build probe working when the deployment still has it.
+  if (textBinding(current, 'LLLL_SERVER_ORIGIN')) {
+    replacements.push({ type: 'plain_text', name: 'LLLL_SERVER_ORIGIN', text: `https://${normalized}` })
+  }
+  await editBindings(accessToken, client, accountId, workerName, replacements)
+  return { hostname: normalized }
 }
 
 export async function disconnectAppDomain(accessToken: string, accountId: string, workerName: string, domainId: string) {
-  const client = cloudflareClient(accessToken)
   await unlessMissing(() => cloudflareApi(accessToken, `/accounts/${accountId}/workers/domains/${domainId}`, { method: 'DELETE' }))
-  const hostname = await ensureWorkersHostname(client, accountId, workerName)
-  await editBindings(accessToken, client, accountId, workerName, [
-    { type: 'plain_text', name: 'PUBLIC_ORIGIN', text: `https://${hostname}` },
-    { type: 'plain_text', name: 'LLLL_APP_HOSTNAME', text: hostname },
-    { type: 'plain_text', name: 'LLLL_CUSTOM_DOMAIN', text: 'false' },
-  ], ['LLLL_APP_ZONE_ID', 'LLLL_APP_ZONE_NAME'])
-  await client.workers.scripts.subdomain.create(workerName, { account_id: accountId, enabled: true, previews_enabled: false })
-  return { hostname }
+  return { id: domainId }
 }
 
 export async function connectEmailDomain(

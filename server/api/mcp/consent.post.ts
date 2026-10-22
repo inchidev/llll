@@ -18,9 +18,10 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Cache-Control', 'no-store')
-  // Consent always comes from this Server's own browser UI, including in native-client flows.
-  if (getHeader(event, 'origin') !== mcpOrigin(event)) fail(403, 'csrf', 'Open the connection page on this Server')
   const { env } = cf(event)
+  const origin = await mcpOrigin(event)
+  // Consent always comes from this Server's own browser UI, including in native-client flows.
+  if (getHeader(event, 'origin') !== origin) fail(403, 'csrf', 'Open the connection page on this Server')
   const serverId = await getServerId(env.DB)
   const actor = await requireMember(event, serverId)
   const body = parseBody(bodySchema, await readBody(event))
@@ -31,7 +32,7 @@ export default defineEventHandler(async (event) => {
     if (!scopes.length || scopes.some(scope => !consent.scopes.includes(scope))) fail(400, 'invalid_scope', 'Choose requested permissions')
     connectionId = await createMcpConnection(env, {
       createdBy: actor.user.id, subjectId: body.subjectId || actor.user.id,
-      clientId: consent.clientId, resource: `${mcpOrigin(event)}/mcp`, scopes,
+      clientId: consent.clientId, resource: `${origin}/mcp`, scopes,
     })
   }
   try {
@@ -41,7 +42,7 @@ export default defineEventHandler(async (event) => {
     const headers = new Headers(event.headers)
     headers.set('Content-Type', 'application/json')
     headers.set('Accept', 'application/json')
-    const response = await auth.handler(new Request(`${mcpOrigin(event)}/api/auth/oauth2/consent`, {
+    const response = await auth.handler(new Request(`${origin}/api/auth/oauth2/consent`, {
       method: 'POST', headers,
       body: JSON.stringify({ accept: body.accept, oauth_query: body.oauth_query,
         scope: [...(body.scopes ?? []), ...(consent.offlineAccess ? ['offline_access'] : [])].join(' ') }),

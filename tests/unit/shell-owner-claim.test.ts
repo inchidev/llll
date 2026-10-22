@@ -194,3 +194,13 @@ it('refreshes the name on reconnect instead of keeping the first discovery respo
   await shell.connect(origin)
   expect(shell.servers.value[0]?.name).toBe('Renamed on Server')
 })
+
+it('adds an alias without creating a second Server entry for the same UUID', async () => {
+  bookmark()
+  const alias = 'https://alias.example.com'
+  const shell = useShell(); shell.initialize()
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, aliases: [alias], name: 'Fixture', embedOrigins: [location.origin], ready: true })))
+  await shell.connect(alias)
+  expect(shell.servers.value.filter(server => server.id === id)).toHaveLength(1)
+  expect(shell.servers.value[0]?.origin).toBe(origin)
+})

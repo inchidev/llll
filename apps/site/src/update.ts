@@ -32,6 +32,7 @@ type Identity = {
   kind: 'server'
   id: string
   origin: string
+  aliases?: string[]
   version: string
   ready?: boolean
 }
@@ -93,12 +94,13 @@ async function identity(origin: string): Promise<Identity> {
   }
   if (!response.ok) throw new Error(`The Server did not answer (HTTP ${response.status}).`)
   const data = (await response.json()) as Partial<Identity>
+  const aliases = Array.isArray(data.aliases) ? data.aliases.filter((item): item is string => typeof item === 'string') : []
   if (
     data.product !== 'llll' ||
     data.kind !== 'server' ||
     !data.id ||
     !/^[0-9a-f-]{36}$/i.test(data.id) ||
-    data.origin !== origin ||
+    (data.origin !== origin && !aliases.includes(origin)) ||
     !data.version ||
     !VERSION.test(data.version)
   )
@@ -123,12 +125,12 @@ function updateStore(token: string, accountId: string, databaseId: string) {
   })
 }
 
-async function queryRows(
+export async function queryRows(
   token: string,
   accountId: string,
   databaseId: string,
   sql: string,
-  params: (string | number)[] = [],
+  params: (string | number | null)[] = [],
 ) {
   const result = await cloudflare<
     Array<{ success?: boolean; results?: unknown[] }>
@@ -149,6 +151,45 @@ async function requireJob(store: ReturnType<typeof updateStore>, jobId: string) 
   return { record: value, job }
 }
 
+/** Every persisted address, with the Worker's configured origin as a fallback. */
+async function serverOrigins(
+  token: string,
+  accountId: string,
+  databaseId: string,
+  configuredOrigin: string,
+) {
+  const origins: string[] = []
+  const add = (value: string) => {
+    try {
+      const origin = normalizeOrigin(value)
+      if (!origins.includes(origin)) origins.push(origin)
+    }
+    catch { /* A malformed optional row must not hide a working address. */ }
+  }
+  add(configuredOrigin)
+  try {
+    const rows = await queryRows(token, accountId, databaseId, 'SELECT origin FROM server_domains ORDER BY is_primary DESC')
+    for (const row of rows) add(String(row.origin || ''))
+  }
+  catch { /* Servers from before multi-origin releases have one address. */ }
+  return origins
+}
+
+async function identifyAny(origins: string[]) {
+  let lastError: unknown
+  for (const origin of origins) {
+    try {
+      return { well: await identity(origin), origin }
+    }
+    catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('The Server did not answer at any of its connected addresses.')
+}
+
 /**
  * Site-side preparation for a Server update request. The owner authorizes this
  * browser session, so the Server itself never receives an account API token.
@@ -160,7 +201,7 @@ export async function prepareUpdate(
 ) {
   const request = await rememberUpdate(state, value)
   const server = await readL4Server(token, request.accountId, request.workerName)
-  if (!server || server.origin !== request.origin)
+  if (!server)
     throw new Error('The Server is not in the connected Cloudflare account')
   if (!server.resources.databaseId)
     throw new Error('The Server database is missing from Cloudflare')
@@ -170,7 +211,12 @@ export async function prepareUpdate(
     throw new Error('This Server has no separate update backup bucket')
   if (server.resources.backupBucketName === server.resources.bucketName)
     throw new Error('The update backup bucket must be separate from the Server files bucket')
-  const well = await identity(request.origin)
+  const origins = await serverOrigins(token, request.accountId, server.resources.databaseId, server.origin)
+  if (!origins.includes(request.origin))
+    throw new Error('The update address is not one of this Server’s connected addresses')
+  const identified = await identifyAny([request.origin, ...origins.filter(origin => origin !== request.origin)])
+  const well = identified.well
+  const workingOrigin = identified.origin
   const store = updateStore(token, request.accountId, server.resources.databaseId)
   const { record, job } = await requireJob(store, request.jobId)
   if (job.serverId !== well.id)
@@ -178,6 +224,8 @@ export async function prepareUpdate(
   if (job.stage === 'complete') {
     state.update = {
       ...request,
+      origin: workingOrigin,
+      origins,
       serverId: well.id,
       databaseId: server.resources.databaseId,
       filesBucket: server.resources.bucketName,
@@ -231,6 +279,8 @@ export async function prepareUpdate(
               : 'release'
   state.update = {
     ...request,
+    origin: workingOrigin,
+    origins,
     serverId: well.id,
     databaseId: server.resources.databaseId,
     filesBucket: server.resources.bucketName,
@@ -410,7 +460,9 @@ async function deployVerifiedRelease(
     !['updating', 'verifying', 'complete'].includes(job.stage)
   )
     throw new Error('The pre-update backup is not verified yet')
-  const well = await identity(update.origin)
+  const identified = await identifyAny(update.origins?.length ? update.origins : [update.origin])
+  const well = identified.well
+  update.origin = identified.origin
   if (well.id !== update.serverId)
     throw new Error('The Server identity changed; refusing to update')
   if (well.version === update.targetVersion) {
@@ -454,28 +506,39 @@ async function verifyUpdatedServer(
   update: UpdateState,
   store: ReturnType<typeof updateStore>,
 ) {
-  const well = await identity(update.origin)
-  if (well.id !== update.serverId)
-    throw new Error('The Server identity changed during the update')
-  if (well.version !== update.targetVersion) return false
-  try {
-    await verifyDeployment(update.origin, update.targetVersion, true, undefined, {
-      attempts: 1,
-      delayMs: 0,
+  for (const origin of update.origins?.length ? update.origins : [update.origin]) {
+    let well: Identity
+    try {
+      well = await identity(origin)
+    }
+    catch {
+      continue
+    }
+    if (well.id !== update.serverId)
+      throw new Error('The Server identity changed during the update')
+    if (well.version !== update.targetVersion) continue
+    try {
+      await verifyDeployment(origin, update.targetVersion, true, undefined, {
+        attempts: 1,
+        delayMs: 0,
+      })
+    }
+    catch {
+      continue
+    }
+    update.origin = origin
+    await changeUpdateRecord(store, (record) => {
+      if (record.job?.id !== update.jobId) return
+      record.job.stage = 'complete'
+      record.job.error = null
+      record.job.updatedAt = new Date().toISOString()
+      if (record.job.backup) record.job.backup.verified = true
+      record.backupToken = null
+      record.backupBusy = false
     })
-  } catch {
-    return false
+    return true
   }
-  await changeUpdateRecord(store, (record) => {
-    if (record.job?.id !== update.jobId) return
-    record.job.stage = 'complete'
-    record.job.error = null
-    record.job.updatedAt = new Date().toISOString()
-    if (record.job.backup) record.job.backup.verified = true
-    record.backupToken = null
-    record.backupBusy = false
-  })
-  return true
+  return false
 }
 
 export async function failUpdate(state: DeploymentState, token: string) {

@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
   const member = await requireMember(event, getRouterParam(event, 'id')!)
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can manage Server domains')
   try {
-    return await readManagedServerDomains(cf(event).env)
+    return await readManagedServerDomains(cf(event).env, getRequestURL(event).origin)
   }
   catch (error) {
     failServerControl(error)

@@ -86,14 +86,22 @@ export function useServers() {
   async function discover(address: string) {
     const origin = normalizeServerOrigin(address)
     const d = await request<ServerDiscovery>(origin, '/.well-known/llll')
+    const aliases = Array.isArray(d.aliases)
+      ? d.aliases.filter((item): item is string => typeof item === 'string')
+      : []
     if (
       d.product !== 'llll' ||
       d.kind !== 'server' ||
-      d.origin !== origin ||
+      (d.origin !== origin && !aliases.includes(origin)) ||
       d.apiVersion !== SERVER_API_VERSION ||
       !uuidSchema.safeParse(d.id).success
     )
       throw new Error('This address is not a compatible L4 Server')
+    const sameServer = servers.value.find((s) => s.id === d.id)
+    if (sameServer) {
+      if (sameServer.origin === origin) Object.assign(sameServer, serverAppearance(d, origin))
+      return d
+    }
     const current = servers.value.find((s) => s.origin === origin)
     if (current)
       Object.assign(current, serverAppearance(d, origin))

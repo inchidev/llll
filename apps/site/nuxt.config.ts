@@ -11,7 +11,7 @@ export default defineNuxtConfig({
   icon: { clientBundle: { scan: true, icons: communityRailIcons }, serverBundle: { collections: ['ph'] } },
   nitro: {
     preset: 'static',
-    prerender: { routes: ['/', '/servers', '/create', '/privacy', '/terms', '/docs'], crawlLinks: false },
+    prerender: { routes: ['/', '/servers', '/create', '/domain', '/privacy', '/terms', '/docs'], crawlLinks: false },
     ...(process.env.NODE_ENV === 'development' && process.env.LLLL_DEV_SHELL_API_ORIGIN ? {
       devProxy: { '/api': { target: `${process.env.LLLL_DEV_SHELL_API_ORIGIN}/api`, changeOrigin: false } },
     } : {}),

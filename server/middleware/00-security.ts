@@ -1,7 +1,7 @@
 import { embedOrigins } from '../../shared/embed'
 import { cf, fail, originOk  } from '../utils/cf'
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const path = (event.path || '').split('?')[0]!
   if (path.startsWith('/ws/')) return
 
@@ -29,7 +29,7 @@ export default defineEventHandler((event) => {
       return ''
     }
   }
-  if (!oauthBackchannel && !originOk(event)) {
+  if (!oauthBackchannel && !await originOk(event)) {
     fail(403, 'csrf', 'Origin mismatch')
   }
 })

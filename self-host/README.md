@@ -22,7 +22,7 @@ docker compose -f docker-compose.yml -f compose.build.yml up -d --build --wait
 
 Caddy listens on `127.0.0.1:8080` (`LLLL_HTTP_PORT` changes the host port). Neither celld nor RustFS publishes a host port. The app container stays unhealthy until `celld d1 migrations apply` finishes; Caddy starts after that, and `http://127.0.0.1:8080/api/setup/health` returns HTTP 200. On celld the app does not create tables itself. A request that applied the bundled schema would leave those tables out of `d1_migrations`, and the next apply would stop on `table already exists`.
 
-Then open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser.
+Then open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser. To serve additional hostnames, set `LLLL_ORIGINS` to a comma-separated list of origins and route all of them to the same container; the VPS installer manages this and the Caddy addresses together with `llll domain`.
 
 `AUTH_SECRET` and `SETUP_TOKEN` must each be at least 32 characters. The tracked `wrangler.celld.json` keeps the placeholder `invalid` on purpose. The container replaces it at startup and does not commit the result.
 

@@ -38,8 +38,28 @@ export type ServerManagementStatusDTO = {
   emailEligible: boolean
 }
 
+export type ServerOriginDTO = {
+  origin: string
+  hostname: string
+  primary: boolean
+}
+
+export type ServerDomainRequestDTO = {
+  id: string
+  action: 'add' | 'remove' | 'primary'
+  hostname: string
+  status: 'pending' | 'running' | 'complete' | 'failed'
+  error: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type ServerDomainSettingsDTO = {
   managed: boolean
+  source: 'cloudflare' | 'operator'
+  primary: string | null
+  origins: ServerOriginDTO[]
+  pending: ServerDomainRequestDTO[]
   zones: Array<{ id: string, name: string, status: string }>
   appDomain: null | { hostname: string, zoneId: string, zoneName: string }
   /**

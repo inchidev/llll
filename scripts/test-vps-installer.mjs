@@ -49,7 +49,8 @@ if (tool === 'curl') {
     if (!get('running')) die('Server is stopped');
     const env = envFile(get('envpath'));
     const data = JSON.parse(read(join(state, env.LLLL_PROJECT + '_celld-data', 'server.json')));
-    bytes = Buffer.from(JSON.stringify({ product: 'llll', kind: 'server', id: data.id, origin: env.PUBLIC_ORIGIN, version: env.LLLL_VERSION, ready: data.claimed }));
+    const aliases = (env.LLLL_ORIGINS || '').split(',').map(value => value.trim()).filter(value => value && value !== env.PUBLIC_ORIGIN);
+    bytes = Buffer.from(JSON.stringify({ product: 'llll', kind: 'server', id: data.id, origin: env.PUBLIC_ORIGIN, aliases, version: env.LLLL_VERSION, ready: data.claimed }));
   } else die('Unexpected network request: ' + url);
   write(out, bytes); process.exit();
 }
@@ -161,6 +162,23 @@ try {
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), upgradedEnv, 'rollback must restore exact old env')
   assert.deepEqual(JSON.parse(readFileSync(live)), { ...server, claimed: true, messages: ['preserved message'] })
   assert.equal(readFileSync(rustfs, 'utf8'), 'preserved private file')
+  // Domain changes keep every address on the same Server and preserve the primary.
+  run(cli, ['domain', 'add', 'alt.example.com'])
+  let domainEnv = readFileSync(join(target, '.env'), 'utf8')
+  assert.match(domainEnv, /^LLLL_ORIGINS='https:\/\/server\.example\.com,https:\/\/alt\.example\.com'$/m)
+  assert.match(domainEnv, /^LLLL_SITE_ADDRESS='server\.example\.com,alt\.example\.com'$/m)
+  assert.match(domainEnv, /^PUBLIC_ORIGIN='https:\/\/server\.example\.com'$/m)
+  run(cli, ['domain', 'primary', 'alt.example.com'])
+  domainEnv = readFileSync(join(target, '.env'), 'utf8')
+  assert.match(domainEnv, /^PUBLIC_ORIGIN='https:\/\/alt\.example\.com'$/m)
+  assert.match(domainEnv, /^LLLL_ORIGINS='https:\/\/alt\.example\.com,https:\/\/server\.example\.com'$/m)
+  assert.match(domainEnv, /^LLLL_SITE_ADDRESS='alt\.example\.com,server\.example\.com'$/m)
+  run(cli, ['domain', 'remove', 'server.example.com'])
+  domainEnv = readFileSync(join(target, '.env'), 'utf8')
+  assert.match(domainEnv, /^LLLL_ORIGINS='https:\/\/alt\.example\.com'$/m)
+  assert.match(domainEnv, /^LLLL_SITE_ADDRESS='alt\.example\.com'$/m)
+  run(cli, ['domain', 'remove', 'alt.example.com'], {}, false)
+  assert.equal(readFileSync(join(target, '.env'), 'utf8'), domainEnv, 'the primary cannot be removed')
   run(cli, ['uninstall', '--yes', '--no-backup'])
   assert.ok(existsSync(live), 'default uninstall keeps live volumes')
   // Foreign project protection must fail before purge/backup.

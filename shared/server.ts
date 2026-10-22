@@ -9,6 +9,7 @@ export type ServerDiscovery = {
   apiVersion: number
   version: string
   origin: string
+  aliases: string[]
   registration: boolean
   telegram: boolean
   embedOrigins: string[]

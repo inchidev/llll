@@ -48,6 +48,8 @@ A Task records work and its responsibility. Data comprises user-managed Database
 
 The Client is the interface served by a standalone Server. The official Shell displays connected Servers and embeds their Clients. A saved connection is a bookmark, not an Account or a membership grant.
 
+A Server can answer at several public **addresses**. The **primary address** is used for new links, Shell display and background email. **Aliases** are additional addresses that reach the same Server UUID, Accounts and content. Every listed address is trusted; the Shell recognizes one Server by UUID even when it is added by a different address. An unlisted hostname is not a Server address.
+
 ## Provider and Backup
 
 A Provider supplies an optional capability such as email delivery, inference or calls. A Backup is a recovery copy stored separately from live files; it is not a second running Server.

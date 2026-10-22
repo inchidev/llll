@@ -3,6 +3,17 @@ import { randomCode, type CloudflareGrant } from '../../../shared/cloudflare-oau
 import type { WebEnv } from './env'
 
 export type UpdateRequest = { origin: string; accountId: string; workerName: string; jobId: string }
+export type DomainRequest = {
+  origin: string
+  accountId: string
+  workerName: string
+  requestId: string
+  token: string
+  action: 'add' | 'remove' | 'primary'
+  hostname: string
+  makePrimary?: boolean
+  serverId?: string
+}
 export type UpdateBackupReceipt = { key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
 export type UpdateState = UpdateRequest & {
   serverId: string
@@ -12,6 +23,7 @@ export type UpdateState = UpdateRequest & {
   installedVersion: string
   targetVersion: string
   executorId: string
+  origins?: string[]
   phase: 'release' | 'backup' | 'deploy' | 'verify' | 'done'
   backup?: UpdateBackupReceipt
   deploymentStarted?: boolean
@@ -24,6 +36,8 @@ export type DeploymentState = {
   step?: number; error?: string; completed?: boolean
   updateRequest?: UpdateRequest
   update?: UpdateState
+  domainRequest?: DomainRequest
+  oauthNext?: 'create' | 'domain'
   deployments?: { accountId: string; origin: string; name: string; version: string; setupToken: string }[]
 }
 export function rememberDeployment(data: DeploymentState) {

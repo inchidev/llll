@@ -5,7 +5,7 @@ import { writeAudit } from '../../../utils/messages'
 import { createServerBackup } from '../../../utils/server-backup'
 
 export default defineEventHandler(async (event) => {
-  if (!originOk(event)) fail(403, 'bad_origin', 'Invalid request origin')
+  if (!await originOk(event)) fail(403, 'bad_origin', 'Invalid request origin')
   const serverId = getRouterParam(event, 'id')!
   const member = await requireMember(event, serverId)
   if (!member.isOwner) fail(403, 'forbidden', 'Only the owner can download backups')

@@ -7,6 +7,7 @@ import { readAppBranding } from '../../../shared/app-branding'
 import { maskedOwnerEmail, readOwnerSetupEnv } from '../../utils/owner-setup'
 import { version as packageVersion } from '../../../package.json'
 import { publicServerAppearance } from '../../utils/server-appearance'
+import { ensurePrimaryServerOrigin, primaryServerOrigin } from '../../utils/server-origins'
 import { authMode } from '../../utils/cloudflare-access'
 import { agentBrowserConfigured, aiProvider } from '../../../workers/env'
 import { serverAiModel, serverCapabilities, UNAVAILABLE_CAPABILITIES } from '../../../workers/server-capabilities'
@@ -80,8 +81,11 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
 
   const ownerSetup = readOwnerSetupEnv(env)
   await checkFiles
+  const requestOrigin = getRequestURL(event).origin
+  if (migrated) await ensurePrimaryServerOrigin(env, requestOrigin)
+  const primaryOrigin = migrated ? await primaryServerOrigin(env, requestOrigin) : env.PUBLIC_ORIGIN || requestOrigin
   const branding = readAppBranding(env)
-  const appearance = migrated ? await publicServerAppearance(env.DB, env.PUBLIC_ORIGIN || getRequestURL(event).origin, branding.appName) : null
+  const appearance = migrated ? await publicServerAppearance(env.DB, primaryOrigin, branding.appName) : null
 
   return {
     version: env.LLLL_VERSION?.trim() || packageVersion,

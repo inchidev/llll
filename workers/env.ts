@@ -87,6 +87,8 @@ export type L4Env = {
   CF_ACCESS_ISS?: string
   CF_ACCESS_AUD?: string
   PUBLIC_ORIGIN?: string
+  /** Optional aliases for environments that manage origins through deployment configuration. */
+  LLLL_ORIGINS?: string
   TWITTER_CLIENT_ID?: string
   TWITTER_CLIENT_SECRET?: string
   GOOGLE_CLIENT_ID?: string
