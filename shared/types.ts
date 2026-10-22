@@ -546,6 +546,8 @@ export type ChannelDTO = {
   live: LiveState | null
   createdAt: string
   title?: string
+  dmKind?: 'pair' | 'group'
+  dmOwnerId?: string | null
   participants?: PublicUser[]
   frozen?: boolean
   lastMessageAt?: string | null

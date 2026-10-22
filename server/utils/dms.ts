@@ -64,6 +64,8 @@ export async function toDmDto(
     createdAt: ch.createdAt,
     title: dmTitle(ch.name === 'dm' ? null : ch.name, participants, meId),
     participants,
+    dmKind: ch.dmKind,
+    dmOwnerId: ch.dmOwnerId,
     frozen,
     lastMessageAt: last?.created_at ?? null,
   }
@@ -74,7 +76,7 @@ export async function findPairDm(env: L4Env, meId: string, otherId: string): Pro
     `SELECT a.channel_id as id
      FROM channel_members a
      JOIN channel_members b ON a.channel_id = b.channel_id AND b.user_id = ?
-     JOIN channels c ON c.id = a.channel_id AND c.type = 'dm'
+     JOIN channels c ON c.id = a.channel_id AND c.type = 'dm' AND c.dm_kind = 'pair'
      WHERE a.user_id = ?
        AND (SELECT COUNT(*) FROM channel_members p WHERE p.channel_id = a.channel_id) = 2
      LIMIT 1`,

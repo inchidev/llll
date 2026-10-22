@@ -70,7 +70,8 @@ const channel = computed(() => {
 const members = computed(() => membersQ.data.value?.members ?? [])
 const type = computed(() => channel.value?.type || 'text')
 const isDm = computed(() => isDmType(type.value))
-const isGroup = computed(() => isDm.value && (channel.value?.participants?.length ?? 0) > 2)
+const isGroup = computed(() => isDm.value && channel.value?.dmKind === 'group')
+const ownsGroup = computed(() => isGroup.value && channel.value?.dmOwnerId === session.user?.id)
 const others = computed(() => (channel.value?.participants ?? []).filter((p) => p.id !== session.user?.id))
 const headerName = computed(() => {
   if (!isDm.value) return channel.value?.name || ''
@@ -304,11 +305,56 @@ const addSearch = useQuery({
   enabled: computed(() => addOpen.value),
 })
 
-async function addPerson(userId: string) {
-  await api(`/api/dms/${channelId.value}/participants`, { method: 'POST', body: { userId } })
-  await qc.invalidateQueries({ queryKey: ['dms'] })
-  await qc.invalidateQueries({ queryKey: ['channel', channelId.value] })
+const dmBusy = ref(false)
+const removePerson = ref<PublicUser | null>(null)
+watch(channelId, () => {
   addOpen.value = false
+  addQ.value = ''
+  removePerson.value = null
+})
+const addCandidates = computed(() => (addSearch.data.value?.members ?? [])
+  .filter(member => !channel.value?.participants?.some(participant => participant.id === member.id)))
+
+async function addPerson(userId: string) {
+  if (dmBusy.value) return
+  dmBusy.value = true
+  try {
+    if (isGroup.value) {
+      await api(`/api/dms/${channelId.value}/participants`, { method: 'POST', body: { userId } })
+      await qc.invalidateQueries({ queryKey: ['channel', channelId.value] })
+    } else {
+      const result = await api<{ channel: ChannelDTO }>('/api/dms/group', {
+        method: 'POST', body: { userIds: [...others.value.map(member => member.id), userId] },
+      })
+      await navigateTo(channelPath(result.channel))
+    }
+    await qc.invalidateQueries({ queryKey: ['dms'] })
+    addOpen.value = false
+  } catch (error) {
+    toast.add({ title: 'Could not add participant', description: errorMessage(error), color: 'error' })
+  } finally {
+    dmBusy.value = false
+  }
+}
+
+async function removeParticipant(userId: string) {
+  if (dmBusy.value) return
+  dmBusy.value = true
+  try {
+    await api(`/api/dms/${channelId.value}/participants/${userId}`, { method: 'DELETE' })
+    removePerson.value = null
+    await qc.invalidateQueries({ queryKey: ['dms'] })
+    if (userId === session.user?.id) {
+      addOpen.value = false
+      await navigateTo('/inbox')
+    } else {
+      await qc.invalidateQueries({ queryKey: ['channel', channelId.value] })
+    }
+  } catch (error) {
+    toast.add({ title: 'Could not update participants', description: errorMessage(error), color: 'error' })
+  } finally {
+    dmBusy.value = false
+  }
 }
 
 const renaming = ref(false)
@@ -340,11 +386,18 @@ defineShortcuts({
     if (ui.threadId) ui.cancelComposerIntent(ui.threadId)
     renaming.value = false
     addOpen.value = false
+    removePerson.value = null
   },
 })
 </script>
 
 <template>
+  <UModal :open="Boolean(removePerson)" :title="removePerson?.id === session.user?.id ? 'Leave group?' : `Remove ${removePerson?.displayName ?? 'participant'}?`" :description="removePerson?.id === session.user?.id ? 'You will lose access to this group conversation.' : 'They will lose access to this group conversation.'" @update:open="(value: boolean) => { if (!value) removePerson = null }">
+    <template #footer>
+      <UButton label="Cancel" color="neutral" variant="outline" :disabled="dmBusy" @click="removePerson = null" />
+      <UButton :label="removePerson?.id === session.user?.id ? 'Leave group' : 'Remove'" color="error" :loading="dmBusy" @click="removePerson && removeParticipant(removePerson.id)" />
+    </template>
+  </UModal>
   <div class="relative flex-1 min-h-0 h-full flex bg-default">
     <div
       class="relative flex-1 min-w-0 flex flex-col min-h-0"
@@ -429,8 +482,8 @@ defineShortcuts({
               @click="openPrejoin()"
             />
           </UTooltip>
-          <UTooltip v-if="isDm" text="Add friends to DM">
-            <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-user-plus" aria-label="Add people" @click="addOpen = !addOpen" />
+          <UTooltip v-if="isDm" :text="isGroup ? 'Group participants' : 'New group with…'">
+            <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-user-plus" :aria-label="isGroup ? 'Group participants' : 'New group with…'" @click="addOpen = !addOpen" />
           </UTooltip>
           <UTooltip :text="ui.rightPanelOpen ? 'Close right panel' : 'Open right panel'">
             <UButton
@@ -461,9 +514,18 @@ defineShortcuts({
         <LayoutActivityBar v-if="showConnection && connection !== 'connected' && connection !== 'offline'" label="Reconnecting to live updates" />
       </header>
       <div v-if="addOpen" class="border-b border-default p-2 shrink-0">
-        <UInput v-model="addQ" size="sm" icon="i-ph-magnifying-glass" placeholder="Add people" />
+        <p v-if="!isGroup" class="mb-2 text-sm text-muted">Start a new group with {{ headerName }}. This conversation and its history stay private.</p>
+        <div v-if="isGroup" class="mb-3 space-y-1">
+          <p class="mb-2 text-sm text-muted">People you add can read this group’s history.</p>
+          <div v-for="participant in channel?.participants ?? []" :key="participant.id" class="flex items-center justify-between gap-2 text-sm">
+            <span>{{ participant.displayName }}<span v-if="participant.id === channel?.dmOwnerId" class="text-muted"> · Creator</span></span>
+            <UButton v-if="ownsGroup && participant.id !== session.user?.id" color="error" variant="ghost" size="xs" label="Remove" :aria-label="`Remove ${participant.displayName}`" :disabled="dmBusy" @click="removePerson = participant" />
+          </div>
+          <UButton color="error" variant="ghost" size="sm" label="Leave group" :disabled="dmBusy" @click="removePerson = session.user" />
+        </div>
+        <UInput v-model="addQ" size="sm" icon="i-ph-magnifying-glass" :placeholder="isGroup ? 'Add people' : 'New group with…'" aria-label="Find a participant" />
         <UButton
-          v-for="m in addSearch.data.value?.members ?? []"
+          v-for="m in addCandidates"
           :key="m.id"
           variant="ghost"
           color="neutral"
@@ -471,6 +533,7 @@ defineShortcuts({
           block
           class="justify-start"
           :label="m.displayName"
+          :disabled="dmBusy"
           @click="addPerson(m.id)"
         />
       </div>

@@ -38,6 +38,8 @@ The public guide should lead with one complete path per target, from a pinned re
 
 - Accounts and sessions belong to the Server. Server membership, Roles and removals remain authoritative locally. Email matching never grants access.
 - Direct Messages remain inside a Server. Shell bookmarks and public routing IDs grant no membership.
+- A 1:1 Direct Message stays between its two participants. Including someone else starts a separate group with no copied history. Groups keep their identity when people leave; opening a 1:1 never reuses a former group.
+- Group creators can remove other participants, and any participant can leave. Historical groups without a recorded creator allow self-leave only; when a creator leaves, the group becomes unowned. Adding an Agent requires Use agents. People added to a group can read its existing group history.
 - Backups remain separate from live files. Recovery includes the Server identity, accounts, secrets and content; server deletion never deletes Backup buckets.
 - Append migrations within the current schema lineage; merged SQL and published assets are immutable.
 - L4 remains MIT software. Each Server is autonomous. This stabilization adds no managed-hosting marketplace, billing or OEM business.
