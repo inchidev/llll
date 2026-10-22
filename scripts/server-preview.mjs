@@ -44,16 +44,7 @@ if (!verifyMergeParents(git(['cat-file', '-p', 'FETCH_HEAD']), candidate))
   throw new Error('Server Preview merge parents did not match')
 const account = process.env.CLOUDFLARE_ACCOUNT_ID,
   token = process.env.CLOUDFLARE_API_TOKEN
-const name = process.env.LLLL_PREVIEW_WORKER,
-  origin = process.env.LLLL_PREVIEW_ORIGIN
-if (
-  !account ||
-  !token ||
-  !/^llll-server-pr-\d+$/.test(name || '') ||
-  name !== `llll-server-pr-${candidate.number}` ||
-  !origin
-)
-  throw new Error('Configure this PR’s isolated Server Preview target')
+if (!account || !token) throw new Error('Workers Builds credentials are missing')
 async function api(path, method = 'GET', body) {
   const r = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${account}${path}`,
@@ -71,92 +62,84 @@ async function api(path, method = 'GET', body) {
     throw new Error(`Cloudflare administration failed (${r.status}): ${path}`)
   return d.result
 }
-// A fresh isolated database can replace an obsolete, unmerged PR schema.
-// The original database and backup bucket remain available for inspection.
-const databaseName = process.env.LLLL_PREVIEW_DATABASE || name
-if (databaseName !== name && !new RegExp(`^${name}-[a-z0-9]+(?:-[a-z0-9]+)*$`).test(databaseName))
-  throw new Error('Preview database must belong to this PR')
-let db = (await api('/d1/database?per_page=100')).find((d) => d.name === databaseName)
-db ||= await api('/d1/database', 'POST', { name: databaseName })
-for (const bucket of [name + '-files', name + '-backups']) {
-  const listed = await api('/r2/buckets?name_contains=' + bucket)
-  if (!listed.buckets.some((b) => b.name === bucket))
-    await api('/r2/buckets', 'POST', { name: bucket })
-}
-let kv = (await api('/storage/kv/namespaces?per_page=100')).find(
-  (k) => k.title === name + '-tickets',
-)
-kv ||= await api('/storage/kv/namespaces', 'POST', { title: name + '-tickets' })
-const config = JSON.parse(
-  (await readFile(resolve(root, 'wrangler.dev.jsonc'), 'utf8')).replace(
+// Native Worker Previews deploy one staging Server Worker per PR. Previews are
+// never created from a developer machine; this script runs inside Workers Builds.
+const base = JSON.parse(
+  (await readFile(resolve(root, 'wrangler.jsonc'), 'utf8')).replace(
     /^\s*\/\/.*$/gm,
     '',
   ),
 )
-Object.assign(config, {
-  name,
+if (base.name !== 'llll-server') throw new Error('The Server build config must target the staging Server Worker')
+// A fresh isolated database can replace an obsolete, unmerged PR schema.
+// The shared staging database stays available for every other Preview.
+const prNumber = candidate.number
+const databaseName = process.env.LLLL_PREVIEW_DATABASE || `llll-server-pr-${prNumber}`
+if (!new RegExp(`^llll-server-pr-${prNumber}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$`).test(databaseName))
+  throw new Error('A per-PR Preview database must belong to this PR')
+async function ensureStagingResource(kind, list, create, name) {
+  let resource = (await api(kind === 'd1' ? '/d1/database?per_page=100' : kind === 'kv' ? '/storage/kv/namespaces?per_page=100' : '/r2/buckets?per_page=100'))
+  const items = resource.buckets || resource
+  resource = items.find((item) => item.name === name || item.title === name)
+  resource ||= await api(kind === 'd1' ? '/d1/database' : kind === 'kv' ? '/storage/kv/namespaces' : '/r2/buckets', 'POST', create)
+  list.push(resource)
+  return resource
+}
+const staging = { d1: [], r2: [], kv: [] }
+const db = await ensureStagingResource('d1', staging.d1, { name: databaseName }, databaseName)
+const files = await ensureStagingResource('r2', staging.r2, { name: `llll-server-staging-files` }, 'llll-server-staging-files')
+const backups = await ensureStagingResource('r2', staging.r2, { name: `llll-server-staging-backups` }, 'llll-server-staging-backups')
+const tickets = await ensureStagingResource('kv', staging.kv, { title: 'llll-server-staging-tickets' }, 'llll-server-staging-tickets')
+if (backups.name === files.name) throw new Error('Backup destination must be separate from live files')
+const config = {
+  ...base,
   main: resolve(root, '.output/server/index.mjs'),
   workers_dev: false,
   preview_urls: false,
   assets: {
+    ...base.assets,
     directory: resolve(root, '.output/public'),
-    binding: 'ASSETS',
-    not_found_handling: 'single-page-application',
-    run_worker_first: true,
   },
   d1_databases: [
     {
       binding: 'DB',
-      database_name: databaseName,
+      database_name: db.name,
       database_id: db.uuid,
       migrations_dir: resolve(root, 'drizzle/server-migrations'),
     },
   ],
   r2_buckets: [
-    { binding: 'FILES', bucket_name: name + '-files' },
-    { binding: 'BACKUPS', bucket_name: name + '-backups' },
+    { binding: 'FILES', bucket_name: files.name },
+    { binding: 'BACKUPS', bucket_name: backups.name },
   ],
-  kv_namespaces: [{ binding: 'TICKETS', id: kv.id }],
+  kv_namespaces: [{ binding: 'TICKETS', id: tickets.id }],
+  // Previews do not inherit vars from production; declare every required one.
   vars: {
-    PUBLIC_ORIGIN: origin,
-    APP_NAME: 'L4 Preview',
+    PUBLIC_ORIGIN: 'https://server-preview.dev.llll.gg',
     ADMIN_EMAIL: 'owner@example.com',
     AUTH_REGISTRATION_MODE: 'invite_only',
     EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
+    ACCOUNT_ID: account,
   },
-})
+  // DO state is isolated per Preview and deleted with it; each binding must be
+  // declared here or the Preview fails with error 1101.
+  previews: {
+    ...(base.previews || {}),
+    durable_objects: { bindings: base.durable_objects.bindings },
+  },
+}
 if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
   const version = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
   const installed = process.env.LLLL_PREVIEW_INSTALLED_VERSION || version
   parseVersion(installed)
   if (compareVersions(installed, version) > 0) throw new Error('A Preview fixture cannot impersonate a newer release')
-  Object.assign(config.vars, {
-    LLLL_ACCOUNT_ID: account,
-    LLLL_WORKER_NAME: name,
-    LLLL_APP_HOSTNAME: new URL(origin).hostname,
-    LLLL_CUSTOM_DOMAIN: 'true',
-    LLLL_SERVER_MARKER: 'llll.gg/server-v1',
-    LLLL_VERSION: installed,
-    BACKUP_BUCKET_NAME: name + '-backups',
-  })
+  // Version stays a local fixture override only; the updater reads discovery.
+  Object.assign(config.vars, { LLLL_VERSION: installed })
 }
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
   throw new Error('Configure private Preview auth and owner claims')
-// Optional isolated compute proof, built from this exact PR checkout in Workers Builds.
-if (process.env.LLLL_PREVIEW_PI === '1') {
-  const image = process.env.LLLL_PREVIEW_PI_IMAGE
-  if (image && !new RegExp(`^registry\\.cloudflare\\.com/${account}/[a-z0-9_-]+@sha256:[a-f0-9]{64}$`).test(image)) throw new Error('Pi Preview image must be digest-pinned in this account registry')
-  config.compatibility_date = '2026-10-21'
-  config.durable_objects.bindings.push({ name: 'AGENT_COMPUTE', class_name: 'AgentComputeDurableObject' })
-  config.migrations.push({ tag: 'v4-pi-compute', new_sqlite_classes: ['AgentComputeDurableObject'] })
-  config.containers = [{ class_name: 'AgentComputeDurableObject', scheduling_policy: 'durable_object',
-    images: { pi: image ? { image } : { dockerfile: resolve(root, 'packages/agent-runtime/Dockerfile'), build_context: root } } }]
-  config.ai = { binding: 'AI' }
-  config.observability = { enabled: true, head_sampling_rate: 1 }
-  config.containers[0].observability = { enabled: true }
-}
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })
 const file = resolve(dir, 'server-preview.json'),
@@ -170,34 +153,50 @@ await writeFile(
 function wrangler(args) {
   const r = spawnSync('pnpm', ['exec', 'wrangler', ...args], {
     cwd: root,
-    stdio: 'inherit',
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
-  if (r.status !== 0)
+  if (r.status !== 0) {
+    process.stderr.write(r.stderr || r.stdout || '')
     throw new Error('Workers Builds Server Preview deployment failed')
+  }
+  return r.stdout
 }
 wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', file])
-wrangler(['deploy', '--config', file, '--secrets-file', secrets])
-// Cloudflare only permits attaching a custom domain after the first deployment.
-if (process.env.LLLL_PREVIEW_ZONE_ID) {
-  await api('/workers/domains', 'PUT', {
-    hostname: new URL(origin).hostname,
-    service: name,
-    zone_id: process.env.LLLL_PREVIEW_ZONE_ID,
-    enabled: true,
-    previews_enabled: false,
-  })
-}
+const output = wrangler([
+  'preview',
+  '--config',
+  file,
+  '--name',
+  branch,
+  '--ignore-base-config',
+  '--secrets-file',
+  secrets,
+  '--json',
+])
+const data = JSON.parse(output.slice(output.indexOf('{')))
+const url = data.preview?.urls?.find((value) => {
+  try {
+    const candidate = new URL(value)
+    return candidate.protocol === 'https:' && candidate.hostname.endsWith('.workers.dev') ? candidate : false
+  }
+  catch {
+    return false
+  }
+}) || data.preview?.urls?.[0]
+if (!url) throw new Error('Cloudflare did not return a Preview URL')
 let verified = false
 for (let attempt = 0; attempt < 150; attempt++) {
-  const check = await fetch(origin + '/.well-known/llll', {
+  const check = await fetch(url + '/.well-known/llll', {
     signal: AbortSignal.timeout(10000),
   }).catch(() => null)
   const d = check?.ok ? await check.json().catch(() => null) : null
-  if (d?.kind === 'server' && d.origin === origin) {
+  const aliases = d?.aliases || []
+  if (d?.kind === 'server' && (d.origin === url || aliases.includes(url))) {
     verified = true
     break
   }
   await new Promise((resolveWait) => setTimeout(resolveWait, 2000))
 }
 if (!verified) throw new Error('Server Preview discovery verification failed')
-console.log(`Server Preview verified for PR #${candidate.number}: ${origin}`)
+console.log(`Server Preview verified for PR #${prNumber}: ${url}`)

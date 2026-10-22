@@ -111,8 +111,45 @@
   ],
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",
-    "AUTH_REGISTRATION_MODE": "invite_only",
-    "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+    "AUTH_REGISTRATION_MODE": "invite_only"
   },
-  "previews": {}
+  // Native Worker Previews: one staging Server Worker, a Preview per PR.
+  // Vars and secrets are not inherited from production; each binding declared
+  // on the environment must also appear here. Durable Object state is isolated
+  // per Preview and deleted with it. Cron triggers and routes target only the
+  // production instance.
+  "previews": {
+    "vars": {
+      "PUBLIC_ORIGIN": "https://server-preview.dev.llll.gg",
+      "ADMIN_EMAIL": "owner@example.com",
+      "AUTH_REGISTRATION_MODE": "invite_only"
+    },
+    "durable_objects": {
+      "bindings": [
+        { "name": "CHANNEL_DO", "class_name": "ChannelDurableObject" },
+        { "name": "SERVER_DO", "class_name": "ServerDurableObject" },
+        { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
+        { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
+        { "name": "AGENT_DO", "class_name": "L4Agent" },
+        { "name": "AGENT_THINK", "class_name": "L4Think" },
+        { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
+        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" }
+      ]
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "llll-server-staging",
+        "database_id": "00000000-0000-4000-8000-000000000002",
+        "migrations_dir": "drizzle/server-migrations"
+      }
+    ],
+    "r2_buckets": [
+      { "binding": "FILES", "bucket_name": "llll-server-staging-files" },
+      { "binding": "BACKUPS", "bucket_name": "llll-server-staging-backups" }
+    ],
+    "kv_namespaces": [
+      { "binding": "TICKETS", "id": "00000000000000000000000000000002" }
+    ]
+  }
 }
