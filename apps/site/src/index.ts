@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode } from '../../../shared/cloudflare-oauth'
+import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode, refreshCloudflareGrant } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
 import { advanceDeployment, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
+import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { webSession, digest, clearDeployment } from './session'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
@@ -94,7 +95,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       // Surface Cloudflare's reason (it names the refused scope) instead of a generic cancellation.
       const detail = (url.searchParams.get('error_description') || '').slice(0, 300)
       session.data.error = detail ? `Cloudflare refused the authorization: ${detail}` : 'Cloudflare authorization was cancelled'
-      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare', 303)
+      await session.save(); return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare' + (session.data.updateRequest ? '&resume=update' : ''), 303)
     }
     session.data.grant = await oauthGrant(new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: verifier, redirect_uri: env.PUBLIC_ORIGIN + '/api/deploy/callback' }), env.CLOUDFLARE_OAUTH_CLIENT_ID!)
     if (session.data.accountId && !session.data.completed) {
@@ -102,7 +103,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       if (!accounts.some(account => account.id === session.data.accountId)) { delete session.data.grant; await session.save(); fail(403, 'Reconnect the same Cloudflare account to resume this server') }
     }
     await session.save()
-    return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare', 303)
+    return Response.redirect(env.PUBLIC_ORIGIN + '/create?tab=cloudflare' + (session.data.updateRequest ? '&resume=update' : ''), 303)
   }
   if (path === '/api/deploy/session') {
     const session = await webSession(request, env); const data = session.data
@@ -115,7 +116,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
         delete data.grant; authorized = false; await session.save()
       }
     }
-    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })) })
+    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data) })
   }
   if (path === '/api/deploy/servers' && request.method === 'GET') {
     const session = await webSession(request, env)
@@ -148,6 +149,67 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     clearDeployment(session.data)
     Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail)); await session.save()
     return json({ ok: true })
+  }
+  if (path === '/api/deploy/update/prepare' && request.method === 'POST') {
+    const session = await webSession(request, env, true)
+    const value = updateRequestSchema.parse(await input(request))
+    const grant = session.data.grant
+    let body: Record<string, unknown>
+    if (grant && grant.expiresAt > Date.now()) {
+      await prepareUpdate(session.data, value, grant.accessToken)
+      body = { ok: true, update: publicUpdate(session.data) }
+    } else {
+      await rememberUpdate(session.data, value)
+      body = { ok: true, remembered: true, request: session.data.updateRequest }
+    }
+    await session.save()
+    const response = json(body)
+    if (session.cookie) response.headers.set('Set-Cookie', session.cookie)
+    return response
+  }
+  if (path === '/api/deploy/update/start' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    const grant = session.data.grant
+    if (!grant || grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
+    if (!session.data.updateRequest) fail(409, 'Open this page from your Server’s Settings')
+    await prepareUpdate(session.data, session.data.updateRequest, grant.accessToken)
+    delete session.data.update!.error
+    await session.save()
+    return json({ update: publicUpdate(session.data) })
+  }
+  if (path === '/api/deploy/update/forget' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    delete session.data.updateRequest
+    delete session.data.update
+    await session.save()
+    return json({ ok: true })
+  }
+  if (path === '/api/deploy/update/advance' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    if (!session.data.update) fail(409, 'Start the update from your Server’s Settings')
+    if (!session.data.grant || session.data.grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
+    const renewedCookie = session.renew()
+    if (session.data.grant.expiresAt < Date.now() + 120000) {
+      session.data.grant = await refreshCloudflareGrant(session.data.grant)
+      await session.save()
+    }
+    const leaseUntil = Date.now() + 2700000
+    const lease = await env.DB.prepare('UPDATE deployment_sessions SET lease_until=? WHERE id_hash=? AND lease_until<? RETURNING id_hash').bind(leaseUntil, session.id, Date.now()).first()
+    if (!lease) fail(409, 'The update is already running; wait before retrying')
+    try {
+      delete session.data.update.error
+      await advanceUpdate(session.data, session.data.grant.accessToken, session.save)
+    } catch (error) {
+      session.data.update.error = error instanceof Error ? error.message : 'The update did not complete.'
+      await failUpdate(session.data, session.data.grant.accessToken)
+      await session.save()
+      throw error
+    } finally {
+      await env.DB.prepare('UPDATE deployment_sessions SET lease_until=0 WHERE id_hash=? AND lease_until=?').bind(session.id, leaseUntil).run()
+    }
+    const response = json({ update: publicUpdate(session.data) })
+    response.headers.set('Set-Cookie', renewedCookie)
+    return response
   }
   if (path === '/api/deploy/advance' && request.method === 'POST') {
     const session = await webSession(request, env)

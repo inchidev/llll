@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { changeUpdateRecord, requestServerUpdate, type ServerUpdateJob } from '../../../../../shared/server-updates'
 import { compareVersions } from '../../../../../shared/release-version'
 import { version } from '../../../../../package.json'
-import { updateConfiguration, updateOwner, triggerServerUpdate } from '../../../../utils/server-updates'
+import { updateConfiguration, updateOwner, triggerServerUpdate, serverUpdateLaunchUrl } from '../../../../utils/server-updates'
 import { fail } from '../../../../utils/cf'
 import { llllReleases } from '../../../../utils/releases'
 import { parseBody } from '../../../../utils/validate'
@@ -14,9 +14,8 @@ export default defineEventHandler(async (event) => {
   const { store, hook, value } = await updateConfiguration(event, env, serverId)
   if (value.job?.id === body.requestId) {
     if (value.job.targetVersion !== body.release.slice(1) || value.job.requestedBy !== member.user.id) fail(409, 'request_conflict', 'This request ID belongs to another update')
-    return { job: value.job }
+    return { job: value.job, launchUrl: serverUpdateLaunchUrl(env, value.job, getRequestURL(event).origin) }
   }
-  if (!hook) fail(409, 'build_hook_required', 'Connect this Server’s L4 Build hook first')
   const installed = env.LLLL_VERSION?.trim() || version
   if (compareVersions(body.release.slice(1), installed) <= 0) fail(400, 'release_not_newer', 'Choose a release newer than the installed version')
   const releases = await llllReleases(undefined, { prereleases: body.prereleases, installable: true })
@@ -30,7 +29,7 @@ export default defineEventHandler(async (event) => {
   })
   if (created) {
     await writeAudit(env, { serverId, actorId: member.user.id, action: 'server.update.request', targetType: 'server', targetId: serverId, meta: { requestId: job.id, release: job.targetVersion } })
-    await triggerServerUpdate(store, job.id, hook)
+    if (hook) await triggerServerUpdate(store, job.id, hook)
   }
-  return { job: (await store.read()).value.job }
+  return { job: (await store.read()).value.job, launchUrl: serverUpdateLaunchUrl(env, job, getRequestURL(event).origin) }
 })

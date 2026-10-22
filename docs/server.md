@@ -26,6 +26,6 @@ RealtimeKit, mail and AI credentials belong to the Server. Deploying it does not
 
 ## Creation and recovery
 
-The first journey is deploy Server → claim owner → invite member → chat. Cloudflare application code is deployed only by Workers Builds from Git and verified immutable release artifacts. VPS deployment uses the published portable image and operator-owned configuration. See [deployment](deployment.md).
+The first journey is deploy Server → claim owner → invite member → chat. Customer Cloudflare Servers install and update from published, immutable, checksum-verified release artifacts through the customer's own OAuth grant; they need no Git integration or Workers Builds. The optional legacy Build hook only starts an existing Server's Build. VPS deployment uses the published portable image and operator-owned configuration. Our own official deployments use Workers Builds from Git. See [deployment](deployment.md).
 
 The active Server schema is `server-v1`, beginning at `drizzle/server-migrations/0000_server_baseline.sql`. Create a fresh database; earlier schemas cannot be upgraded into this line. Published artifacts and Git history remain unchanged.

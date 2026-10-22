@@ -54,6 +54,7 @@ export type CloudflareServer = {
   resources: {
     databaseId: string | null
     bucketName: string | null
+    backupBucketName: string | null
     kvId: string | null
     mailZoneId: string | null
     mailDomain: string | null

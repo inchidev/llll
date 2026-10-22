@@ -2,11 +2,28 @@ import { encryptSecret, decryptSecret } from '../../../shared/encrypted-secret'
 import { randomCode, type CloudflareGrant } from '../../../shared/cloudflare-oauth'
 import type { WebEnv } from './env'
 
+export type UpdateRequest = { origin: string; accountId: string; workerName: string; jobId: string }
+export type UpdateBackupReceipt = { key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
+export type UpdateState = UpdateRequest & {
+  serverId: string
+  databaseId: string
+  filesBucket: string
+  backupBucket: string
+  installedVersion: string
+  targetVersion: string
+  executorId: string
+  phase: 'release' | 'backup' | 'deploy' | 'verify' | 'done'
+  backup?: UpdateBackupReceipt
+  deploymentStarted?: boolean
+  error?: string
+}
 export type DeploymentState = {
   state?: string; verifier?: string; grant?: CloudflareGrant
   accountId?: string; name?: string; version?: string; worker?: string; ownerEmail?: string
   setupToken?: string; origin?: string
   step?: number; error?: string; completed?: boolean
+  updateRequest?: UpdateRequest
+  update?: UpdateState
   deployments?: { accountId: string; origin: string; name: string; version: string; setupToken: string }[]
 }
 export function rememberDeployment(data: DeploymentState) {
@@ -30,11 +47,18 @@ export async function webSession(request: Request, env: WebEnv, create = false) 
   if (!row && !create) throw Object.assign(new Error('Deployment session expired'), { status: 401 })
   // Only an explicit OAuth connection renews this browser session. Polling and
   // token refreshes cannot keep infrastructure access alive indefinitely.
-  const expiresAt = create ? Date.now() + 3600000 : row!.expires_at
+  let expiresAt = create ? Date.now() + 3600000 : row!.expires_at
   async function save() {
     const payload = JSON.stringify(await encryptSecret(env.AUTH_SECRET, id, JSON.stringify(data)))
     await env.DB.prepare('INSERT INTO deployment_sessions(id_hash,payload,expires_at) VALUES (?,?,?) ON CONFLICT(id_hash) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at').bind(id, payload, expiresAt).run()
   }
-  const cookie = fresh || create ? `llll_deploy=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600` : ''
-  return { id, data, save, cookie, expiresAt }
+  const cookieValue = () => `llll_deploy=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`
+  const cookie = fresh || create ? cookieValue() : ''
+  // A running update may outlive the original installer session. Renew only
+  // while its owner is actively driving that saved operation.
+  function renew() {
+    expiresAt = Date.now() + 3600000
+    return cookieValue()
+  }
+  return { id, data, save, cookie, expiresAt, renew }
 }

@@ -15,8 +15,8 @@ beforeEach(() => {
   savedJob = null
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   api = vi.fn(async (url: string, options?: { body?: Record<string, unknown>; query?: { prereleases?: boolean } }) => {
-    if (url.endsWith('/updates')) return { installedVersion: '0.2.1', releases: [release('v0.2.600'), release('v0.2.2'), release('v0.2.0'), ...(options?.query?.prereleases ? [release('v0.3.0-alpha.1')] : [])], updateControl: { available: true, configured: true, source: 'binding', job: savedJob } }
-    if (url.endsWith('/progress')) return { installedVersion: '0.2.1', configured: true, job: savedJob }
+    if (url.endsWith('/updates')) return { installedVersion: '0.2.1', releases: [release('v0.2.600'), release('v0.2.2'), release('v0.2.0'), ...(options?.query?.prereleases ? [release('v0.3.0-alpha.1')] : [])], updateControl: { available: true, configured: true, mode: 'build', source: 'binding', job: savedJob } }
+    if (url.endsWith('/progress')) return { installedVersion: '0.2.1', configured: true, mode: 'build', job: savedJob }
     if (url.endsWith('/request')) {
       savedJob = { id: String(options?.body?.requestId), serverId: 'server', requestedBy: 'owner', sourceVersion: '0.2.1', targetVersion: String(options?.body?.release).slice(1), stage: 'queued', buildId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), backup: null, error: null }
       return { job: savedJob }
@@ -41,13 +41,13 @@ it('selects only newer numeric versions, explicitly includes prereleases, and st
   expect(requests).toHaveLength(1)
   expect(requests[0]![1]?.body).toMatchObject({ release: 'v0.2.2', prereleases: true })
   expect(String(requests[0]![1]?.body?.requestId)).toMatch(/^[a-f0-9-]{36}$/)
-  expect(v.text()).toContain('Waiting for Build')
+  expect(v.text()).toContain('Waiting to start')
   expect(v.get('select').attributes('disabled')).toBeDefined()
   expect(v.get('[data-update-blocked]').attributes('data-update-blocked')).toBe('true')
   v.unmount()
   client.clear()
   const reopened = view(); await flushPromises()
-  expect(reopened.text()).toContain('Waiting for Build')
+  expect(reopened.text()).toContain('Waiting to start')
   expect(api.mock.calls.filter(([url]) => url.endsWith('/request'))).toHaveLength(1)
   reopened.unmount()
 })

@@ -16,7 +16,7 @@ Real HTTPS checks passed owner setup, persistent UUID, local login, forged-ident
 
 First-domain verification exposed propagation delays; a manual retry exposed missing webhook commit metadata. The final scripts allow a bounded longer propagation wait and verify the checked-out Git commit against the current PR head and both merge parents. Server deployment persists the private owner claim before public verification and repairs it on an unclaimed-server retry.
 
-This is not public installer OAuth acceptance. The connected Cloudflare API refused OAuth-client registration reads, so registered Workers Builds scopes and fresh browser consent were not established. The installer needs the account's repository integration, deployment token and Builds administrative permission. Device/native and optional provider results remain separate.
+This is not public installer OAuth acceptance. The connected Cloudflare API refused OAuth-client registration reads, so registered installer scopes and fresh browser consent were not established. The direct-upload installer now needs only the customer's Cloudflare account: it does not require a repository integration, deployment token or Workers Builds administrative permission. Fresh direct-install and browser-update acceptance against a real customer account is still pending. Device/native and optional provider results remain separate.
 
 ## Held-socket revocation correction
 

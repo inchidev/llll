@@ -8,7 +8,7 @@ import { createServerBackup } from '../../../../utils/server-backup'
 import { updateStorage } from '../../../../utils/server-updates'
 import { parseBody } from '../../../../utils/validate'
 
-/** Build-only, one-job capability: creates an archive but never returns its contents. */
+/** One-job capability: creates an archive but never returns its contents. Used by the legacy Build or the official installer. */
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Cache-Control', 'no-store')
   const { env } = cf(event)

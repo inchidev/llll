@@ -1,7 +1,7 @@
 import { version as packageVersion } from '../../../../package.json'
 import type { UpdateStatusDTO } from '../../../../shared/releases'
 import { compareVersions } from '../../../../shared/release-version'
-import { serverUpdateBuildUrl, updateConfiguration, updateOwner } from '../../../utils/server-updates'
+import { serverUpdateBuildUrl, serverUpdateLaunchUrl, updateConfiguration, updateOwner } from '../../../utils/server-updates'
 import { llllReleases } from '../../../utils/releases'
 
 export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
@@ -15,9 +15,9 @@ export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
   }
   try {
     const config = await updateConfiguration(event, env, serverId)
-    status.updateControl = { available: true, configured: Boolean(config.hook), source: env.LLLL_UPDATE_HOOK ? 'binding' : config.value.hook ? 'saved' : null, job: config.value.job, buildUrl: serverUpdateBuildUrl(env, config.value.job?.buildId), reason: null }
+    status.updateControl = { available: true, configured: Boolean(config.hook), mode: config.hook ? 'build' : 'installer', source: env.LLLL_UPDATE_HOOK ? 'binding' : config.value.hook ? 'saved' : null, job: config.value.job, buildUrl: serverUpdateBuildUrl(env, config.value.job?.buildId), launchUrl: serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
   } catch {
-    status.updateControl!.reason = 'Cloudflare updates need a Git-connected L4 Build and a separate backup bucket. On a VPS use llll upgrade.'
+    status.updateControl!.reason = 'Cloudflare updates need a separate backup bucket and the published L4 installer. On a VPS use llll upgrade.'
   }
   try {
     const prereleases = getQuery(event).prereleases === 'true'

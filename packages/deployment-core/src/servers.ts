@@ -84,6 +84,7 @@ function serverFromBindings(
     resources: {
       databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,
       bucketName: bindings.find(binding => binding.name === 'FILES' && binding.type === 'r2_bucket')?.bucket_name || null,
+      backupBucketName: textBinding(bindings, 'BACKUP_BUCKET_NAME') || bindings.find(binding => binding.name === 'BACKUPS' && binding.type === 'r2_bucket')?.bucket_name || null,
       kvId: bindings.find(binding => binding.name === 'TICKETS' && binding.type === 'kv_namespace')?.namespace_id || null,
       mailZoneId: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId || null,
       mailDomain: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain || null,
@@ -229,6 +230,7 @@ export async function findL4Servers(accessToken: string, origin: unknown): Promi
         resources: {
           databaseId: bindings.find(binding => binding.name === 'DB' && binding.type === 'd1')?.database_id || null,
           bucketName: bindings.find(binding => binding.name === 'FILES' && binding.type === 'r2_bucket')?.bucket_name || null,
+          backupBucketName: textBinding(bindings, 'BACKUP_BUCKET_NAME') || bindings.find(binding => binding.name === 'BACKUPS' && binding.type === 'r2_bucket')?.bucket_name || null,
           kvId: bindings.find(binding => binding.name === 'TICKETS' && binding.type === 'kv_namespace')?.namespace_id || null,
           mailZoneId: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.zoneId || null,
           mailDomain: JSON.parse(textBinding(bindings, 'LLLL_EMAIL_DOMAINS') || '[]')[0]?.domain || null,

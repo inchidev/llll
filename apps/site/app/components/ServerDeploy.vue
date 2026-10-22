@@ -7,12 +7,41 @@ import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 const phases = ['Configure your Server', 'Start deployment', 'Wait for Cloudflare verification', 'Ready']
 type Deployment = { origin: string; name: string; accountId: string; version?: string | null; claim?: string; iconUrl?: string | null }
 const shell = useShell()
+const route = useRoute()
+const router = useRouter()
+type SessionUpdate = {
+  origin: string; accountId: string; workerName: string; jobId: string
+  installedVersion: string; targetVersion: string
+  phase: 'release' | 'backup' | 'deploy' | 'verify' | 'done'; done: boolean
+  deploymentStarted: boolean
+  backup?: { sizeBytes: number; verified: boolean; createdAt: string } | null
+  error?: string | null
+}
+type SessionUpdateRequest = { origin: string; accountId: string; workerName: string; jobId: string }
 type Session = {
   authorized: boolean; accounts: { id: string; name: string }[]; accountId?: string
   sessionExpiresAt: number; grantExpiresAt?: number; step?: number; completed?: boolean
   name?: string; ownerEmail?: string; version?: string; error?: string; origin?: string; claim?: string
   deployments?: Deployment[]
+  updateRequest?: SessionUpdateRequest
+  update?: SessionUpdate
 }
+const updateTarget = computed<SessionUpdateRequest | null>(() => {
+  const origin = String(route.query?.server || '')
+  const jobId = String(route.query?.update || '')
+  const accountId = String(route.query?.account || '')
+  const workerName = String(route.query?.worker || '')
+  if (!origin || !jobId || !/^[0-9a-f]{32}$/.test(accountId) || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(workerName)) return null
+  return { origin, accountId, workerName, jobId }
+})
+const resumeUpdate = computed(() => route.query?.resume === 'update')
+const updateRequest = computed(() => session.value?.updateRequest || updateTarget.value)
+const update = computed(() => session.value?.update)
+const updateMode = computed(() => Boolean(updateTarget.value || resumeUpdate.value))
+const updating = ref(false)
+const updateError = ref('')
+const updatePhases = ['Verify the published release', 'Back up and verify Server data', 'Upload the new release', 'Wait for Cloudflare verification', 'Update complete']
+const updatePhase = computed(() => ({ release: 0, backup: 1, deploy: 2, verify: 3, done: 4 })[update.value?.phase || 'release'])
 const name = ref('My L4')
 const ownerEmail = ref('')
 const accountId = ref('')
@@ -75,7 +104,7 @@ async function refresh() {
     sessionEnded.value = false
     const accounts = session.value.accounts
     if (!accounts.some(account => account.id === accountId.value))
-      accountId.value = accounts.find(account => account.id === session.value?.accountId)?.id || accounts[0]?.id || ''
+      accountId.value = accounts.find(account => account.id === (session.value?.updateRequest?.accountId || session.value?.accountId))?.id || accounts[0]?.id || ''
     ownerEmail.value ||= session.value.ownerEmail || ''
     error.value = session.value.error || ''
     for (const entry of session.value.deployments || []) remember(entry)
@@ -108,6 +137,7 @@ async function checkRows() {
   }))
 }
 async function loadServers() {
+  if (updateMode.value) { listing.value = false; return }
   const current = ++request
   inventory.value = []
   inventoryLoaded.value = false
@@ -150,6 +180,42 @@ async function deploy() {
     error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same Server.'
   } finally { busy.value = false }
 }
+async function prepareUpdate() {
+  const target = updateTarget.value || (resumeUpdate.value ? session.value?.updateRequest : undefined)
+  if (!target) return
+  updateError.value = ''
+  try {
+    await $fetch('/api/deploy/update/prepare', { method: 'POST', body: target })
+    await refresh()
+  } catch (cause) {
+    updateError.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'The update request could not be loaded.'
+  }
+}
+async function runUpdate() {
+  if (updating.value) return
+  updating.value = true
+  updateError.value = ''
+  try {
+    await $fetch('/api/deploy/update/start', { method: 'POST' })
+    await refresh()
+    while (session.value?.update && !session.value.update.done) {
+      await $fetch('/api/deploy/update/advance', { method: 'POST' })
+      await refresh()
+      if (!session.value?.update?.done) await new Promise(resolve => setTimeout(resolve, 3000))
+    }
+    if (session.value?.update?.done) await loadServers()
+  } catch (cause) {
+    updateError.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'The update paused. Retry to resume it.'
+    await refresh()
+  } finally { updating.value = false }
+}
+async function leaveUpdate() {
+  try { await $fetch('/api/deploy/update/forget', { method: 'POST' }) } catch { /* The page still leaves update mode locally. */ }
+  updateError.value = ''
+  await router.replace({ path: '/create', query: { tab: 'cloudflare' } })
+  await refresh()
+  void loadServers()
+}
 let clock: ReturnType<typeof setInterval> | undefined
 onUnmounted(() => { clearInterval(clock); for (const probe of probes) probe.abort(); request++ })
 onMounted(async () => {
@@ -157,9 +223,10 @@ onMounted(async () => {
   try { config.value = await $fetch('/api/deploy/config') }
   catch { error.value = 'Could not load Cloudflare configuration. Try again.' }
   await refresh()
+  if (updateTarget.value || resumeUpdate.value) await prepareUpdate()
   loading.value = false
   clock = setInterval(() => { now.value = Date.now() }, 1000)
-  void loadServers()
+  if (!updateMode.value) void loadServers()
   try {
     const data = await $fetch<{ releases: { version: string; published_at: string }[] }>('/api/deploy/releases')
     versions.value = data.releases
@@ -170,7 +237,7 @@ onMounted(async () => {
 
 <template>
   <section class="space-y-6">
-    <p class="text-sm leading-6 text-muted">Deploy to your Cloudflare account. Your Server owns its accounts and data.</p>
+    <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update a Server from a published release. Your Cloudflare account is billed directly, and the Server receives no account credential.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
     <p v-if="loading" role="status" class="text-sm text-muted">Checking Cloudflare connection…</p>
     <section v-else class="space-y-4 rounded-lg border border-default p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -178,13 +245,14 @@ onMounted(async () => {
         <UButton v-if="!connected" :to="pending ? '/api/deploy/oauth?resume=1' : '/api/deploy/oauth'" external :label="expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth" size="sm" />
       </div>
       <template v-if="connected && session">
-        <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy" class="w-full" /></UFormField>
+        <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy || updating" class="w-full" /></UFormField>
         <p class="text-xs leading-5 text-muted">Cloudflare access: {{ remaining(session.grantExpiresAt) }} · Installer session: {{ remaining(session.sessionExpiresAt) }}.<br>Your Servers keep running when this connection ends.</p>
       </template>
       <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Authorize L4 to find your Servers and create new ones in your Cloudflare account.' }}</p>
       <p v-if="config && !config.oauth" class="text-sm text-muted">Cloudflare connection is unavailable here. <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">Manual setup</a> is available.</p>
     </section>
 
+    <template v-if="!updateMode">
     <section class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-xl font-semibold tracking-tight">{{ connected ? 'Your Servers' : 'Saved on this device' }}</h2>
@@ -234,6 +302,41 @@ onMounted(async () => {
         <UButton v-if="!pending" label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="creating = false" />
       </div>
     </UForm>
+    </template>
+    <template v-else>
+      <section class="space-y-4 rounded-lg border border-default p-4">
+        <template v-if="update">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Server update</p>
+            <h2 class="break-all text-xl font-semibold tracking-tight">{{ update.origin.replace(/^https?:\/\//, '') }}</h2>
+            <p class="text-sm text-muted">L4 {{ update.installedVersion }} → L4 {{ update.targetVersion }}</p>
+          </div>
+          <ol class="space-y-3">
+            <li v-for="(phase, index) in updatePhases" :key="phase" class="flex items-center gap-3" :class="index > updatePhase ? 'text-dimmed' : 'text-highlighted'">
+              <UIcon :name="index < updatePhase || update.done ? 'i-ph-check-circle' : index === updatePhase ? 'i-ph-circle-notch' : 'i-ph-circle'" class="size-5" :class="index === updatePhase && !update.done ? 'animate-spin' : ''" />{{ phase }}
+            </li>
+          </ol>
+          <p v-if="update.backup" class="text-sm text-muted">{{ update.backup.verified ? 'Backup verified' : 'Backup uploaded' }} · {{ Math.max(1, Math.ceil(update.backup.sizeBytes / 1024)) }} KB</p>
+          <p v-if="update.deploymentStarted" class="text-sm text-muted">The new release has been uploaded. Keep this page open while Cloudflare verifies the Server.</p>
+          <div class="flex flex-wrap gap-2">
+            <UButton v-if="!update.done" label="Back up and update" icon="i-ph-cloud-arrow-up" :loading="updating" :disabled="!connected || updating" @click="runUpdate" />
+            <UButton v-else :to="update.origin" external label="Open your Server" icon="i-ph-arrow-square-out" />
+          </div>
+        </template>
+        <template v-else-if="updateRequest">
+          <h2 class="break-all text-xl font-semibold tracking-tight">Update {{ updateRequest.origin.replace(/^https?:\/\//, '') }}</h2>
+          <p class="text-sm text-muted">Connect Cloudflare to load the update request saved on this Server.</p>
+          <UButton v-if="connected" label="Load update" :loading="loading" @click="prepareUpdate" />
+          <p v-else class="text-sm text-muted">Use the Cloudflare connection above, then return here.</p>
+        </template>
+        <template v-else>
+          <h2 class="text-xl font-semibold tracking-tight">Update not loaded</h2>
+          <p class="text-sm text-muted">Reopen the update from your Server’s Settings. This browser has no saved update request.</p>
+        </template>
+        <UButton v-if="!updating" label="Add a server instead" color="neutral" variant="link" @click="leaveUpdate" />
+      </section>
+      <UAlert v-if="update?.error || updateError" color="error" :description="update?.error || updateError" />
+    </template>
     <UAlert v-if="error" color="error" :description="error" />
   </section>
 </template>

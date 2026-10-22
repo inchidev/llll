@@ -1,39 +1,53 @@
 # Update a Server from Settings
 
-For a Git-connected Cloudflare Server, its local Owner can choose a published release under **Settings → Deployment → Updates** and select **Back up and update**. Stable releases are shown by default; **Include prereleases** explicitly includes named alpha/beta/rc releases. Only releases newer than the running version are selectable. This also supports moving from a named alpha to a newer stable release.
+A Cloudflare Server can be updated from **Settings → Deployment → Updates** without Git, GitHub or Workers Builds. The Owner chooses a newer published release and selects **Back up and update**. Stable releases are shown by default; **Include prereleases** explicitly includes named alpha/beta/rc releases. Only releases newer than the running version are selectable, so moving from a named alpha to a newer stable release is supported.
 
-## Connect the Build once
+## The request stays local
 
-New Servers created by the official Cloudflare installer receive a dedicated **L4 Server updates** deploy hook automatically. The installer stores it as a private Build variable; the Git-connected Build supplies `LLLL_UPDATE_HOOK` to that Server. No Cloudflare account API token is stored by the update feature on the Server.
+1. The Server authenticates its own Owner, then validates the selected published release against GitHub Releases.
+2. It saves one private request in the Server's `server_update_control` D1 table and returns a launch URL for the official installer at `https://llll.gg/create?tab=cloudflare&server=…&account=…&worker=…&update=…`. The URL contains no credential.
+3. The Server also creates a one-job backup capability (`backupToken`). It is never returned by Settings APIs. The capability can create that request's pre-update backup once and cannot read account resources or upload code.
+4. An atomic SQL revision check prevents two owner requests, a browser update and a Build from claiming the same operation.
 
-For an existing Server, first adopt a release containing this feature through the operator's verified backup/update procedure. Its Git-connected repository must include the matching `scripts/server-deploy.mjs` and `scripts/server-update.mjs`. Create a deploy hook for that Worker and repository branch in Cloudflare Workers Builds, then paste the hook URL or ID into Updates. The Owner can replace a hook saved in Settings; a hook supplied by an environment secret is rotated by the operator instead.
+No Cloudflare account API token is stored on the Server. The account is billed directly for resources the update uses.
 
-The runtime accepts only Cloudflare's canonical deploy-hook endpoint or a UUID. A saved hook is encrypted with the Server's original `AUTH_SECRET`; it is never returned through the settings APIs. Hook access can start that Worker's branch Build but cannot read account resources or upload application code. Keep both the hook and `AUTH_SECRET` private.
+## Browser update
 
-## What an update does
+The official installer performs the update in phases. Each phase is a separate browser request, so reloading or closing the page does not lose the saved operation; reopen the launch URL from Settings to continue.
 
-1. The Server authenticates its own Owner and validates the selected published release. It saves one private request in the Server’s `server_update_control` D1 table, then calls its narrow Build hook. An atomic SQL revision check prevents two owner requests or Builds from claiming the same operation. The feature appends migration `0001_server_updates.sql`; the published baseline is unchanged.
-2. The Git-connected Build reads that request using its existing deployment token. It verifies the release provenance, immutable tag commit, runtime manifest and module/asset hashes before deployment.
-3. The Build gives the running Server a single-job backup capability. The Server streams its logical D1 export and live files to the separate backup bucket with bounded multipart buffers. The Build downloads the **persisted** archive to a private temporary file, checks its SHA-256, restores SQLite on disk, verifies UUID/schema/foreign keys and file payloads, and compares every community table and the file inventory with the running Server. A failed or changing backup stops the operation **before** deployment. Keep Server activity low while the backup runs. This optimistic check is not an atomic cross-service snapshot.
-4. Only after successful backup verification does the Build apply the selected release's ordered migrations and deploy its verified artifact. Existing bindings, encryption secrets and Durable Object namespaces are inherited. The runtime never uploads code itself.
-5. The Build checks the same Server UUID, public name/icon, ready status and selected version, then records completion. The settings page shows progress and the backup receipt. It is safe to close the page and return; the operation is stored independently of the browser and Worker code. When a new Client is waiting, use **Update Client** or its update banner.
+1. **Fresh consent.** The installer asks the Owner for Cloudflare OAuth consent at update time. The grant is encrypted inside the bounded, browser-bound installer session. The Server receives only its one-job backup capability.
+2. **Release verification.** The installer reads the release's `SHA256SUMS`, verifies the Cloudflare manifest hash and `llll-server-schema-v1` capability, and lets `updateL4` verify every module and asset hash again before upload.
+3. **Verified backup.** The installer claims the saved request with its own executor ID and calls the Server's backup endpoint. The Server streams its logical D1 export and live files to the deployment's separate `BACKUPS` bucket. The installer then reads the **persisted** object from R2 and checks:
+   - the archive's SHA-256 and the total byte count against the receipt;
+   - every tar header, entry size and checksum, with bounded memory;
+   - the archive's `summary.json` and its table, row, R2-object and byte counts;
+   - every R2 metadata record against its matching payload and size;
+   - the live D1 table count and total row count, and the live files-bucket object and byte inventory.
 
-The backup preserves the update control table schema and encrypted hook, but clears its operation, one-job capability and busy flag. Restoring a backup cannot revive an active update. This normalized control row is excluded from live-data comparisons.
+   If the live inventory changed while the backup was made, the update stops **before** deployment and asks the Owner to retry with low Server activity. This is an inventory-level check, not an atomic cross-service snapshot. Unlike the legacy Build path, a Worker cannot restore the whole SQLite file on disk, so the site path does not repeat a SQLite restore and foreign-key check.
+4. **Direct upload.** Only after verification does the installer call the same published-release updater used by installation. It applies the release's ordered migrations and uploads its checksum-verified modules and assets. Existing bindings, encryption secrets, UUID and Durable Object namespaces are preserved. Unreleased or locally built code is never accepted; a published tag and its assets are immutable.
+5. **Verification and completion.** The installer checks the same Server UUID and origin, the selected version in `/.well-known/llll`, and a ready, migrated `/api/setup/health`. It then records completion and clears the one-job backup capability. Settings shows the backup receipt and progress. When a new Client is waiting, use **Update Client** or its update banner.
 
-Backup scope remains the logical D1 database and live files. Environment secrets, ephemeral Durable Object state, KV tickets and external provider data are not in that archive. Preserve the original encryption/provider secrets separately. Backups remain in their separate bucket after an update, cancellation or later Server removal.
+The backup preserves the update control table schema and encrypted hook, but clears its operation, capability and busy flag, so restoring a backup cannot revive an active update. Environment secrets, ephemeral Durable Object state, KV tickets and external provider data are not in the archive. Preserve the original encryption/provider secrets separately. Backups remain in their separate bucket after an update, cancellation or later Server removal.
+
+## Legacy Build path
+
+A Server with a Git-connected Workers Build may still connect a deploy hook. This is optional and only needed for an existing Build-installed Server; it is not a prerequisite for updates.
+
+- The hook is supplied by the operator as `LLLL_UPDATE_HOOK` or saved encrypted in Settings. It can start only that Worker's branch Build and cannot read account resources or upload code.
+- The Build reads the saved request with its deployment token. It downloads the persisted backup, checks SHA-256, restores SQLite on disk, verifies the UUID, schema, foreign keys and file payloads, then applies the release and verifies health. This path retains the stronger restore verification because it runs outside the Worker.
+- The Build path is still shown in Settings when a hook is configured. A timeout starting a hook keeps the same request locked because a Build may already have started; it never silently creates a second operation.
 
 ## Retry and recovery
 
-During an update, temporary Cloudflare Worker upload responses (HTTP 408, 429, 500, 502, 503 and 504) are handled automatically, with at most four upload attempts. Each failure is followed by a short exponential backoff with jitter and a fresh inspection of the Worker. If the selected version was already accepted despite the error response, the Build verifies it without uploading again. Otherwise it refreshes inherited bindings and pending Durable Object migrations before retrying. The verified backup, SQL migrations and asset preparation are not repeated by this loop.
-
-The upload retry honors `Retry-After` up to 30 seconds and stops if Cloudflare forbids retrying or requests a longer wait. Authentication/permission and validation errors stop immediately. An unknown transport outcome also stays in the existing verification/recovery flow. Exhausted attempts retain the current update request and its backup receipt; they do not create a second update or roll back data. Build logs identify each failed upload attempt and reconciliation delay without exposing credentials.
-
-A queued request can be started again or cancelled. If Cloudflare reused a Build already in flight, use **Start Build again** after it finishes. A timeout starting a hook keeps the same request locked because a Build may already have started; it never silently creates a second operation.
-
-A backup/release check that fails before deployment is retryable with a new request. An error after deployment begins stays in **Deployment needs verification**, blocking different updates. Use its Build log to inspect the result, then **Resume stopped Build**. The same recovery is offered for a stale operation after a Build was cancelled or killed. A replacement Build must confirm the preceding Build is stopped before claiming it; recovery requires Workers CI Read on the Build token. If the selected version is already installed, it verifies completion without deploying it again. Otherwise it repeats backup verification before retrying. There is no automatic downgrade or destructive data rollback.
-
-Ordinary repository Builds no longer change an already claimed Server merely because the bootstrap `LLLL_SERVER_RELEASE` variable differs. They process an explicit saved Owner request or leave the installed Server unchanged. The bootstrap variable still selects the release for a new Server.
+- A queued request can be continued from Settings, or cancelled before execution. A request whose backup failed before deployment can be retried; an unverified archive is discarded and a fresh backup is made.
+- If a browser session is lost, reopen the launch URL. A different browser may take over an active site update only after its last stage transition is more than 20 minutes old and no backup is still being written.
+- A failure after deployment begins stays in **Deployment needs verification** and blocks different updates. Reopening the launch URL rechecks identity and health, and reruns the idempotent upload only when the target version is not already installed.
+- Temporary Cloudflare upload responses (HTTP 408, 429, 500, 502, 503 and 504) are retried with bounded backoff and a fresh inspection of the Worker. The verified backup and prepared assets are not repeated by that loop.
+- There is no automatic downgrade or destructive data rollback. The verified backup remains available in the separate bucket for operator recovery.
 
 ## Other runtimes
 
-VPS/celld updates remain operator-managed with `llll upgrade` and its mandatory full-volume backup/rollback. A local or custom Server without a Git-connected Cloudflare Build, live-files binding and separate `BACKUPS` destination shows that requirement instead of offering a nonfunctional update button. An S3 destination selected for manual backups does not replace the operator-owned `BACKUPS` binding used by Cloudflare updates.
+VPS/celld updates remain operator-managed with `llll upgrade` and its mandatory full-volume backup/rollback. A Server without a live-files binding and a separate `BACKUPS` destination does not offer browser updates. An S3 destination selected for manual backups does not replace the operator-owned `BACKUPS` binding used by Cloudflare updates.
+
+`LLLL_UPDATE_SITE` optionally overrides the official installer origin; it defaults to `https://llll.gg`. `PUBLIC_ORIGIN` must identify the Server's public HTTPS origin for the launch URL.

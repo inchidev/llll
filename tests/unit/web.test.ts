@@ -6,7 +6,7 @@ import type { WebEnv } from '../../apps/site/src/env'
 import { listL4Servers } from '../../packages/deployment-core/src/servers'
 import { webSession } from '../../apps/site/src/session'
 
-vi.mock('../../packages/deployment-core/src/servers', () => ({ listL4Servers: vi.fn() }))
+vi.mock('../../packages/deployment-core/src/servers', () => ({ listL4Servers: vi.fn(), readL4Server: vi.fn() }))
 
 let sqlite: DatabaseSync
 let env: WebEnv
@@ -106,6 +106,29 @@ it('binds OAuth to the browser, consumes callback state once, and stores credent
   expect((await webSession(req('/', cookie), env)).data.grant?.refreshToken).toBe('secret-refresh')
   const foreign = new Request(origin + '/api/deploy/start', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://evil.example' }, body: '{}' })
   expect((await web.fetch(foreign, env)).status).toBe(403)
+})
+
+it('remembers an update target without a Cloudflare grant and preserves it across OAuth', async () => {
+  const target = { origin: 'https://server.example', accountId: 'a'.repeat(32), workerName: 'worker', jobId: '22222222-2222-4222-8222-222222222222' }
+  const prepare = await web.fetch(req('/api/deploy/update/prepare', '', target), env)
+  expect(prepare.status).toBe(200)
+  const prepared = await prepare.json() as { remembered?: boolean }
+  expect(prepared.remembered).toBe(true)
+  const cookie = prepare.headers.get('set-cookie')!.split(';')[0]!
+  const session = await (await web.fetch(req('/api/deploy/session', cookie), env)).json() as { updateRequest?: { origin: string; jobId: string } }
+  expect(session.updateRequest).toMatchObject({ origin: target.origin, jobId: target.jobId })
+  expect((await web.fetch(req('/api/deploy/update/advance', cookie, {}), env)).status).toBe(409)
+  const start = await web.fetch(req('/api/deploy/oauth', cookie), env)
+  const auth = new URL(start.headers.get('location')!)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/oauth2/token')
+    ? Response.json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 3600 })
+    : Response.json({ success: true, result: [{ id: 'a'.repeat(32), name: 'My account' }] })))
+  const callback = await web.fetch(req('/api/deploy/callback?code=one&state=' + auth.searchParams.get('state'), cookie), env)
+  expect(callback.status).toBe(303)
+  expect(callback.headers.get('location')).toBe(origin + '/create?tab=cloudflare&resume=update')
+  expect((await web.fetch(req('/api/deploy/update/forget', cookie, {}), env)).status).toBe(200)
+  const after = await (await web.fetch(req('/api/deploy/session', cookie), env)).json() as { updateRequest?: unknown }
+  expect(after.updateRequest).toBeUndefined()
 })
 
 it('redirects old entry links on the current origin and preserves connection parameters', async () => {

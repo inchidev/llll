@@ -127,6 +127,8 @@ export type L4Env = {
   LLLL_VERSION?: string
   /** Secret, limited to starting this Server's Git-connected Build. */
   LLLL_UPDATE_HOOK?: string
+  /** Official installer origin used to run an update with fresh Cloudflare consent. */
+  LLLL_UPDATE_SITE?: string
   LLLL_APP_HOSTNAME?: string
   /** Cloudflare account id used to call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. */
   CLOUDFLARE_ACCOUNT_ID?: string

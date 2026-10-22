@@ -1,13 +1,18 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import type { H3Event } from 'h3'
-const context = vi.hoisted(() => ({ body: {} as Record<string, unknown>, owner: true, stored: null as string | null, revision: 0 }))
+const context = vi.hoisted(() => ({ body: {} as Record<string, unknown>, owner: true, stored: null as string | null, revision: 0, env: {} as Record<string, unknown> }))
 vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: context.owner, user: { id: 'owner' } }) }))
 vi.mock('../../server/utils/messages', () => ({ writeAudit: vi.fn(async () => {}) }))
 vi.mock('../../server/utils/releases', () => ({ llllReleases: vi.fn(async () => [{ tagName: 'v0.2.2' }]) }))
 vi.mock('../../server/utils/cf', () => ({
   fail: (statusCode: number, code: string, message: string) => { throw Object.assign(Error(message), { statusCode, code }) },
-  cf: () => ({ env: {
+  cf: () => ({ env: context.env }),
+}))
+const requestId = '22222222-2222-4222-8222-222222222222'
+beforeEach(() => {
+  context.body = { requestId, release: 'v0.2.2' }; context.owner = true; context.stored = null; context.revision = 0
+  context.env = {
     DB: { withSession: () => ({ prepare: (sql: string) => ({ bind: (...params: (string | number)[]) => ({ all: async () => {
       const database = new DatabaseSync(':memory:')
       try {
@@ -19,12 +24,8 @@ vi.mock('../../server/utils/cf', () => ({
         return { results }
       } finally { database.close() }
     } }) }) }) },
-    FILES: {}, BACKUPS: {}, LLLL_VERSION: '0.2.1', LLLL_ACCOUNT_ID: 'a'.repeat(32), LLLL_WORKER_NAME: 'worker', LLLL_SERVER_MARKER: 'llll.gg/server-v1', LLLL_UPDATE_HOOK: '11111111-1111-4111-8111-111111111111', BACKUP_BUCKET_NAME: 'separate-backups',
-  } }),
-}))
-const requestId = '22222222-2222-4222-8222-222222222222'
-beforeEach(() => {
-  context.body = { requestId, release: 'v0.2.2' }; context.owner = true; context.stored = null; context.revision = 0
+    FILES: {}, BACKUPS: {}, LLLL_VERSION: '0.2.1', PUBLIC_ORIGIN: 'https://server.example', LLLL_ACCOUNT_ID: 'a'.repeat(32), LLLL_WORKER_NAME: 'worker', LLLL_SERVER_MARKER: 'llll.gg/server-v1', LLLL_UPDATE_HOOK: '11111111-1111-4111-8111-111111111111', BACKUP_BUCKET_NAME: 'separate-backups',
+  }
   vi.stubGlobal('defineEventHandler', (fn: unknown) => fn)
   vi.stubGlobal('getRouterParam', () => 'server')
   vi.stubGlobal('readBody', async () => context.body)
@@ -59,4 +60,23 @@ it('keeps an ambiguous hook timeout queued, resumes the same request, and cancel
   context.body = { requestId, cancel: true }; await expect(resume()).rejects.toMatchObject({ statusCode: 409 })
   record.job.stage = 'queued'; context.stored = JSON.stringify(record)
   await resume(); expect(JSON.parse(context.stored!).job.stage).toBe('cancelled'); expect(JSON.parse(context.stored!).backupToken).toBeNull()
+})
+
+it('queues an installer update without a Build hook and returns a launch URL', async () => {
+  delete context.env.LLLL_UPDATE_HOOK
+  const first = await request()
+  expect(first.job!.stage).toBe('queued')
+  expect(fetch).not.toHaveBeenCalled()
+  const url = new URL(first.launchUrl!)
+  expect(url.origin).toBe('https://llll.gg')
+  expect(url.searchParams.get('server')).toBe('https://server.example')
+  expect(url.searchParams.get('account')).toBe('a'.repeat(32))
+  expect(url.searchParams.get('worker')).toBe('worker')
+  expect(url.searchParams.get('update')).toBe(requestId)
+  const second = await request()
+  expect(second.job!.id).toBe(requestId)
+  expect(second.launchUrl).toBe(first.launchUrl)
+  context.body = { requestId }
+  await expect(resume()).rejects.toMatchObject({ statusCode: 409, code: 'installer_update_required' })
+  expect(JSON.stringify(first)).not.toContain(JSON.parse(context.stored!).backupToken)
 })

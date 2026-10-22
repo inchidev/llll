@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
   })
   await writeAudit(env, { serverId, actorId: member.user.id, action: body.cancel ? 'server.update.cancel' : 'server.update.resume', targetType: 'server', targetId: serverId, meta: { requestId: body.requestId } })
   if (!body.cancel) {
-    if (!hook) fail(409, 'build_hook_required', 'Reconnect the Build hook')
+    if (!hook) fail(409, 'installer_update_required', 'Continue this update on llll.gg, or connect a Build hook first')
     await triggerServerUpdate(store, body.requestId, hook)
   }
   return { job: (await store.read()).value.job }

@@ -18,9 +18,11 @@ export type UpdateStatusDTO = {
   updateControl?: {
     available: boolean
     configured: boolean
+    mode?: 'build' | 'installer'
     source: 'binding' | 'saved' | null
     job: import('./server-updates').ServerUpdateJob | null
     buildUrl?: string | null
+    launchUrl?: string | null
     reason: string | null
   }
 }

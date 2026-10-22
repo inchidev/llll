@@ -12,6 +12,22 @@ export function serverUpdateBuildUrl(env: L4Env, buildId: string | null | undefi
   return `https://dash.cloudflare.com/${encodeURIComponent(env.LLLL_ACCOUNT_ID)}/workers/services/view/${encodeURIComponent(env.LLLL_WORKER_NAME)}/production/builds/${buildId}`
 }
 
+/** The official installer performs the upload after the owner authorizes Cloudflare. */
+export function serverUpdateLaunchUrl(env: L4Env, job: { id: string } | null | undefined, fallbackOrigin?: string) {
+  if (!job || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME) return null
+  const origin = env.PUBLIC_ORIGIN?.trim() || fallbackOrigin?.trim()
+  if (!origin) return null
+  const site = env.LLLL_UPDATE_SITE?.trim() || 'https://llll.gg'
+  let url: URL
+  try { url = new URL('/create', site) } catch { return null }
+  url.searchParams.set('tab', 'cloudflare')
+  url.searchParams.set('server', origin)
+  url.searchParams.set('account', env.LLLL_ACCOUNT_ID)
+  url.searchParams.set('worker', env.LLLL_WORKER_NAME)
+  url.searchParams.set('update', job.id)
+  return url.toString()
+}
+
 export async function updateOwner(event: H3Event) {
   const serverId = getRouterParam(event, 'id')!
   const member = await requireMember(event, serverId)
@@ -20,7 +36,7 @@ export async function updateOwner(event: H3Event) {
 }
 
 export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
-  if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_SERVER_MARKER !== 'llll.gg/server-v1' || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require an L4 Git-connected Cloudflare Build and a separate backup bucket. VPS operators use llll upgrade.')
+  if (!env.BACKUPS || !env.FILES || !env.BACKUP_BUCKET_NAME || !env.LLLL_ACCOUNT_ID || !env.LLLL_WORKER_NAME || env.LLLL_SERVER_MARKER !== 'llll.gg/server-v1' || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require a separate backup bucket and a published L4 Server release. VPS operators use llll upgrade.')
   // Reads must start on the primary so a fresh request cannot miss an active Build.
   const database = env.DB.withSession('first-primary')
   return createUpdateStore(async (sql, params) => (await database.prepare(sql).bind(...params).all<{ payload: string; revision: number }>()).results)
