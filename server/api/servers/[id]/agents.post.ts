@@ -1,3 +1,4 @@
+import { agentProviderCatalog } from '../../../utils/agent-providers'
 import { piConfigured } from '../../../utils/agent-run-service'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -26,15 +27,15 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   const actor = await requireMember(event, serverId, Permission.manageAgents)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  const harness = body.harness ?? (piConfigured(env) ? 'pi' : 'think')
-  if (harness === 'pi' && !piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
-  if (!agentRuntimeConfigured(env)) {
+  const harness = body.harness ?? ((await piConfigured(env)) ? 'pi' : 'think')
+  if (harness === 'pi' && !await piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
+  if (harness !== 'pi' && !agentRuntimeConfigured(env)) {
     const provider = aiProvider(env)
     fail(409, 'agent_runtime_disabled', provider
       ? 'The Agent Durable Object must be bound before creating an agent'
       : 'Bind Workers AI, set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN, or set AI_BASE_URL, AI_API_KEY, and AI_MODEL, before creating an agent')
   }
-  const model = resolveAgentModelId(env, body.model)
+  const model = (harness === 'pi' && !body.model ? (await agentProviderCatalog(env)).defaultModel : null) ?? resolveAgentModelId(env, body.model)
   const db = getDb(env.DB)
   const memberRole = (await db.select().from(roles).where(eq(roles.key, 'member')).limit(1))[0]
   if (!memberRole) fail(409, 'server_incomplete', 'Member role not found')

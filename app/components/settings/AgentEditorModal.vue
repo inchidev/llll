@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
+import type { AgentProviderCatalog } from '~~/shared/agent-providers'
 import type { AgentDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
@@ -14,7 +15,9 @@ const session = useSessionStore()
 const openAiCompatible = computed(() => session.health?.aiProvider === 'openai-compatible')
 const workersAiRest = computed(() => session.health?.aiProvider === 'workers-ai-rest')
 const workersAi = computed(() => session.health?.aiProvider === 'workers-ai' || workersAiRest.value)
-const agentsUnavailable = computed(() => session.health?.aiProvider === null)
+const providers = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers`), enabled: open })
+const savedModels = computed(() => providers.data.value?.models.filter(model => model.provider !== 'Deployment') ?? [])
+const agentsUnavailable = computed(() => session.health?.aiProvider === null && !savedModels.value.length)
 function defaultModel() {
   // The Server resolves an empty model to its default provider profile.
   return ''
@@ -233,10 +236,10 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       </UFormField>
 
       <UFormField
-        v-if="workersAi || openAiCompatible"
+        v-if="savedModels.length || workersAi || openAiCompatible"
         name="model"
         label="Model (optional)"
-        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. Empty uses this Server's AI_MODEL (${session.health?.aiModel}).` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API. Empty uses the Server default.' : undefined"
+        :description="savedModels.length ? 'The conversation can override this default model.' : openAiCompatible ? `Sent to the OpenAI-compatible endpoint. Empty uses this Server's AI_MODEL (${session.health?.aiModel}).` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API. Empty uses the Server default.' : undefined"
       >
         <template v-if="workersAi" #hint>
           <ULink
@@ -249,7 +252,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
             <UIcon name="i-ph-arrow-square-out" class="size-3" />
           </ULink>
         </template>
-        <UInput v-if="openAiCompatible" v-model="form.model" class="w-full" placeholder="Server default" />
+        <USelect v-if="savedModels.length" v-model="form.model" :items="savedModels.map(model => ({ value: model.value, label: `${model.provider} · ${model.label}` }))" placeholder="Server default" class="w-full" />
+        <UInput v-else-if="openAiCompatible" v-model="form.model" class="w-full" placeholder="Server default" />
         <USelect
           v-else
           v-model="form.model"

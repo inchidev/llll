@@ -1,3 +1,5 @@
+import { agentProviderCatalog } from './agent-providers'
+import { agentConversationModel } from './agent-conversation-model'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
 import { resourceAccessAllows, resourceAccessWithin, RESOURCE_KINDS, type ResourceAccess } from '../../shared/resource-access'
@@ -19,8 +21,8 @@ const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id
  last_error as lastError, model_calls as modelCalls, total_tokens as totalTokens, event_cursor as eventCursor,
  deadline, created_at as createdAt, updated_at as updatedAt`
 
-export function piConfigured(env: L4Env): boolean {
-  return piRuntimeConfigured(env)
+export async function piConfigured(env: L4Env): Promise<boolean> {
+  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && env.FILES && (await agentProviderCatalog(env)).defaultModel)
 }
 export async function findAgentRun(env: L4Env, id: string): Promise<AgentRun | null> {
   return env.DB.prepare(`SELECT ${runColumns} FROM agent_runs WHERE id = ?`).bind(id).first<AgentRun>()
@@ -83,7 +85,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (!source) fail(404, 'not_found', 'Source message not found in this conversation')
   }
   if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.useAgents))) fail(403, 'forbidden', 'Cannot invoke agents')
-  if (!piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider before starting work')
+  if (!await piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider before starting work')
   const previous = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?')
     .bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
   if (previous) {
@@ -108,6 +110,12 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
     environmentId ??= task.environmentId ?? null
   }
+  const catalog = await agentProviderCatalog(env)
+  if (catalog.providers.some(provider => provider.configured) && !catalog.defaultModel) fail(409, 'model_unavailable', 'Enable a model provider in Server settings')
+  const selected = await agentConversationModel(env, input.channelId)
+  // An explicit selection fails closed if its provider was disabled after selection.
+  if (selected && !catalog.models.some(m => m.value === selected)) fail(409, 'model_unavailable', 'The conversation model is disabled; choose another model')
+  const model = selected ?? (catalog.models.some(m => m.value === profile.model) ? profile.model : catalog.defaultModel) ?? profile.model
   const now = nowIso()
   const sessionId = newId()
   await env.DB.prepare('INSERT INTO agent_sessions (id,agent_id,channel_id,created_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(agent_id,channel_id) DO NOTHING')
@@ -145,7 +153,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     SELECT ?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
     ON CONFLICT(agent_id,initiated_by,idempotency_key) DO NOTHING RETURNING id`)
     .bind(id, session!.id, input.agentId, input.channelId, actor.principal.id, input.taskId ?? null, input.sourceMessageId ?? null, input.idempotencyKey,
-      input.prompt, profile.model, profile.instructions, JSON.stringify(mandate), environment ? JSON.stringify(environment) : null,
+      input.prompt, model, profile.instructions, JSON.stringify(mandate), environment ? JSON.stringify(environment) : null,
       new Date(Date.now() + 15 * 60_000).toISOString(), now, now, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
   if (!admitted) {
     const duplicate = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?').bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()

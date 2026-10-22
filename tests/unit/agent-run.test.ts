@@ -99,6 +99,9 @@ describe('Pi run authorization', () => {
     const response = await agentGateway(new Request('http://server/tools', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` },
       body: JSON.stringify({ callId: 'uncertain', name: 'list_tasks', arguments: {} }) }), env, run.id, 'tools', () => {})
     expect(response.status).toBe(409)
+    expect((await findAgentRun(env, run.id))?.status).toBe('failed')
+    const retry = await agentGateway(new Request('http://server/tools', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ callId: 'different-call-id', name: 'list_tasks', arguments: {} }) }), env, run.id, 'tools', () => {})
+    expect(retry.status).toBe(403)
   })
 
   it('keeps an autonomous subtask inside the original resource and computer ceiling', async () => {
@@ -133,4 +136,59 @@ describe('Pi run authorization', () => {
     expect((await findAgentRun(env, run.id))?.totalTokens).toBe(23)
   })
 
+})
+
+it('snapshots the chosen provider and model per Run and preserves idempotency after a selection change', async () => {
+  const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+  const { writeServerSetting } = await import('../../shared/server-settings')
+  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: false, apiKey: 'test-key', models: [{ id: 'first', api: 'chat' }, { id: 'second', api: 'chat' }] })
+  const first = await createAgentRun(env, (await start())!, input())
+  expect(first.model).toBe('l4:openrouter:first')
+  await writeServerSetting(env.DB, 'agents.conversation.public-chat.model', 'l4:openrouter:second')
+  expect((await createAgentRun(env, (await start())!, input())).model).toBe(first.model)
+  const next = await createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'different-request' })
+  expect(next.model).toBe('l4:openrouter:second')
+})
+
+it('streams provider text before generation completes instead of buffering the response', async () => {
+  let finish!: () => void
+  const frame = (delta: unknown, reason: string | null = null) => `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: reason }] })}\n\n`
+  const encoder = new TextEncoder()
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(encoder.encode(frame({ role: 'assistant', content: 'Early text' })))
+    finish = () => { controller.enqueue(encoder.encode(frame({}, 'stop') + 'data: [DONE]\n\n')); controller.close() }
+  } }), { headers: { 'Content-Type': 'text/event-stream' } })))
+  try {
+    Object.assign(env, { AI_BASE_URL: 'https://fixture.invalid/v1', AI_API_KEY: 'fixture-key', AI_MODEL: 'fixture' })
+    const run = await createAgentRun(env, (await start())!, input())
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }], stream: true }) }), env, run.id, 'v1/chat/completions', () => {})
+    const reader = response.body!.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('Early text')
+    finish()
+    while (!(await reader.read()).done) { /* drain terminal usage and finish */ }
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('keeps web search role-gated and accounts its bounded OpenRouter call in the Run budget', async () => {
+  const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: true, apiKey: 'search-key', models: [{ id: 'fixture', api: 'chat' }] })
+  const denied = await createAgentRun(env, (await start())!, input())
+  expect(agentTools(env, await runAuthorization(env, denied), () => {}, denied).descriptors.map(t => t.name)).not.toContain('search_web')
+  db.prepare("UPDATE roles SET permissions_bitmask=permissions_bitmask|? WHERE id='agent-role'").run(Permission.browseWeb)
+  const run = await createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'web-authorized-run' })
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  const network = vi.fn(async (_url: unknown, init: RequestInit) => {
+    expect(JSON.parse(String(init.body))).toMatchObject({ plugins: [{ id: 'web', engine: 'exa', max_results: 3 }] })
+    return Response.json({ choices: [{ message: { content: 'Verified source', annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.com/source', title: 'Source' } }] } }], usage: { total_tokens: 42 } })
+  })
+  vi.stubGlobal('fetch', network)
+  try {
+    const result = await agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'Official documentation' })
+    expect(result).toMatchObject({ sources: [{ url: 'https://example.com/source' }] })
+    expect((await findAgentRun(env, run.id))?.totalTokens).toBe(42)
+    db.prepare('UPDATE agent_runs SET model_calls=20 WHERE id=?').run(run.id)
+    await expect(agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'One more' })).rejects.toMatchObject({ statusCode: 429 })
+    expect(network).toHaveBeenCalledTimes(1)
+  } finally { vi.unstubAllGlobals() }
 })

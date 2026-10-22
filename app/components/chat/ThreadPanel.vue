@@ -10,6 +10,7 @@ const props = defineProps<{
   serverId: string
   members: MemberDTO[]
   canPin?: boolean
+  agentId?: string
 }>()
 const ui = useUiStore()
 const creating = computed(() => Boolean(ui.threadId?.startsWith(PENDING_THREAD_PREFIX)))
@@ -119,6 +120,7 @@ defineShortcuts({
       :disabled="!canSendMessages"
       :can-attach="canAttachFiles"
       :agent-busy="agentBusy"
+      :agent-id="agentId"
       placeholder="Reply in thread"
     />
     </template>

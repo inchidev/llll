@@ -280,7 +280,6 @@ watch(nav.inviteOpen, (open) => {
           <nav v-if="section === 'chat'" aria-label="Conversations" class="space-y-4">
             <LayoutChatNav :server-id="serverId" />
             <LayoutDirectMessages :server-id="serverId" kind="human" />
-            <LayoutDirectMessages :server-id="serverId" kind="agent" />
           </nav>
           <LayoutInboxNav v-else-if="section === 'inbox'" :server-id="serverId" />
           <LayoutAgentsNav v-else-if="section === 'agents'" :server-id="serverId" />

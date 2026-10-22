@@ -616,7 +616,7 @@ function roleLabel(name: string) {
     </template>
 
     <template v-else-if="section === 'agents'">
-      <SettingsAgentSettings :server-id="serverId" />
+      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" />
     </template>
 
     <template v-else-if="section === 'members'">

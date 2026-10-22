@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import type { AgentDTO } from '~~/shared/types'
-const props = defineProps<{ serverId: string }>()
+const props = defineProps<{ serverId: string; isOwner?: boolean }>()
 const { api } = useApi()
 const editing = shallowRef<AgentDTO | null>(null)
 const editorOpen = ref(false)
@@ -25,5 +25,6 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
       </button>
     </li>
   </ul>
+  <SettingsAgentProviderSettings :server-id="serverId" :is-owner="isOwner" />
   <SettingsAgentEditorModal v-model:open="editorOpen" :server-id="serverId" :agent="editing" @saved="editing = $event" />
 </template>

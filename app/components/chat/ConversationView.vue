@@ -72,6 +72,7 @@ const type = computed(() => channel.value?.type || 'text')
 const isDm = computed(() => isDmType(type.value))
 const isGroup = computed(() => isDm.value && (channel.value?.participants?.length ?? 0) > 2)
 const others = computed(() => (channel.value?.participants ?? []).filter((p) => p.id !== session.user?.id))
+const directAgentId = computed(() => isDm.value && !isGroup.value && others.value[0]?.kind === 'agent' ? others.value[0].id : undefined)
 const headerName = computed(() => {
   if (!isDm.value) return channel.value?.name || ''
   return channel.value?.title || dmTitle(channel.value?.name, channel.value?.participants ?? [], session.user?.id || '')
@@ -530,6 +531,7 @@ defineShortcuts({
           :disabled-placeholder="composerDisabledPlaceholder"
           :can-attach="canAttachFiles"
           :agent-busy="agentBusy"
+          :agent-id="directAgentId"
           :placeholder="composerPlaceholder"
           primary
         />
@@ -554,6 +556,7 @@ defineShortcuts({
       <ChatThreadPanel
         v-if="ui.rightPanelOpen && ui.rightPanelTab === 'threads' && ui.threadId"
         key="thread"
+        :agent-id="directAgentId"
         :server-id="serverId"
         :members="members"
         :can-pin="canPin"

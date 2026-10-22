@@ -1,19 +1,17 @@
-/**
- * Experimental embedded Pi executor: the agent harness runs inside the SQLite
- * Durable Object itself, with no container and no Node process. Storage is the
- * official pi-durable Durable Object SQLite adapter. The host currently starts
- * the harness only on submission; reopening active work after eviction is not
- * implemented by the coordinator yet.
- * Shell and computer tools are unavailable by design (there is no filesystem).
- */
-import { Harness, createRegistry, type AssistantEntry } from '@earendil-works/pi-durable'
+/** Embedded Pi runs in the Run's SQLite Durable Object; provider secrets stay at the gateway. */
+import { Harness, createRegistry, watchEvents, type AssistantEntry, type ToolRegistration } from '@earendil-works/pi-durable'
+import { readLimitedStream } from './inbound-email-signature'
 import { createModels, createProvider } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { openDurableObjectSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/cloudflare'
-import type { RuntimeEvent } from '../shared/agent-execution'
+import type { RuntimeEvent, RuntimeTool } from '../shared/agent-execution'
 
 export interface EmbeddedPiSubmission {
+  runId?: string
+  steering?: Array<{ messageId: string; content: string }>
+  tools?: RuntimeTool[]
+  toolEndpoint?: string
   prompt: string
   instructions: string
   modelGateway: { url: string, token: string, model: string }
@@ -47,7 +45,13 @@ function assistantText(items: ReadonlyArray<{ kind?: string, model?: unknown }> 
   return parts.join('\n\n')
 }
 
-export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: DurableObjectStorage): Promise<EmbeddedPiOutcome> {
+export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: DurableObjectStorage, host: {
+  signal?: AbortSignal
+  event?: (event: RuntimeEvent) => Promise<void>
+  ready?: (steer: (messageId: string, content: string) => Promise<void>, resume: () => void) => Promise<void>
+  /** A host with alarms drives sleeping tasks through resume instead of process timers. */
+  alarmDriven?: boolean
+} = {}): Promise<EmbeddedPiOutcome> {
   const models = createModels()
   models.setProvider(createProvider({
     id: 'l4',
@@ -68,27 +72,76 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       reasoning: false,
-      contextWindow: 64000,
+      contextWindow: 24000,
       maxTokens: 4096,
     }],
     api: openAICompletionsApi(),
   }))
 
   const storageImplementation = await openDurableObjectSqliteStorage(storage as never)
-  const harness = await Harness.open(storageImplementation, { models, registry: createRegistry() }, BACKGROUND_CONTEXT)
+  const tools: ToolRegistration[] = (input.tools ?? []).map(definition => ({
+    name: definition.name, description: definition.description, parameters: definition.parameters as ToolRegistration['parameters'],
+    // The gateway persists each call's result by stable ID and refuses uncertain writes.
+    replay: 'safe', executionMode: 'sequential',
+    async execute(args, api, context) {
+      if (!input.toolEndpoint) throw new Error('Tool gateway unavailable')
+      const response = await fetch(input.toolEndpoint, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.modelGateway.token}` },
+        body: JSON.stringify({ callId: api.callId, name: definition.name, arguments: args }),
+        signal: AbortSignal.any([...(context.abortSignal ? [context.abortSignal] : []), ...(host.signal ? [host.signal] : []), AbortSignal.timeout(60000)]),
+      })
+      const body = await readLimitedStream(response.body, 500000)
+      if (!body.ok) throw new Error('Tool output exceeds its limit')
+      const output = new TextDecoder().decode(body.bytes)
+      if (!response.ok) throw new Error(`Tool gateway rejected the operation (${response.status})`)
+      return { output: [{ type: 'text', text: output }] }
+    },
+  }))
+  const registry = createRegistry()
+  registry.install({ name: 'l4', tools })
+  const harness = await Harness.open(storageImplementation, { models, registry, settings: { compaction: { reserveTokens: 4096, keepRecentTokens: 6000 } }, ...(host.alarmDriven ? { onWake: () => undefined } : {}) }, BACKGROUND_CONTEXT)
   const transcriptLines: string[] = String(input.transcript ?? '').split('\n').filter(Boolean)
+  let cancel: (() => void) | undefined
+  let stream: Awaited<ReturnType<typeof watchEvents>> | undefined
+  const events: RuntimeEvent[] = []
   try {
     const conversation = await harness.root(BACKGROUND_CONTEXT, {
-      agent: { model: { provider: 'l4', modelId: input.modelGateway.model }, instructions: input.instructions },
+      agent: { model: { provider: 'l4', modelId: input.modelGateway.model }, instructions: input.instructions, tools },
     })
+    let priorAssistantEntries = 0
     // Seed the prior conversation so the model context continues across attempts.
-    for (const line of transcriptLines) {
+    for (const [index, line] of transcriptLines.entries()) {
       try {
         const prior = JSON.parse(line) as { kind?: string, model?: unknown }
-        if (prior?.kind) await conversation.submit({ type: 'write', entry: { kind: prior.kind, model: prior.model } } as never, BACKGROUND_CONTEXT)
+        if (prior.kind === 'pi.assistant') priorAssistantEntries++
+        if (prior?.kind) await conversation.submit({ type: 'write', requestId: `history:${index}`, entry: { kind: prior.kind, model: prior.model } } as never, BACKGROUND_CONTEXT)
       } catch { /* Tolerate malformed transcript lines. */ }
     }
-    const submission = await conversation.submit({ type: 'input', content: input.prompt }, BACKGROUND_CONTEXT)
+    stream = await watchEvents(harness, conversation.id, BACKGROUND_CONTEXT)
+    let streamedText = false
+    stream.start(async batch => {
+      for (const event of batch) {
+        if (event.type === 'message_start') streamedText = false
+        const next: RuntimeEvent[] = event.type === 'tool_execution_start' ? [{ type: 'tool', name: event.toolName }]
+          : event.type === 'message_update' ? [{ type: 'text' as const, text: event.changes.map(change => change.type === 'text_delta' ? change.delta : '').join('') }].filter(item => item.text)
+            : event.type === 'message_end' && !streamedText && assistantText([event.entry]) ? [{ type: 'text', text: assistantText([event.entry]) }] : []
+        if (next.some(item => item.type === 'text')) streamedText = true
+        for (const item of next) {
+          // The host persists a bounded event log; transcript storage remains authoritative.
+          if (events.length < 2000) { events.push(item); await host.event?.(item) }
+        }
+      }
+    })
+    const submission = await conversation.submit({ type: 'input', requestId: input.runId ?? 'input', content: input.prompt }, BACKGROUND_CONTEXT)
+    const steer = async (messageId: string, content: string) => {
+      await conversation.submit({ type: 'input', content, requestId: `steer:${messageId}`, whenBusy: 'steer' }, BACKGROUND_CONTEXT)
+    }
+    for (const message of input.steering ?? []) await steer(message.messageId, message.content)
+    await host.ready?.(steer, () => harness.resume())
+    cancel = () => { void conversation.abort(BACKGROUND_CONTEXT).catch(() => undefined) }
+    host.signal?.addEventListener('abort', cancel, { once: true })
+    if (host.signal?.aborted) cancel()
+    harness.resume()
     const record = await submission.wait(BACKGROUND_CONTEXT)
     if (record.status === 'done') {
       // The active context is chronological and includes seeded history exactly once.
@@ -99,7 +152,7 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       const chosen = items.find(item => item.id === answerId)
       const text = assistantText(chosen ? [chosen] : undefined)
       const event: RuntimeEvent = text
-        ? { type: 'result', text, steps: 1 }
+        ? { type: 'result', text, steps: Math.max(1, items.filter(item => item.kind === 'pi.assistant').length - priorAssistantEntries) }
         : { type: 'error', message: `Embedded Pi answered without text (kinds: ${items.map(item => item.kind).join(',').slice(0, 120)})` }
       const nextTranscript = view.entries.map((item, index) => ({
         kind: item.kind,
@@ -107,13 +160,15 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
         model: view.contributions[index]!.filter(message => message.role !== 'system'),
       })).filter(item => item.model.length).map(item => JSON.stringify(item)).join('\n')
       if (new TextEncoder().encode(nextTranscript).length > 1_900_000) throw new Error('Embedded Pi session archive exceeds its limit')
-      return { events: [], result: event, transcript: nextTranscript }
+      return { events, result: event, transcript: nextTranscript }
     }
-    return { events: [], result: { type: 'error', message: `Embedded Pi submission ended with status ${record.status}` }, transcript: input.transcript ?? '' }
+    return { events, result: { type: 'error', message: `Embedded Pi submission ended with status ${record.status}` }, transcript: input.transcript ?? '' }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Embedded Pi failed'
-    return { events: [], result: { type: 'error', message: message.slice(0, 500) }, transcript: input.transcript ?? '' }
+    return { events, result: { type: 'error', message: message.slice(0, 500) }, transcript: input.transcript ?? '' }
   } finally {
+    if (cancel) host.signal?.removeEventListener('abort', cancel)
+    await stream?.stop()
     try { await harness.close(BACKGROUND_CONTEXT) } catch { /* the storage commits survive closure. */ }
   }
 }
