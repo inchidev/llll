@@ -488,6 +488,8 @@ export function updateWorkerBindings(
 export type InstallVerifyOptions = {
   /** Disable only when the caller separately verifies the deployed public endpoint. */
   verify?: boolean
+  /** Keep the caller's one-time owner claim instead of generating a new one. */
+  setupToken?: string
 }
 
 export async function deployL4Update(
@@ -687,7 +689,9 @@ export async function deployL4(
       throw createError({ statusCode: 400, statusMessage: 'Enter a valid owner email' })
     }
   }
-  const ownerSetupToken = existing.exists || request.authMode === 'access' ? null : randomBase64Url(32)
+  if (options.setupToken && !/^[A-Za-z0-9_-]{32,256}$/.test(options.setupToken))
+    throw createError({ statusCode: 400, statusMessage: 'Owner claim is invalid' })
+  const ownerSetupToken = existing.exists || request.authMode === 'access' ? null : options.setupToken || randomBase64Url(32)
   await progress('storage', 'active')
   const { databaseId, bucketName, kvId } = await provisionServerStorage(client, request, existing)
   await progress('storage', 'complete', bucketName ? 'D1, R2, and KV ready' : 'D1 and KV ready; files and backups disabled')

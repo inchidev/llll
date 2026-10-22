@@ -4,10 +4,9 @@ import type { WebEnv } from './env'
 
 export type DeploymentState = {
   state?: string; verifier?: string; grant?: CloudflareGrant
-  accountId?: string; name?: string; version?: string; worker?: string; ownerEmail?: string; workerTag?: string; buildTokenId?: string; triggerId?: string; buildId?: string; databaseId?: string; bucket?: string
-  authSecret?: string; setupToken?: string; origin?: string
+  accountId?: string; name?: string; version?: string; worker?: string; ownerEmail?: string
+  setupToken?: string; origin?: string
   step?: number; error?: string; completed?: boolean
-  updateHookId?: string
   deployments?: { accountId: string; origin: string; name: string; version: string; setupToken: string }[]
 }
 export function rememberDeployment(data: DeploymentState) {

@@ -5,8 +5,11 @@ import {
   listReleases,
   VERSION_PATTERN,
 } from '../../apps/site/src/deploy'
+import { installL4 } from '../../packages/deployment-core/src/installer'
 import { digest, type DeploymentState } from '../../apps/site/src/session'
-afterEach(() => vi.unstubAllGlobals())
+
+vi.mock('../../packages/deployment-core/src/installer', () => ({ installL4: vi.fn() }))
+afterEach(() => { vi.unstubAllGlobals(); vi.mocked(installL4).mockReset() })
 it('lists complete published releases and rejects malformed versions', async () => {
   const release = {
     tag_name: 'v0.1.0-alpha.3',
@@ -55,7 +58,7 @@ it('does not offer feed releases with incomplete assets or a mismatched manifest
   }))
   expect(await listReleases()).toEqual([])
 })
-it('resumes server creation through Workers Builds without uploading application code and retains the grant for the bounded installer session', async () => {
+it('installs the checksum-verified release through the OAuth grant and retains the grant for the bounded installer session', async () => {
   const code = 'export default {}'
   const artifact = JSON.stringify({
     schemaVersion: 3,
@@ -78,13 +81,13 @@ it('resumes server creation through Workers Builds without uploading application
       expiresAt: Date.now() + 3600000,
     },
   }
-  const calls: { path: string; method: string }[] = []
+  const calls: string[] = []
   let ready = false
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string, options?: RequestInit) => {
+    vi.fn(async (input: string) => {
       const url = new URL(input)
-      calls.push({ path: url.pathname, method: options?.method || 'GET' })
+      calls.push(url.hostname + url.pathname)
       if (url.hostname === 'github.com')
         return url.pathname.endsWith('/SHA256SUMS')
           ? new Response(`${await digest(artifact)}  llll-deployment.json\n`)
@@ -97,40 +100,37 @@ it('resumes server creation through Workers Builds without uploading application
               version: '0.1.0-alpha.3',
             })
           : new Response('', { status: 503 })
-      let result: unknown = {}
-      if (url.pathname.endsWith('/deploy_hooks'))
-        result = options?.method === 'POST' ? { deploy_hook_uuid: '11111111-1111-4111-8111-111111111111' } : []
-      else if (url.pathname.endsWith('/builds/tokens'))
-        result = [{ build_token_uuid: 'build-token' }]
-      else if (
-        url.pathname.endsWith('/workers/workers') &&
-        options?.method === 'POST'
-      )
-        result = { id: 'worker-tag' }
-      else if (url.pathname.endsWith('/workers/workers')) result = []
-      else if (url.pathname.endsWith('/repos/connections'))
-        result = { repo_connection_uuid: 'repo' }
-      else if (url.pathname.endsWith('/workers/subdomain'))
-        result = { subdomain: 'test' }
-      else if (url.pathname.endsWith('/workers/worker-tag/triggers'))
-        result = []
-      else if (url.pathname.endsWith('/builds/triggers'))
-        result = { trigger_uuid: 'trigger' }
-      else if (url.pathname.endsWith('/triggers/trigger/builds'))
-        result = { build_uuid: 'build' }
-      else if (url.pathname.endsWith('/builds/builds/build'))
-        result = { status: 'running' }
-      return Response.json({ success: true, result })
+      throw new Error(`Unexpected request: ${url}`)
     }),
   )
+  vi.mocked(installL4).mockResolvedValue({
+    url: 'https://community.test.workers.dev',
+    setupUrl: `https://community.test.workers.dev/setup#claim=${state.setupToken}`,
+    version: '0.1.0-alpha.3',
+    updated: false,
+    appliedMigrations: [],
+    verified: false,
+  })
   const env = { PUBLIC_ORIGIN: 'https://llll.gg' } as Parameters<
     typeof advanceDeployment
   >[1]
   await advanceDeployment(state, env, async () => {})
   expect(state.step).toBe(1)
-  expect(state.updateHookId).toBe('11111111-1111-4111-8111-111111111111')
+  expect(installL4).not.toHaveBeenCalled()
   await advanceDeployment(state, env, async () => {})
   expect(state.step).toBe(2)
+  expect(state.origin).toBe('https://community.test.workers.dev')
+  expect(installL4).toHaveBeenCalledWith(
+    'private',
+    expect.objectContaining({
+      accountId: 'a'.repeat(32),
+      workerName: state.worker,
+      targetVersion: 'v0.1.0-alpha.3',
+      adminEmail: 'owner@example.com',
+      backupBucketName: state.worker + '-backups',
+    }),
+    { verify: false, setupToken: state.setupToken },
+  )
   await advanceDeployment(state, env, async () => {})
   expect(state.completed).not.toBe(true)
   ready = true
@@ -138,18 +138,7 @@ it('resumes server creation through Workers Builds without uploading application
   expect(state.completed).toBe(true)
   expect(state.grant?.accessToken).toBe('private')
   expect(state.deployments).toEqual([expect.objectContaining({ origin: state.origin, setupToken: state.setupToken })])
-  expect(
-    calls.filter(
-      (c) => c.path.endsWith('/workers/workers') && c.method === 'POST',
-    ),
-  ).toHaveLength(1)
-  expect(
-    calls.some(
-      (c) =>
-        c.path.includes('/workers/scripts/') ||
-        c.path.includes('/assets-upload-session'),
-    ),
-  ).toBe(false)
+  expect(calls.some((call) => call.includes('api.cloudflare.com'))).toBe(false)
 })
 it('refuses an unsupported release format before creating resources', async () => {
   const code = 'export default {}'

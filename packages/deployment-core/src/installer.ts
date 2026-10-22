@@ -10,6 +10,8 @@ export type InstallL4Options = {
   report?: DeployProgressReporter
   /** Let the caller verify the newly deployed public endpoint, including browser reachability. */
   verify?: boolean
+  /** Keep the caller's one-time owner claim instead of generating a new one. */
+  setupToken?: string
 }
 
 /** Complete install/update operation. Credential acquisition and UI stay in the caller. */
@@ -53,7 +55,7 @@ export async function installL4(
     request,
     release,
     options.report,
-    { verify: options.verify },
+    { verify: options.verify, setupToken: options.setupToken },
   )
   return deployed
 }

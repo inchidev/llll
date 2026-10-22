@@ -2,6 +2,7 @@ import {
   refreshCloudflareGrant,
   randomCode,
 } from '../../../shared/cloudflare-oauth'
+import { installL4 } from '../../../packages/deployment-core/src/installer'
 import type { WebEnv } from './env'
 import type { DeploymentState } from './session'
 import { digest, rememberDeployment } from './session'
@@ -86,23 +87,6 @@ export type ReleaseInfo = {
   name: string
   published_at: string
   notes_url: string
-}
-
-/** Check before allocating a Server; older grants need fresh OAuth consent. */
-export async function deploymentBuildTokens(token: string, accountId: string) {
-  let tokens: { build_token_uuid: string }[]
-  try {
-    tokens = await cloudflare<{ build_token_uuid: string }[]>(
-      token, `/accounts/${accountId}/builds/tokens`,
-    )
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && [401, 403].includes(Number(error.status)))
-      throw Object.assign(new Error('Reconnect Cloudflare and approve Workers Builds permissions. The L4 OAuth application must allow workers-ci.read and workers-ci.write, and your Cloudflare account must permit Workers Builds.'), { status: 403 })
-    throw error
-  }
-  if (!tokens.length)
-    throw Object.assign(new Error('Configure a deployment token in Cloudflare Workers Builds, then retry. Its permissions must include Workers, D1, R2 and KV.'), { status: 409 })
-  return tokens
 }
 
 function releaseBase(version: string) {
@@ -269,10 +253,10 @@ async function release(
   return { artifact, manifestUrl: `${base}/${MANIFEST_FILE}` }
 }
 
-/** Application code is deployed exclusively by Workers Builds from Git. */
+/** Customer Servers install only a published release, uploaded through this browser's OAuth grant. */
 export async function advanceDeployment(
   state: DeploymentState,
-  env: WebEnv,
+  _env: WebEnv,
   save: () => Promise<void>,
 ) {
   if (
@@ -280,6 +264,8 @@ export async function advanceDeployment(
     !state.accountId ||
     !state.version ||
     !state.worker ||
+    !state.name ||
+    !state.ownerEmail ||
     !state.setupToken
   )
     throw new Error('Start the deployment first')
@@ -288,97 +274,46 @@ export async function advanceDeployment(
     await save()
   }
   const token = state.grant.accessToken
-  const account = '/accounts/' + state.accountId
-  const api = <T>(path: string, method = 'GET', body?: unknown) =>
-    cloudflare<T>(token, account + path, method, body)
   if (state.step === 0) {
+    // Verify the published artifact before allocating any Cloudflare resource.
     await release(state.version)
-    const tokens = await deploymentBuildTokens(token, state.accountId)
-    state.buildTokenId ||= tokens[0]!.build_token_uuid
-    const workers = await api<{ id: string; name: string }[]>(
-      '/workers/workers?per_page=100',
-    )
-    let worker = workers.find((w) => w.name === state.worker)
-    if (!worker)
-      worker = await api('/workers/workers', 'POST', { name: state.worker })
-    state.workerTag = worker!.id
-    await save()
-    const repo = await api<{ repo_connection_uuid: string }>(
-      '/builds/repos/connections',
-      'PUT',
-      {
-        provider_type: 'github',
-        provider_account_id: '333008841',
-        provider_account_name: 'inchidev',
-        repo_id: '1424308136',
-        repo_name: 'llll',
-      },
-    )
-    const subdomain = await api<{ subdomain: string }>('/workers/subdomain')
-    state.origin = `https://${state.worker}.${subdomain.subdomain}.workers.dev`
-    const triggers = await api<{ trigger_uuid: string }[]>(
-      `/builds/workers/${state.workerTag}/triggers`,
-    )
-    state.triggerId =
-      triggers[0]?.trigger_uuid ||
-      (
-        await api<{ trigger_uuid: string }>('/builds/triggers', 'POST', {
-          external_script_id: state.workerTag,
-          build_token_uuid: state.buildTokenId,
-          trigger_name: 'L4 standalone Server',
-          repo_connection_uuid: repo.repo_connection_uuid,
-          root_directory: '/',
-          build_command: 'pnpm install --frozen-lockfile',
-          deploy_command: 'node scripts/server-deploy.mjs',
-          branch_includes: ['main'],
-          branch_excludes: [],
-          path_includes: ['*'],
-          path_excludes: [],
-          build_caching_enabled: true,
-        })
-      ).trigger_uuid
-    if (!state.updateHookId) {
-      const hooks = await api<{ deploy_hook_uuid: string; deploy_hook_name: string; branch: string }[]>(`/builds/workers/${state.worker}/deploy_hooks`)
-      const existingHook = hooks.find(hook => hook.deploy_hook_name === 'L4 Server updates' && hook.branch === 'main')
-      state.updateHookId = existingHook?.deploy_hook_uuid || (await api<{ deploy_hook_uuid: string }>(`/builds/workers/${state.worker}/deploy_hooks`, 'POST', { branch: 'main', deploy_hook_name: 'L4 Server updates' })).deploy_hook_uuid
-      await save()
-    }
-    await api(
-      `/builds/triggers/${state.triggerId}/environment_variables`,
-      'PATCH',
-      Object.fromEntries(
-        Object.entries({
-          CLOUDFLARE_ACCOUNT_ID: state.accountId,
-          LLLL_SERVER_WORKER: state.worker,
-          LLLL_SERVER_RELEASE: state.version,
-          LLLL_SERVER_NAME: state.name!,
-          LLLL_SERVER_OWNER_EMAIL: state.ownerEmail!,
-          LLLL_SERVER_SETUP_TOKEN: state.setupToken,
-          LLLL_SERVER_ORIGIN: state.origin,
-          LLLL_SERVER_UPDATE_HOOK: state.updateHookId,
-        }).map(([key, value]) => [
-          key,
-          { value, is_secret: ['LLLL_SERVER_SETUP_TOKEN', 'LLLL_SERVER_UPDATE_HOOK'].includes(key) },
-        ]),
-      ),
-    )
     state.step = 1
     await save()
     return
   }
   if (state.step === 1) {
-    const build = await api<{ build_uuid: string }>(
-      `/builds/triggers/${state.triggerId}/builds`,
-      'POST',
-      { branch: 'main' },
+    const result = await installL4(
+      token,
+      {
+        accountId: state.accountId,
+        workerName: state.worker,
+        targetVersion: state.version,
+        appName: state.name,
+        adminEmail: state.ownerEmail,
+        allowedEmails: [],
+        authMode: 'builtin',
+        registrationMode: 'invite_only',
+        filesEnabled: true,
+        backupBucketName: state.worker + '-backups',
+        customDomainEnabled: false,
+        zoneId: '',
+        zoneName: '',
+        appSubdomain: state.worker,
+        mailEnabled: false,
+        mailSubdomain: '',
+        mailLocalPart: '',
+      },
+      { verify: false, setupToken: state.setupToken },
     )
-    state.buildId = build.build_uuid
+    state.origin = result.url
     state.step = 2
     await save()
     return
   }
   if (state.step === 2) {
-    const check = await fetch(state.origin + '/.well-known/llll', {
+    const origin = state.origin
+    if (!origin) throw new Error('Start the deployment first')
+    const check = await fetch(origin + '/.well-known/llll', {
       redirect: 'manual',
       signal: AbortSignal.timeout(15000),
     }).catch(() => null)
@@ -392,29 +327,10 @@ export async function advanceDeployment(
     if (
       !data ||
       data.kind !== 'server' ||
-      data.origin !== state.origin ||
+      data.origin !== origin ||
       data.version !== state.version.slice(1)
-    ) {
-      const status = await api<{
-        status?: string
-        build_status?: string
-        build_outcome?: string
-      }>(`/builds/builds/${state.buildId}`)
-      if (
-        /fail|cancel|error/i.test(
-          [status.status, status.build_status, status.build_outcome].join(' '),
-        )
-      ) {
-        state.step = 1
-        delete state.buildId
-        await save()
-        throw new Error(
-          'Cloudflare Build failed. Check its build log, then retry the same deployment.',
-        )
-      }
+    )
       return
-    }
-    delete state.authSecret
     delete state.verifier
     delete state.state
     state.completed = true

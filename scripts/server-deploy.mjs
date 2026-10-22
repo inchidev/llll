@@ -95,7 +95,7 @@ const result = await installL4(process.env.CLOUDFLARE_API_TOKEN, {
   mailEnabled: false,
   mailSubdomain: '',
   mailLocalPart: '',
-}, { verify: false })
+}, { verify: false, setupToken: claim })
 // Persist the browser-bound claim before public DNS/TLS verification. A failed
 // first verification must never lose the only usable owner claim on retry.
 await setOwnerClaim()

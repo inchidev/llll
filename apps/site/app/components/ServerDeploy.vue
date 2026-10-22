@@ -225,7 +225,7 @@ onMounted(async () => {
           <UInput v-else v-model="version" placeholder="v0.2.0-alpha.3" class="w-full" />
         </UFormField>
         <p v-if="releasesError" class="text-sm text-muted">{{ releasesError }}</p>
-        <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Enable R2 and configure a Workers Builds deployment token and repository connection before deploying.</p>
+        <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Enable R2 in your account first; no Git integration or Workers Builds token is required.</p>
       </template>
       <ol v-else class="space-y-3"><li v-for="(phase, index) in phases" :key="phase" class="flex items-center gap-3" :class="index > (session?.step || 0) ? 'text-dimmed' : 'text-highlighted'"><UIcon :name="index < (session?.step || 0) ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-5" />{{ phase }}</li></ol>
       <p v-if="pending && session?.version" class="text-sm text-muted">Release {{ session.version }}</p>
