@@ -2,12 +2,15 @@ export type ChannelRef = {
   id: string
   name?: string | null
   type?: string | null
+  participants?: readonly { kind?: string }[]
 }
 
 export function channelPath(channel: string | ChannelRef, threadId?: string): string {
   const id = typeof channel === 'string' ? channel : channel.id
-  if (threadId) return `/channels/${id}/threads/${threadId}`
-  return `/channels/${id}`
+  const section = typeof channel !== 'string' && channel.type === 'dm' && channel.participants?.some(member => member.kind === 'agent')
+    ? 'agents' : 'channels'
+  const path = `/${section}/${id}`
+  return threadId ? `${path}/threads/${threadId}` : path
 }
 
 /** A thread status, or Sent: every conversation you have sent email in. */

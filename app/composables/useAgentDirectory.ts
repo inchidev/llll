@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { ChannelDTO, MemberDTO } from '~~/shared/types'
+import { channelPath } from '~~/shared/paths'
 
 /** Public Member profiles; management instructions never enter the directory. */
 export function useAgentDirectory(serverId: () => string) {
@@ -20,7 +21,7 @@ export function useAgentDirectory(serverId: () => string) {
       const result = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, serverId: serverId() } })
       await qc.invalidateQueries({ queryKey: ['dms'] })
       // Agent conversations stay inside the Agents section.
-      await navigateTo(`/agents/${result.channel.id}`)
+      await navigateTo(channelPath(result.channel))
     } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
     finally { opening.value = null }
   }

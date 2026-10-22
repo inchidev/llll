@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import type { ChannelDTO, ClientMsg, MemberDTO } from '~~/shared/types'
+import type { ChannelDTO, ClientMsg, MemberDTO, MessageDTO } from '~~/shared/types'
 import { hasPermission, Permission } from '~~/shared/permissions'
 import { channelPath } from '~~/shared/paths'
+import { threadTitle as messageThreadTitle } from '~~/shared/threads'
 import { PENDING_THREAD_PREFIX } from '~/stores/ui'
 
 const props = defineProps<{
@@ -18,11 +19,15 @@ const { api } = useApi()
 const { send, retry } = useChannelSocket(computed(() => threadId.value || ''))
 const threadQ = useQuery({
   queryKey: computed(() => ['channel', threadId.value]),
-  queryFn: () => api<{ channel: ChannelDTO }>(`/api/channels/${threadId.value}`),
+  queryFn: ({ queryKey, signal }) => api<{ channel: ChannelDTO }>(`/api/channels/${queryKey[1]}`, { signal, timeout: 15_000 }),
   enabled: computed(() => Boolean(threadId.value)),
 })
 const threadName = computed(() => creating.value ? ui.pendingThreadTitle : threadQ.data.value?.channel.name || 'Thread')
-const threadTitle = computed(() => threadQ.data.value?.channel.title || threadName.value)
+const rootMessage = shallowRef<MessageDTO | null>(null)
+const threadTitle = computed(() => threadQ.data.value?.channel.title
+  || (rootMessage.value?.threadId === threadId.value
+    ? messageThreadTitle(rootMessage.value.content, rootMessage.value.attachments.map(attachment => attachment.filename))
+    : threadName.value))
 const { mine } = usePermissions(computed(() => props.members))
 const effectivePermissions = computed(() => threadQ.data.value?.channel.permissions ?? mine.value?.role.permissions ?? 0)
 const canSendMessages = computed(() => hasPermission(effectivePermissions.value, Permission.sendMessages))
@@ -33,18 +38,23 @@ const canApproveAgent = computed(() => hasPermission(effectivePermissions.value,
 
 // The router's live route: the page-level route misses thread-only URL changes.
 const liveRoute = useRouter().currentRoute
+const parentChannel = computed(() => {
+  const id = ui.threadParentId || ''
+  return liveRoute.value.path.startsWith('/agents/') ? { id, type: 'dm', participants: [{ kind: 'agent' }] } : id
+})
 function close() {
   const parentId = ui.threadParentId
+  const parentPath = channelPath(parentChannel.value)
   ui.threadId = null
   ui.threadParentId = null
   // A thread opened by URL returns to its channel's URL.
-  if (liveRoute.value.params.threadId && parentId) void navigateTo(channelPath(parentId), { replace: true })
+  if (liveRoute.value.params.threadId && parentId) void navigateTo(parentPath, { replace: true })
 }
 
 function onReply(id: string) {
   if (threadId.value) ui.startReply(threadId.value, id)
 }
-const linkPath = computed(() => ui.threadParentId && threadId.value ? channelPath(ui.threadParentId, threadId.value) : undefined)
+const linkPath = computed(() => ui.threadParentId && threadId.value ? channelPath(parentChannel.value, threadId.value) : undefined)
 
 defineShortcuts({
   escape: () => {
@@ -70,13 +80,13 @@ defineShortcuts({
       label="Resize thread panel"
     />
     <header class="flex h-12 shrink-0 min-w-0 items-center gap-2 border-b border-default bg-elevated px-2">
-      <UTooltip text="Back">
-        <UButton class="size-10 shrink-0 justify-center md:size-8" size="sm" color="neutral" variant="ghost" icon="i-ph-arrow-left" aria-label="Back" @click="close" />
+      <UTooltip text="Close thread">
+        <UButton class="size-10 shrink-0 justify-center md:size-8" size="sm" color="neutral" variant="ghost" icon="i-ph-arrow-right" aria-label="Close thread" @click="close" />
       </UTooltip>
-      <USkeleton v-if="!creating && threadQ.isPending.value" class="h-3.5 w-32" />
-      <span v-else class="min-w-0 truncate text-sm font-semibold">{{ threadTitle }}</span>
+      <span class="min-w-0 truncate text-sm font-semibold">{{ threadTitle }}</span>
       <UBadge label="Thread" color="neutral" variant="subtle" size="sm" class="shrink-0" />
     </header>
+    <LayoutLoadError v-if="threadQ.error.value" inline class="shrink-0 py-2" message="Thread details did not load." :retry="threadQ.refetch" />
     <div v-if="creating" class="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted" role="status">
       <UIcon name="i-ph-circle-notch" class="size-5 animate-spin" />
       Creating thread…
@@ -90,6 +100,7 @@ defineShortcuts({
       :can-pin="props.canPin"
       :allow-threads="false"
       :link-path="linkPath"
+      @root-message="rootMessage = $event"
       @reply="onReply"
       @read="(messageId) => send({ t: 'read', messageId })"
       @retry="retry"

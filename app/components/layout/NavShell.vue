@@ -5,7 +5,7 @@ import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, Serv
 import { Permission } from '~~/shared/permissions'
 import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
-import { hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
+import { chatNavigationTarget, hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
 import { publicIconPath } from '~~/shared/server-appearance'
 
 const props = defineProps<{ serverId: string }>()
@@ -61,7 +61,7 @@ const hasMenu = computed(() => hasServerNavigationMenu(route.path))
 const chatUnread = computed(() => [...channels.value, ...(dmsQ.data.value?.channels ?? [])].some(channel => channel.unread))
 const chatTarget = computed(() => {
   const last = ui.last()
-  return last?.serverId === props.serverId ? channelPath(last.channelId) : '/channels'
+  return chatNavigationTarget([...channels.value, ...(dmsQ.data.value?.channels ?? [])], last?.serverId === props.serverId ? last.channelId : undefined)
 })
 const mailUnread = computed(() => mailboxes.value.some(mailbox => mailbox.unreadCount > 0))
 const mailTarget = computed(() => {
@@ -244,9 +244,9 @@ watch(nav.inviteOpen, (open) => {
 
         <nav aria-label="Server views" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-2">
           <div v-if="membersQ.isPending.value" class="space-y-1" aria-label="Loading views" aria-busy="true">
-            <div v-for="index in 9" :key="index" class="flex h-14 flex-col items-center justify-center gap-1.5"><USkeleton class="size-5" /><USkeleton class="h-2 w-10" /></div>
+            <div v-for="index in 9" :key="index" class="flex aspect-square w-full flex-col items-center justify-center gap-1.5"><USkeleton class="size-5" /><USkeleton class="h-2 w-10" /></div>
           </div>
-          <UButton v-else-if="membersQ.error.value" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" aria-label="Retry loading views" class="h-14 w-full justify-center" @click="membersQ.refetch()" />
+          <UButton v-else-if="membersQ.error.value" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" aria-label="Retry loading views" class="aspect-square w-full justify-center rounded-lg" @click="membersQ.refetch()" />
           <ul v-else class="space-y-1">
             <li v-for="item in views" :key="item.path">
               <NuxtLink
@@ -254,7 +254,7 @@ watch(nav.inviteOpen, (open) => {
                 :title="item.label"
                 :aria-current="isViewActive(item.path) ? 'page' : undefined"
                 :aria-label="item.count ? `${item.label}, ${item.count} unread conversations` : item.dot ? `${item.label}, unread` : item.label"
-                class="relative flex h-14 w-full flex-col items-center justify-center gap-1 rounded-lg px-0.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+                class="relative flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-lg px-0.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
                 :class="isViewActive(item.path) ? 'bg-accented text-highlighted' : 'text-muted hover:bg-elevated hover:text-default'"
                 @click="emit('selectSection', item.path)"
               >

@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { Permission } from '~~/shared/permissions'
+import { useQuery } from '@tanstack/vue-query'
+import type { ChannelDTO } from '~~/shared/types'
 const props = defineProps<{ serverId: string }>()
-const { can } = useRoleGrants()
+const route = useRoute()
+const { api } = useApi()
 const { agents, members, messageAgent, opening } = useAgentDirectory(() => props.serverId)
+const conversations = useQuery({ queryKey: ['dms'], queryFn: () => api<{ channels: ChannelDTO[] }>('/api/dms') })
+const selectedAgent = computed(() => {
+  const conversation = conversations.data.value?.channels.find(channel => channel.serverId === props.serverId && channel.id === route.params.channel)
+  return conversation?.participants?.length === 2 ? conversation.participants.find(user => user.kind === 'agent')?.id : undefined
+})
 </script>
 
 <template>
@@ -13,6 +20,7 @@ const { agents, members, messageAgent, opening } = useAgentDirectory(() => props
     <LayoutNavRow
       v-for="agent in agents"
       :key="agent.user.id"
+      :active="selectedAgent === agent.user.id"
       :unread="opening === agent.user.id"
       :aria-label="`Open the conversation with ${agent.user.displayName}`"
       :title="agent.user.displayName"
@@ -20,8 +28,5 @@ const { agents, members, messageAgent, opening } = useAgentDirectory(() => props
     >
       <template #leading><UserAvatar :user="agent.user" size="xs" /></template>{{ agent.user.displayName }}
     </LayoutNavRow>
-    <p v-if="can(Permission.manageAgents)" class="px-2 pt-1 text-[11px] text-muted">
-      Manage agents from the directory page.
-    </p>
   </nav>
 </template>

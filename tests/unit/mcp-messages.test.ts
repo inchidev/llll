@@ -83,6 +83,18 @@ const read = async (id = 'public-chat', auth = context(), input = {}) => readCha
 const send = async (id = 'public-chat', content = 'Hello', auth = context(), extra = {}) => sendChannelMessage(env, await requireMessageMember(env, auth, 'messages:write'), id, { content, ...extra }, schedule)
 
 describe('MCP messages use the interface channel and send pipeline', () => {
+  it('returns the original thread message separately from paginated replies', async () => {
+    sqlite.exec(`INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES
+      ('reply-1','private-thread','other-user','First reply','2026-10-22T00:00:00Z'),
+      ('reply-2','private-thread','other-user','Latest reply','2026-10-22T00:01:00Z')`)
+    const page = await read('private-thread', context('other-user'), { limit: 1 })
+    expect(page).toMatchObject({
+      rootMessage: { id: 'thread-root', channelId: 'private-chat', content: 'Private topic', author: { id: 'other-user' } },
+      messages: [{ id: 'reply-2' }], nextCursor: 'reply-2',
+    })
+    await expect(read('private-thread', context('member-user'))).rejects.toMatchObject({ statusCode: 404 })
+  })
+
   it('keeps sender, mentions, notification outbox, read receipts, fanout and OAuth audit attribution', async () => {
     sqlite.prepare("INSERT INTO push_subscriptions(id,user_id,endpoint,p256dh,auth,created_at,updated_at) VALUES ('push-1',?,'https://push.example/test','key','auth','2026-10-21','2026-10-21')").run(recipientId)
     const { message } = await send('public-chat', `Hello <@${agentId}> <@${recipientId}>`)

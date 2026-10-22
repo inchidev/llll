@@ -1,14 +1,15 @@
 /**
  * Experimental embedded Pi executor: the agent harness runs inside the SQLite
  * Durable Object itself, with no container and no Node process. Storage is the
- * official pi-durable Durable Object SQLite adapter, so commits are DO storage
- * transactions and a dead attempt resumes from the last committed step.
+ * official pi-durable Durable Object SQLite adapter. The host currently starts
+ * the harness only on submission; reopening active work after eviction is not
+ * implemented by the coordinator yet.
  * Shell and computer tools are unavailable by design (there is no filesystem).
  */
 import { Harness, createRegistry, type AssistantEntry } from '@earendil-works/pi-durable'
 import { createModels, createProvider } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
-import { BACKGROUND_CONTEXT, type Context } from '@earendil-works/chord/context'
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { openDurableObjectSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/cloudflare'
 import type { RuntimeEvent } from '../shared/agent-execution'
 
@@ -79,42 +80,39 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
   try {
     const conversation = await harness.root(BACKGROUND_CONTEXT, {
       agent: { model: { provider: 'l4', modelId: input.modelGateway.model }, instructions: input.instructions },
-    } as never)
+    })
     // Seed the prior conversation so the model context continues across attempts.
-    for (const line of transcriptLines.slice(-200)) {
+    for (const line of transcriptLines) {
       try {
         const prior = JSON.parse(line) as { kind?: string, model?: unknown }
         if (prior?.kind) await conversation.submit({ type: 'write', entry: { kind: prior.kind, model: prior.model } } as never, BACKGROUND_CONTEXT)
       } catch { /* Tolerate malformed transcript lines. */ }
     }
-    const submission = await conversation.submit({ type: 'input', content: input.prompt } as never, BACKGROUND_CONTEXT)
-    const settled: unknown = await (submission as unknown as { wait(context: Context): Promise<unknown> }).wait(BACKGROUND_CONTEXT)
-    const record = (settled && typeof settled === 'object' ? settled : {}) as Record<string, unknown>
+    const submission = await conversation.submit({ type: 'input', content: input.prompt }, BACKGROUND_CONTEXT)
+    const record = await submission.wait(BACKGROUND_CONTEXT)
     if (record.status === 'done') {
-      // The settled record carries the answer only as an EntryId; read it from the transcript.
-      const page = await (conversation as unknown as {
-        entries: (query: unknown, limit: number, cursor: undefined, context: Context) => Promise<{ items: readonly unknown[] }>
-      }).entries({ order: 'descending' }, 5, undefined, BACKGROUND_CONTEXT)
+      // The active context is chronological and includes seeded history exactly once.
+      // Reading only the five newest entries reversed and duplicated older context.
+      const view = await conversation.context(BACKGROUND_CONTEXT)
       const answerId = record.answer
-      const items = page.items as Array<{ id?: unknown, kind?: string, model?: unknown }>
+      const items = view.entries
       const chosen = items.find(item => item.id === answerId)
       const text = assistantText(chosen ? [chosen] : undefined)
       const event: RuntimeEvent = text
         ? { type: 'result', text, steps: 1 }
         : { type: 'error', message: `Embedded Pi answered without text (kinds: ${items.map(item => item.kind).join(',').slice(0, 120)})` }
-      // The transcript chain: seeded prior lines plus this conversation's own entries.
-      const answerNumber = typeof answerId === 'number' ? answerId : Number(answerId) || Infinity
-      const ownEntries: string[] = []
-      for (const item of items) {
-        if (typeof item.id !== 'number' || item.id > answerNumber) continue
-        ownEntries.push(JSON.stringify({ kind: item.kind, model: item.model ?? [] }))
-      }
-      const nextTranscript = [...transcriptLines, ...ownEntries].join('\n').slice(0, 1_900_000)
+      const nextTranscript = view.entries.map((item, index) => ({
+        kind: item.kind,
+        // Instructions are rebuilt from current authorization, never restored from an old Run.
+        model: view.contributions[index]!.filter(message => message.role !== 'system'),
+      })).filter(item => item.model.length).map(item => JSON.stringify(item)).join('\n')
+      if (new TextEncoder().encode(nextTranscript).length > 1_900_000) throw new Error('Embedded Pi session archive exceeds its limit')
       return { events: [], result: event, transcript: nextTranscript }
     }
+    return { events: [], result: { type: 'error', message: `Embedded Pi submission ended with status ${record.status}` }, transcript: input.transcript ?? '' }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Embedded Pi failed'
-    return { events: [], result: { type: 'error', message: message.slice(0, 500) } }
+    return { events: [], result: { type: 'error', message: message.slice(0, 500) }, transcript: input.transcript ?? '' }
   } finally {
     try { await harness.close(BACKGROUND_CONTEXT) } catch { /* the storage commits survive closure. */ }
   }

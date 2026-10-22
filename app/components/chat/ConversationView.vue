@@ -169,7 +169,6 @@ async function endLive() {
 }
 
 watch([serverId, channelId], () => {
-  ui.remember(serverId.value, channelId.value)
   live.view(channelId.value)
 }, { immediate: true })
 
@@ -199,11 +198,10 @@ watch([() => live.pendingJoin, channelId], ([pending]) => {
 
 watch(() => oneQ.data.value?.channel, (ch) => {
   if (!ch) return
-  // The Agents section owns its conversation route; no canonicalizing navigation.
-  if (liveRoute.value.path.startsWith('/agents/')) return
   const want = channelPath(ch, linkedThread.value ?? undefined)
+  if (want.startsWith('/channels/')) ui.remember(serverId.value, ch.id)
   if (liveRoute.value.path !== want) void navigateTo(want, { replace: true })
-})
+}, { immediate: true })
 
 const typingNames = computed(() => presence.typingIn(channelId.value)
   .filter((id) => id !== session.user?.id)
@@ -267,6 +265,12 @@ async function onThread(msg: MessageDTO) {
   ui.rightPanelTab = 'threads'
   ui.threadParentId = channelId.value
   if (msg.threadId) {
+    qc.setQueryData<InfiniteData<{ messages: MessageDTO[]; nextCursor: string | null; rootMessage?: MessageDTO | null }>>(
+      ['messages', msg.threadId], data => data ? {
+        ...data,
+        pages: data.pages.map((page, index) => index === 0 ? { ...page, rootMessage: msg } : page),
+      } : data,
+    )
     ui.threadId = msg.threadId
     return
   }
@@ -289,7 +293,7 @@ async function onThread(msg: MessageDTO) {
   // A thread created just now has no messages, so there is nothing to fetch.
   if (res.created) {
     qc.setQueryData(['messages', res.channel.id], {
-      pages: [{ messages: [], nextCursor: null, lastReadMessageId: null }],
+      pages: [{ messages: [], rootMessage: { ...msg, threadId: res.channel.id }, nextCursor: null, lastReadMessageId: null }],
       pageParams: [undefined],
     })
   }
@@ -386,7 +390,14 @@ defineShortcuts({
           :class="isGroup ? 'cursor-text' : ''"
           @dblclick="isGroup && (renaming = true)"
         >{{ headerName }}</h1>
-        <UChip v-if="isDm && others[0] && !isGroup" :color="presence.statusOf(others[0].id) === 'online' ? 'success' : 'neutral'" size="sm" standalone />
+        <UChip
+          v-if="isDm && others[0]?.kind === 'human' && !isGroup"
+          :color="presence.statusOf(others[0].id) === 'online' ? 'success' : 'neutral'"
+          :title="`${others[0].displayName}: ${presence.statusOf(others[0].id)}`"
+          :aria-label="`${others[0].displayName}: ${presence.statusOf(others[0].id)}`"
+          size="sm"
+          standalone
+        />
         <USeparator v-if="!isDm && channel?.topic" orientation="vertical" class="h-4" />
         <p v-if="!isDm" class="text-sm text-muted truncate hidden lg:block min-w-0 flex-1">{{ channel?.topic }}</p>
         <div class="ml-auto flex items-center gap-2">
@@ -489,7 +500,7 @@ defineShortcuts({
         :channel-name="headerName"
         :is-dm="isDm"
         :can-pin="canPin"
-        :link-path="channelPath(channelId)"
+        :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
         @read="(messageId) => send({ t: 'read', messageId })"

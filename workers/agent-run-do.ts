@@ -6,7 +6,7 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../shared/agent-executi
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
-import { runEmbeddedPi } from './agent-pi-durable'
+import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { authorize, ServerAction } from '../shared/authorization'
 import { getTask } from '../server/utils/task-service'
 import { signalTasksChanged } from './task-events'
@@ -53,7 +53,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     if (path === 'health') return this.respond({ ok: true, executor: 'pi-durable-embedded' })
     if (path === 'run' && method === 'POST') {
       if (await this.ctx.storage.get('pi-embedded-result')) return this.respond({ ok: false }, 409)
-      const body = (input ?? {}) as { prompt?: string, instructions?: string, modelGateway?: { url: string, token: string, model: string } }
+      const body = (input ?? {}) as Partial<EmbeddedPiSubmission>
       if (!body.modelGateway) return this.respond({ ok: false }, 400)
       await this.ctx.storage.put('pi-embedded-events', [] satisfies RuntimeEvent[])
       const generation = runEmbeddedPi({ prompt: body.prompt ?? '', instructions: body.instructions ?? '', modelGateway: body.modelGateway, transcript: body.transcript ?? null }, this.ctx.storage)

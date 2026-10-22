@@ -29,6 +29,12 @@ Web research requires `browseWeb` and configured Browser access or `EXA_API_KEY`
 
 Schedules support one-time, daily and weekly reminders and task execution. They retain their original role/resource ceiling, preserve the chosen wall time across DST, skip missed repetitions, and deduplicate each occurrence. Current membership and grants are checked before delivery. Changing permissions can block an existing schedule; create a new mandate after reviewing the new role. Manage your schedules at `/schedules`.
 
+### Embedded executor (experimental)
+
+An experimental fallback now runs `@earendil-works/pi-durable` 1.4.0 inside the Run Durable Object when neither a Runner nor Cloudflare Containers is configured. It needs the Run DO, file storage and a model provider. This is a text-only executor: Server tools, browser tools, shell and computer tools are not registered. Do not treat it as equivalent to the container executor for Tasks or code work. Cancellation revokes gateway access but currently does not abort the in-flight harness; the coordinator does not yet reopen active submissions after eviction. These are remaining implementation gaps.
+
+Local celld acceptance on 2026-10-23 completed three real OpenRouter model calls, including recall in a subsequent Run and another recall after restarting the celld container. The archive regression test uses the real Pi SDK and checks chronological messages and restoration without duplicates. This is local evidence; it does not certify Cloudflare Preview behavior or recovery of active work after a process failure.
+
 ### VPS executor
 
 Build both images from the checked-out release, then select their immutable digests in `LLLL_AGENT_IMAGE` and `LLLL_AGENT_RUNNER_IMAGE`. Add `self-host/compose.agents.yml` to the Server Compose command, and configure a separate 32+ character `LLLL_RUNNER_TOKEN`, persistent `LLLL_SERVER_ID` and Compose project name `LLLL_PROJECT`. The trusted Runner has Docker control. Agent containers have no Docker socket, public internet route or provider/production credentials; they run as a non-root user with a read-only root, limited CPU/memory/PIDs bounded temporary data (512 MiB), bounded logs and no persistent host file mount. The Server joins their private network solely to provide the authorized gateway. Results/context are archived before compute is removed. Losing an active compute process interrupts the attempt; a new attempt restores archived conversation context and never silently replays uncertain external actions.

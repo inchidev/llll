@@ -203,7 +203,7 @@ export function resolveAgentModelId(env: L4Env, profileModel?: string | null): s
 
 /** Pi is available when its isolated execution provider is configured, or the
  * experimental embedded harness can run (model provider reachable, run DO and
- * file storage bound). The embedded answer trains on the model gateway only. */
+ * file storage bound). The embedded executor uses the model gateway only. */
 export function piRuntimeConfigured(env: L4Env): boolean {
   if (!env.AGENT_RUN_DO || !env.FILES) return false
   if (env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)) return true

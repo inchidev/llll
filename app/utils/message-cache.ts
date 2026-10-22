@@ -4,6 +4,8 @@ import type { MessageContextResponse, MessageDTO } from '~~/shared/types'
 export type MessagePage = {
   messages: MessageDTO[]
   nextCursor: string | null
+  /** Context from the parent channel; it never becomes a reply or a read cursor. */
+  rootMessage?: MessageDTO | null
 }
 
 function compareMessages(left: MessageDTO, right: MessageDTO): number {
@@ -36,7 +38,7 @@ export function mergeMessageContext(
   }
 
   return {
-    pages: [{ messages, nextCursor: hasOlder ? messages[0]?.id ?? null : null }],
+    pages: [{ ...current?.pages[0], messages, nextCursor: hasOlder ? messages[0]?.id ?? null : null }],
     pageParams: [undefined],
   }
 }
@@ -62,6 +64,7 @@ export function mergeLatestPage(
     }),
   }))
   const first = pages[0]!
+  if ('rootMessage' in latest) first.rootMessage = latest.rootMessage
   const missed = latest.messages.filter(message => !known.has(message.id))
   if (!missed.length) return { ...current, pages }
   const pending = first.messages.filter(message => message.id.startsWith('tmp:'))
