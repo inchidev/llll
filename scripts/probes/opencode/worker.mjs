@@ -65,11 +65,12 @@ export class OpenCodeProbe {
       const host = await this.host
       const path = new URL(request.url).pathname
       if (this.job) this.follow(host)
+      if (path === '/evict') this.ctx.abort('L4 acceptance eviction')
       if (path === '/info') return Response.json(await host.server.info())
       if (path === '/start' && request.method === 'POST') {
         if (this.job) return new Response('Already started', { status: 409 })
         const input = await request.json()
-        const session = await host.session.create({ title: 'L4 acceptance', location: { directory: '/workspace' }, model: { providerID: 'opencode', id: 'glm-5.3-flash-free' }, permissions: [
+        const session = await host.session.create({ title: 'L4 acceptance', location: { directory: '/workspace' }, model: { providerID: 'opencode', id: ['big-pickle','deepseek-v4.1-flash-free'].includes(input.model) ? input.model : 'glm-5.3-flash-free' }, permissions: [
           { action: '*', resource: '*', effect: 'ask' }, { action: 'list_tasks', resource: '*', effect: 'allow' }, { action: 'create_task', resource: '*', effect: 'allow' },
         ] })
         this.job = { sessionId: session.id, fixture: Boolean(input.fixture && this.env.MODEL), runId: input.runId, capability: input.capability, maxModelCalls: Math.min(8, input.maxModelCalls ?? 5) }

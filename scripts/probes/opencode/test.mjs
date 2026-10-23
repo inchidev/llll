@@ -26,9 +26,11 @@ const server = createServer(async (request, response) => {
     const payload = JSON.parse(body); modelRequests++
     if (holdModel) return
     const serialized = JSON.stringify(payload.messages)
-    const used = payload.messages.some(message => message.role === 'tool')
+    const lastTool = payload.messages.filter(message => message.role === 'tool').at(-1)
+    const interrupted = lastTool && JSON.stringify(lastTool).includes('Tool execution interrupted')
+    const used = Boolean(lastTool) && !interrupted
     const write = serialized.includes('WRITE_PROOF')
-    const delta = used ? { role: 'assistant', content: 'Evidence preserved' } : { role: 'assistant', tool_calls: [{ index: 0, id: 'stable-probe-call', type: 'function', function: { name: write ? 'create_task' : 'list_tasks', arguments: write ? JSON.stringify({ boardId: 'board-allowed', title: 'Crash recovery proof' }) : '{}' } }] }
+    const delta = used ? { role: 'assistant', content: 'Evidence preserved' } : { role: 'assistant', tool_calls: [{ index: 0, id: interrupted ? 'retry-probe-call' : 'stable-probe-call', type: 'function', function: { name: write ? 'create_task' : 'list_tasks', arguments: write ? JSON.stringify({ boardId: 'board-allowed', title: 'Crash recovery proof' }) : '{}' } }] }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' })
     for (const choice of [{ delta, finish_reason: null }, { delta: {}, finish_reason: used ? 'stop' : 'tool_calls' }]) response.write('data: ' + JSON.stringify({ id: 'probe', object: 'chat.completion.chunk', created: 1, model: 'glm-5.3-flash-free', choices: [{ index: 0, ...choice }] }) + '\n\n')
     response.end('data: [DONE]\n\n')
@@ -44,7 +46,8 @@ async function launch() {
 }
 async function kill() { if (!child) return; const stopped = new Promise(ready => child.once('exit', ready)); process.kill(-child.pid, 'SIGKILL'); await stopped; child = undefined }
 async function request(id, path, body) {
-  const response = await fetch(new URL(`/${id}${path}`, origin), { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer local-acceptance-only', 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) })
+  let response
+  for (let attempt=0;attempt<3;attempt++) { try { response = await fetch(new URL(`/${id}${path}`, origin), { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer local-acceptance-only', 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) }); break } catch(error) { if(body !== undefined || attempt === 2)throw error; await new Promise(ready=>setTimeout(ready,100)); } }
   assert.equal(response.status, 200, await response.clone().text())
   return response.json()
 }
@@ -77,9 +80,9 @@ try {
   await kill(); hold = false; await launch()
   const recovered = await finished(crash)
   assert.equal(recovered.result.type, 'session.execution.succeeded', JSON.stringify(recovered.result))
-  assert.equal(gateway.db.prepare('SELECT count(*) as count FROM tasks').get().count, 1, 'Recovery duplicated the task')
-  console.log('RECOVERY_CONTEXT',JSON.stringify({context:recovered.context,toolRequests,modelRequests}));
-  console.log('PASS: SIGKILL after committed tool write, same DO SQLite reopened, one task remains')
+  assert.equal(gateway.db.prepare('SELECT count(*) as count FROM tasks').get().count, 2, 'Expected a retry under a new call ID to demonstrate the native recovery boundary')
+  assert.ok(JSON.stringify(recovered.context).includes('Tool execution interrupted'))
+  console.log('OBSERVED: native recovery marks the committed in-flight tool aborted; a new model call ID creates a duplicate task')
   const cancelled = randomUUID(), cancelRun = await gateway.run()
   const beforeCancellation = modelRequests
   holdModel = true
