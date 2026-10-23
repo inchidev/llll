@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray, max } from 'drizzle-orm'
 import { channels, messages } from '../../../../drizzle/schema'
 import type { ChannelThreadDTO } from '../../../../shared/types'
-import { threadTitle } from '../../../../shared/threads'
+import { messageThreadTitle } from '../../../utils/thread-title'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const roots = await hydrateMessages(env, rootRows, access.user.id)
   const rootsById = new Map(roots.map(root => [root.id, root]))
   const repliesByChannel = new Map(replyRows.map(row => [row.channelId, row]))
-  const threads: ChannelThreadDTO[] = rows.flatMap((row) => {
+  const threads: ChannelThreadDTO[] = (await Promise.all(rows.map(async (row) => {
     if (!row.parentMessageId) return []
     const root = rootsById.get(row.parentMessageId)
     if (!root) return []
@@ -37,12 +37,12 @@ export default defineEventHandler(async (event) => {
     return [{
       id: row.id,
       parentMessageId: row.parentMessageId,
-      title: threadTitle(root.content, root.attachments.map(attachment => attachment.filename)),
+      title: await messageThreadTitle(env.DB, root.content, root.attachments.map(attachment => attachment.filename)),
       author: root.author,
       replyCount: Number(replies?.replyCount ?? 0),
       lastReplyAt: replies?.lastReplyAt ?? null,
       createdAt: row.createdAt,
     }]
-  })
+  }))).flat()
   return { threads }
 })

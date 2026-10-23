@@ -15,7 +15,8 @@ export default defineEventHandler(async (event) => {
   await ensureMigrated(env.DB, env)
   if (await serverReady(env.DB)) fail(409, 'server_ready', 'Server setup is already complete')
 
-  const email = await verifyOwnerSetupToken(await readOwnerSetup(env.DB, env), body.token)
+  const setup = await readOwnerSetup(env.DB, env)
+  const email = await verifyOwnerSetupToken(setup, body.token)
   if (!email) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
-  return { email }
+  return { email, serverName: setup?.serverName }
 })

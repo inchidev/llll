@@ -1,3 +1,4 @@
+import { agentTimeContext } from './agent-time'
 import { H3Error } from 'h3'
 import { inferenceFailure } from './agent-inference-errors'
 import { streamText, jsonSchema, tool, type ModelMessage } from 'ai'
@@ -57,7 +58,8 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const tools = Object.fromEntries((input.tools ?? []).map(definition => [definition.function.name, tool({
     description: definition.function.description, inputSchema: jsonSchema(definition.function.parameters),
   })]))
-  const instructions = input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
+  const time = await agentTimeContext(env)
+  const instructions = `Current time: ${time.utc}. Server timezone: ${time.timezone}. Local date and time: ${time.localTime}. Ask for a timezone when the user’s scheduling timezone is unclear.\n` + input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
   let providerFailure: unknown
   const settings = { model, instructions, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }

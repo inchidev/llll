@@ -160,3 +160,17 @@ it('uses current public names and icons rather than Cloudflare deployment labels
   await flushPromises()
   expect(view.findAll('li')[0]!.find('img').exists()).toBe(false)
 })
+
+it('offers reconnect while connected and lets a failed installation be paused without deleting resources', async () => {
+  const original = api.getMockImplementation()!
+  api.mockImplementation(async (path: string) => path === '/api/deploy/session'
+    ? { ...(await original(path)), step: 1, completed: false, name: 'My community', error: 'Verify your Cloudflare email, then reconnect.' }
+    : original(path))
+  const view = await render()
+  expect(view.text()).toContain('Reconnect Cloudflare')
+  expect(view.findAll('a').find(a => a.text() === 'Reconnect Cloudflare')?.attributes('href')).toContain('resume=1')
+  const pause = view.findAll('button').find(button => button.text() === 'Pause and start another')
+  expect(pause).toBeDefined()
+  await pause!.trigger('click'); await flushPromises()
+  expect(api).toHaveBeenCalledWith('/api/deploy/pause', expect.objectContaining({ method: 'POST' }))
+})

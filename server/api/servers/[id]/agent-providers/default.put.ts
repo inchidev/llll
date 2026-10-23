@@ -7,9 +7,9 @@ import { parseBody } from '../../../../utils/validate'
 export default defineEventHandler(async event => {
   const actor = await requireMember(event, getRouterParam(event, 'id')!)
   if (!actor.isOwner) fail(403, 'forbidden', 'Only the owner can change the default provider')
-  const { model } = parseBody(z.object({ model: z.string().min(1).max(200) }), await readBody(event))
+  const { model } = parseBody(z.object({ model: z.string().max(200) }), await readBody(event))
   const { env } = cf(event)
-  if (!(await agentProviderCatalog(env)).models.some(item => item.value === model)) fail(400, 'model_unavailable', 'Choose a configured model')
+  if (model && !(await agentProviderCatalog(env, { actorId: actor.user.id })).models.some(item => item.value === model)) fail(400, 'model_unavailable', 'Choose a configured model')
   await writeServerSetting(env.DB, 'agents.defaultModel', model)
   return agentProviderCatalog(env)
 })

@@ -10,5 +10,6 @@ export async function publicServerAppearance(db: D1Database, origin: string, fal
   // Before owner setup the installer-provisioned initial name wins.
   let initialName: string | null = null
   try { initialName = await readServerSetting(db, 'initial_name') } catch { /* Fresh database. */ }
-  return { id, name: initialName?.trim() || fallbackName, iconUrl: null, ready: false }
+  const setup = initialName ? null : await db.prepare('SELECT server_name as name FROM server_setup WHERE singleton=1').first<{ name: string }>()
+  return { id, name: initialName?.trim() || setup?.name?.trim() || fallbackName, iconUrl: null, ready: false }
 }

@@ -11,6 +11,7 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, serverId)
   if (!hasPermission(actor.perms, Permission.manageRoles)
     && !hasPermission(actor.perms, Permission.manageChannels)
+    && !hasPermission(actor.perms, Permission.manageAgents)
     && !hasPermission(actor.perms, Permission.manageGadgets)) {
     fail(403, 'forbidden', 'Missing permission')
   }

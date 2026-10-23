@@ -1,5 +1,6 @@
 import { encryptSecret, decryptSecret } from '../../../shared/encrypted-secret'
 import { randomCode, type CloudflareGrant } from '../../../shared/cloudflare-oauth'
+import type { DeployProgressEvent } from '../../../packages/deployment-core/src/types'
 import type { WebEnv } from './env'
 
 export type UpdateRequest = { origin: string; accountId: string; workerName: string; jobId: string }
@@ -34,6 +35,8 @@ export type DeploymentState = {
   accountId?: string; name?: string; version?: string; worker?: string; serverId?: string; ownerEmail?: string
   setupToken?: string; origin?: string
   step?: number; error?: string; completed?: boolean
+  progress?: Extract<DeployProgressEvent, { type: 'progress' }>[]
+  paused?: Omit<DeploymentState, 'paused' | 'grant' | 'deployments'>[]
   updateRequest?: UpdateRequest
   update?: UpdateState
   domainRequest?: DomainRequest
@@ -47,7 +50,7 @@ export function rememberDeployment(data: DeploymentState) {
 }
 export function clearDeployment(data: DeploymentState) {
   rememberDeployment(data)
-  for (const key of Object.keys(data)) if (!['grant', 'deployments'].includes(key)) Reflect.deleteProperty(data, key)
+  for (const key of Object.keys(data)) if (!['grant', 'deployments', 'paused'].includes(key)) Reflect.deleteProperty(data, key)
 }
 export async function digest(value: string) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(b => b.toString(16).padStart(2, '0')).join('') }
 export async function webSession(request: Request, env: WebEnv, create = false) {

@@ -34,7 +34,7 @@ beforeEach(() => {
     INSERT INTO channels(id,name,type,visibility) VALUES('public-chat','Research','text','server');
     INSERT INTO task_boards(id,name,created_by) VALUES('board-allowed','Allowed','owner-user'),('board-private','Private','owner-user');`)
   env = { DB: d1(db), AUTH_SECRET: 'test-server-secret-with-32-characters', FILES: {},
-    AI: {}, AGENT_RUN_DO: { getByName: () => ({ wake }) }, AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret' } as unknown as L4Env
+    AI: {}, AGENT_MODEL: '@cf/test', AGENT_RUN_DO: { getByName: () => ({ wake }) }, AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret' } as unknown as L4Env
 })
 afterEach(() => db.close())
 
@@ -131,7 +131,8 @@ describe('Pi run authorization', () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('Verified result')
     expect(requests).toHaveLength(1)
-    expect(requests[0]!.messages).toEqual(expect.arrayContaining([{ role: 'system', content: 'Stay within the mandate' }]))
+    expect(requests[0]!.messages).toEqual(expect.arrayContaining([{ role: 'system', content: expect.stringContaining('Stay within the mandate') }]))
+    expect(requests[0]!.messages.find(message => message.role === 'system')?.content).toContain('Current time:')
     expect(requests[0]!.messages.some(message => message.role === 'tool' && message.content === 'Authorized evidence')).toBe(true)
     expect((await findAgentRun(env, run.id))?.totalTokens).toBe(23)
   })
@@ -142,6 +143,7 @@ it('snapshots the chosen provider and model per Run and preserves idempotency af
   const { saveAgentProvider } = await import('../../server/utils/agent-providers')
   const { writeServerSetting } = await import('../../shared/server-settings')
   await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: false, apiKey: 'test-key', models: [{ id: 'first', api: 'chat' }, { id: 'second', api: 'chat' }] })
+  await writeServerSetting(env.DB, 'agents.defaultModel', 'l4:openrouter:first')
   const first = await createAgentRun(env, (await start())!, input())
   expect(first.model).toBe('l4:openrouter:first')
   await writeServerSetting(env.DB, 'agents.conversation.public-chat.model', 'l4:openrouter:second')

@@ -137,3 +137,15 @@ it('adds an alias without creating a second Server entry for the same UUID', asy
   expect(shell.servers.value.filter(server => server.id === id)).toHaveLength(1)
   expect(shell.servers.value[0]?.origin).toBe(origin)
 })
+
+it('preserves a direct Agents URL while the embedded Client is still starting', async () => {
+  bookmark(); route.fullPath = '/' + id + '/agents'
+  const shell = useShell(); shell.initialize()
+  const frame = document.createElement('iframe'); document.body.append(frame)
+  shell.frames.value[origin] = frame
+  shell.selected.value = origin
+  replace.mockClear()
+  listener(new MessageEvent('message', { origin, source: frame.contentWindow!, data: { llll: EMBED_VERSION, type: 'navigate', serverId: id, path: '/channels/general' } }))
+  expect(replace).not.toHaveBeenCalled()
+  frame.remove()
+})

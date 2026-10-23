@@ -129,7 +129,7 @@ it('installs the checksum-verified release through the OAuth grant and retains t
       adminEmail: 'owner@example.com',
       backupBucketName: state.worker + '-backups',
     }),
-    { verify: false, setupToken: state.setupToken },
+    expect.objectContaining({ verify: false, setupToken: state.setupToken, report: expect.any(Function) }),
   )
   await advanceDeployment(state, env, async () => {})
   expect(state.completed).not.toBe(true)
@@ -173,4 +173,24 @@ it('refuses an unsupported release format before creating resources', async () =
   await expect(
     advanceDeployment(state, {} as never, async () => {}),
   ).rejects.toThrow('release bundle')
+})
+
+it('persists deployment progress while provisioning, before the long request finishes', async () => {
+  const state: DeploymentState = { ...deploymentParameters('a'.repeat(32), 'Community', 'v0.2.8', 'owner@example.com'), step: 1,
+    grant: { accessToken: 'private', refreshToken: 'private', clientId: 'client', expiresAt: Date.now() + 3600000 } }
+  const snapshots: unknown[] = []
+  vi.mocked(installL4).mockImplementationOnce(async (_token, _request, options) => {
+    expect(options?.report).toBeTypeOf('function')
+    await options!.report!({ type: 'progress', step: 'storage', state: 'complete', detail: 'Basic file storage (KV) ready; backups download to your device' })
+    expect(snapshots).toEqual(expect.arrayContaining([expect.objectContaining({ progress: expect.arrayContaining([expect.objectContaining({ step: 'storage' })]) })]))
+    throw new Error('Provisioning paused')
+  })
+  await expect(advanceDeployment(state, {} as never, async () => { snapshots.push(structuredClone(state)) })).rejects.toThrow('Provisioning paused')
+  expect(state.serverId).toBeDefined()
+})
+it('classifies email-verification errors without exposing upstream payloads', async () => {
+  const { deploymentFailure } = await import('../../apps/site/src/deploy')
+  expect(deploymentFailure(new Error('You need to verify your email address to use Workers. private-sentinel'))).toEqual({ message: 'Verify your Cloudflare email, then reconnect Cloudflare and resume this deployment.', reconnect: true })
+  expect(deploymentFailure(Object.assign(new Error('private-sentinel'), { statusCode: 403 })).reconnect).toBe(true)
+  expect(deploymentFailure(new Error('private-sentinel')).message).not.toContain('private-sentinel')
 })

@@ -22,6 +22,8 @@ type Session = {
   authorized: boolean; accounts: { id: string; name: string }[]; accountId?: string
   sessionExpiresAt: number; grantExpiresAt?: number; step?: number; completed?: boolean
   name?: string; ownerEmail?: string; version?: string; error?: string; origin?: string; claim?: string
+  progress?: { step: string; state: string; detail?: string }[]
+  paused?: { serverId: string; name: string; version: string }[]
   deployments?: Deployment[]
   updateRequest?: SessionUpdateRequest
   update?: SessionUpdate
@@ -175,13 +177,16 @@ async function loadServers() {
 }
 watch(accountId, () => { if (!loading.value) void loadServers() })
 async function deploy() {
+  if (busy.value) return
   busy.value = true
   error.value = ''
   try {
     if (!pending.value) await $fetch('/api/deploy/start', { method: 'POST', body: { accountId: accountId.value, name: name.value, ownerEmail: ownerEmail.value, version: version.value } })
     await refresh()
     while (session.value && !session.value.completed) {
-      await $fetch('/api/deploy/advance', { method: 'POST', timeout: 150000 })
+      const progressTimer = setInterval(() => { void refresh() }, 2000)
+      try { await $fetch('/api/deploy/advance', { method: 'POST', timeout: 150000 }) }
+      finally { clearInterval(progressTimer) }
       await refresh()
       if (!session.value?.completed) await new Promise(resolve => setTimeout(resolve, 3000))
     }
@@ -189,8 +194,30 @@ async function deploy() {
     await loadServers()
     if (session.value?.completed && session.value.origin) await checkServer(session.value.origin)
   } catch (cause) {
-    error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same Server.'
+    await refresh()
+    error.value = session.value?.error || (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same Server.'
   } finally { busy.value = false }
+}
+async function pauseDeployment() {
+  if (busy.value) return
+  busy.value = true
+  try { await $fetch('/api/deploy/pause', { method: 'POST' }); creating.value = false; await refresh() }
+  catch { error.value = 'Could not pause this deployment. Wait for its current step to finish.' }
+  finally { busy.value = false }
+}
+async function resumeDeployment(serverId: string) {
+  if (busy.value || pending.value) return
+  busy.value = true
+  try { await $fetch('/api/deploy/resume', { method: 'POST', body: { serverId } }); await refresh(); creating.value = true }
+  catch { error.value = 'Could not load this paused deployment.' }
+  finally { busy.value = false }
+}
+async function disconnectCloudflare() {
+  if (busy.value || updating.value) return
+  busy.value = true
+  try { await $fetch('/api/deploy/disconnect', { method: 'POST' }); await refresh() }
+  catch { error.value = 'Wait for the current deployment step to finish before disconnecting.' }
+  finally { busy.value = false }
 }
 async function prepareUpdate() {
   const target = updateTarget.value || (resumeUpdate.value ? session.value?.updateRequest : undefined)
@@ -269,7 +296,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
     <section v-else class="space-y-4 rounded-lg border border-default p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="font-medium">{{ connected ? 'Cloudflare connected' : expired ? 'Cloudflare connection ended' : 'Connect Cloudflare' }}</p>
-        <UButton v-if="!connected" :to="oauthUrl" external :label="expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth" size="sm" />
+        <div class="flex flex-wrap gap-2"><UButton :to="oauthUrl" external :label="connected || expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth || busy || updating" size="sm" /><UButton v-if="connected" label="Disconnect" color="neutral" variant="ghost" size="sm" :disabled="busy || updating" @click="disconnectCloudflare" /></div>
       </div>
       <template v-if="connected && session">
         <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy || updating" class="w-full" /></UFormField>
@@ -310,6 +337,13 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
       <UAlert v-if="listError" color="warning" :description="listError" />
     </section>
 
+    <section v-if="session?.paused?.length" class="space-y-3">
+      <h2 class="text-sm font-medium">Paused deployments</h2>
+      <p class="text-xs text-muted">Resources are retained. Resume uses the same Server ID. Delete unwanted resources separately in Cloudflare; keep backups.</p>
+      <div v-for="attempt in session.paused" :key="attempt.serverId" class="flex items-center justify-between gap-3 rounded border border-default p-3">
+        <span>{{ attempt.name }} · {{ attempt.version }}</span><UButton label="Resume setup" color="neutral" variant="outline" :disabled="pending || busy" @click="resumeDeployment(attempt.serverId)" />
+      </div>
+    </section>
     <UButton v-if="!creating && !pending" :label="rows.length ? 'Create another Server' : 'Create a Server'" icon="i-ph-plus" :disabled="!connected" @click="creating = true" />
     <UForm v-if="creating || pending" :schema="pending ? undefined : formSchema" :state="{ accountId, name, ownerEmail, version }" class="space-y-5 border-t border-default pt-6" @submit="deploy">
       <h2 class="text-xl font-semibold">{{ pending ? 'Server deployment' : 'Create a Server' }}</h2>
@@ -324,9 +358,11 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
         <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Basic file storage works without R2; no Git integration or Workers Builds token is required.</p>
       </template>
       <ol v-else class="space-y-3"><li v-for="(phase, index) in phases" :key="phase" class="flex items-center gap-3" :class="index > (session?.step || 0) ? 'text-dimmed' : 'text-highlighted'"><UIcon :name="index < (session?.step || 0) ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-5" />{{ phase }}</li></ol>
+      <ol v-if="pending && session?.progress?.length" class="space-y-2 text-sm" aria-label="Deployment details" aria-live="polite"><li v-for="item in session.progress" :key="item.step" class="flex gap-2"><UIcon :name="item.state === 'complete' ? 'i-ph-check-circle' : 'i-ph-circle-notch'" :class="item.state === 'active' ? 'animate-spin' : ''" class="size-4 shrink-0" /><span>{{ item.step }}<template v-if="item.detail"> · {{ item.detail }}</template></span></li></ol>
       <p v-if="pending && session?.version" class="text-sm text-muted">Release {{ session.version }}</p>
       <div class="flex flex-wrap gap-2">
         <UButton type="submit" :label="pending ? 'Resume deployment' : 'Deploy Server'" :loading="busy" :disabled="!connected || (!pending && !version)" />
+        <UButton v-if="pending" label="Pause and start another" color="neutral" variant="ghost" :disabled="busy" @click="pauseDeployment" />
         <UButton v-if="!pending" label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="creating = false" />
       </div>
     </UForm>

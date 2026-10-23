@@ -12,12 +12,12 @@ const connection = shallowRef<{ state: string; authorizationUrl: string; expires
 const state = reactive({ kind: 'openrouter' as AgentProviderId, name: '', enabled: true, apiKey: '', webSearch: false, models: [] as AgentProviderModel[] })
 const modelSearch = ref('')
 const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId, query.value, page.value]), queryFn: () => api<{ providers: AgentProviderDTO[]; total: number }>(`/api/servers/${props.serverId}/agent-providers/connections`, { query: { search: query.value, page: page.value } }) })
-const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
+const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null; deploymentProvider?: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
 const connecting = useQuery({ queryKey: computed(() => ['agent-provider-connecting', props.serverId, editing.value?.id]), queryFn: () => api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${editing.value!.id}`), enabled: computed(() => Boolean(connection.value && editing.value)), refetchInterval: 2000 })
 const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value] }))
 const visible = computed(() => catalog.data.value?.providers ?? [])
-const modelItems = computed(() => [...new Map([...state.models, ...availableModels.value].map(m => [m.id, { ...m, label: m.label ?? m.id }])).values()])
-const selectedModels = computed({ get: () => state.models.map(m => m.id), set: (ids: string[]) => { state.models = ids.flatMap(id => { const m = modelItems.value.find(m => m.id === id); return m ? [{ id: m.id, label: m.label, api: m.api }] : [] }) } })
+const modelItems = computed(() => [...new Map([...state.models, ...availableModels.value].map(m => [m.id, { ...m, label: (m.label ?? m.id) + (m.tools === false ? ' (no tool support)' : ''), disabled: m.tools === false }])).values()])
+const selectedModels = computed({ get: () => state.models.map(m => m.id), set: (ids: string[]) => { state.models = ids.flatMap(id => { const m = [...state.models, ...availableModels.value].find(m => m.id === id); return m ? [{ id: m.id, label: m.label, api: m.api, tools: m.tools }] : [] }) } })
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
   editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
@@ -92,14 +92,15 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
   <section class="space-y-5" aria-label="Model providers">
     <section class="space-y-3 border-b border-default pb-5" aria-label="Model defaults">
       <h2 class="text-sm font-medium text-highlighted">Model defaults</h2>
-      <UFormField v-if="isOwner" label="Default model" description="Used when the agent and conversation have no override.">
-        <USelectMenu v-model:search-term="modelSearch" :loading="modelOptions.isPending.value" :disabled="!modelOptions.data.value?.models.length && !modelSearch" placeholder="Connect a provider to choose a model" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? undefined" value-key="value" :items="(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))" class="w-full" virtualize @update:model-value="setDefault" />
+      <UFormField v-if="isOwner" label="Default model" description="Choose explicitly. Connecting a provider never selects a model or authorizes a paid fallback.">
+        <USelectMenu v-model:search-term="modelSearch" :loading="modelOptions.isPending.value" :disabled="!modelOptions.data.value?.models.length && !modelSearch" placeholder="Choose a default model" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? ''" value-key="value" :items="[{ value: '', label: 'No default model' }, ...(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))]" class="w-full" virtualize @update:model-value="setDefault" />
       </UFormField>
     </section>
+    <UAlert v-if="modelOptions.data.value?.deploymentProvider" color="neutral" :title="modelOptions.data.value.deploymentProvider" description="Available through this Server’s deployment. Account access, quota and model compatibility are checked when you run it. Select a model explicitly; no default is enabled automatically." />
     <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-muted">Named connections used by Pi.</p><UButton v-if="isOwner" label="Add provider" icon="i-ph-plus" @click="edit()" /></div>
     <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
-    <LayoutEmptyState v-else-if="!visible.length" icon="i-ph-plugs" title="No providers" description="Connect a model service to use it with Pi." />
+    <LayoutEmptyState v-else-if="!catalog.isPending.value && !visible.length" icon="i-ph-plugs" title="No named connections" description="Connect a model service to use it with Pi." />
     <ul v-else class="divide-y divide-default rounded-lg border border-default">
       <li v-for="provider in visible" :key="provider.id" class="flex min-h-16 items-center gap-3 p-3">
         <UIcon :name="provider.kind === 'anthropic' ? 'i-ph-sparkle' : 'i-ph-plugs-connected'" class="size-5 shrink-0 text-muted" />

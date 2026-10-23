@@ -10,9 +10,7 @@ import { findAgentRun, runAuthorization, runCapability } from '../server/utils/a
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
-import { authorize, ServerAction } from '../shared/authorization'
-import { getTask } from '../server/utils/task-service'
-import { signalTasksChanged } from './task-events'
+import { deliverAgentRun } from '../server/utils/agent-run-delivery'
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
 import { z } from 'zod'
@@ -146,26 +144,6 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   }
 
   private async release(run: AgentRun): Promise<void> {
-    if (run.taskId) {
-      const saved = await findAgentRun(this.env, run.id)
-      if (saved?.status === 'completed' || saved?.status === 'failed') {
-        try {
-          const auth = await runAuthorization(this.env, saved)
-          authorize(auth, ServerAction.writeTasks)
-          const task = await getTask(this.env, auth, run.taskId)
-          if (task?.assigneeId === run.agentId) {
-            const result = await this.env.DB.prepare(`UPDATE tasks SET status=?,result_summary=?,result_details=?,last_error=?,updated_at=?
-              WHERE id=? AND assignee_id=? AND archived_at IS NULL AND updated_at<=? AND status NOT IN ('done','review')`)
-              .bind(saved.status === 'completed' ? 'review' : 'failed', saved.resultText?.slice(0, 500) ?? null,
-                saved.resultText, saved.lastError, nowIso(), run.taskId, run.agentId, run.createdAt).run()
-            if (result.meta.changes) this.ctx.waitUntil(signalTasksChanged(this.env, task.boardId, task.id))
-          }
-        } catch (error) {
-          const denied = error && typeof error === 'object' && 'statusCode' in error && (error.statusCode === 403 || error.statusCode === 404)
-          if (!denied) throw error
-        }
-      }
-    }
     // Release admission before cleanup: a slow executor must not hold the conversation queue.
     this.ctx.waitUntil(this.runtime(run, 'lifecycle', 'DELETE').catch(() => undefined))
     await deleteAgentTurn(this.env, run.id)
@@ -200,15 +178,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     const run = await findAgentRun(this.env, id)
     if (!run) return
     if (!['queued', 'running'].includes(run.status)) {
-      if (run.status === 'completed' || run.status === 'failed') {
-        await this.ctx.storage.setAlarm(Date.now() + 5000)
-        try { await runAuthorization(this.env, run); await this.publish(run) }
-        catch (error) {
-          if (!(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403)) throw error
-        }
-      }
+      const delivered = await deliverAgentRun(this.env, run, () => this.publish(run))
       await this.release(run)
-      await this.ctx.storage.deleteAlarm()
+      if (delivered) await this.ctx.storage.deleteAlarm()
+      else await this.ctx.storage.setAlarm(Date.now() + 30000)
       return
     }
     // Retry all transport failures from durable state, never by repeating a tool call.
@@ -312,9 +285,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
         .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, newId(),
           failure, nowIso(), run.id).first<{ id: string }>()
-      if (finalized) await this.publish({ ...run, status: terminal.type === 'result' ? 'completed' : 'failed', resultText: terminal.type === 'result' ? terminal.text : null, lastError: failure })
+      const savedRun = finalized ? (await findAgentRun(this.env, run.id))! : null
+      const delivered = savedRun ? await deliverAgentRun(this.env, savedRun, () => this.publish(savedRun)) : true
       await this.release(run)
-      await this.ctx.storage.deleteAlarm()
+      if (delivered) await this.ctx.storage.deleteAlarm()
+      else await this.ctx.storage.setAlarm(Date.now() + 30000)
     } catch (error) {
       console.warn('agent.run.transport', { runId: run.id, phase, errorType: error instanceof Error ? error.name : 'Unknown' })
       const forbidden = error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403
@@ -324,9 +299,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         .bind(forbidden ? 'Authorization revoked' : 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
       const failed = await findAgentRun(this.env, run.id)
-      if (failed && !forbidden) await this.publish(failed)
+      const delivered = failed ? await deliverAgentRun(this.env, failed, () => this.publish(failed)) : true
       await this.release(run)
-      await this.ctx.storage.deleteAlarm()
+      if (delivered) await this.ctx.storage.deleteAlarm()
+      else await this.ctx.storage.setAlarm(Date.now() + 30000)
     }
   }
 }

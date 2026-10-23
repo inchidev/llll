@@ -38,7 +38,7 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
     if (!saved || !agentProviderIds.includes(saved.kind)) return null
     return providerDTO(env, id, saved, options)
   }))).filter((p): p is NonNullable<typeof p> => Boolean(p))
-  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
+  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
   const imported = providers.some(p => p.kind === 'openrouter' && p.configured) && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
   if (aiProvider(env) && !imported) {
     if (aiProvider(env) === 'openai-compatible') models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })
@@ -48,7 +48,7 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
     }
   }
   const savedDefault = await readServerSetting(env.DB, 'agents.defaultModel')
-  return { providers, models, canImportOpenRouter: Boolean(!imported && env.AI_API_KEY && env.AI_MODEL && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'), defaultModel: models.find(m => m.value === savedDefault)?.value ?? models[0]?.value ?? null }
+  return { providers, models, canImportOpenRouter: Boolean(!imported && env.AI_API_KEY && env.AI_MODEL && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'), defaultModel: savedDefault !== null ? models.find(m => m.value === savedDefault)?.value ?? null : deploymentDefaultModel(env, models, imported), deploymentProvider: aiProvider(env) && !imported ? (aiProvider(env) === 'openai-compatible' ? 'Deployment' : 'Workers AI') : null }
 }
 export function maskedAgentKey(value: string) { return value.length > 12 ? `${value.slice(0, 4)}••••${value.slice(-4)}` : '••••••••' }
 
@@ -94,4 +94,11 @@ export async function resolveSavedAgentModel(env: L4Env, reference: string, acto
   if (!env.AUTH_SECRET) fail(503, 'secret_unavailable', 'Server encryption is unavailable')
   const apiKey = await decryptSecret(env.AUTH_SECRET, agentProviderScope(parsed.provider), provider.secret)
   return { id: provider.kind, connectionId: parsed.provider, model, apiKey }
+}
+
+/** Only an operator-supplied model is a deployment default; an AI binding alone is not a choice. */
+export function deploymentDefaultModel(env: L4Env, models: { value: string }[], imported = false): string | null {
+  if (imported) return null
+  const explicit = aiProvider(env) === 'openai-compatible' ? env.AI_MODEL?.trim() : env.AGENT_MODEL?.trim()
+  return explicit && models.some(model => model.value === explicit) ? explicit : null
 }

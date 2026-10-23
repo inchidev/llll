@@ -22,7 +22,7 @@ const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id
  deadline, created_at as createdAt, updated_at as updatedAt`
 
 export async function piConfigured(env: L4Env): Promise<boolean> {
-  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && (env.FILES || env.TICKETS) && (await agentProviderCatalog(env)).defaultModel)
+  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && (env.FILES || env.TICKETS) && (await agentProviderCatalog(env)).models.length)
 }
 export async function findAgentRun(env: L4Env, id: string): Promise<AgentRun | null> {
   return env.DB.prepare(`SELECT ${runColumns} FROM agent_runs WHERE id = ?`).bind(id).first<AgentRun>()
@@ -110,7 +110,14 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer)))
   let environmentId = input.environmentId ?? null
   if (input.taskId) {
-    if (!hasPermission(agent.principal.permissions, Permission.executeTasks) || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.executeTasks))) fail(403, 'forbidden', 'Task execution is not granted')
+    if (!hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent’s role needs Execute assigned tasks. Change its role in Server settings.')
+    if (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.executeTasks)) fail(403, 'actor_task_permission', 'Your role needs Execute assigned tasks.')
+    for (const id of [input.agentId, actor.principal.id]) {
+      const member = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'").bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
+      if (!member) fail(403, 'report_access', 'Report channel member is unavailable')
+      try { await requireChannelAccessForMember(env, requireMemberForUser(env, member, actor.serverId), input.channelId, Permission.sendMessages) }
+      catch { fail(403, 'report_access', id === input.agentId ? 'The assigned agent needs access and Send messages in the report channel.' : 'You need access and Send messages in the report channel.') }
+    }
     const task = await getTask(env, agent, input.taskId)
     if (!task || task.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
