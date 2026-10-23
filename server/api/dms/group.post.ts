@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { channels, channelMembers, users } from '../../../drizzle/schema'
 import { DM_GROUP_MAX, DM_GROUP_MIN } from '../../../shared/dm'
 import { newId, nowIso } from '../../../shared/ids'
-import { requireUser } from '../../utils/auth'
+import { requireMember } from '../../utils/guards'
+import { hasPermission, Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
 import { getDb } from '../../utils/db'
 import { toDmDto } from '../../utils/dms'
@@ -16,7 +17,8 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const me = await requireUser(event)
+  const member = await requireMember(event, await getServerId(cf(event).env.DB))
+  const me = member.user
   const body = parseBody(bodySchema, await readBody(event))
   if (body.serverId && body.serverId !== await getServerId(cf(event).env.DB)) fail(404, 'not_found', 'Server not found')
   const { env } = cf(event)
@@ -24,9 +26,13 @@ export default defineEventHandler(async (event) => {
   const ids = [...new Set([me.id, ...body.userIds])]
   if (ids.length < DM_GROUP_MIN || ids.length > DM_GROUP_MAX) fail(400, 'bad_request', 'Group DMs need 3–25 people')
 
-  const memberRows = await db.select({ userId: users.id }).from(users)
+  const memberRows = await db.select({ userId: users.id, kind: users.kind }).from(users)
     .where(and(inArray(users.id, ids), eq(users.status, 'active')))
   if (memberRows.length !== ids.length) fail(403, 'forbidden', 'Every participant must be in the server')
+
+  if (memberRows.some(user => user.kind === 'agent') && !hasPermission(member.perms, Permission.useAgents)) {
+    fail(403, 'forbidden', 'Use agents permission is required to add an Agent')
+  }
 
   const id = newId()
   const created = nowIso()
@@ -35,6 +41,8 @@ export default defineEventHandler(async (event) => {
     name: 'dm',
     topic: '',
     type: 'dm',
+    dmKind: 'group',
+    dmOwnerId: me.id,
     visibility: 'private',
     position: 0,
     liveMeetingId: null,
