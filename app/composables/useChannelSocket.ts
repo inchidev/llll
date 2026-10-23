@@ -4,7 +4,7 @@ import type { ChannelDTO, ClientMsg, MessageDTO, ServerMsg } from '~~/shared/typ
 import { applyReactionChange } from '../utils/message-reactions'
 import { mergeLatestPage } from '../utils/message-cache'
 
-type Page = { messages: MessageDTO[]; nextCursor: string | null }
+type Page = { messages: MessageDTO[]; nextCursor: string | null; rootMessage?: MessageDTO | null }
 type ChannelList = { channels: ChannelDTO[] }
 export type RealtimeConnection = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 

@@ -548,6 +548,8 @@ export type ChannelDTO = {
   title?: string
   participants?: PublicUser[]
   frozen?: boolean
+  lastAgentMessage?: string | null
+  agentWorking?: boolean
   lastMessageAt?: string | null
 }
 

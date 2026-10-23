@@ -23,6 +23,7 @@ const props = defineProps<{
   disabledPlaceholder?: string
   canAttach?: boolean
   agentBusy?: boolean
+  agentId?: string
   /** The conversation's main composer: focuses on open and when typing anywhere. */
   primary?: boolean
 }>()
@@ -43,6 +44,8 @@ const files = ref<File[]>([])
 const emojiOpen = ref(false)
 const field = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 const agentMode = ref<'queue' | 'steer'>('queue')
+const toolbarBusy = ref(false)
+const agentSettingsSaving = ref(false)
 const agentModes = [
   { label: 'Queue', value: 'queue' },
   { label: 'Steer', value: 'steer' },
@@ -353,6 +356,7 @@ async function submit() {
     return
   }
   const channelId = props.channelId
+  if (agentSettingsSaving.value) return
   const submission = claimComposerSubmission<File>({
     read: () => ({
       draft: draft.value,
@@ -424,7 +428,7 @@ async function submit() {
     replyToId: submission.replyToId ?? undefined,
     clientId,
     attachmentIds: attachmentIds.length ? attachmentIds : undefined,
-    agentMode: props.agentBusy ? agentMode.value : undefined,
+    agentMode: props.agentId ? 'queue' : (props.agentBusy || toolbarBusy.value) ? agentMode.value : undefined,
   })
   agentMode.value = 'queue'
 }
@@ -480,6 +484,7 @@ defineExpose({ addFiles, focus })
       class="df-composer overflow-hidden"
       :class="replyTarget ? 'rounded-b-lg' : 'rounded-lg'"
     >
+      <ChatAgentToolbar v-if="agentId" :channel-id="channelId" :agent-id="agentId" :send="send" :disabled="disabled" @busy="toolbarBusy = $event" @saving="agentSettingsSaving = $event" />
       <div v-if="replyTarget" class="flex items-center gap-2 bg-muted px-3 py-2 text-sm text-muted">
         <span class="min-w-0 flex-1 truncate">Replying to <span class="font-semibold text-toned">{{ replyTarget.name }}</span></span>
         <UButton size="xs" color="neutral" variant="ghost" square icon="i-ph-x-circle-fill" aria-label="Cancel reply" @click="cancelReply" />
@@ -591,7 +596,7 @@ defineExpose({ addFiles, focus })
           />
         </UTooltip>
         <USelect
-          v-if="!recording && agentBusy"
+          v-if="!recording && agentBusy && !agentId"
           v-model="agentMode"
           :items="agentModes"
           value-key="value"
@@ -610,7 +615,7 @@ defineExpose({ addFiles, focus })
             square
             class="composer-icon accent"
             :ui="{ leadingIcon: 'size-5' }"
-            :disabled="disabled || overLimit"
+            :disabled="disabled || overLimit || agentSettingsSaving"
             aria-label="Send message"
           />
         </UTooltip>

@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { cp, mkdir, readdir, rm, writeFile, rename } from 'node:fs/promises'
 import { buildNuxt, loadNuxt, useNitro } from 'nuxt/kit'
 import { build, prepare } from 'nitropack'
+import { createWatchHeadersPlugin } from './watch-headers.mjs'
 
 // Generate Nuxt's server imports and templates without building the Client.
 // The production preset/entry stays the same; only Rollup's watch loop is enabled.
@@ -49,6 +50,10 @@ nitro.hooks.hook('compiled', async () => {
   console.log('llll: backend compiled; celld will adopt this build')
 })
 await prepare(nitro)
+const headersPlugin = await createWatchHeadersPlugin(nitro.options.output.publicDir)
+nitro.hooks.hook('rollup:before', (_, config) => {
+  config.plugins.unshift(headersPlugin)
+})
 nitro.options.dev = true
 await build(nitro)
 

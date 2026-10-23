@@ -33,6 +33,13 @@ function context(messages: MessageDTO[], hasOlder: boolean): MessageContextRespo
 }
 
 describe('mergeMessageContext', () => {
+  it('keeps the original thread message outside reply pagination when jumping to a reply', () => {
+    const root = message('root', '2026-09-04T00:00:00.000Z')
+    const current: InfiniteData<MessagePage> = { pages: [{ rootMessage: root, messages: [message('reply', '2026-09-04T00:01:00.000Z')], nextCursor: null }], pageParams: [undefined] }
+    const merged = mergeMessageContext(current, context(current.pages[0]!.messages, false))
+    expect(merged.pages[0]?.rootMessage).toEqual(root)
+    expect(merged.pages[0]?.messages.map(item => item.id)).toEqual(['reply'])
+  })
   it('deduplicates and orders the combined context chronologically', () => {
     const current: InfiniteData<MessagePage> = {
       pages: [{
@@ -90,6 +97,15 @@ describe('reconnect catch-up', () => {
   const cached = (pages: MessageDTO[][], cursor: string | null = null): InfiniteData<MessagePage> => ({
     pages: pages.map((messages, index) => ({ messages, nextCursor: index === pages.length - 1 ? cursor : 'older' })),
     pageParams: pages.map((_, index) => index ? 'older' : undefined),
+  })
+
+  it('refreshes the original thread message even when no reply was missed', () => {
+    const current = cached([[message('reply', at(1))]])
+    current.pages[0]!.rootMessage = message('root', at(0), 'Before edit')
+    const rootMessage = message('root', at(0), 'After edit')
+    const merged = mergeLatestPage(current, { rootMessage, messages: current.pages[0]!.messages, nextCursor: null })
+    expect(merged.pages[0]?.rootMessage).toEqual(rootMessage)
+    expect(merged.pages[0]?.messages.map(item => item.id)).toEqual(['reply'])
   })
 
   it('appends missed messages and refreshes edited ones, keeping older pages', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasServerNavigationMenu, serverNavigationSection } from '../../shared/server-navigation'
+import { chatNavigationTarget, hasServerNavigationMenu, serverNavigationSection } from '../../shared/server-navigation'
 
 describe('Server rail destinations', () => {
   it('keeps channels, DMs and threads in Chat', () => {
@@ -7,6 +7,22 @@ describe('Server rail destinations', () => {
     expect(serverNavigationSection('/channels/dm-id')).toBe('chat')
     expect(serverNavigationSection('/channels/channel-id/threads/thread-id')).toBe('chat')
     expect(hasServerNavigationMenu('/channels/channel-id')).toBe(true)
+  })
+
+  it('keeps Agent conversations and their threads in Agents', () => {
+    expect(serverNavigationSection('/agents/dm-id')).toBe('agents')
+    expect(serverNavigationSection('/agents/dm-id/threads/thread-id')).toBe('agents')
+  })
+
+  it('does not send the Chat rail back to an Agent DM saved by an older Client', () => {
+    const conversations = [
+      { id: 'agent-dm', type: 'dm', participants: [{ kind: 'agent' }] },
+      { id: 'general', type: 'text' },
+      { id: 'human-dm', type: 'dm', participants: [{ kind: 'human' }] },
+    ]
+    expect(chatNavigationTarget(conversations, 'agent-dm')).toBe('/channels')
+    expect(chatNavigationTarget(conversations, 'human-dm')).toBe('/channels/human-dm')
+    expect(chatNavigationTarget(conversations, 'removed')).toBe('/channels')
   })
 
   it('opens context menus and keeps Runs with Tasks', () => {

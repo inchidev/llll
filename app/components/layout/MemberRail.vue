@@ -137,7 +137,7 @@ function roleLabel(name: string) {
     <header class="h-12 px-3 flex items-center gap-2 shadow-[0_1px_0_var(--ui-border)] shrink-0 bg-muted">
       <UButton
         v-if="isOverlay"
-        icon="i-ph-caret-left"
+        icon="i-ph-arrow-right"
         color="neutral"
         variant="ghost"
         size="md"

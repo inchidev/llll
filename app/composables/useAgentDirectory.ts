@@ -20,6 +20,7 @@ export function useAgentDirectory(serverId: () => string) {
     try {
       const result = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, serverId: serverId() } })
       await qc.invalidateQueries({ queryKey: ['dms'] })
+      // Agent conversations stay inside the Agents section.
       await navigateTo(channelPath(result.channel))
     } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
     finally { opening.value = null }

@@ -7,6 +7,7 @@ import { formatDateTime } from '~~/shared/format'
 
 const props = defineProps<{ serverId: string }>()
 const { api, serverUrl } = useApi()
+const session = useSessionStore()
 const toast = useToast()
 const queryClient = useQueryClient()
 const { copy } = useClipboard()
@@ -24,13 +25,14 @@ const membersQ = useQuery({
   queryKey: computed(() => ['members', props.serverId]),
   queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`),
 })
-const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).map(member => ({
+const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).filter(member => member.user.id === session.user?.id || member.user.kind === 'agent').map(member => ({
   label: `${member.user.displayName} · ${member.user.kind === 'agent' ? 'Agent' : member.role.name}`,
   value: member.user.id,
 })))
-watch(subjectOptions, (options) => { if (!subjectId.value && options[0]) subjectId.value = options[0].value }, { immediate: true })
+watch(subjectOptions, (options) => { if (!subjectId.value && options[0]) subjectId.value = options.find(option => option.value === session.user?.id)?.value ?? options[0].value }, { immediate: true })
 
 const scopeOptions: Array<{ value: McpScope; label: string }> = [
+  { value: 'data:manage', label: 'Manage tables' },
   { value: 'tasks:read', label: 'Read tasks' },
   { value: 'tasks:write', label: 'Write tasks' },
   { value: 'documents:read', label: 'Read documents' },
@@ -79,11 +81,11 @@ async function copyValue(value: string, label: string) {
 
 <template>
   <div>
-    <h1 class="text-xl font-semibold text-highlighted">MCP</h1>
-    <p class="mt-1 text-sm text-muted">Connect Codex and other MCP clients to this server.</p>
+    <h1 class="text-xl font-semibold text-highlighted">Access tokens</h1>
+    <p class="mt-1 text-sm text-muted">Server access tokens managed by the owner. Each token acts as you or a selected Agent, within its current Role and selected scopes.</p>
     <UAlert
-      class="mt-6" color="neutral" variant="subtle" title="Connect with OAuth"
-      description="Add the MCP Server URL in your client, sign in here, and choose yourself or an Agent you manage. Manage OAuth access in My Settings → Connected apps." />
+      class="mt-6" color="neutral" variant="subtle" title="For clients without OAuth"
+      description="Use a manual token only when your client needs one. OAuth connections are managed separately in My Settings → Connected apps." />
 
     <div class="mt-8 rounded-lg border border-default bg-elevated p-5">
       <UFormField label="Server URL">
@@ -144,7 +146,8 @@ async function copyValue(value: string, label: string) {
         <li v-for="token in tokensQ.data.value.tokens" :key="token.id" class="flex items-center gap-4 px-5 py-4">
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-medium text-highlighted">{{ token.name }}</p>
-            <p class="mt-1 text-xs text-muted">Acts as {{ token.subject.displayName }} · {{ token.scopes.join(', ') }}</p>
+            <p class="mt-1 text-xs text-muted">Acts as {{ token.subject.displayName }} · Created by {{ token.createdBy.displayName }}</p>
+            <p class="mt-1 text-xs text-muted">{{ token.scopes.join(', ') }}</p>
             <p class="mt-1 text-xs text-muted">
               <span class="font-mono">{{ token.tokenPrefix }}…</span>
               · Created {{ formatDateTime(token.createdAt) }}

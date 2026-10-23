@@ -11,6 +11,17 @@ describe('channelPath', () => {
   it('appends threads', () => {
     expect(channelPath({ id: 'abc' }, 'thr')).toBe('/channels/abc/threads/thr')
   })
+
+  it('keeps an Agent DM in Agents from every shared conversation link', () => {
+    const conversation = { id: 'agent-dm', type: 'dm', participants: [{ kind: 'human' }, { kind: 'agent' }] }
+    expect(channelPath(conversation)).toBe('/agents/agent-dm')
+    expect(channelPath(conversation, 'reply')).toBe('/agents/agent-dm/threads/reply')
+  })
+
+  it('keeps human DMs and channels containing agents in Chat', () => {
+    expect(channelPath({ id: 'human-dm', type: 'dm', participants: [{ kind: 'human' }] })).toBe('/channels/human-dm')
+    expect(channelPath({ id: 'general', type: 'text', participants: [{ kind: 'agent' }] })).toBe('/channels/general')
+  })
 })
 
 describe('databasePath', () => {

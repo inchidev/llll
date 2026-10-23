@@ -7,6 +7,8 @@ const open = defineModel<boolean>('open', { default: false })
 const section = defineModel<string>('section', { default: 'account' })
 
 const session = useSessionStore()
+const { server, serverId } = useServer()
+const isOwner = computed(() => Boolean(server.value && server.value.ownerId === session.user?.id))
 const { api } = useApi()
 const live = useLiveStore()
 const prefs = usePrefsStore()
@@ -75,7 +77,7 @@ watch(open, async (v) => {
   }
 })
 
-const groups = [
+const groups = computed(() => [
   {
     label: 'User Settings',
     items: [
@@ -83,6 +85,7 @@ const groups = [
       { id: 'profile', label: 'Profile', icon: 'i-ph-identification-card', keywords: ['display name', 'avatar', 'nickname'] },
       { id: 'privacy', label: 'Privacy & Safety', icon: 'i-ph-shield-check', keywords: ['online status', 'activity', 'presence'] },
       { id: 'connections', label: 'Connected apps', icon: 'i-ph-plugs-connected', keywords: ['mcp', 'oauth', 'codex', 'claude', 'access', 'revoke'] },
+      ...(isOwner.value ? [{ id: 'mcp', label: 'Access tokens', icon: 'i-ph-key', keywords: ['mcp', 'manual', 'token', 'codex', 'agent'] }] : []),
     ],
   },
   {
@@ -94,12 +97,12 @@ const groups = [
       { id: 'chat', label: 'Chat', icon: 'i-ph-chat-circle-text', keywords: ['markdown', 'shortcuts', 'send message'] },
     ],
   },
-]
+])
 
 /** A bad or stale ?section= falls back to the first item rather than rendering nothing. */
 watch([open, () => section.value], ([isOpen]) => {
   if (!isOpen) return
-  const known = groups.flatMap(group => group.items).some(item => item.id === section.value)
+  const known = groups.value.flatMap(group => group.items).some(item => item.id === section.value)
   if (!known) section.value = 'account'
 }, { immediate: true })
 
@@ -346,6 +349,10 @@ async function logout() {
 
     <template v-else-if="section === 'connections'">
       <SettingsMcpConnections />
+    </template>
+
+    <template v-else-if="section === 'mcp' && isOwner">
+      <SettingsMcpSettings :server-id="serverId" />
     </template>
 
     <template v-else-if="section === 'profile'">
