@@ -47,7 +47,10 @@ upgrade instructions. Never patch immutable release assets in place.
   `main`, merge groups, daily schedules and manual dispatch. It uses the
   extended security query suite without building or installing application
   dependencies. A successful analysis means the scan ran; findings must be
-  reviewed in GitHub's Code scanning view. It is not a clean-bill-of-health gate.
+  reviewed in GitHub's Code scanning view. The separate `CodeQL` result check
+  blocks newly introduced findings at GitHub's configured failure threshold
+  (high-or-higher security alerts and standard errors). This is not a claim
+  that the existing code has no vulnerabilities.
 - GitHub secret scanning and push protection look for supported secret patterns.
   Review private alerts and revoke/rotate exposed credentials; deleting a file
   or dismissing an alert does not invalidate a credential. Never copy secret
@@ -70,7 +73,8 @@ Repository admins should verify these settings after setup and periodically:
 - CodeQL advanced setup uses the committed workflow; do not enable a duplicate
   default-setup configuration.
 - `main` requires PRs, resolved review conversations, the existing CI/Workers
-  Builds checks and `dependency-review` plus both CodeQL analysis jobs. Keep
+  Builds checks, `dependency-review`, both CodeQL analysis jobs and the `CodeQL`
+  findings check. Keep
   force pushes/deletion blocked and preserve immutable release-tag rules.
 - Actions tokens default to read-only and cannot approve PRs. Fork workflows
   receive no write tokens or secrets. Require review of outside workflow runs.

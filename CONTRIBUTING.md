@@ -76,8 +76,8 @@ validation and remaining limitations. Include screenshots for visible UI
 changes and update the relevant docs. Contributions are made under the
 repository's MIT license; no separate CLA is required.
 
-GitHub Actions validates PRs without repository secrets. First-time external
-contributors may need a maintainer to approve the Actions run. Cloudflare
+GitHub Actions validates PRs without repository secrets. External contributors
+need a maintainer to approve fork workflow runs. Cloudflare
 Previews require maintainer-controlled Workers Builds: a fork or Dependabot PR
 does not gain deployment credentials. Maintainers must review untrusted changes
 before arranging a same-repository branch/PR for the required deployed Preview.
