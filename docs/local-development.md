@@ -114,3 +114,16 @@ integrations. Add their existing environment variables to the private local
 configuration and restart when testing them. Nothing provisions an external
 provider or copies production credentials automatically. Live file storage is
 not a backup destination; configure backups separately before keeping real data.
+
+## Mail acceptance
+
+With `pnpm dev:stack` running, use `node scripts/test-mail-stack.mjs` for a
+separate disposable Mail Server. It configures only an example.test domain,
+signs fixture messages through the real inbound webhook, and captures all
+outbound mail at an authenticated local HTTP gateway. No email leaves the
+machine. The test covers mailbox and attachment access, download isolation,
+Reply-To/Reply all, Spam/Trash persistence, idempotent sends, rate limiting and
+persistence after a Docker restart, and attachment access revocation after deleting
+a Mailbox. It deletes only its random test project's
+volumes and leaves the developer's stack intact. Real Cloudflare domain
+provisioning, sender authentication and external delivery need separate checks.

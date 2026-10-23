@@ -307,6 +307,7 @@ export type MailMessageDTO = MessageDTO & {
     deliveryStatus: 'received' | 'pending' | 'sent' | 'failed'
     /** Why the last delivery attempt failed, when it did. */
     deliveryError: string | null
+    deliveryUncertain?: boolean
   }
 }
 

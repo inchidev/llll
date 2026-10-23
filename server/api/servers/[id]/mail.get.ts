@@ -1,3 +1,4 @@
+import { retryMailFileCleanup } from '../../../utils/mail-cleanup'
 import type { MailSettingsDTO, MailboxPermission } from '../../../../shared/types'
 import { Permission } from '../../../../shared/permissions'
 import { requireMember } from '../../../utils/guards'
@@ -8,7 +9,8 @@ import { ensureServerMailFromEnv } from '../../../utils/server-mail'
 export default defineEventHandler(async (event): Promise<{ mail: MailSettingsDTO }> => {
   const serverId = getRouterParam(event, 'id')!
   await requireMember(event, serverId, Permission.manageServer)
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
+  waitUntil(retryMailFileCleanup(env))
   await ensureServerMailFromEnv(env)
   const domains = await env.DB.prepare(
     'SELECT id, domain, app_hostname as appHostname FROM email_domains ORDER BY created_at, domain',

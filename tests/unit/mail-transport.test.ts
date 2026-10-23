@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { serverCapabilities } from '../../workers/server-capabilities'
+import { requireMailSendLimit } from '../../server/utils/server-mail'
 import { receiveMailGatewayRequest, secureTokenEqual } from '../../workers/mail-gateway-ingress'
 import { authEmailAvailable, sendAuthEmail, sendServerEmail, serverEmailAvailable } from '../../workers/mail-transport'
+
+afterEach(() => vi.unstubAllGlobals())
 
 const message = {
   from: { email: 'support@dev1.example.com', name: 'Support' },
@@ -10,6 +14,47 @@ const message = {
 }
 
 describe('server mail transport', () => {
+  it('keeps reply headers and uses REST address and reply_to field names', async () => {
+    const fetcher = vi.fn(async () => Response.json({ success: true, result: { delivered: ['person@example.net'], queued: [], permanent_bounces: [] } }))
+    vi.stubGlobal('fetch', fetcher)
+    await sendServerEmail({ CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), CLOUDFLARE_API_TOKEN: 't'.repeat(32) } as never, {
+      ...message, replyTo: { email: 'replies@example.com', name: 'Replies' }, headers: { 'In-Reply-To': '<first@example.net>', References: '<first@example.net>' },
+    })
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({
+      from: { address: message.from.email, name: 'Support' }, reply_to: { address: 'replies@example.com', name: 'Replies' },
+      headers: { 'In-Reply-To': '<first@example.net>', References: '<first@example.net>' },
+    })
+  })
+
+  it('does not report all-bounced REST recipients as a successful send', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ success: true, result: { delivered: [], queued: [], permanent_bounces: ['person@example.net'] } })))
+    await expect(sendServerEmail({ CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), CLOUDFLARE_API_TOKEN: 't'.repeat(32) } as never, message)).rejects.toThrow()
+  })
+
+  it('removes subject newlines before any transport sees them', async () => {
+    const send = vi.fn(async () => ({ messageId: 'ok' }))
+    await sendServerEmail({ MAIL_EMAIL: { send } } as never, { ...message, subject: 'Hello\r\nBcc: victim@example.net' })
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Hello Bcc: victim@example.net' }))
+  })
+
+  it('does not advertise mailbox sending when only the auth binding exists', () => {
+    const env = { EMAIL: { send: vi.fn() } } as never
+    expect(authEmailAvailable(env)).toBe(true)
+    expect(serverEmailAvailable(env)).toBe(false)
+    expect(serverCapabilities(env)).toMatchObject({ emailOutbound: false, emailProvider: null })
+  })
+
+  it('limits external sends and fails closed when its limiter is unavailable', async () => {
+    const take = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('unavailable'))
+    const getByName = vi.fn(() => ({ take }))
+    const env = { RATE_LIMIT_DO: { getByName } } as never
+    await expect(requireMailSendLimit(env, 'support', 'sender')).resolves.toBeUndefined()
+    expect(getByName).toHaveBeenCalledWith('mail:support:sender')
+    expect(take).toHaveBeenCalledWith(10, 60_000)
+    await expect(requireMailSendLimit(env, 'support', 'sender')).rejects.toMatchObject({ statusCode: 429 })
+    await expect(requireMailSendLimit(env, 'support', 'sender')).rejects.toMatchObject({ statusCode: 503 })
+  })
+
   it('uses a send binding before the authenticated gateway', async () => {
     const direct = { send: vi.fn(async () => ({ messageId: 'direct-message' })) }
     const fetch = vi.fn(async () => Response.json({ messageId: 'gateway-message' }))

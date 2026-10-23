@@ -8,7 +8,6 @@ const qc = useQueryClient()
 const { api } = useApi()
 const tab = ref<'mailboxes' | 'domains'>('mailboxes')
 /** The Domains panel; its owner-only Add domain action shows in this page's header. */
-const domainsPanel = ref<{ canAdd: boolean, openAdd: () => void } | null>(null)
 const createOpen = ref(false)
 const deleteOpen = ref(false)
 const accessQuery = ref('')
@@ -177,13 +176,6 @@ async function saveMailbox() {
             :disabled="!domains.length"
             @click="createOpen = true"
           />
-          <UButton
-            v-else-if="tab === 'domains' && domainsPanel?.canAdd"
-            icon="i-ph-plus"
-            label="Add domain"
-            size="sm"
-            @click="domainsPanel?.openAdd()"
-          />
         </template>
       </SettingsHeader>
 
@@ -253,7 +245,7 @@ async function saveMailbox() {
           </template>
         </SettingsList>
 
-        <SettingsEmailDomains v-else ref="domainsPanel" class="mt-5" :server-id="serverId" :is-owner="isOwner" :mail="mail" />
+        <SettingsEmailDomains v-else class="mt-5" :server-id="serverId" :is-owner="isOwner" :mail="mail" />
       </template>
     </template>
 

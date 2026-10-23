@@ -75,12 +75,16 @@ export function emailProvider(env: L4Env): EmailProviderName {
   return null
 }
 
+export function serverEmailProvider(env: L4Env): EmailProviderName {
+  if (env.MAIL_EMAIL) return 'binding'
+  if (cloudflareRestConfigured(env)) return 'cloudflare-rest'
+  if (gatewayConfigured(env)) return 'gateway'
+  if (smtpConfigured(env)) return 'smtp'
+  return null
+}
+
 export function serverEmailAvailable(env: L4Env): boolean {
-  if (env.MAIL_EMAIL) return true
-  if (cloudflareRestConfigured(env)) return true
-  if (gatewayConfigured(env)) return true
-  if (smtpConfigured(env)) return true
-  return false
+  return serverEmailProvider(env) !== null
 }
 
 export function authEmailAvailable(env: L4Env): boolean {
@@ -109,14 +113,23 @@ async function postJsonGateway(url: string, token: string, message: ServerEmailM
   return { messageId: payload.messageId }
 }
 
+function restAddress(address: ServerEmailAddress) {
+  return typeof address === 'string' ? address : { address: address.email, name: address.name }
+}
+
+function restAddresses(addresses: ServerEmailAddress | ServerEmailAddress[]) {
+  return Array.isArray(addresses) ? addresses.map(restAddress) : restAddress(addresses)
+}
+
 function emailApiBody(message: ServerEmailMessage) {
   return {
-    from: message.from,
-    to: message.to,
-    ...(message.cc ? { cc: message.cc } : {}),
-    ...(message.bcc ? { bcc: message.bcc } : {}),
-    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    from: restAddress(message.from),
+    to: restAddresses(message.to),
+    ...(message.cc ? { cc: restAddresses(message.cc) } : {}),
+    ...(message.bcc ? { bcc: restAddresses(message.bcc) } : {}),
+    ...(message.replyTo ? { reply_to: restAddress(message.replyTo) } : {}),
     subject: message.subject,
+    ...(message.headers ? { headers: message.headers } : {}),
     ...(message.text !== undefined ? { text: message.text } : {}),
     ...(message.html !== undefined ? { html: message.html } : {}),
   }
@@ -128,15 +141,11 @@ function emailMessageId(result: unknown): string | null {
   for (const key of ['message_id', 'messageId', 'id']) {
     if (typeof record[key] === 'string' && record[key]) return record[key] as string
   }
-  const delivered = Array.isArray(record.delivered) ? record.delivered : []
-  const queued = Array.isArray(record.queued) ? record.queued : []
-  const address = [...delivered, ...queued].find((item): item is string => typeof item === 'string' && item.length > 0)
-  if (address) return `cloudflare:${address}`
-  if ('delivered' in record || 'queued' in record) return 'cloudflare:sent'
+
   return null
 }
 
-async function sendCloudflareEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
+async function sendCloudflareEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string | null }> {
   const accountId = cloudflareAccountId(env)
   const token = cloudflareApiToken(env)
   if (!accountId || !token) throw new Error('Cloudflare API credentials are missing')
@@ -156,13 +165,16 @@ async function sendCloudflareEmail(env: L4Env, message: ServerEmailMessage): Pro
   }
   const payload = await response.json().catch(() => null) as { success?: boolean, result?: unknown } | null
   const messageId = payload?.success !== false ? emailMessageId(payload?.result) : null
-  if (!response.ok || payload?.success === false || !messageId) {
+  const result = payload?.result as { delivered?: unknown[]; queued?: unknown[] } | undefined
+  const accepted = [...(result?.delivered ?? []), ...(result?.queued ?? [])].some(address => typeof address === 'string' && address.length > 0)
+  if (!response.ok || payload?.success === false || (!messageId && !accepted)) {
     throw new Error(cloudflareErrorMessage(payload, response.status, 'Cloudflare Email Sending'))
   }
   return { messageId }
 }
 
-export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
+export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string | null }> {
+  message = { ...message, subject: message.subject.replace(/[\r\n]+/gu, ' ').trim().slice(0, 500) }
   if (env.MAIL_EMAIL) return env.MAIL_EMAIL.send(message)
   if (cloudflareRestConfigured(env)) return sendCloudflareEmail(env, message)
   const fetcher = mailGatewayFetcher(env)
@@ -192,7 +204,7 @@ export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): 
   throw new Error('Server email sending is not configured')
 }
 
-export async function sendAuthEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string }> {
+export async function sendAuthEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string | null }> {
   if (env.EMAIL) return env.EMAIL.send(message)
   return sendServerEmail(env, message)
 }

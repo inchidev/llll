@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { attachments } from '../../../drizzle/schema'
+import { fileResponseHeaders } from '../../../shared/file-response'
 import { parseByteRange } from '../../../shared/http-range'
 import { requireChannelMember } from '../../utils/guards'
 import { cf, requireFiles, fail } from '../../utils/cf'
@@ -33,8 +34,7 @@ export default defineEventHandler(async (event) => {
     if (obj) setHeader(event, 'Content-Length', obj.size)
   }
   if (!obj) fail(404, 'not_found', 'Blob missing')
-  setHeader(event, 'Content-Type', row.contentType)
-  setHeader(event, 'Content-Disposition', `inline; filename="${row.filename.replaceAll('"', '')}"`)
+  for (const [name, value] of Object.entries(fileResponseHeaders(row.contentType, row.filename))) setHeader(event, name, value)
   setHeader(event, 'Cache-Control', 'private, no-store')
   setHeader(event, 'Accept-Ranges', 'bytes')
   setHeader(event, 'ETag', obj.httpEtag)

@@ -26,6 +26,8 @@ const folder = computed<MailFolder>(() => {
 const activeThreadId = computed(() => String(route.query.thread || '') || null)
 
 const composerMode = ref<'reply' | 'note'>('reply')
+const replyAll = ref(false)
+const uncertainRetry = ref<MailMessageDTO | null>(null)
 const draft = ref('')
 const sending = ref(false)
 const composeTo = ref('')
@@ -103,6 +105,8 @@ watch(() => threadQ.data.value?.thread.status, (status) => {
 })
 
 watch(activeThreadId, () => {
+  replyAll.value = false
+  uncertainRetry.value = null
   draft.value = ''
   composerMode.value = 'reply'
   replyKey.value = newRequestKey()
@@ -175,7 +179,7 @@ async function send() {
   try {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
-      body: mode === 'reply' ? { content, clientId: key } : { content },
+      body: mode === 'reply' ? { content, clientId: key, replyAll: replyAll.value } : { content },
     })
     replyKey.value = newRequestKey()
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message, pending.id))
@@ -192,13 +196,15 @@ async function send() {
   }
 }
 
-async function retry(message: MailMessageDTO) {
+async function retry(message: MailMessageDTO, confirmUncertain = false) {
+  if (message.email?.deliveryUncertain && !confirmUncertain) { uncertainRetry.value = message; return }
   const threadId = activeThreadId.value
   if (!threadId || !message.email) return
-  const sendingAgain = { ...message, email: { ...message.email, deliveryStatus: 'pending' as const, deliveryError: null } }
+  uncertainRetry.value = null
+  const sendingAgain = { ...message, email: { ...message.email, deliveryStatus: 'pending' as const, deliveryError: null, deliveryUncertain: false } }
   qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, sendingAgain))
   try {
-    const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/retry`, { method: 'POST', body: { messageId: message.id } })
+    const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/retry`, { method: 'POST', body: { messageId: message.id, confirmUncertain } })
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message))
     if (result.message.email?.deliveryStatus === 'failed') deliveryFailed(result.message, 'email')
   }
@@ -360,9 +366,9 @@ const deliveryBadge = {
                     <UBadge v-if="!message.email" label="Internal note" color="warning" variant="subtle" size="sm" />
                     <UBadge
                       v-else-if="message.email.direction === 'outbound'"
-                      :label="deliveryBadge[message.email.deliveryStatus].label"
+                      :label="message.email.deliveryUncertain ? 'Delivery unknown' : deliveryBadge[message.email.deliveryStatus].label"
                       :color="deliveryBadge[message.email.deliveryStatus].color"
-                      :icon="message.email.deliveryStatus === 'pending' ? 'i-ph-circle-notch' : undefined"
+                      :icon="message.email.deliveryStatus === 'pending' && !message.email.deliveryUncertain ? 'i-ph-circle-notch' : undefined"
                       :ui="{ leadingIcon: 'animate-spin' }"
                       variant="subtle"
                       size="sm"
@@ -375,10 +381,10 @@ const deliveryBadge = {
                 </div>
               </div>
               <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-default">{{ message.content }}</p>
-              <div v-if="message.email?.deliveryStatus === 'failed'" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+              <div v-if="message.email?.deliveryStatus === 'failed' || message.email?.deliveryUncertain" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
                 <UIcon name="i-ph-warning-circle" class="size-4 shrink-0" />
-                <span class="min-w-0 flex-1">{{ message.email.deliveryError || 'This email was not delivered.' }}</span>
-                <UButton v-if="canSend" label="Retry" size="xs" color="error" variant="soft" @click="retry(message)" />
+                <span class="min-w-0 flex-1">{{ message.email?.deliveryUncertain ? 'Delivery could not be confirmed. The recipient may already have this email.' : message.email?.deliveryError || 'This email was not delivered.' }}</span>
+                <UButton v-if="canSend" :label="message.email?.deliveryUncertain ? 'Send again…' : 'Retry'" size="xs" color="error" variant="soft" @click="retry(message)" />
               </div>
               <div v-if="message.attachments.length" class="mt-4 flex flex-wrap gap-2">
                 <UButton
@@ -398,6 +404,7 @@ const deliveryBadge = {
           <form v-if="canSend" class="border-t border-default p-3" @submit.prevent="send">
             <div class="mb-2 flex items-center gap-1">
               <UButton label="Reply" size="xs" color="neutral" :variant="composerMode === 'reply' ? 'soft' : 'ghost'" @click="composerMode = 'reply'" />
+              <UButton v-if="composerMode === 'reply'" :label="replyAll ? 'Reply all' : 'Reply to sender'" size="xs" color="neutral" variant="ghost" @click="replyAll = !replyAll" />
               <UButton label="Internal note" size="xs" color="warning" :variant="composerMode === 'note' ? 'soft' : 'ghost'" @click="composerMode = 'note'" />
             </div>
             <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
@@ -412,6 +419,13 @@ const deliveryBadge = {
       </section>
     </div>
 
+    <UModal :open="Boolean(uncertainRetry)" title="Send another copy?" @update:open="value => { if (!value) uncertainRetry = null }">
+      <template #body><p class="text-sm text-muted">The recipient may already have this email. Sending again may deliver a duplicate.</p></template>
+      <template #footer>
+        <UButton label="Cancel" color="neutral" variant="ghost" @click="uncertainRetry = null" />
+        <UButton label="Send another copy" color="warning" @click="uncertainRetry && retry(uncertainRetry, true)" />
+      </template>
+    </UModal>
     <UModal v-model:open="nav.composeOpen.value" title="New email">
       <template #body>
         <div class="space-y-4">

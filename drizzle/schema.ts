@@ -708,6 +708,9 @@ export const emailMessages = sqliteTable('email_messages', {
   ccJson: text('cc_json').notNull().default('[]'),
   bccJson: text('bcc_json').notNull().default('[]'),
   rfcMessageId: text('rfc_message_id'),
+  providerMessageId: text('provider_message_id'),
+  deliveryStartedAt: text('delivery_started_at'),
+  replyToJson: text('reply_to_json').notNull().default('[]'),
   inReplyTo: text('in_reply_to'),
   referencesJson: text('references_json').notNull().default('[]'),
   deliveryStatus: text('delivery_status', { enum: ['received', 'pending', 'sent', 'failed'] }).notNull().default('received'),
@@ -727,6 +730,13 @@ export const emailMessages = sqliteTable('email_messages', {
   check('email_messages_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
   check('email_messages_delivery_status_check', sql`${table.deliveryStatus} in ('received', 'pending', 'sent', 'failed')`),
 ])
+
+/** Pending live-file deletion keys survive removal of their mailbox. */
+export const mailFileDeletions = sqliteTable('mail_file_deletions', {
+  key: text('key').primaryKey(),
+  mailboxId: text('mailbox_id').notNull(),
+  createdAt: text('created_at').notNull(),
+}, table => [index('mail_file_deletions_mailbox_idx').on(table.mailboxId)])
 
 export const auditLog = sqliteTable('audit_log', {
   id: text('id').primaryKey(),
@@ -1087,6 +1097,7 @@ export const taskAttachments = sqliteTable('task_attachments', {
 ])
 
 export const schema = {
+  mailFileDeletions,
   serverSchema,
   serverUpdateControl,
   serverIdentity,

@@ -1,6 +1,6 @@
 import type { RuntimeCapabilities } from '../shared/types'
 import { emailInboundProvider } from './inbound-email'
-import { authEmailAvailable, emailProvider } from './mail-transport'
+import { serverEmailAvailable, serverEmailProvider } from './mail-transport'
 import {
   aiProvider,
   piRuntimeConfigured,
@@ -30,9 +30,9 @@ export function serverCapabilities(env: L4Env): RuntimeCapabilities {
     calls: calls !== null,
     containers: containersAvailable(env),
     browser: browserProvider(env),
-    emailOutbound: authEmailAvailable(env),
+    emailOutbound: serverEmailAvailable(env),
     emailInbound: emailInboundProvider(env),
-    emailProvider: emailProvider(env),
+    emailProvider: serverEmailProvider(env),
     callsProvider: calls,
   }
 }

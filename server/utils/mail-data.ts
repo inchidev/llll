@@ -2,7 +2,7 @@ import { inArray } from 'drizzle-orm'
 import { emailMessages, messages } from '../../drizzle/schema'
 import type { L4Env } from '../../workers/env'
 import type { MailMessageDTO, MailThreadDTO } from '../../shared/types'
-import { mailAddressList } from '../../shared/mail'
+import { mailAddressList, mailDeliveryUncertain } from '../../shared/mail'
 import { readableMailContent } from '../../shared/mail-content'
 import { getDb } from './db'
 import { hydrateMessages } from './messages'
@@ -33,6 +33,7 @@ export async function hydrateMailMessages(env: L4Env, rows: Array<typeof message
             bcc: mailAddressList(email.bccJson),
             deliveryStatus: email.deliveryStatus,
             deliveryError: email.deliveryError,
+            deliveryUncertain: mailDeliveryUncertain(email),
           }
         : null,
     }
