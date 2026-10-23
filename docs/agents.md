@@ -94,3 +94,26 @@ Anonymous free models are not enabled by default in L4's Pi gateway until its ow
 - The embedded SDK reports an unknown engine version by default. Its `app.version` must identify the actual installed OpenCode engine version; using L4's `0.2.7` instead is rejected as an outdated OpenCode client. The working probe retains the application name `l4` and uses the installed SDK's version.
 
 Run `node scripts/probe-opencode-free.mjs` for this optional network acceptance check. It installs the pinned SDK in a disposable directory, isolates configuration and credentials, rejects tool execution, verifies the actual answer, and removes the fixture. This proves a native SDK session, **not** L4/Pi free-model support. T3 Code likewise uses native sessions instead of its stateless generation endpoints for free inference. A production bridge must preserve Pi's tool calls, approvals, quotas, cancellation and model-call audit before it can become L4's default. Do not impersonate a client or silently switch a failed free request to a billed model.
+
+### Runtime acceptance, 2026-10-23
+
+OpenCode SDK 2.1.4 was evaluated as an alternative agent engine, separately from the shipping Pi runtime. The [reproducible experiment snapshot](https://github.com/inchidev/llll/tree/671ff63da50250e88b0ebe6b93cdd3c5b32d4706/scripts/probes/opencode) contains the isolated Worker, real L4 gateway fixture, SIGKILL controller and Linux runner. Its dependencies are not added to the L4 application.
+
+| Check | Observed result |
+| --- | --- |
+| Linux Node 24.21.0, genuine SDK, no provider credentials | Free GLM 5.3 Flash completed a `list_tasks` call through the real L4 gateway and reported the authorized board. This was a disposable Linux container, not a fresh public VPS installation. |
+| Local workerd, SQLite Durable Object | SDK boot, real free inference and the same authorized L4 tool call passed. The private board was absent from the result. |
+| Actual Cloudflare Durable Object | SDK boot and SQLite session APIs passed after deployment through Workers Builds. Free GLM and Big Pickle both returned `429 provider.free-limit` / `FreeUsageLimitError`. The quota's scope was not established; no credentials, billed fallback or client impersonation were used. |
+| Actual Cloudflare eviction | A persisted session and its user input survived an explicit `ctx.abort()` and fresh host initialization. The fixture set its model-call budget to zero, so this storage test made no provider inference requests. |
+| Current VPS host, celld 0.6.2 | The standard bundle failed at `node:module.createRequire`. A static builtin-import variant got further but failed at `tty.isatty`. This SDK bundle does not currently load on our celld host; ordinary Node support does not establish celld compatibility. |
+| L4 authorization | A read-only Agent's `create_task` call was rejected by the actual Run capability/authorization/tool gateway and created no task. The SDK's own tool permissions did not bypass L4. |
+| Native restart after a committed external write | SIGKILL terminated Node and workerd after L4 committed a task but before OpenCode received the tool response. Reopening the same DO SQLite resumed the session, marked the in-flight tool `aborted`, and inserted a restart notice. A deterministic model retry with a new call ID created a second task. Native restart recovery alone is not an exactly-once external-write guarantee. |
+| Model-call budget | The SDK request hook prevented the second upstream request when the fixture admitted one call. A production implementation must connect this hook to L4's atomic Run/token admission and per-call audit. |
+| Cancellation | Interrupting an active, held model request ended the SDK execution with `session.execution.interrupted`. |
+| Subscription connection inventory | In an isolated SDK host, OpenAI listed ChatGPT sign-in plus legacy Codex browser/device OAuth methods. Anthropic listed API-key/environment methods only. No personal subscription login or inference was tested. |
+
+The Cloudflare proof used Git-built commits `7e6c54fcc21e261ddc88e6d2aa36d172a20c5f66` and `b3b333faf57e4be987cae110f0cf8c95628f2b1a`, Builds `db30bf95-2c48-48bb-b39c-e0564dddc7a5` and `f37cea4b-7cf3-4a74-89eb-9f0f674f5fbf`. The isolated bundle was 13,384.41 KiB raw / 2,846.46 KiB gzip; this is not a combined L4 Server size measurement. The temporary Worker, custom domain and build configuration were removed afterwards. Production and customer Servers were not updated.
+
+An isolated dependency audit of SDK 2.1.4 also reported the high-severity `braces` advisory [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), propagated through `micromatch` and `@parcel/watcher`, plus lower-severity provider dependencies. Watchers were disabled in the probes; this does not establish safety for other SDK configurations.
+
+Keep Pi as the shipping engine for now. An OpenCode adapter needs celld compatibility or an explicitly supported Node execution path, recovery reconciliation against L4's completed/uncertain tool journal before model continuation, native-tool isolation, atomic budgets and model-call audit, and real subscription acceptance. Cloudflare free-model availability also needs successful inference from the target deployment before it is offered as a working default.
