@@ -1,3 +1,4 @@
+import { agentProviderCatalog } from '../server/utils/agent-providers'
 import { isDmType } from '../shared/dm'
 import { hasPermission, Permission } from '../shared/permissions'
 import { agentRuntimeConfigured, asRpc, type L4Env } from './env'
@@ -18,7 +19,7 @@ type AgentReceiveMessage = Omit<AgentIngressMessage, 'mentionIds'> & {
 
 /** Starts one durable reply workflow per addressed agent. D1 remains the routing authority. */
 export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMessage): Promise<void> {
-  if (!agentRuntimeConfigured(env)) return
+  if (!env.AGENT_DO || (!agentRuntimeConfigured(env) && !(env.AGENT_RUN_DO && env.FILES && (await agentProviderCatalog(env)).defaultModel))) return
   const image = await env.DB.prepare(
     "SELECT id FROM attachments WHERE message_id = ? AND content_type LIKE 'image/%' LIMIT 1",
   ).bind(message.messageId).first<{ id: string }>()

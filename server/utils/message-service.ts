@@ -94,9 +94,14 @@ export async function readChannelMessages(env: L4Env, member: Membership, channe
   const hasMore = rows.length > limit
   const page = hasMore ? rows.slice(0, limit) : rows
   const dtos = await hydrateMessages(env, [...page].reverse(), member.user.id)
+  const thread = access.channel
+  const rootRows = thread.type === 'thread' && thread.parentId && thread.parentMessageId
+    ? await db.select().from(messages).where(and(eq(messages.id, thread.parentMessageId), eq(messages.channelId, thread.parentId))).limit(1)
+    : []
+  const [rootMessage] = await hydrateMessages(env, rootRows, member.user.id)
   const read = await env.DB.prepare('SELECT last_read_message_id as lastReadMessageId FROM channel_reads WHERE channel_id = ? AND user_id = ?')
     .bind(channelId, member.user.id).first<{ lastReadMessageId: string | null }>()
-  return { frozen: access.frozen, messages: dtos, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
+  return { frozen: access.frozen, messages: dtos, rootMessage: rootMessage ?? null, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
 }
 
 export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void, deliveryId?: string, notifyAgents = true) {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
+import { agentModelLabel, parseAgentModelRef, type AgentProviderCatalog } from '~~/shared/agent-providers'
 import type { AgentDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
@@ -14,10 +15,9 @@ const session = useSessionStore()
 const openAiCompatible = computed(() => session.health?.aiProvider === 'openai-compatible')
 const workersAiRest = computed(() => session.health?.aiProvider === 'workers-ai-rest')
 const workersAi = computed(() => session.health?.aiProvider === 'workers-ai' || workersAiRest.value)
-const agentsUnavailable = computed(() => session.health?.aiProvider === null)
 function defaultModel() {
-  if (session.health?.aiProvider === 'openai-compatible' && session.health.aiModel) return session.health.aiModel
-  return '@cf/moonshotai/kimi-k2.7-code'
+  // The Server resolves an empty model to its default provider profile.
+  return ''
 }
 const saving = ref(false)
 const avatarFile = shallowRef<File | null>(null)
@@ -51,7 +51,7 @@ const statusOptions = [
 const schema = z.object({
   harness: z.enum(['pi', 'think']),
   displayName: z.string().trim().min(1, 'Enter a name').max(80),
-  model: z.string().trim().min(1, 'Choose a model').max(200),
+  model: z.string().trim().max(200),
   instructions: z.string().trim().max(12_000),
   status: z.enum(['active', 'paused']),
 })
@@ -65,6 +65,11 @@ const form = reactive<AgentForm>({
   status: 'active',
 })
 
+const modelSearch = ref('')
+const providers = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value, form.model]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value, selected: form.model } }), enabled: open })
+const savedModels = computed(() => providers.data.value?.models.filter(model => model.provider !== 'Deployment') ?? [])
+const agentsUnavailable = computed(() => session.health?.aiProvider === null && !providers.data.value?.defaultModel)
+
 const selectedAgent = shallowRef<AgentDTO | null>(null)
 const isNew = computed(() => !selectedAgent.value)
 const formAvatarUser = computed(() => ({
@@ -74,6 +79,11 @@ const formAvatarUser = computed(() => ({
   avatarR2Key: removeCurrentAvatar.value ? null : selectedAgent.value?.avatarR2Key ?? null,
 }))
 
+watch(savedModels, models => {
+  if (!form.model || models.some(m => m.value === form.model)) return
+  const legacy = models.find(m => parseAgentModelRef(m.value)?.model === form.model)
+  if (legacy) form.model = legacy.value
+})
 function modelOption(value: unknown) {
   return modelOptions.find(option => option.id === value)
 }
@@ -205,36 +215,38 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         title="Agents need a model provider"
         description="Ask the Server operator to connect a model provider."
       />
+      <UFormField label="Avatar">
+        <div class="flex items-center gap-4">
+          <UserAvatar :user="formAvatarUser" size="2xl" />
+          <div class="space-y-2">
+            <UFileUpload
+              v-model="avatarFile"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              variant="button"
+              label="Choose image"
+              :disabled="session.health?.bindings.r2 === false"
+            />
+            <UButton
+              v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"
+              label="Remove"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              @click="removeCurrentAvatar = true"
+            />
+          </div>
+        </div>
+      </UFormField>
+
       <UFormField name="displayName" label="Name">
         <UInput v-model="form.displayName" autofocus class="w-full" />
       </UFormField>
 
-      <UFormField label="Avatar">
-        <div class="flex items-center gap-3">
-          <UserAvatar :user="formAvatarUser" size="lg" />
-          <UFileUpload
-            v-model="avatarFile"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            variant="button"
-            label="Choose image"
-            :disabled="session.health?.bindings.r2 === false"
-          />
-          <UButton
-            v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"
-            label="Remove"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            @click="removeCurrentAvatar = true"
-          />
-        </div>
-      </UFormField>
-
       <UFormField
-        v-if="workersAi || openAiCompatible"
+        v-if="savedModels.length || workersAi || openAiCompatible"
         name="model"
-        label="Model"
-        :description="openAiCompatible ? `Sent to the OpenAI-compatible endpoint. This Server's AI_MODEL is ${session.health?.aiModel}.` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API.' : undefined"
+        label="Model (optional)"
+        :description="savedModels.length ? 'The conversation can override this default model.' : openAiCompatible ? `Sent to the OpenAI-compatible endpoint. Empty uses this Server's AI_MODEL (${session.health?.aiModel}).` : workersAiRest ? 'Sent to Workers AI through the Cloudflare REST API. Empty uses the Server default.' : undefined"
       >
         <template v-if="workersAi" #hint>
           <ULink
@@ -247,7 +259,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
             <UIcon name="i-ph-arrow-square-out" class="size-3" />
           </ULink>
         </template>
-        <UInput v-if="openAiCompatible" v-model="form.model" class="w-full" />
+        <USelectMenu v-if="savedModels.length || modelSearch" v-model:search-term="modelSearch" v-model="form.model" ignore-filter value-key="value" virtualize :items="savedModels.map(model => ({ value: model.value, label: agentModelLabel(model) }))" placeholder="Server default" class="w-full" />
+        <UInput v-else-if="openAiCompatible" v-model="form.model" class="w-full" placeholder="Server default" />
         <USelect
           v-else
           v-model="form.model"

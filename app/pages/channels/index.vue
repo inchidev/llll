@@ -2,6 +2,7 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import type { ChannelCategoryDTO, ChannelDTO } from '~~/shared/types'
 import { channelPath } from '~~/shared/paths'
+import { chatNavigationTarget } from '~~/shared/server-navigation'
 
 definePageMeta({ middleware: ['auth'] })
 const ui = useUiStore()
@@ -14,16 +15,20 @@ onMounted(() => {
   stop = watch(serverId, async (id) => {
     if (!id) return
     const last = ui.last()
-    if (last?.channelId) {
+    const [channelList, dmList] = await Promise.all([
+      qc.fetchQuery({
+        queryKey: ['channels', id],
+        queryFn: () => api<{ categories: ChannelCategoryDTO[]; channels: ChannelDTO[] }>(`/api/servers/${id}/channels`),
+      }),
+      qc.fetchQuery({ queryKey: ['dms'], queryFn: () => api<{ channels: ChannelDTO[] }>('/api/dms') }),
+    ])
+    const remembered = chatNavigationTarget([...channelList.channels, ...dmList.channels], last?.serverId === id ? last.channelId : undefined)
+    if (remembered !== '/channels') {
       stop()
-      await navigateTo(`/channels/${last.channelId}`, { replace: true })
+      await navigateTo(remembered, { replace: true })
       return
     }
-    // Same query the navigation uses, so the list is fetched once.
-    const { channels } = await qc.fetchQuery({
-      queryKey: ['channels', id],
-      queryFn: () => api<{ categories: ChannelCategoryDTO[]; channels: ChannelDTO[] }>(`/api/servers/${id}/channels`),
-    })
+    const { channels } = channelList
     const first = channels.find((c) => c.type === 'text') ?? channels[0]
     if (first) {
       stop()

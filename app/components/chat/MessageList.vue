@@ -31,6 +31,7 @@ const emit = defineEmits<{
   thread: [msg: MessageDTO]
   read: [messageId: string]
   retry: [clientId: string]
+  rootMessage: [message: MessageDTO | null]
 }>()
 
 const session = useSessionStore()
@@ -79,9 +80,13 @@ watchEffect(() => {
 })
 
 // Discord removes deleted messages; one that started a thread stays as a placeholder.
+const rootMessage = computed(() => q.data.value?.pages[0]?.rootMessage ?? null)
+watch(rootMessage, message => emit('rootMessage', message), { immediate: true })
 const messages = computed(() => {
   const pages = q.data.value?.pages ?? []
-  return [...pages].reverse().flatMap((p) => p.messages).filter(message => !message.deletedAt || message.threadId)
+  const replies = [...pages].reverse().flatMap((p) => p.messages).filter(message => !message.deletedAt || message.threadId)
+  // Show the original at the beginning of the full thread, after older replies load.
+  return rootMessage.value && !q.hasNextPage.value ? [rootMessage.value, ...replies] : replies
 })
 const contentMargin = ref(0)
 const virtualizer = useVirtualizer(computed(() => ({
@@ -105,7 +110,7 @@ const streamingMessageIds = computed(() => new Set(
 const threadsQ = useQuery({
   queryKey: computed(() => ['threads', props.channelId]),
   queryFn: () => api<{ threads: ChannelThreadDTO[] }>(`/api/channels/${props.channelId}/threads`),
-  enabled: computed(() => messages.value.some(message => Boolean(message.threadId))),
+  enabled: computed(() => props.allowThreads && messages.value.some(message => Boolean(message.threadId))),
 })
 const threadsByMessage = computed(() => new Map(
   (threadsQ.data.value?.threads ?? []).map(thread => [thread.parentMessageId, thread]),
@@ -193,7 +198,7 @@ function scrollToBottom(smooth = false) {
 
 function markReadIfVisible() {
   const message = messages.value.at(-1)
-  if (!scroller.value || !message || ui.searchOpen || document.hidden || !document.hasFocus()) return
+  if (!scroller.value || !message || message.channelId !== props.channelId || ui.searchOpen || document.hidden || !document.hasFocus()) return
   if (distanceFromBottom() > BOTTOM_SLACK || message.id === lastRead || message.id.startsWith('tmp:')) return
   lastRead = message.id
   emit('read', message.id)
@@ -439,7 +444,7 @@ const contextItems = computed<ContextMenuItem[][]>(() => contextMessage.value ? 
 function messageFromEvent(event: Event): MessageDTO | null {
   const row = (event.target as Element | null)?.closest<HTMLElement>('[data-message-id]')
   const id = row?.dataset.messageId
-  return id ? messages.value.find(message => message.id === id) ?? null : null
+  return id ? messages.value.find(message => message.id === id && message.channelId === props.channelId) ?? null : null
 }
 
 function onContextMenu(event: MouseEvent) {
@@ -648,13 +653,14 @@ defineExpose({ focusMessage })
             <ChatMessageItem
               :id="`message-${m.id}`"
               :message="m"
+              :context-only="m.channelId !== channelId"
               :thread="threadsByMessage.get(m.id)"
               :names="names"
               :member="membersById.get(m.author.id)"
               :mine="m.author.id === session.user?.id"
               :can-pin="canPin"
               :can-thread="allowThreads"
-              :compact="unreadBoundary !== m.id && compactWith(m, messages[i - 1])"
+              :compact="unreadBoundary !== m.id && messages[i - 1]?.channelId === m.channelId && compactWith(m, messages[i - 1])"
               :streaming="streamingMessageIds.has(m.id)"
               :active="activeId === m.id"
               :editing="editingId === m.id"

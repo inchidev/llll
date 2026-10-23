@@ -550,6 +550,8 @@ export type ChannelDTO = {
   dmOwnerId?: string | null
   participants?: PublicUser[]
   frozen?: boolean
+  lastAgentMessage?: string | null
+  agentWorking?: boolean
   lastMessageAt?: string | null
 }
 

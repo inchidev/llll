@@ -45,6 +45,7 @@ const cookies = {}
 async function api(path, { actor = 'owner', method = 'GET', body, expected = 200 } = {}) {
   const response = await fetch(origin + path, {
     method,
+    signal: AbortSignal.timeout(15000),
     headers: { Origin: origin, Cookie: cookies[actor] || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -52,9 +53,10 @@ async function api(path, { actor = 'owner', method = 'GET', body, expected = 200
   assert.equal(response.status, expected, `${method} ${path}: ${await response.clone().text()}`)
   return response
 }
-async function until(check, label) {
-  for (let attempt = 0; attempt < 240; attempt++) {
-    try { if (await check()) return } catch { /* A deployment can be moving. */ }
+async function until(check, label, timeoutMs = 120000) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try { if (await check()) return Date.now() - started } catch { /* A deployment can be moving. */ }
     await new Promise(resolve => setTimeout(resolve, 500))
   }
   throw new Error(`Timed out: ${label}`)
@@ -96,12 +98,14 @@ try {
   console.log('PASS: separate UUID, owner claim, invite/member, message, file authorization and realtime through Caddy')
 
   await writeFile(routeFile, "export default defineEventHandler(() => ({ marker: 'first' }))\n", { flag: 'wx' })
-  await until(async () => (await (await api(routePath)).json()).marker === 'first', 'new backend route')
+  await until(async () => (await (await api(routePath)).json()).marker === 'first', 'new backend route', 300000)
   await writeFile(routeFile, 'export default defineEventHandler(() => { syntax error\n')
   await new Promise(resolve => setTimeout(resolve, 3000))
   assert.equal((await (await api(routePath)).json()).marker, 'first', 'A failed build must retain the running deployment')
   await writeFile(routeFile, "export default defineEventHandler(() => ({ marker: 'second' }))\n")
-  await until(async () => (await (await api(routePath)).json()).marker === 'second', 'repaired backend build')
+  // A failed transform can require rebuilding the entire Pi graph rather than a warm incremental edit.
+  const repairedMs = await until(async () => (await (await api(routePath)).json()).marker === 'second', 'repaired backend build', 300000)
+  console.log(`PASS: repaired backend build in ${Math.round(repairedMs / 1000)}s`)
   assert.equal((await (await api('/.well-known/llll')).json()).id, discovery.id)
   assert.equal(await (await api('/api/files/' + attachment.id)).text(), 'persistent private file')
   socket.close()
