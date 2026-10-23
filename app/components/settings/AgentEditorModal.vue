@@ -71,18 +71,12 @@ function createAgent() {
   avatarFile.value = null
   removeCurrentAvatar.value = false
   Object.assign(form, {
-      displayName: '',
+    displayName: '',
     model: defaultModel(),
     instructions: '',
     status: 'active',
   })
 }
-
-watch(() => [session.health?.aiProvider, session.health?.aiModel] as const, () => {
-  const model = session.health?.aiModel
-  if (!openAiCompatible.value || !model) return
-  if (!form.model || form.model.startsWith('@cf/')) form.model = model
-})
 
 watch([open, () => props.agent], ([visible, agent]) => {
   if (!visible) return
