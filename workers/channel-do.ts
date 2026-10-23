@@ -153,6 +153,16 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     await this.liveInOrder(() => this.liveAlarm())
   }
 
+  /** Admission is rechecked even for idle, hibernating sockets after a membership change. */
+  async revalidateAccess(): Promise<void> {
+    await authorizedSockets(this.ctx.getWebSockets(), async (userId, session) => {
+      if (!await socketSessionActive(this.env, session)) return false
+      const authz = await this.loadAuthz(userId)
+      return Boolean(authz && !authz.frozen)
+    })
+    await this.revalidateLive()
+  }
+
   async fanout(msg: ServerMsg): Promise<void> {
     if (msg.t === 'agent.state') {
       for (const ws of await authorizedSockets(this.ctx.getWebSockets(), (_id, session) => socketSessionActive(this.env, session))) {

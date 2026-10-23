@@ -22,6 +22,7 @@ const { copy } = useClipboard()
 const section = defineModel<string>('section', { default: 'overview' })
 
 const saving = ref(false)
+const memberChannelId = ref<string | null>(null)
 const permissionChannelId = ref<string | null>(null)
 const permissionRoleId = ref<string | null>(null)
 const permissionModes = reactive<Record<ChannelPermissionGrantKey, ChannelPermissionMode>>({
@@ -159,6 +160,7 @@ const categoryOptions = computed(() => [
 const roleOptions = computed(() => roles.value
   .filter(role => role.key !== 'owner' && (role.key !== 'admin' || isOwner.value))
   .map(role => ({ label: roleLabel(role.name), value: role.id })))
+const memberChannel = computed(() => serverChannels.value.find(channel => channel.id === memberChannelId.value) ?? null)
 const permissionChannel = computed(() => serverChannels.value.find(channel => channel.id === permissionChannelId.value) ?? null)
 const permissionRoleOptions = computed(() => roles.value
   .filter(role => role.key !== 'owner')
@@ -551,9 +553,11 @@ function roleLabel(name: string) {
             size="xs"
             @click="editChannelPermissions(channel.id)"
           />
+          <UButton v-if="channel.visibility === 'private' && can(Permission.manageChannels)" icon="i-ph-users" label="Members" color="neutral" variant="ghost" size="xs" :aria-label="`Manage members of ${channel.name}`" @click="memberChannelId = channel.id" />
           <UButton icon="i-ph-folder" label="Move" color="neutral" variant="ghost" size="sm" :aria-label="`Move ${channel.name} to a category`" @click="moveChannelId = channel.id; moveCategoryId = channel.categoryId || 'uncategorized'" />
         </li>
       </ul>
+      <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
       <UModal :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
         <div class="flex items-center gap-3">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">

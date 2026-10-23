@@ -82,6 +82,7 @@ beforeAll(async () => {
   vi.stubGlobal('usePresenceStore', () => ({ apply: vi.fn() }))
   vi.stubGlobal('usePrefsStore', () => ({ showOnline: true }))
   vi.stubGlobal('useAttention', () => ({ notifyActivity: vi.fn(), sync: vi.fn() }))
+  vi.stubGlobal('useRouter', () => ({ currentRoute: ref({ params: {} }), replace: vi.fn() }))
   vi.stubGlobal('useNuxtApp', () => ({ $queryClient: undefined }))
   vi.stubGlobal('useApi', () => ({
     api: vi.fn(async () => ({ token: 'test-token' })),
@@ -129,4 +130,16 @@ describe('server presence activity', () => {
     for (const callback of unmounted) callback()
     connection.disconnect()
   })
+})
+
+it('leaves a conversation whose private-channel grant was revoked', async () => {
+  const replace = vi.fn()
+  vi.stubGlobal('useRouter', () => ({ currentRoute: ref({ params: { channel: 'private' } }), replace }))
+  const socket = useServerSocket('main')
+  await flush()
+  const ws = FakeWebSocket.instances[0]!
+  ws.open()
+  ws.message({ t: 'channel.access.changed', serverId: 'main', channelId: 'private', conversationIds: ['private', 'thread'], revoked: true })
+  expect(replace).toHaveBeenCalledWith('/inbox')
+  socket.disconnect()
 })

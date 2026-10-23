@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
   if (!obj) fail(404, 'not_found', 'Blob missing')
   setHeader(event, 'Content-Type', row.contentType)
   setHeader(event, 'Content-Disposition', `inline; filename="${row.filename.replaceAll('"', '')}"`)
-  setHeader(event, 'Cache-Control', 'private, max-age=3600')
+  setHeader(event, 'Cache-Control', 'private, no-store')
   setHeader(event, 'Accept-Ranges', 'bytes')
   setHeader(event, 'ETag', obj.httpEtag)
   return obj.body

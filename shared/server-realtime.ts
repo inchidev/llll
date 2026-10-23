@@ -38,6 +38,14 @@ export type ServerMembersChangedEvent = {
   serverId: string
 }
 
+export type ServerChannelAccessChangedEvent = {
+  t: 'channel.access.changed'
+  serverId: string
+  channelId: string
+  conversationIds: string[]
+  revoked: boolean
+}
+
 export type ServerLiveChangedEvent = {
   t: 'live.changed'
   channelId: string
@@ -55,6 +63,7 @@ export type ServerLiveChangedEvent = {
 }
 
 export type ServerRealtimeEvent =
+  | ServerChannelAccessChangedEvent
   | ServerChannelActivityEvent
   | ServerChannelReadEvent
   | ServerTasksChangedEvent

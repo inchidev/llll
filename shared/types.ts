@@ -14,6 +14,11 @@ export type PublicUser = {
   avatarR2Key: string | null
 }
 
+export type PrivateChannelMemberDTO = {
+  user: PublicUser
+  status: UserStatus
+}
+
 export type AgentDTO = {
   harness?: 'think' | 'pi'
   id: string

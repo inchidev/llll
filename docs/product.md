@@ -37,6 +37,7 @@ The public guide should lead with one complete path per target, from a pinned re
 ## Fixed boundaries
 
 - Accounts and sessions belong to the Server. Server membership, Roles and removals remain authoritative locally. Email matching never grants access.
+- Private channel membership can be managed by channel participants with Manage channels. Adding an active Member grants existing channel history, files and inherited Threads; removing one revokes API access, closes held channel/Thread sockets and revalidates Live seats. Membership changes are audited and sent only to current or removed participants. Managers cannot remove their own access through this dialog. DM, Mailbox and task-discussion access use their own rules.
 - Direct Messages remain inside a Server. Shell bookmarks and public routing IDs grant no membership.
 - Backups remain separate from live files. Recovery includes the Server identity, accounts, secrets and content; server deletion never deletes Backup buckets.
 - Append migrations within the current schema lineage; merged SQL and published assets are immutable.

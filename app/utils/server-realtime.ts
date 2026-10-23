@@ -3,7 +3,7 @@ import type { ChannelDTO, SidebarThreadDTO } from '~~/shared/types'
 import type { ServerRealtimeEvent } from '~~/shared/server-realtime'
 
 type ChannelList = { channels: ChannelDTO[], threads?: SidebarThreadDTO[] }
-type ServerQueryCache = Pick<QueryClient, 'getQueryData' | 'setQueryData' | 'setQueriesData' | 'invalidateQueries'>
+type ServerQueryCache = Pick<QueryClient, 'getQueryData' | 'setQueryData' | 'setQueriesData' | 'invalidateQueries' | 'removeQueries'>
 
 function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean, increment = false) {
   let found = false
@@ -60,6 +60,22 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
 }
 
 export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerRealtimeEvent) {
+  if (event.t === 'channel.access.changed') {
+    if (event.revoked) {
+      const ids = new Set(event.conversationIds)
+      cache.setQueryData<ChannelList>(['channels', event.serverId], old => old ? {
+        ...old,
+        channels: old.channels.filter(channel => !ids.has(channel.id)),
+        threads: old.threads?.filter(thread => !ids.has(thread.id)),
+      } : old)
+      for (const id of ids) for (const kind of ['channel', 'messages', 'threads', 'files', 'pins', 'message-search', 'readCursor', 'private-channel-members']) {
+        cache.removeQueries({ queryKey: [kind, id] })
+      }
+    }
+    void cache.invalidateQueries({ queryKey: ['channels', event.serverId] })
+    void cache.invalidateQueries({ queryKey: ['private-channel-members', event.channelId] })
+    return
+  }
   if (event.t === 'members.changed') {
     void cache.invalidateQueries({ queryKey: ['members', event.serverId] })
     void cache.invalidateQueries({ queryKey: ['dms'] })

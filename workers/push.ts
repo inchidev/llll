@@ -17,6 +17,8 @@ type OutboxRow = {
   subscription_id: string
   payload_json: string
   attempts: number
+  channel_id: string
+  recipient_id: string
   endpoint: string
   p256dh: string
   auth: string
@@ -34,7 +36,18 @@ export function pushConfigured(env: L4Env): boolean {
   return Boolean(env.VAPID_SUBJECT?.trim() && env.VAPID_PUBLIC_KEY?.trim() && env.VAPID_PRIVATE_KEY?.trim())
 }
 
+/** Queued private-channel notifications do not retain a grant after membership removal. */
+export async function privatePushAccessAllowed(db: D1Database, channelId: string, userId: string): Promise<boolean> {
+  return Boolean(await db.prepare(`SELECT u.id FROM users u JOIN channels c ON c.id=?
+    LEFT JOIN channels parent ON parent.id=c.parent_id
+    WHERE u.id=? AND u.status='active' AND
+    (COALESCE(parent.visibility,c.visibility)<>'private' OR EXISTS(
+      SELECT 1 FROM channel_members cm WHERE cm.channel_id=COALESCE(parent.id,c.id) AND cm.user_id=u.id))`)
+    .bind(channelId, userId).first())
+}
+
 async function deliverPush(env: L4Env, row: OutboxRow) {
+  if (!await privatePushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   if (!pushConfigured(env)) return { disposition: 'retry' as const, error: 'vapid_unconfigured' }
   let payload: PushNotificationPayload
   try {
@@ -96,7 +109,7 @@ export async function drainNotificationOutbox(env: L4Env): Promise<void> {
   const now = new Date()
   const nowIso = now.toISOString()
   const rows = await env.DB.prepare(
-    `SELECT o.event_id, o.subscription_id, o.payload_json, o.attempts,
+    `SELECT o.event_id, o.subscription_id, o.payload_json, o.attempts, o.channel_id, o.recipient_id,
             s.endpoint, s.p256dh, s.auth
      FROM notification_outbox o
      JOIN push_subscriptions s ON s.id = o.subscription_id
