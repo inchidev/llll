@@ -1,0 +1,7 @@
+{
+  "name": "l4-opencode-acceptance",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@opencode/sdk": "2.1.4" },
+  "devDependencies": { "esbuild": "0.25.9", "wrangler": "4.142.0" }
+}
