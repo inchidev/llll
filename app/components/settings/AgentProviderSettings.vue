@@ -68,7 +68,7 @@ watch(() => connecting.data.value, value => {
   if (!connection.value || !editing.value) return
   if (connection.value.expiresAt < Date.now()) { connection.value = null; toast.add({ title: 'Sign-in expired', description: 'Continue with ChatGPT again.', color: 'warning' }); return }
   const provider = value?.provider
-  if (provider?.configured && provider.account && provider.connectedAt !== editing.value.connectedAt) { connection.value = null; editing.value = provider; state.models = provider.models; void loadModels(); toast.add({ title: 'ChatGPT connected', color: 'success' }) }
+  if (provider?.configured && provider.account && provider.connectedAt !== editing.value.connectedAt) { connection.value = null; editing.value = provider; state.models = provider.models; void Promise.all([loadModels(), refresh()]); toast.add({ title: 'ChatGPT connected', color: 'success' }) }
 })
 async function remove() {
   if (!editing.value || busy.value) return
