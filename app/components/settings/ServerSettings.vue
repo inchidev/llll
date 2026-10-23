@@ -89,7 +89,6 @@ const featureNav = computed(() => [
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
-  ...(isOwner.value ? [{ id: 'mcp' as const, label: 'MCP', icon: 'i-ph-plugs-connected', keywords: ['agent', 'access token', 'api', 'codex'] }] : []),
 ])
 const accessNav = computed(() => [
   ...(isOwner.value ? [{ id: 'authentication' as const, label: 'Authentication', icon: 'i-ph-key', keywords: ['login', 'signup', 'oauth', 'github', 'sso', 'registration'] }] : []),
@@ -620,7 +619,7 @@ function roleLabel(name: string) {
     </template>
 
     <template v-else-if="section === 'agents'">
-      <SettingsAgentSettings :server-id="serverId" />
+      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" />
     </template>
 
     <template v-else-if="section === 'members'">
@@ -695,9 +694,6 @@ function roleLabel(name: string) {
       <SettingsOnboardingSettings :server-id="serverId" />
     </template>
 
-    <template v-else-if="section === 'mcp'">
-      <SettingsMcpSettings :server-id="serverId" />
-    </template>
 
     <template v-else-if="deploymentSections.includes(section)">
       <SettingsServerDeploymentSettings

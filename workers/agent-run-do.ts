@@ -1,3 +1,5 @@
+import { admitQueuedAgentRun } from './agent-run-admission'
+import { getRunBlob, putRunBlob, deleteRunBlob } from './agent-run-storage'
 import { deleteAgentTurn, patchAgentTurn, fanoutAgentTurns } from './agent-turns'
 import { DurableObject } from 'cloudflare:workers'
 import type { L4Env } from './env'
@@ -6,6 +8,7 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../shared/agent-executi
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
+import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { authorize, ServerAction } from '../shared/authorization'
 import { getTask } from '../server/utils/task-service'
 import { signalTasksChanged } from './task-events'
@@ -22,6 +25,54 @@ const eventSchema = z.discriminatedUnion('type', [
 const pollSchema = z.object({ status: z.enum(['running', 'finished', 'interrupted', 'idle']), events: z.array(eventSchema).max(100), nextCursor: z.number().int().min(0), result: eventSchema.nullable().optional() })
 
 export class AgentRunDurableObject extends DurableObject<L4Env> {
+  private embeddedTask: Promise<void> | null = null
+  private embeddedResume: (() => void) | null = null
+  private embeddedSteer: ((messageId: string, content: string) => Promise<void>) | null = null
+  private embeddedAbort: AbortController | null = null
+
+  private startEmbedded(input: EmbeddedPiSubmission): void {
+    if (this.embeddedTask) { this.embeddedResume?.(); return }
+    const controller = new AbortController()
+    this.embeddedAbort = controller
+    const generation = runEmbeddedPi(input, this.ctx.storage, {
+      signal: controller.signal,
+      alarmDriven: true,
+      ready: async (steer, resume) => { this.embeddedSteer = steer; this.embeddedResume = resume },
+      event: async event => {
+        const events = await getRunBlob<RuntimeEvent[]>(this.ctx.storage, 'pi-embedded-events') ?? []
+        if (events.length < 2000 && JSON.stringify(events).length < 256000) {
+          await putRunBlob(this.ctx.storage, 'pi-embedded-events', [...events, event])
+        }
+      },
+    })
+    const task = generation.then(async outcome => {
+      if (controller.signal.aborted) return
+      if (outcome.transcript) await putRunBlob(this.ctx.storage, 'pi-embedded-transcript', outcome.transcript)
+      await putRunBlob(this.ctx.storage, 'pi-embedded-result', outcome.result)
+    }, async () => {
+      if (!controller.signal.aborted) await putRunBlob(this.ctx.storage, 'pi-embedded-result', { type: 'error', message: 'Embedded Pi failed to recover' } satisfies RuntimeEvent)
+    }).finally(() => { if (this.embeddedTask === task) { this.embeddedTask = null; this.embeddedAbort = null; this.embeddedSteer = null; this.embeddedResume = null } })
+    this.embeddedTask = task
+    this.ctx.waitUntil(task)
+  }
+
+  async steer(messageId: string, content: string, actorId: string): Promise<boolean> {
+    if (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL) return false
+    const id = await this.ctx.storage.get<string>('runId')
+    const run = id ? await findAgentRun(this.env, id) : null
+    if (!run || run.initiatedBy !== actorId || run.status !== 'running' || !this.embeddedSteer) return false
+    await runAuthorization(this.env, run)
+    const input = await getRunBlob<EmbeddedPiSubmission>(this.ctx.storage, 'pi-embedded-input')
+    if (!input) return false
+    const steering = input.steering ?? []
+    if (!steering.some(message => message.messageId === messageId)) {
+      if (steering.length >= 20) return false
+      await putRunBlob(this.ctx.storage, 'pi-embedded-input', { ...input, steering: [...steering, { messageId, content }] })
+    }
+    await this.embeddedSteer(messageId, content)
+    return true
+  }
+
   async wake(id: string): Promise<void> {
     await this.ctx.storage.put('runId', id)
     await this.ctx.storage.setAlarm(Date.now() + 1)
@@ -33,11 +84,64 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       headers: { 'Content-Type': 'application/json', 'x-run-capability': capability },
       body: input === undefined ? undefined : JSON.stringify(input), signal: AbortSignal.timeout(30000) })
     if (this.env.AGENT_COMPUTE) return this.env.AGENT_COMPUTE.getByName(`compute:${run.id}`).fetch(request)
-    if (!this.env.AGENT_RUNNER_URL || !this.env.AGENT_RUNNER_TOKEN) throw new Error('Pi executor not configured')
-    const url = new URL(`/runs/${run.id}/${path}`, this.env.AGENT_RUNNER_URL)
-    const headers = new Headers(request.headers)
-    headers.set('Authorization', `Bearer ${this.env.AGENT_RUNNER_TOKEN}`)
-    return fetch(new Request(url, { method, headers, body: request.body, signal: AbortSignal.timeout(30000) }))
+    if (this.env.AGENT_RUNNER_URL && this.env.AGENT_RUNNER_TOKEN) {
+      const url = new URL(`/runs/${run.id}/${path}`, this.env.AGENT_RUNNER_URL)
+      const headers = new Headers(request.headers)
+      headers.set('Authorization', `Bearer ${this.env.AGENT_RUNNER_TOKEN}`)
+      return fetch(new Request(url, { method, headers, body: request.body, signal: AbortSignal.timeout(30000) }))
+    }
+    // No container executor is configured: the experimental embedded path runs
+    // the harness inside this Durable Object instead.
+    return this.embedded(run, path, method, input)
+  }
+
+  private respond(value: unknown, status = 200): Response {
+    return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  private async embedded(run: AgentRun, path: string, method: string, input?: unknown): Promise<Response> {
+    if (path === 'health') return this.respond({ ok: true, executor: 'pi-durable-embedded' })
+    if (path === 'run' && method === 'POST') {
+      const body = (input ?? {}) as EmbeddedPiSubmission
+      if (!body.modelGateway || !body.runId) return this.respond({ ok: false }, 400)
+      const saved = await getRunBlob<EmbeddedPiSubmission>(this.ctx.storage, 'pi-embedded-input')
+      if (saved && JSON.stringify(saved) !== JSON.stringify(body)) return this.respond({ ok: false }, 409)
+      // Persist before scheduling: polling after an eviction reopens this exact submission.
+      if (!saved) await putRunBlob(this.ctx.storage, 'pi-embedded-input', body)
+      if (!await getRunBlob<RuntimeEvent>(this.ctx.storage, 'pi-embedded-result')) this.startEmbedded(saved ?? body)
+      return this.respond({ ok: true })
+    }
+    if (path.startsWith('run') && method === 'GET') {
+      if (!await getRunBlob<RuntimeEvent>(this.ctx.storage, 'pi-embedded-result')) {
+        const saved = await getRunBlob<EmbeddedPiSubmission>(this.ctx.storage, 'pi-embedded-input')
+        if (saved) this.startEmbedded(saved)
+        else return this.respond({ status: 'idle', events: [], nextCursor: 0, result: null })
+      }
+      const after = Number(path.split('after=')[1] ?? '0') || 0
+      const events = (await getRunBlob<RuntimeEvent[]>(this.ctx.storage, 'pi-embedded-events')) ?? []
+      const result = (await getRunBlob<RuntimeEvent | null>(this.ctx.storage, 'pi-embedded-result')) ?? null
+      const page = events.slice(after, after + 100)
+      // The cursor contract of the container executor: nextCursor follows every delivered event.
+      return result
+      ? this.respond({ status: 'finished', events: page, nextCursor: after + page.length, result })
+      : this.respond({ status: 'running', events: page, nextCursor: after + page.length, result: null })
+    }
+    if (path === 'session') return this.respond({ transcript: (await getRunBlob<string | null>(this.ctx.storage, 'pi-embedded-transcript')) ?? null })
+    if (path === 'run' && method === 'DELETE') {
+      this.embeddedAbort?.abort()
+      await this.embeddedTask
+      return this.respond({ ok: true })
+    }
+    if (path === 'lifecycle' && method === 'DELETE') {
+      this.embeddedAbort?.abort()
+      await this.embeddedTask
+      await deleteRunBlob(this.ctx.storage, 'pi-embedded-input')
+      await deleteRunBlob(this.ctx.storage, 'pi-embedded-events')
+      await deleteRunBlob(this.ctx.storage, 'pi-embedded-result')
+      await deleteRunBlob(this.ctx.storage, 'pi-embedded-transcript')
+      return this.respond({ ok: true })
+    }
+    return this.respond({ ok: false }, 404)
   }
 
   private async release(run: AgentRun): Promise<void> {
@@ -114,15 +218,12 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       if (run.deadline <= nowIso()) throw new Error('Run deadline reached')
       const authorization = await runAuthorization(this.env, run)
       if (run.status === 'queued') {
-        const claim = await this.env.DB.prepare('UPDATE agent_sessions SET active_run_id=? WHERE id=? AND (active_run_id IS NULL OR active_run_id=?) RETURNING id')
-          .bind(run.id, run.sessionId, run.id).first()
-        if (!claim) return
-        const admitted = await this.env.DB.prepare("UPDATE agent_runs SET status='running',updated_at=? WHERE id=? AND status='queued' AND (SELECT count(*) FROM agent_runs WHERE agent_id=? AND status='running')<2 AND (SELECT count(*) FROM agent_runs WHERE status='running')<4 RETURNING id")
-          .bind(nowIso(), run.id, run.agentId).first()
-        if (!admitted) return
+        if (!await admitQueuedAgentRun(this.env, run)) return
       }
-      await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })
-      await fanoutAgentTurns(this.env, run.channelId, run.agentId)
+      if (run.status === 'queued') {
+        await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })
+        await fanoutAgentTurns(this.env, run.channelId, run.agentId)
+      }
       const files = this.env.FILES
       if (!files) throw new Error('Pi file storage unavailable')
       const mandate = JSON.parse(run.mandateJson) as RunMandate
@@ -145,7 +246,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         const capability = await runCapability(this.env, run.id)
         // Record intent before the network operation. If the executor disappears,
         // fail this attempt rather than silently starting its work a second time.
-        await this.ctx.storage.put('submitted', true)
+        if (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL) await this.ctx.storage.put('submitted', true)
         phase = 'submission'
         const started = await this.runtime(run, 'run', 'POST', {
           runId: run.id, sessionId: run.sessionId, prompt: run.prompt,
@@ -159,6 +260,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           timeoutMs: Math.min(900000, Math.max(1000, Date.parse(run.deadline) - Date.now())),
         })
         if (!started.ok) throw new Error(`Executor rejected the run (${started.status})`)
+        await this.ctx.storage.put('submitted', true)
       }
       phase = 'poll'
       const response = await this.runtime(run, `run?after=${run.eventCursor}`)
@@ -171,6 +273,12 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           .bind(run.id, run.eventCursor + index, JSON.stringify(event), nowIso())),
         this.env.DB.prepare('UPDATE agent_runs SET event_cursor=?,updated_at=? WHERE id=?').bind(poll.nextCursor, nowIso(), run.id),
       ])
+      const toolEvent = [...poll.events].reverse().find(event => event.type === 'tool')
+      const partial = poll.events.filter((event): event is Extract<RuntimeEvent, { type: 'text' }> => event.type === 'text').map(event => event.text).join('')
+      if (toolEvent?.type === 'tool' || partial) {
+        await patchAgentTurn(this.env, run.id, { status: toolEvent?.type === 'tool' ? 'tool' : 'thinking', detail: toolEvent?.type === 'tool' ? toolEvent.name : partial.slice(-240) })
+        await fanoutAgentTurns(this.env, run.channelId, run.agentId)
+      }
       const terminal: RuntimeEvent | undefined | null = poll.result || [...poll.events].reverse().find(event => event.type === 'result' || event.type === 'error')
       if (!terminal && (poll.status === 'interrupted' || poll.status === 'idle')) throw new Error('Executor interrupted; create a new attempt after reviewing tool outcomes')
       // Drain event pages before committing the terminal result and removing compute.
@@ -200,10 +308,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         }
       }
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
-      await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running'")
+      const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
         .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, terminal.type === 'result' ? newId() : null,
-          terminal.type === 'error' ? terminal.message : null, nowIso(), run.id).run()
-      if (terminal.type === 'result') await this.publish({ ...run, resultText: terminal.text })
+          terminal.type === 'error' ? terminal.message : null, nowIso(), run.id).first<{ id: string }>()
+      if (finalized && terminal.type === 'result') await this.publish({ ...run, resultText: terminal.text })
       await this.release(run)
       await this.ctx.storage.deleteAlarm()
     } catch (error) {

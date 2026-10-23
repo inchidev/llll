@@ -27,7 +27,7 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-  <div class="shrink-0" :class="compact ? 'px-1 pb-3 pt-2' : 'px-2 pt-2 pb-6'">
+  <div class="shrink-0" :class="compact ? 'px-1 pb-3 pt-2' : ''">
     <div v-if="compact" class="flex flex-col items-center gap-1">
       <UButton v-if="live.connection === 'connected'" :icon="live.muted ? 'i-ph-microphone-slash' : 'i-ph-microphone'" color="neutral" variant="ghost" class="size-9 justify-center" :aria-label="live.muted ? 'Unmute' : 'Mute'" :aria-pressed="live.muted" @click="live.toggleMute()" />
       <UButton v-if="live.connection === 'connected'" :icon="live.deafened ? 'i-ph-speaker-slash' : 'i-ph-headphones'" color="neutral" variant="ghost" class="size-9 justify-center" :aria-label="live.deafened ? 'Undeafen' : 'Deafen'" :aria-pressed="live.deafened" @click="live.toggleDeafen()" />

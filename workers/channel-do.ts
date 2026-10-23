@@ -243,6 +243,17 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
     await this.persistMessage(message, null)
     this.ctx.waitUntil(signalNotificationOutbox(this.env))
+    // A reply inside a thread must refresh the parent conversation's thread list.
+    if (channel.type === 'thread' && channel.parentId) {
+      const threadChannel = await this.env.DB.prepare('SELECT parent_message_id as parentMessageId FROM channels WHERE id=?')
+        .bind(channel.id).first<{ parentMessageId: string | null }>()
+      if (threadChannel?.parentMessageId) {
+        const parent = this.env.CHANNEL_DO.getByName(`channel:${channel.parentId}`) as DurableObjectStub & {
+          fanout: (value: unknown) => Promise<void>
+        }
+        this.ctx.waitUntil(parent.fanout({ t: 'thread.created', messageId: threadChannel.parentMessageId, threadId: channel.id }).catch(() => undefined))
+      }
+    }
     this.ctx.waitUntil(signalChannelActivity(this.env, {
       id,
       channelId: channel.id,

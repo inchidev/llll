@@ -9,6 +9,8 @@ Deploy one Server on your Cloudflare account or VPS. Claim the owner, invite som
 - [Local and isolated verification](docs/worker-previews.md)
 - [Immutable releases](docs/releases.md)
 - [Product scope](docs/product.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md) and [maintenance](docs/security-maintenance.md)
 
 Server, Shell, Landing and Docs are the four product parts. `app`/`server` implement one autonomous Server; `apps/site` serves Landing, Shell, Docs and the Server installer. A Server's persistent UUIDv4 identifies it publicly and internally; bookmarked connections do not grant membership.
 

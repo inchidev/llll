@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
 import { onKeyStroke, useMediaQuery } from '@vueuse/core'
-import type { ChannelDTO, MemberDTO, MessageDTO, PublicUser } from '~~/shared/types'
+import type { ChannelDTO, MemberDTO, MessageDTO } from '~~/shared/types'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
 import type { RealtimeConnection } from '../../composables/useChannelSocket'
 import { serverConnectionKey } from '../../composables/useServerSocket'
@@ -72,6 +72,7 @@ const type = computed(() => channel.value?.type || 'text')
 const isDm = computed(() => isDmType(type.value))
 const isGroup = computed(() => isDm.value && (channel.value?.participants?.length ?? 0) > 2)
 const others = computed(() => (channel.value?.participants ?? []).filter((p) => p.id !== session.user?.id))
+const directAgentId = computed(() => isDm.value && !isGroup.value && others.value[0]?.kind === 'agent' ? others.value[0].id : undefined)
 const headerName = computed(() => {
   if (!isDm.value) return channel.value?.name || ''
   return channel.value?.title || dmTitle(channel.value?.name, channel.value?.participants ?? [], session.user?.id || '')
@@ -169,7 +170,6 @@ async function endLive() {
 }
 
 watch([serverId, channelId], () => {
-  ui.remember(serverId.value, channelId.value)
   live.view(channelId.value)
 }, { immediate: true })
 
@@ -200,8 +200,9 @@ watch([() => live.pendingJoin, channelId], ([pending]) => {
 watch(() => oneQ.data.value?.channel, (ch) => {
   if (!ch) return
   const want = channelPath(ch, linkedThread.value ?? undefined)
+  if (want.startsWith('/channels/')) ui.remember(serverId.value, ch.id)
   if (liveRoute.value.path !== want) void navigateTo(want, { replace: true })
-})
+}, { immediate: true })
 
 const typingNames = computed(() => presence.typingIn(channelId.value)
   .filter((id) => id !== session.user?.id)
@@ -265,6 +266,12 @@ async function onThread(msg: MessageDTO) {
   ui.rightPanelTab = 'threads'
   ui.threadParentId = channelId.value
   if (msg.threadId) {
+    qc.setQueryData<InfiniteData<{ messages: MessageDTO[]; nextCursor: string | null; rootMessage?: MessageDTO | null }>>(
+      ['messages', msg.threadId], data => data ? {
+        ...data,
+        pages: data.pages.map((page, index) => index === 0 ? { ...page, rootMessage: msg } : page),
+      } : data,
+    )
     ui.threadId = msg.threadId
     return
   }
@@ -287,7 +294,7 @@ async function onThread(msg: MessageDTO) {
   // A thread created just now has no messages, so there is nothing to fetch.
   if (res.created) {
     qc.setQueryData(['messages', res.channel.id], {
-      pages: [{ messages: [], nextCursor: null, lastReadMessageId: null }],
+      pages: [{ messages: [], rootMessage: { ...msg, threadId: res.channel.id }, nextCursor: null, lastReadMessageId: null }],
       pageParams: [undefined],
     })
   }
@@ -298,21 +305,6 @@ async function onThread(msg: MessageDTO) {
 
 const privateMembersOpen = ref(false)
 watch(channelId, () => { privateMembersOpen.value = false })
-const addOpen = ref(false)
-const addQ = ref('')
-const addSearch = useQuery({
-  queryKey: computed(() => ['dm-add', serverId.value, addQ.value]),
-  queryFn: () => api<{ members: PublicUser[] }>(`/api/dms/search?serverId=${serverId.value}&q=${encodeURIComponent(addQ.value)}`),
-  enabled: computed(() => addOpen.value),
-})
-
-async function addPerson(userId: string) {
-  await api(`/api/dms/${channelId.value}/participants`, { method: 'POST', body: { userId } })
-  await qc.invalidateQueries({ queryKey: ['dms'] })
-  await qc.invalidateQueries({ queryKey: ['channel', channelId.value] })
-  addOpen.value = false
-}
-
 const renaming = ref(false)
 const rename = ref('')
 watch(headerName, (n) => { if (!renaming.value) rename.value = n }, { immediate: true })
@@ -341,7 +333,6 @@ defineShortcuts({
     ui.cancelComposerIntent(channelId.value)
     if (ui.threadId) ui.cancelComposerIntent(ui.threadId)
     renaming.value = false
-    addOpen.value = false
   },
 })
 </script>
@@ -387,7 +378,14 @@ defineShortcuts({
           :class="isGroup ? 'cursor-text' : ''"
           @dblclick="isGroup && (renaming = true)"
         >{{ headerName }}</h1>
-        <UChip v-if="isDm && others[0] && !isGroup" :color="presence.statusOf(others[0].id) === 'online' ? 'success' : 'neutral'" size="sm" standalone />
+        <UChip
+          v-if="isDm && others[0]?.kind === 'human' && !isGroup"
+          :color="presence.statusOf(others[0].id) === 'online' ? 'success' : 'neutral'"
+          :title="`${others[0].displayName}: ${presence.statusOf(others[0].id)}`"
+          :aria-label="`${others[0].displayName}: ${presence.statusOf(others[0].id)}`"
+          size="sm"
+          standalone
+        />
         <USeparator v-if="!isDm && channel?.topic" orientation="vertical" class="h-4" />
         <p v-if="!isDm" class="text-sm text-muted truncate hidden lg:block min-w-0 flex-1">{{ channel?.topic }}</p>
         <div class="ml-auto flex items-center gap-2">
@@ -418,7 +416,7 @@ defineShortcuts({
             <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[11px] text-toned">⌘ K</kbd>
           </button>
           <UTooltip
-            v-if="isConversation"
+            v-if="isConversation && !directAgentId"
             :text="liveActionHint"
           >
             <UButton
@@ -434,9 +432,6 @@ defineShortcuts({
           </UTooltip>
           <UTooltip v-if="!isDm && type === 'text' && channel?.visibility === 'private' && can(Permission.manageChannels) && channelsQ.data.value?.channels.some(item => item.id === channelId)" text="Manage channel members">
             <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-users" aria-label="Manage channel members" @click="privateMembersOpen = true" />
-          </UTooltip>
-          <UTooltip v-if="isDm" text="Add friends to DM">
-            <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-user-plus" aria-label="Add people" @click="addOpen = !addOpen" />
           </UTooltip>
           <UTooltip :text="ui.rightPanelOpen ? 'Close right panel' : 'Open right panel'">
             <UButton
@@ -466,20 +461,6 @@ defineShortcuts({
         </div>
         <LayoutActivityBar v-if="showConnection && connection !== 'connected' && connection !== 'offline'" label="Reconnecting to live updates" />
       </header>
-      <div v-if="addOpen" class="border-b border-default p-2 shrink-0">
-        <UInput v-model="addQ" size="sm" icon="i-ph-magnifying-glass" placeholder="Add people" />
-        <UButton
-          v-for="m in addSearch.data.value?.members ?? []"
-          :key="m.id"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          block
-          class="justify-start"
-          :label="m.displayName"
-          @click="addPerson(m.id)"
-        />
-      </div>
       <LiveStage
         v-if="showStage"
         :can-end="canEndLive"
@@ -493,7 +474,7 @@ defineShortcuts({
         :channel-name="headerName"
         :is-dm="isDm"
         :can-pin="canPin"
-        :link-path="channelPath(channelId)"
+        :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
         @read="(messageId) => send({ t: 'read', messageId })"
@@ -523,6 +504,7 @@ defineShortcuts({
           :disabled-placeholder="composerDisabledPlaceholder"
           :can-attach="canAttachFiles"
           :agent-busy="agentBusy"
+          :agent-id="directAgentId"
           :placeholder="composerPlaceholder"
           primary
         />
@@ -547,6 +529,7 @@ defineShortcuts({
       <ChatThreadPanel
         v-if="ui.rightPanelOpen && ui.rightPanelTab === 'threads' && ui.threadId"
         key="thread"
+        :agent-id="directAgentId"
         :server-id="serverId"
         :members="members"
         :can-pin="canPin"

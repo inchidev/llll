@@ -14,6 +14,8 @@ const props = defineProps<{
   canPin?: boolean
   /** Threads cannot hold threads, so their rows offer no thread action. */
   canThread?: boolean
+  /** The original message shown as context in a child thread. */
+  contextOnly?: boolean
   compact?: boolean
   streaming?: boolean
   /** The pointer or keyboard focus is on this row: only then is the toolbar rendered. */
@@ -45,7 +47,7 @@ const editDraft = computed({
   set: value => ui.setEditDraft(props.message.channelId, value),
 })
 
-const actionable = computed(() => !props.message.deletedAt && !props.message.id.startsWith('tmp:'))
+const actionable = computed(() => !props.contextOnly && !props.message.deletedAt && !props.message.id.startsWith('tmp:'))
 const quickEmoji = computed(() => {
   const recent = Array.isArray(prefs.recentEmoji) ? prefs.recentEmoji : []
   return [...new Set([...recent, '👍', '❤️', '😂'])].slice(0, 3)
@@ -133,6 +135,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
       type="button"
       class="reply-spine relative ms-14 mb-0.5 flex w-fit max-w-[calc(100%-3.5rem)] items-center gap-1.5 rounded py-0.5 text-[13px] leading-4 text-muted hover:text-default"
       :aria-label="`Jump to reply from ${names[message.replyTo.authorId] || 'member'}`"
+      :disabled="contextOnly"
       @click="emit('jump', message.replyTo.id)"
     >
       <span class="shrink-0 font-semibold text-toned">@{{ names[message.replyTo.authorId] || 'member' }}</span>
@@ -166,7 +169,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             <ChatUserCard :user="message.author" :member="member" @close="nameProfileOpen = false" />
           </template>
         </UPopover>
-        <UBadge v-if="message.author.kind === 'agent'" label="AI" size="sm" color="primary" variant="subtle" class="self-center px-1 py-0 text-[11px]" />
+        <UIcon v-if="message.author.kind === 'agent'" name="i-ph-robot" class="size-3.5 self-center text-muted" role="img" :aria-hidden="false" aria-label="Agent" />
         <time class="text-xs text-muted" :datetime="message.createdAt" :title="formatFullDateTime(message.createdAt)">{{ formatMessageTime(message.createdAt) }}</time>
       </div>
       <p v-if="message.deletedAt" class="text-muted italic">Message deleted</p>
@@ -214,6 +217,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             :class="r.me ? 'border-primary/60 bg-primary/15 text-highlighted' : 'border-transparent bg-elevated text-toned hover:border-accented'"
             :aria-pressed="r.me"
             :aria-label="reactionLabel(r.emoji, r.count, r.me)"
+            :disabled="contextOnly"
             @click="react(r.emoji)"
           >
             <span class="text-base leading-none">{{ r.emoji }}</span>
@@ -234,7 +238,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
           </template>
         </UPopover>
       </div>
-      <div v-if="message.threadId" class="relative mt-1 max-w-xl ps-6">
+      <div v-if="message.threadId && !contextOnly" class="relative mt-1 max-w-xl ps-6">
         <!-- Connector: drops from under the message and curves into the card's middle. -->
         <span
           class="pointer-events-none absolute start-1.5 top-1 h-[calc(50%-0.25rem)] w-4.5 rounded-es-[10px] border-s-2 border-b-2 border-accented"

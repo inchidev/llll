@@ -35,6 +35,9 @@ export async function toDmDto(
   const last = await env.DB.prepare(
     'SELECT created_at FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT 1',
   ).bind(ch.id).first<{ created_at: string }>()
+  const agent = participants.length === 2 ? participants.find(p => p.kind === 'agent') : null
+  const snippet = agent ? await env.DB.prepare(`SELECT m.content FROM messages m WHERE m.author_id=? AND m.deleted_at IS NULL AND (m.channel_id=? OR m.channel_id IN (SELECT id FROM channels WHERE parent_id=?)) ORDER BY m.id DESC LIMIT 1`).bind(agent.id, ch.id, ch.id).first<{ content: string }>() : null
+  const working = agent ? await env.DB.prepare("SELECT id FROM agent_runs WHERE agent_id=? AND (channel_id=? OR channel_id IN (SELECT id FROM channels WHERE parent_id=?)) AND status='running' LIMIT 1").bind(agent.id, ch.id, ch.id).first() : null
   const frozen = await dmFrozen(env, participants.map((p) => p.id))
   let live: ChannelDTO['live'] = null
   if (ch.liveMeetingId) {
@@ -66,6 +69,7 @@ export async function toDmDto(
     participants,
     frozen,
     lastMessageAt: last?.created_at ?? null,
+    ...(agent ? { lastAgentMessage: snippet?.content.slice(0, 180) ?? null, agentWorking: Boolean(working) } : {}),
   }
 }
 

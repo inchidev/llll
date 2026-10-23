@@ -5,7 +5,7 @@ import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, Serv
 import { Permission } from '~~/shared/permissions'
 import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
-import { hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
+import { chatNavigationTarget, hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
 import { publicIconPath } from '~~/shared/server-appearance'
 
 const props = defineProps<{ serverId: string }>()
@@ -61,7 +61,7 @@ const hasMenu = computed(() => hasServerNavigationMenu(route.path))
 const chatUnread = computed(() => [...channels.value, ...(dmsQ.data.value?.channels ?? [])].some(channel => channel.unread))
 const chatTarget = computed(() => {
   const last = ui.last()
-  return last?.serverId === props.serverId ? channelPath(last.channelId) : '/channels'
+  return chatNavigationTarget([...channels.value, ...(dmsQ.data.value?.channels ?? [])], last?.serverId === props.serverId ? last.channelId : undefined)
 })
 const mailUnread = computed(() => mailboxes.value.some(mailbox => mailbox.unreadCount > 0))
 const mailTarget = computed(() => {
@@ -225,7 +225,7 @@ watch(nav.inviteOpen, (open) => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-full select-none flex-col">
+  <div class="relative flex h-full min-h-0 w-full select-none flex-col">
     <div class="flex min-h-0 flex-1">
       <div class="flex w-[72px] shrink-0 flex-col border-e border-default bg-muted">
         <UDropdownMenu :items="serverItems" :ui="{ content: 'w-56' }">
@@ -235,7 +235,7 @@ watch(nav.inviteOpen, (open) => {
             :aria-label="serverName || 'Server menu'"
             :title="serverName || 'Server menu'"
           >
-            <span class="flex size-11 items-center justify-center rounded-xl transition-colors group-hover:bg-accented group-data-[state=open]:bg-accented">
+            <span class="server-avatar flex size-11 items-center justify-center rounded-xl transition-colors group-data-[state=open]:bg-accented">
               <UAvatar v-if="serverIconUrl" size="xl" :src="serverIconUrl" :alt="serverName" class="size-10 rounded-lg" />
               <BrandLogo v-else size="xl" alt="" />
             </span>
@@ -244,9 +244,9 @@ watch(nav.inviteOpen, (open) => {
 
         <nav aria-label="Server views" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-2">
           <div v-if="membersQ.isPending.value" class="space-y-1" aria-label="Loading views" aria-busy="true">
-            <div v-for="index in 9" :key="index" class="flex h-14 flex-col items-center justify-center gap-1.5"><USkeleton class="size-5" /><USkeleton class="h-2 w-10" /></div>
+            <div v-for="index in 9" :key="index" class="flex aspect-square w-full flex-col items-center justify-center gap-1.5"><USkeleton class="size-5" /><USkeleton class="h-2 w-10" /></div>
           </div>
-          <UButton v-else-if="membersQ.error.value" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" aria-label="Retry loading views" class="h-14 w-full justify-center" @click="membersQ.refetch()" />
+          <UButton v-else-if="membersQ.error.value" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" aria-label="Retry loading views" class="aspect-square w-full justify-center rounded-lg" @click="membersQ.refetch()" />
           <ul v-else class="space-y-1">
             <li v-for="item in views" :key="item.path">
               <NuxtLink
@@ -254,7 +254,7 @@ watch(nav.inviteOpen, (open) => {
                 :title="item.label"
                 :aria-current="isViewActive(item.path) ? 'page' : undefined"
                 :aria-label="item.count ? `${item.label}, ${item.count} unread conversations` : item.dot ? `${item.label}, unread` : item.label"
-                class="relative flex h-14 w-full flex-col items-center justify-center gap-1 rounded-lg px-0.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+                class="relative flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-lg px-0.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
                 :class="isViewActive(item.path) ? 'bg-accented text-highlighted' : 'text-muted hover:bg-elevated hover:text-default'"
                 @click="emit('selectSection', item.path)"
               >
@@ -273,13 +273,13 @@ watch(nav.inviteOpen, (open) => {
       <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted" @click.capture="selectResource">
         <header class="flex h-12 shrink-0 items-center gap-2 px-3 shadow-[0_1px_0_var(--ui-border)]">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
+          <UButton v-if="section === 'agents' && can(Permission.manageAgents)" icon="i-ph-plus" color="neutral" variant="ghost" square class="size-9 justify-center" aria-label="Create agent" @click="nav.createAgentOpen.value = true" />
           <UButton icon="i-ph-x" color="neutral" variant="ghost" class="size-9 justify-center md:hidden" aria-label="Close navigation" @click="ui.mobilePane = 'chat'" />
         </header>
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
           <nav v-if="section === 'chat'" aria-label="Conversations" class="space-y-4">
             <LayoutChatNav :server-id="serverId" />
             <LayoutDirectMessages :server-id="serverId" kind="human" />
-            <LayoutDirectMessages :server-id="serverId" kind="agent" />
           </nav>
           <LayoutInboxNav v-else-if="section === 'inbox'" :server-id="serverId" />
           <LayoutAgentsNav v-else-if="section === 'agents'" :server-id="serverId" />
@@ -291,7 +291,7 @@ watch(nav.inviteOpen, (open) => {
         <button
           v-if="live.connection === 'connected' && live.currentChannelId"
           type="button"
-          class="mx-2 mb-0 rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
+          class="pointer-events-auto rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
           @click="navigateTo(connectedPath)"
         >
           <p class="flex items-center gap-1.5 text-xs font-semibold text-success"><UIcon :name="live.currentKind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" class="size-3.5" />Connected</p>
@@ -299,7 +299,22 @@ watch(nav.inviteOpen, (open) => {
         </button>
       </div>
     </div>
-    <LayoutUserPanel :compact="!hasMenu" />
+    <LayoutUserPanel v-if="!hasMenu" compact />
+    <div
+      v-if="hasMenu"
+      class="pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-1 px-2 pb-4 pt-8 sm:px-4 sm:pb-6"
+    >
+      <button
+        v-if="live.connection === 'connected' && live.currentChannelId"
+        type="button"
+        class="pointer-events-auto rounded-lg bg-success/10 px-3 py-2 text-start hover:bg-success/15"
+        @click="navigateTo(connectedPath)"
+      >
+        <p class="flex items-center gap-1.5 text-xs font-semibold text-success"><UIcon :name="live.currentKind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" class="size-3.5" />Connected</p>
+        <p class="truncate text-[11px] text-muted">{{ live.currentTitle || 'Live' }}</p>
+      </button>
+      <LayoutUserPanel class="pointer-events-auto" />
+    </div>
     <SettingsAgentEditorModal v-if="can(Permission.manageAgents)" v-model:open="nav.createAgentOpen.value" :server-id="serverId" />
     <SettingsServerSettings v-if="canOpenServerSettings" v-model:open="nav.serverSettingsOpen.value" v-model:section="nav.serverSettingsSection.value" :server-id="serverId" />
 
@@ -359,3 +374,18 @@ watch(nav.inviteOpen, (open) => {
     <LiveIncomingCall />
   </div>
 </template>
+
+<style scoped>
+/* The rail's hover language does not paint filled boxes behind avatars, and the
+   accent square also matched the avatar's own background. Hover and open states
+   morph the avatar radius instead. */
+.server-avatar img {
+  border-radius: 0.5rem;
+  transition: border-radius 150ms ease;
+}
+
+.group:hover .server-avatar img,
+.group[data-state='open'] .server-avatar img {
+  border-radius: 0.25rem;
+}
+</style>

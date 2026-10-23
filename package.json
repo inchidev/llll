@@ -190,12 +190,16 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.49",
     "@ai-sdk/openai": "4.0.58",
     "@better-auth/drizzle-adapter": "^1.7.12",
     "@better-auth/oauth-provider": "1.7.12",
     "@block65/webcrypto-web-push": "2.0.0",
     "@cloudflare/realtimekit": "^2.0.2",
     "@cloudflare/think": "0.17.0",
+    "@earendil-works/chord": "^1.4.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-durable": "^1.4.0",
     "@iconify-json/ph": "^1.2.2",
     "@js-temporal/polyfill": "0.5.1",
     "@modelcontextprotocol/server": "2.0.0",

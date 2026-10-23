@@ -35,7 +35,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   if (!current) fail(404, 'not_found', 'Agent not found')
 
   const harness = body.harness ?? current.profile.harness
-  if (harness === 'pi' && !piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
+  if (harness === 'pi' && !await piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
   const now = nowIso()
   const displayName = body.displayName ?? current.user.displayName
   const model = body.model !== undefined ? resolveAgentModelId(env, body.model) : current.profile.model

@@ -1,3 +1,5 @@
+import { agentProviderCatalog } from '../../utils/agent-providers'
+import { piConfigured } from '../../utils/agent-run-service'
 import { liveAvailable } from '../../../workers/realtimekit'
 import { ensureAdminFromEnv, readAdminEnv } from '../../utils/bootstrap'
 import { cf } from '../../utils/cf'
@@ -99,8 +101,8 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     ownerEmailHint: ownerSetup && !ready ? maskedOwnerEmail(ownerSetup.email) : null,
     bindings,
     aiProvider: provider,
-    aiModel: serverAiModel(env),
-    capabilities: serverCapabilities(env),
+    aiModel: (migrated ? (await agentProviderCatalog(env)).defaultModel : null) ?? serverAiModel(env),
+    capabilities: { ...serverCapabilities(env), containers: migrated ? await piConfigured(env) : false },
     realtimekit: await realtimekit,
     twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
     ...branding,
