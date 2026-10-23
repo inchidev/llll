@@ -18,7 +18,7 @@ function defaultModel() {
   return ''
 }
 const { can } = useRoleGrants()
-const roleId = ref('')
+const roleId = ref('member')
 const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: computed(() => open.value && can(Permission.manageRoles)) })
 const saving = ref(false)
 const avatarFile = shallowRef<File | null>(null)
@@ -71,7 +71,7 @@ function selectAgent(agent: AgentDTO) {
 }
 
 function createAgent() {
-  roleId.value = ''
+  roleId.value = 'member'
   selectedAgent.value = null
   avatarFile.value = null
   removeCurrentAvatar.value = false
@@ -110,7 +110,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       result = await api<{ agent: AgentDTO }>(`/api/servers/${props.serverId}/agents`, {
         method: 'POST',
         body: {
-          roleId: roleId.value || undefined,
+          roleId: roleId.value === 'member' ? undefined : roleId.value,
           displayName: event.data.displayName,
           model: event.data.model,
           instructions: event.data.instructions,
@@ -209,7 +209,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       </UFormField>
 
       <UFormField v-if="isNew && can(Permission.manageRoles)" label="Role" description="Tasks need Read tasks and Execute assigned tasks; reporting also needs Send messages in the chosen channel.">
-        <USelect v-model="roleId" :loading="roles.isPending.value" :disabled="roles.isPending.value" :items="[{ value: '', label: 'Member' }, ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name }))]" class="w-full" />
+        <USelect v-model="roleId" :loading="roles.isPending.value" :disabled="roles.isPending.value" :items="[{ value: 'member', label: 'Member' }, ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name }))]" class="w-full" />
       </UFormField>
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />

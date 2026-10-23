@@ -52,6 +52,7 @@ describe('Server model credentials', () => {
     Object.assign(env, { AI_BASE_URL: 'https://openrouter.ai/api/v1', AI_API_KEY: 'deployment-key', AI_MODEL: 'default/model' })
     await importOpenRouterDeployment(env, false)
     const catalog = await agentProviderCatalog(env)
+    expect(catalog.defaultModel).toBe('l4:openrouter:default/model')
     expect(catalogAgentModel(env, 'custom/model', catalog)).toBe('l4:openrouter:custom/model')
     expect((await resolveSavedAgentModel(env, 'l4:openrouter:custom/model'))?.apiKey).toBe('deployment-key')
     expect(catalog.models.map(model => model.value)).toEqual(['l4:openrouter:default/model', 'l4:openrouter:custom/model'])

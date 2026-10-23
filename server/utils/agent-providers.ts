@@ -70,6 +70,8 @@ export async function importOpenRouterDeployment(env: L4Env, webSearch: boolean)
   const ids = [...new Set([env.AI_MODEL!.trim(), ...profiles.results.map(profile => profile.model)])]
   if (ids.length > 200) fail(409, 'too_many_models', 'Reduce the number of distinct Agent models before importing this connection')
   await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch, apiKey: env.AI_API_KEY!.trim(), models: ids.map(id => ({ id, api: 'chat' })) })
+  // Import preserves the operator’s explicit model choice without choosing a catalog fallback.
+  if (await readServerSetting(env.DB, 'agents.defaultModel') === null) await writeServerSetting(env.DB, 'agents.defaultModel', agentModelRef('openrouter', env.AI_MODEL!.trim()))
 }
 export async function saveAgentProvider(env: L4Env, id: string, input: z.infer<typeof agentProviderSchema>): Promise<void> {
   if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'secret_unavailable', 'Server encryption is unavailable')
