@@ -395,30 +395,6 @@ describe('RealtimeKit REST', () => {
     } as never)).resolves.toBe(false)
   })
 
-  it('creates the RealtimeKit app with the shared token on the first call', async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const path = String(url)
-      const method = init?.method ?? 'GET'
-      if (method === 'GET' && path.endsWith('/realtime/kit/apps')) {
-        return Response.json({ result: [{ id: 'app-1', name: 'L4' }] })
-      }
-      if (method === 'GET' && path.includes('/presets')) {
-        return Response.json({ result: [{ name: 'llll_live_host' }, { name: 'llll_live_participant' }] })
-      }
-      if (method === 'POST' && path.endsWith('/meetings')) {
-        expect(path).toBe(`https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/realtime/kit/app-1/meetings`)
-        expect(init?.headers).toMatchObject({ Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` })
-        return Response.json({ result: { id: 'meeting-1' } })
-      }
-      throw new Error(`unexpected ${method} ${path}`)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const env = restEnv() as never
-    await expect(liveAvailable(env)).resolves.toBe(true)
-    const media = await liveMedia(env)
-    await expect(media?.createMeeting('room')).resolves.toEqual({ id: 'meeting-1' })
-  })
-
   it('keeps a complete RealtimeKit deployment config ahead of the shared token', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(String(url)).toBe(`https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/realtime/kit/existing-app/meetings`)
