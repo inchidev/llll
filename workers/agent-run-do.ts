@@ -1,3 +1,4 @@
+import { admitQueuedAgentRun } from './agent-run-admission'
 import { getRunBlob, putRunBlob, deleteRunBlob } from './agent-run-storage'
 import { deleteAgentTurn, patchAgentTurn, fanoutAgentTurns } from './agent-turns'
 import { DurableObject } from 'cloudflare:workers'
@@ -217,12 +218,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       if (run.deadline <= nowIso()) throw new Error('Run deadline reached')
       const authorization = await runAuthorization(this.env, run)
       if (run.status === 'queued') {
-        const claim = await this.env.DB.prepare('UPDATE agent_sessions SET active_run_id=? WHERE id=? AND (active_run_id IS NULL OR active_run_id=?) RETURNING id')
-          .bind(run.id, run.sessionId, run.id).first()
-        if (!claim) return
-        const admitted = await this.env.DB.prepare("UPDATE agent_runs SET status='running',updated_at=? WHERE id=? AND status='queued' AND (SELECT count(*) FROM agent_runs WHERE agent_id=? AND status='running')<2 AND (SELECT count(*) FROM agent_runs WHERE status='running')<4 RETURNING id")
-          .bind(nowIso(), run.id, run.agentId).first()
-        if (!admitted) return
+        if (!await admitQueuedAgentRun(this.env, run)) return
       }
       if (run.status === 'queued') {
         await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })

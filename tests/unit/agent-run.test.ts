@@ -192,3 +192,8 @@ it('keeps web search role-gated and accounts its bounded OpenRouter call in the 
     expect(network).toHaveBeenCalledTimes(1)
   } finally { vi.unstubAllGlobals() }
 })
+
+it('rejects direct Run admission into a pair DM so replies cannot bypass the message thread', async () => {
+  db.exec(`INSERT INTO channels(id,name,type,visibility) VALUES('pair-dm-channel','dm','dm','private'); INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES('pair-dm-channel','owner-user','2026-10-23'),('pair-dm-channel','${agentId}','2026-10-23');`)
+  await expect(createAgentRun(env, (await start())!, { ...input(), channelId: 'pair-dm-channel' })).rejects.toMatchObject({ statusCode: 400, data: { error: { code: 'thread_required' } } })
+})

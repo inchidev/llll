@@ -1,3 +1,5 @@
+import { chatGPTAccessToken } from '../server/utils/agent-chatgpt'
+import { chatGPTFetch } from '../server/utils/chatgpt-transport'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { resolveSavedAgentModel } from '../server/utils/agent-providers'
 import { createOpenAI } from '@ai-sdk/openai'
@@ -22,9 +24,10 @@ export function modelForAgent(env: L4Env, profileModel?: string | null): Languag
 }
 
 /** Provider credentials stay on the Server; compute receives only a Run capability. */
-export async function modelForRun(env: L4Env, reference: string, sessionId: string): Promise<LanguageModel | string> {
-  const saved = await resolveSavedAgentModel(env, reference)
+export async function modelForRun(env: L4Env, reference: string, sessionId: string, actorId?: string): Promise<LanguageModel | string> {
+  const saved = await resolveSavedAgentModel(env, reference, actorId)
   if (!saved) return modelForAgent(env, reference)
+  if (saved.id === 'chatgpt') return createOpenAI({ apiKey: await chatGPTAccessToken(env, saved.connectionId, actorId!), fetch: chatGPTFetch }).responses(saved.model.id)
   if (saved.id === 'anthropic') return createAnthropic({ apiKey: saved.apiKey })(saved.model.id)
   const headers = { 'x-opencode-session': sessionId }
   // AI SDK adds its own User-Agent after provider headers; identify L4 at the final transport boundary.

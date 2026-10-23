@@ -1,4 +1,4 @@
-import { generateText, streamText, jsonSchema, tool, type ModelMessage } from 'ai'
+import { streamText, jsonSchema, tool, type ModelMessage } from 'ai'
 import { createWorkersAI } from 'workers-ai-provider'
 import { z } from 'zod'
 import { findAgentRun, runAuthorization, verifyRunCapability } from './agent-run-service'
@@ -40,7 +40,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
     AND model_calls<? AND total_tokens+?<=?
     AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id`).bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now()-86400000).toISOString(), reservation).first()
   if (!admitted) return Response.json({ error: { message: 'Run inference budget exhausted' } }, { status: 429 })
-  const resolved = await modelForRun(env, run.model, run.sessionId)
+  const resolved = await modelForRun(env, run.model, run.sessionId, run.initiatedBy)
   const model = typeof resolved === 'string' && env.AI ? createWorkersAI({ binding: env.AI })(resolved) : resolved
   if (typeof model === 'string') return Response.json({ error: { message: 'Model provider unavailable' } }, { status: 503 })
   const tools = Object.fromEntries((input.tools ?? []).map(definition => [definition.function.name, tool({
@@ -85,7 +85,9 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
     })
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
   }
-  const result = await generateText(settings)
+  const streamed = streamText(settings)
+  const [text, usage, toolCalls] = await Promise.all([streamed.text, streamed.totalUsage, streamed.toolCalls])
+  const result = { text, usage, toolCalls }
   const used = result.usage.totalTokens ?? reservation
   // Never refund more than the reserved amount, and keep unexpected provider overruns visible.
   await env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?) WHERE id=?').bind(used - reservation, run.id).run()

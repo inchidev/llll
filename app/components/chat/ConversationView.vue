@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
 import { onKeyStroke, useMediaQuery } from '@vueuse/core'
-import type { ChannelDTO, MemberDTO, MessageDTO, PublicUser } from '~~/shared/types'
+import type { ChannelDTO, MemberDTO, MessageDTO } from '~~/shared/types'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
 import type { RealtimeConnection } from '../../composables/useChannelSocket'
 import { serverConnectionKey } from '../../composables/useServerSocket'
@@ -303,21 +303,6 @@ async function onThread(msg: MessageDTO) {
   void qc.invalidateQueries({ queryKey: ['threads', channelId.value] })
 }
 
-const addOpen = ref(false)
-const addQ = ref('')
-const addSearch = useQuery({
-  queryKey: computed(() => ['dm-add', serverId.value, addQ.value]),
-  queryFn: () => api<{ members: PublicUser[] }>(`/api/dms/search?serverId=${serverId.value}&q=${encodeURIComponent(addQ.value)}`),
-  enabled: computed(() => addOpen.value),
-})
-
-async function addPerson(userId: string) {
-  await api(`/api/dms/${channelId.value}/participants`, { method: 'POST', body: { userId } })
-  await qc.invalidateQueries({ queryKey: ['dms'] })
-  await qc.invalidateQueries({ queryKey: ['channel', channelId.value] })
-  addOpen.value = false
-}
-
 const renaming = ref(false)
 const rename = ref('')
 watch(headerName, (n) => { if (!renaming.value) rename.value = n }, { immediate: true })
@@ -346,7 +331,6 @@ defineShortcuts({
     ui.cancelComposerIntent(channelId.value)
     if (ui.threadId) ui.cancelComposerIntent(ui.threadId)
     renaming.value = false
-    addOpen.value = false
   },
 })
 </script>
@@ -429,7 +413,7 @@ defineShortcuts({
             <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[11px] text-toned">⌘ K</kbd>
           </button>
           <UTooltip
-            v-if="isConversation"
+            v-if="isConversation && !directAgentId"
             :text="liveActionHint"
           >
             <UButton
@@ -442,9 +426,6 @@ defineShortcuts({
               :aria-label="liveActionLabel"
               @click="openPrejoin()"
             />
-          </UTooltip>
-          <UTooltip v-if="isDm" text="Add friends to DM">
-            <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-user-plus" aria-label="Add people" @click="addOpen = !addOpen" />
           </UTooltip>
           <UTooltip :text="ui.rightPanelOpen ? 'Close right panel' : 'Open right panel'">
             <UButton
@@ -474,20 +455,6 @@ defineShortcuts({
         </div>
         <LayoutActivityBar v-if="showConnection && connection !== 'connected' && connection !== 'offline'" label="Reconnecting to live updates" />
       </header>
-      <div v-if="addOpen" class="border-b border-default p-2 shrink-0">
-        <UInput v-model="addQ" size="sm" icon="i-ph-magnifying-glass" placeholder="Add people" />
-        <UButton
-          v-for="m in addSearch.data.value?.members ?? []"
-          :key="m.id"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          block
-          class="justify-start"
-          :label="m.displayName"
-          @click="addPerson(m.id)"
-        />
-      </div>
       <LiveStage
         v-if="showStage"
         :can-end="canEndLive"

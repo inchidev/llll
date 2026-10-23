@@ -2,7 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
-import type { AgentProviderCatalog } from '~~/shared/agent-providers'
+import { agentModelLabel, parseAgentModelRef, type AgentProviderCatalog } from '~~/shared/agent-providers'
 import type { AgentDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
@@ -15,9 +15,6 @@ const session = useSessionStore()
 const openAiCompatible = computed(() => session.health?.aiProvider === 'openai-compatible')
 const workersAiRest = computed(() => session.health?.aiProvider === 'workers-ai-rest')
 const workersAi = computed(() => session.health?.aiProvider === 'workers-ai' || workersAiRest.value)
-const providers = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers`), enabled: open })
-const savedModels = computed(() => providers.data.value?.models.filter(model => model.provider !== 'Deployment') ?? [])
-const agentsUnavailable = computed(() => session.health?.aiProvider === null && !savedModels.value.length)
 function defaultModel() {
   // The Server resolves an empty model to its default provider profile.
   return ''
@@ -68,6 +65,11 @@ const form = reactive<AgentForm>({
   status: 'active',
 })
 
+const modelSearch = ref('')
+const providers = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value, form.model]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value, selected: form.model } }), enabled: open })
+const savedModels = computed(() => providers.data.value?.models.filter(model => model.provider !== 'Deployment') ?? [])
+const agentsUnavailable = computed(() => session.health?.aiProvider === null && !providers.data.value?.defaultModel)
+
 const selectedAgent = shallowRef<AgentDTO | null>(null)
 const isNew = computed(() => !selectedAgent.value)
 const formAvatarUser = computed(() => ({
@@ -77,6 +79,11 @@ const formAvatarUser = computed(() => ({
   avatarR2Key: removeCurrentAvatar.value ? null : selectedAgent.value?.avatarR2Key ?? null,
 }))
 
+watch(savedModels, models => {
+  if (!form.model || models.some(m => m.value === form.model)) return
+  const legacy = models.find(m => parseAgentModelRef(m.value)?.model === form.model)
+  if (legacy) form.model = legacy.value
+})
 function modelOption(value: unknown) {
   return modelOptions.find(option => option.id === value)
 }
@@ -252,7 +259,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
             <UIcon name="i-ph-arrow-square-out" class="size-3" />
           </ULink>
         </template>
-        <USelect v-if="savedModels.length" v-model="form.model" :items="savedModels.map(model => ({ value: model.value, label: `${model.provider} · ${model.label}` }))" placeholder="Server default" class="w-full" />
+        <USelectMenu v-if="savedModels.length || modelSearch" v-model:search-term="modelSearch" v-model="form.model" ignore-filter value-key="value" virtualize :items="savedModels.map(model => ({ value: model.value, label: agentModelLabel(model) }))" placeholder="Server default" class="w-full" />
         <UInput v-else-if="openAiCompatible" v-model="form.model" class="w-full" placeholder="Server default" />
         <USelect
           v-else

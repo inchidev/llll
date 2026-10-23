@@ -1,29 +1,82 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { agentProviderSchema, type AgentProviderCatalog, type AgentProviderDTO, type AgentProviderModel } from '~~/shared/agent-providers'
+import { agentProviderSchema, agentProviderIds, providerNames, agentModelLabel, type AgentProviderId, type AgentProviderDTO, type AgentProviderModel } from '~~/shared/agent-providers'
 const props = defineProps<{ serverId: string; isOwner?: boolean }>()
 const { api } = useApi()
-const qc = useQueryClient()
-const toast = useToast()
-const editing = ref<AgentProviderDTO | null>(null)
-const open = ref(false)
-const busy = ref(false)
-const state = reactive({ enabled: true, apiKey: '', webSearch: false, models: [{ id: '', api: 'chat' }] as AgentProviderModel[] })
-const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers`) })
-const protocols = [{ label: 'Chat Completions', value: 'chat' }, { label: 'Responses', value: 'responses' }, { label: 'Anthropic Messages', value: 'anthropic' }]
-function edit(provider: AgentProviderDTO) {
-  editing.value = provider
-  state.apiKey = ''; state.enabled = provider.configured ? provider.enabled : true; state.webSearch = provider.webSearch
-  state.models = provider.models.length ? provider.models.map(model => ({ ...model })) : [{ id: '', api: provider.id === 'anthropic' ? 'anthropic' : 'chat' }]
+const qc = useQueryClient(), toast = useToast()
+const editing = shallowRef<AgentProviderDTO | null>(null)
+const open = ref(false), busy = ref(false), loadingModels = ref(false), query = ref(''), page = ref(1)
+const availableModels = shallowRef<AgentProviderModel[]>([])
+const modelError = ref('')
+const connection = shallowRef<{ state: string; authorizationUrl: string; expiresAt: number } | null>(null)
+const state = reactive({ kind: 'openrouter' as AgentProviderId, name: '', enabled: true, apiKey: '', webSearch: false, models: [] as AgentProviderModel[] })
+const modelSearch = ref('')
+const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId, query.value, page.value]), queryFn: () => api<{ providers: AgentProviderDTO[]; total: number }>(`/api/servers/${props.serverId}/agent-providers/connections`, { query: { search: query.value, page: page.value } }) })
+const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
+const connecting = useQuery({ queryKey: computed(() => ['agent-provider-connecting', props.serverId, editing.value?.id]), queryFn: () => api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${editing.value!.id}`), enabled: computed(() => Boolean(connection.value && editing.value)), refetchInterval: 2000 })
+const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value] }))
+const visible = computed(() => catalog.data.value?.providers ?? [])
+const modelItems = computed(() => [...new Map([...state.models, ...availableModels.value].map(m => [m.id, { ...m, label: m.label ?? m.id }])).values()])
+const selectedModels = computed({ get: () => state.models.map(m => m.id), set: (ids: string[]) => { state.models = ids.flatMap(id => { const m = modelItems.value.find(m => m.id === id); return m ? [{ id: m.id, label: m.label, api: m.api }] : [] }) } })
+watch(query, () => { page.value = 1 })
+function edit(provider: AgentProviderDTO | null = null) {
+  editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
+  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? '', enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
   open.value = true
+  if (provider?.configured) void loadModels()
 }
-async function refresh() { await Promise.all([catalog.refetch(), qc.invalidateQueries({ queryKey: ['agent-model'] }), qc.invalidateQueries({ queryKey: ['health'] })]) }
+async function refresh() { await Promise.all([catalog.refetch(), qc.invalidateQueries({ queryKey: ['agent-model'] }), qc.invalidateQueries({ queryKey: ['health'] }), qc.invalidateQueries({ queryKey: ['agent-provider-model-options'] })]) }
+async function loadModels() {
+  loadingModels.value = true; modelError.value = ''
+  try {
+    const result = await api<{ models: AgentProviderModel[] }>(`/api/servers/${props.serverId}/agent-providers/models`, { method: 'POST', body: { kind: state.kind, connectionId: editing.value?.id, apiKey: state.apiKey || undefined } })
+    availableModels.value = result.models
+    state.models = state.models.map(model => result.models.find(option => option.id === model.id) ?? model)
+    if (!result.models.length) modelError.value = 'No compatible models are available for this connection.'
+  } catch (error) { modelError.value = errorMessage(error) }
+  finally { loadingModels.value = false }
+}
+async function persist() {
+  const id = editing.value?.id ?? crypto.randomUUID()
+  const result = await api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${id}`, { method: 'PUT', body: { ...state, name: state.name.trim() || providerNames[state.kind], apiKey: state.apiKey || undefined } })
+  state.apiKey = ''; await refresh()
+  editing.value = result.provider
+  return id
+}
 async function save() {
+  if (busy.value) return
+  busy.value = true
+  try { await persist(); open.value = false }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { busy.value = false }
+}
+const local = computed(() => import.meta.client && location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname))
+async function connectChatGPT() {
+  if (busy.value) return
+  const popup = local.value ? window.open('about:blank', '_blank') : null
+  busy.value = true
+  try {
+    const id = await persist()
+    const result = await api<{ state: string; authorizationUrl: string; expiresAt: number }>(`/api/servers/${props.serverId}/agent-providers/${id}/connect`, { method: 'POST', body: { local: local.value } })
+    connection.value = result
+    if (popup) popup.location.href = result.authorizationUrl
+  } catch (error) { popup?.close(); toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { busy.value = false }
+}
+const helperCommand = computed(() => connection.value && import.meta.client ? `node connect-chatgpt.mjs '${location.origin}' '${connection.value.authorizationUrl}'` : '')
+watch(() => connecting.data.value, value => {
+  if (!connection.value || !editing.value) return
+  if (connection.value.expiresAt < Date.now()) { connection.value = null; toast.add({ title: 'Sign-in expired', description: 'Continue with ChatGPT again.', color: 'warning' }); return }
+  const provider = value?.provider
+  if (provider?.configured && provider.account && provider.connectedAt !== editing.value.connectedAt) { connection.value = null; editing.value = provider; state.models = provider.models; void loadModels(); toast.add({ title: 'ChatGPT connected', color: 'success' }) }
+})
+async function remove() {
   if (!editing.value || busy.value) return
   busy.value = true
   try {
-    await api(`/api/servers/${props.serverId}/agent-providers/${editing.value.id}`, { method: 'PUT', body: { ...state, apiKey: state.apiKey || undefined } })
-    state.apiKey = ''; open.value = false; await refresh()
+    const result = await api<{ revoked: boolean }>(`/api/servers/${props.serverId}/agent-providers/${editing.value.id}`, { method: 'DELETE' })
+    open.value = false; await refresh()
+    if (!result.revoked) toast.add({ title: 'Removed from L4', description: 'Remote revocation was not confirmed. Disconnect L4 in ChatGPT settings.', color: 'warning' })
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
@@ -31,51 +84,57 @@ async function setDefault(model: string) {
   try { await api(`/api/servers/${props.serverId}/agent-providers/default`, { method: 'PUT', body: { model } }); await refresh() }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
 }
-async function importKey() {
-  busy.value = true
-  try { await api(`/api/servers/${props.serverId}/agent-providers/import`, { method: 'POST', body: { webSearch: true } }); await refresh() }
-  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
-  finally { busy.value = false }
-}
-watch(open, value => { if (!value) state.apiKey = '' })
+watch(open, value => { if (!value) { state.apiKey = ''; connection.value = null } })
+watch(() => state.kind, () => { if (!editing.value) { state.models = []; availableModels.value = []; modelError.value = '' } })
 </script>
 
 <template>
-  <section class="mt-8 space-y-3" aria-label="Model providers">
-    <div><h3 class="text-base font-semibold text-highlighted">Model providers</h3><p class="mt-1 text-sm text-muted">Pi runs every agent. Choose which model services it can use.</p></div>
+  <section class="space-y-5" aria-label="Model providers">
+    <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-muted">Named connections used by Pi.</p><UButton v-if="isOwner" label="Add provider" icon="i-ph-plus" @click="edit()" /></div>
+    <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
-    <ul class="divide-y divide-default rounded-lg border border-default">
-      <li v-for="provider in catalog.data.value?.providers ?? []" :key="provider.id" class="flex min-h-16 items-center gap-3 px-3 py-3">
-        <UIcon :name="provider.id === 'anthropic' ? 'i-ph-sparkle' : 'i-ph-plugs-connected'" class="size-5 text-muted" />
-        <div class="min-w-0 flex-1"><span class="block text-sm font-medium">{{ provider.name }}</span><span class="text-xs text-muted">{{ provider.subscription ? 'Go subscription · API key' : 'API key' }} · {{ provider.configured ? (provider.enabled ? `${provider.models.length} model${provider.models.length === 1 ? '' : 's'}` : 'Disabled') : 'Not connected' }}</span></div>
-        <UButton v-if="isOwner" :label="provider.configured ? 'Configure' : 'Connect'" size="sm" color="neutral" variant="outline" @click="edit(provider)" />
+    <LayoutEmptyState v-else-if="!visible.length" icon="i-ph-plugs" title="No providers" description="Connect a model service to use it with Pi." />
+    <ul v-else class="divide-y divide-default rounded-lg border border-default">
+      <li v-for="provider in visible" :key="provider.id" class="flex min-h-16 items-center gap-3 p-3">
+        <UIcon :name="provider.kind === 'anthropic' ? 'i-ph-sparkle' : 'i-ph-plugs-connected'" class="size-5 shrink-0 text-muted" />
+        <div class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ provider.name }}</span><span class="block truncate text-xs text-muted">{{ providerNames[provider.kind] }} · {{ provider.account || provider.keyPreview || (provider.configured ? 'Connected' : 'Not connected') }}</span><span class="text-xs text-muted">{{ provider.enabled ? `${provider.models.length} models` : 'Disabled' }}{{ provider.personal ? ' · Your account only' : '' }}</span></div>
+        <UButton v-if="isOwner" label="Configure" size="sm" color="neutral" variant="outline" @click="edit(provider)" />
       </li>
     </ul>
-    <UFormField v-if="isOwner && catalog.data.value?.models.length" label="Default model" description="Used by agents without a conversation override.">
-      <USelect :model-value="catalog.data.value.defaultModel ?? undefined" :items="catalog.data.value.models.map(model => ({ value: model.value, label: `${model.provider} · ${model.label}` }))" class="w-full" @update:model-value="setDefault" />
+    <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
+    <UFormField v-if="isOwner && (modelOptions.data.value?.models.length || modelSearch)" label="Default model" description="Used when the agent and conversation have no override.">
+      <USelectMenu v-model:search-term="modelSearch" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? undefined" value-key="value" :items="(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))" class="w-full" virtualize @update:model-value="setDefault" />
     </UFormField>
-    <template v-if="isOwner && catalog.data.value?.canImportOpenRouter">
-      <UButton label="Import OpenRouter from deployment" icon="i-ph-download-simple" color="neutral" variant="outline" :loading="busy" @click="importKey" />
-      <p class="text-xs text-muted">Stores the existing key encrypted in this Server and enables web search. Search is billed by OpenRouter.</p>
-    </template>
-    <p v-if="isOwner" class="text-xs text-muted">Provider keys are encrypted and never sent to clients or compute. Claude Pro/Max sign-in is unavailable for embedded Pi; connect Claude with an API key.</p>
   </section>
-  <UModal v-model:open="open" :title="editing?.name ?? 'Provider'" description="Connect models for this Server. Blank key keeps the saved credential.">
+  <UModal v-model:open="open" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose the models Pi can use.">
     <template #body>
       <UForm id="agent-provider-form" :schema="agentProviderSchema.omit({ apiKey: true })" :state="state" class="space-y-4" @submit="save">
-        <UFormField name="enabled" label="Available to agents"><USwitch v-model="state.enabled" /></UFormField>
-        <UFormField name="apiKey" label="API key" :required="!editing?.configured" :description="editing?.configured ? 'A key is saved. Enter a new one to replace it.' : undefined"><UInput v-model="state.apiKey" type="password" autocomplete="new-password" class="w-full" /></UFormField>
-        <fieldset class="space-y-2"><legend class="mb-2 text-sm font-medium">Models</legend>
-          <div v-for="(model, index) in state.models" :key="index" class="flex items-end gap-2">
-            <UFormField :name="`models.${index}.id`" label="Model ID" class="min-w-0 flex-1"><UInput v-model="model.id" placeholder="Exact provider model ID" class="w-full" /></UFormField>
-            <UFormField v-if="editing?.id === 'opencode' || editing?.id === 'opencode-go'" :name="`models.${index}.api`" label="API"><USelect v-model="model.api" :items="protocols" class="w-36" /></UFormField>
-            <UButton icon="i-ph-x" aria-label="Remove model" color="neutral" variant="ghost" :disabled="state.models.length === 1" @click="state.models.splice(index, 1)" />
-          </div>
-          <UButton v-if="state.models.length < 30" label="Add model" icon="i-ph-plus" color="neutral" variant="ghost" size="sm" @click="state.models.push({ id: '', api: editing?.id === 'anthropic' ? 'anthropic' : 'chat' })" />
-        </fieldset>
-        <UFormField v-if="editing?.id === 'openrouter'" name="webSearch" label="Web search" description="Allow agents with Browse Web permission to search through OpenRouter. Additional search charges apply."><USwitch v-model="state.webSearch" /></UFormField>
+        <UFormField name="kind" label="Provider"><USelect v-model="state.kind" :items="kinds" :disabled="Boolean(editing)" class="w-full" /></UFormField>
+        <UFormField name="name" label="Connection name" description="Distinguish work, personal, or other accounts."><UInput v-model="state.name" :placeholder="providerNames[state.kind]" class="w-full" /></UFormField>
+        <template v-if="state.kind === 'chatgpt'">
+          <p class="text-sm text-muted">{{ editing?.account ? `Connected as ${editing.account}.` : 'Use your ChatGPT plan with Pi.' }} This connection is available only for your requests.</p>
+          <UButton label="Continue with ChatGPT" color="neutral" variant="outline" :loading="busy" @click="connectChatGPT" />
+          <template v-if="connection">
+            <div v-if="local" class="space-y-2"><p class="text-sm text-muted">Finish signing in in the new tab. This page will update automatically.</p><UButton :to="connection.authorizationUrl" target="_blank" label="Open ChatGPT sign-in" color="neutral" variant="link" /></div>
+            <div v-else class="space-y-3">
+              <p class="text-sm text-muted">OpenAI returns sign-in to your computer. Download the helper, then run this command in its folder. It opens your browser and returns the connection to this Server.</p>
+              <UButton to="/connect-chatgpt.mjs" download="connect-chatgpt.mjs" label="Download sign-in helper" icon="i-ph-download" color="neutral" variant="outline" />
+              <pre class="max-h-32 overflow-auto rounded-md bg-elevated p-3 text-xs whitespace-pre-wrap break-all">{{ helperCommand }}</pre>
+            </div>
+          </template>
+        </template>
+        <UFormField v-else name="apiKey" label="API key" :description="editing?.configured ? `Saved: ${editing.keyPreview || '••••••••'}. Leave blank to keep it.` : 'Paste the key from your provider account.'"><UInput v-model="state.apiKey" type="password" autocomplete="new-password" :placeholder="editing?.keyPreview" class="w-full" /></UFormField>
+        <template v-if="state.kind !== 'chatgpt' || editing?.configured">
+          <UFormField name="models" label="Models" description="Search the provider catalog and choose which models are available.">
+            <USelectMenu v-model="selectedModels" :items="modelItems" value-key="id" multiple virtualize placeholder="Choose models" class="w-full" :loading="loadingModels" :search-input="{ placeholder: 'Search model names…' }" />
+          </UFormField>
+          <UButton label="Load models" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" :loading="loadingModels" @click="loadModels" />
+          <p v-if="modelError" class="text-sm text-error" role="alert">{{ modelError }}</p>
+          <UFormField name="enabled" label="Available to agents"><USwitch v-model="state.enabled" /></UFormField>
+        </template>
+        <UFormField v-if="state.kind === 'openrouter'" name="webSearch" label="Web search" description="Allow agents with Browse Web permission to search. Additional OpenRouter charges apply."><USwitch v-model="state.webSearch" /></UFormField>
       </UForm>
     </template>
-    <template #footer><UButton label="Cancel" color="neutral" variant="ghost" @click="open = false" /><UButton type="submit" form="agent-provider-form" label="Save" :loading="busy" /></template>
+    <template #footer><UButton v-if="editing" label="Remove connection" color="error" variant="ghost" :disabled="busy" class="me-auto" @click="remove" /><UButton label="Cancel" color="neutral" variant="ghost" @click="open = false" /><UButton type="submit" form="agent-provider-form" label="Save" :disabled="!state.models.length && state.kind !== 'chatgpt'" :loading="busy" /></template>
   </UModal>
 </template>

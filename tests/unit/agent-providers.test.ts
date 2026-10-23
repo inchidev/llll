@@ -68,3 +68,28 @@ it.each(['opencode', 'opencode-go'] as const)('routes %s through its own endpoin
     expect(requests[0]!.headers.get('User-Agent')).toContain('l4/pi')
   } finally { vi.unstubAllGlobals() }
 })
+
+it('keeps independently named connections and exposes key fragments only to the owner', async () => {
+  await saveAgentProvider(env, 'work-account', { ...config, kind: 'openrouter', name: 'Work' })
+  await saveAgentProvider(env, 'personal-account', { ...config, kind: 'openrouter', name: 'Personal', apiKey: 'different-credential' })
+  const owner = await agentProviderCatalog(env, { owner: true })
+  expect(owner.providers.map(p => p.name)).toEqual(['Personal', 'Work'])
+  expect(owner.providers.find(p => p.name === 'Work')?.keyPreview).toBe('prov••••ture')
+  expect(JSON.stringify(await agentProviderCatalog(env))).not.toContain('prov••••ture')
+  expect((await resolveSavedAgentModel(env, agentModelRef('personal-account', 'vendor/model')))?.apiKey).toBe('different-credential')
+})
+
+it('paginates named connections and searches models on the Server while retaining a selection outside the first page', async () => {
+  const { agentProviderPage } = await import('../../server/utils/agent-providers')
+  const { agentModelOptions } = await import('../../server/utils/agent-model-options')
+  for (let i = 0; i < 18; i++) await saveAgentProvider(env, `connection-${String(i).padStart(2, '0')}`, { ...config, kind: 'openrouter', name: `Work ${i}`, models: Array.from({ length: 4 }, (_, j) => ({ id: `model-${i}-${j}`, label: `Model ${i} ${j}`, api: 'chat' })) })
+  const first = await agentProviderPage(env, 'owner', '', 1)
+  expect(first.providers).toHaveLength(15); expect(first.total).toBe(18)
+  expect((await agentProviderPage(env, 'owner', '', 2)).providers).toHaveLength(3)
+  expect((await agentProviderPage(env, 'owner', 'Work 17', 1)).total).toBe(1)
+  const catalog = await agentModelOptions(env, 'owner', '', 'l4:connection-17:model-17-3')
+  expect(catalog.models.length).toBeLessThanOrEqual(51)
+  expect(catalog.models.some(m => m.value === 'l4:connection-17:model-17-3')).toBe(true)
+  expect(catalog.hasMore).toBe(true)
+  expect((await agentModelOptions(env, 'owner', 'Model 17 3')).models.filter(m => m.label === 'Model 17 3')).toHaveLength(1)
+})

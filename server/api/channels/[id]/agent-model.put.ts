@@ -9,12 +9,12 @@ import { cf, fail } from '../../../utils/cf'
 import { parseBody } from '../../../utils/validate'
 export default defineEventHandler(async event => {
   const id = getRouterParam(event, 'id')!
-  await requireMember(event, await getServerId(cf(event).env.DB), Permission.useAgents)
+  const actor = await requireMember(event, await getServerId(cf(event).env.DB), Permission.useAgents)
   await requireChannelMember(event, id)
   await requireChannelMember(event, id, Permission.sendMessages)
   const { model } = parseBody(z.object({ model: z.string().min(1).max(200) }), await readBody(event))
   const { env } = cf(event)
-  if (!(await agentProviderCatalog(env)).models.some(m => m.value === model)) fail(400, 'model_unavailable', 'Choose a configured model')
+  if (!(await agentProviderCatalog(env, { actorId: actor.user.id })).models.some(m => m.value === model)) fail(400, 'model_unavailable', 'Choose a configured model')
   await writeServerSetting(env.DB, await agentConversationModelKey(env, id), model)
   return { selected: model }
 })

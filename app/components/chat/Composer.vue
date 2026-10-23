@@ -428,7 +428,7 @@ async function submit() {
     replyToId: submission.replyToId ?? undefined,
     clientId,
     attachmentIds: attachmentIds.length ? attachmentIds : undefined,
-    agentMode: (props.agentBusy || toolbarBusy.value) ? agentMode.value : undefined,
+    agentMode: props.agentId ? 'queue' : (props.agentBusy || toolbarBusy.value) ? agentMode.value : undefined,
   })
   agentMode.value = 'queue'
 }
@@ -484,7 +484,7 @@ defineExpose({ addFiles, focus })
       class="df-composer overflow-hidden"
       :class="replyTarget ? 'rounded-b-lg' : 'rounded-lg'"
     >
-      <ChatAgentToolbar v-if="agentId" v-model="agentMode" :channel-id="channelId" :agent-id="agentId" :send="send" :disabled="disabled" @busy="toolbarBusy = $event" @saving="agentSettingsSaving = $event" />
+      <ChatAgentToolbar v-if="agentId" :channel-id="channelId" :agent-id="agentId" :send="send" :disabled="disabled" @busy="toolbarBusy = $event" @saving="agentSettingsSaving = $event" />
       <div v-if="replyTarget" class="flex items-center gap-2 bg-muted px-3 py-2 text-sm text-muted">
         <span class="min-w-0 flex-1 truncate">Replying to <span class="font-semibold text-toned">{{ replyTarget.name }}</span></span>
         <UButton size="xs" color="neutral" variant="ghost" square icon="i-ph-x-circle-fill" aria-label="Cancel reply" @click="cancelReply" />

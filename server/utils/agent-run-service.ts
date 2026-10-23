@@ -74,6 +74,8 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
 
 export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate): Promise<AgentRun> {
   const input = runRequestSchema.parse(request)
+  const pairDm = await env.DB.prepare("SELECT id FROM channels WHERE id=? AND type='dm' AND (SELECT count(*) FROM channel_members WHERE channel_id=channels.id)=2").bind(input.channelId).first()
+  if (pairDm) fail(400, 'thread_required', 'Send a message to the agent to start a reply thread')
   const sameRequest = (run: AgentRun) => {
     if (run.channelId !== input.channelId || run.prompt !== input.prompt || run.taskId !== (input.taskId ?? null)
       || run.sourceMessageId !== (input.sourceMessageId ?? null)
@@ -110,7 +112,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
     environmentId ??= task.environmentId ?? null
   }
-  const catalog = await agentProviderCatalog(env)
+  const catalog = await agentProviderCatalog(env, { actorId: actor.principal.id })
   if (catalog.providers.some(provider => provider.configured) && !catalog.defaultModel) fail(409, 'model_unavailable', 'Enable a model provider in Server settings')
   const selected = await agentConversationModel(env, input.channelId)
   // An explicit selection fails closed if its provider was disabled after selection.

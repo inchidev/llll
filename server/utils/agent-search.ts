@@ -1,4 +1,4 @@
-import { loadAgentProvider, resolveSavedAgentModel } from './agent-providers'
+import { agentProviderCatalog, loadAgentProvider, resolveSavedAgentModel } from './agent-providers'
 import { agentModelRef } from '../../shared/agent-providers'
 import type { AgentRun, RunMandate } from '../../shared/agent-execution'
 import { z } from 'zod'
@@ -25,9 +25,11 @@ export async function searchWeb(env: L4Env, query: string) {
 /** Web search stays on the Server and consumes the same Run inference budget. */
 export async function searchRunWeb(env: L4Env, run: AgentRun, query: string, signal?: AbortSignal) {
   if (env.EXA_API_KEY) return searchWeb(env, query)
-  const provider = await loadAgentProvider(env, 'openrouter')
+  const catalog = await agentProviderCatalog(env)
+  const connection = catalog.providers.find(p => p.kind === 'openrouter' && p.enabled && p.webSearch && p.models.length)
+  const provider = connection ? await loadAgentProvider(env, connection.id) : null
   if (!provider?.enabled || !provider.webSearch || !provider.models[0]) fail(409, 'search_unavailable', 'Enable web search for OpenRouter in Server settings, or configure Exa')
-  const saved = await resolveSavedAgentModel(env, agentModelRef('openrouter', provider.models[0].id))
+  const saved = await resolveSavedAgentModel(env, agentModelRef(connection!.id, provider.models[0].id))
   if (!saved) fail(409, 'search_unavailable', 'Web search provider is unavailable')
   const mandate = JSON.parse(run.mandateJson) as RunMandate
   const reservation = 12000
