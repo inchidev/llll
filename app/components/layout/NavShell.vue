@@ -302,7 +302,7 @@ watch(nav.inviteOpen, (open) => {
     <LayoutUserPanel v-if="!hasMenu" compact />
     <div
       v-if="hasMenu"
-      class="pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-1 bg-gradient-to-t from-muted to-transparent px-2 pb-4 pt-8 sm:px-4 sm:pb-6"
+      class="pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-1 px-2 pb-4 pt-8 sm:px-4 sm:pb-6"
     >
       <button
         v-if="live.connection === 'connected' && live.currentChannelId"

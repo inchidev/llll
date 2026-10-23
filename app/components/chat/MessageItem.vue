@@ -169,7 +169,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             <ChatUserCard :user="message.author" :member="member" @close="nameProfileOpen = false" />
           </template>
         </UPopover>
-        <UBadge v-if="message.author.kind === 'agent'" label="Agent" size="sm" color="primary" variant="subtle" class="self-center px-1 py-0 text-[11px]" />
+        <UIcon v-if="message.author.kind === 'agent'" name="i-ph-robot" class="size-3.5 self-center text-muted" role="img" :aria-hidden="false" aria-label="Agent" />
         <time class="text-xs text-muted" :datetime="message.createdAt" :title="formatFullDateTime(message.createdAt)">{{ formatMessageTime(message.createdAt) }}</time>
       </div>
       <p v-if="message.deletedAt" class="text-muted italic">Message deleted</p>

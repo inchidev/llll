@@ -52,3 +52,24 @@ it.each([false, true])('Escape dismisses only the release list, then settings (m
   }
   expect(v.emitted('update:open')).toEqual([[false]])
 })
+
+it.each(['pointer', 'keyboard'])('ignores autofill until settings search is activated with %s', async activation => {
+  const Input = defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], setup: (p, { attrs, emit }) => () => h('input', { ...attrs, value: p.modelValue, onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value) }) })
+  const v = mount(SettingsOverlay, { attachTo: document.body, props: { open: true, section: 'updates', title: 'Server', groups: [{ items: [{ id: 'updates', label: 'Updates', icon: 'i-ph-arrow-up' }] }] }, global: { stubs: { UModal: Modal, UInput: Input, UIcon: true, UBadge: true, USeparator: true, UButton: Button, LayoutSkeleton: true, ClientUpdateBanner: true } } })
+  mounted.push(v)
+  await flushPromises()
+  const input = document.querySelector('input[aria-label="Search settings"]') as HTMLInputElement
+  expect(document.activeElement).not.toBe(input)
+  input.value = 'autofilled@example.test'
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText' }))
+  await nextTick()
+  expect(document.body.textContent).not.toContain('Nothing matches')
+  expect(input.value).toBe('')
+  if (activation === 'pointer') input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'U', bubbles: true }))
+  input.value = 'Updates'
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+  await nextTick()
+  expect(document.body.textContent).toContain('Updates')
+  expect(input.value).toBe('Updates')
+})

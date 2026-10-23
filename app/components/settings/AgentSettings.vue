@@ -16,10 +16,11 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
 
 <template>
   <SettingsHeader title="Agents" description="Manage the teammates people can message and work with.">
-    <template #actions><UButton v-if="tab === 'agents'" icon="i-ph-plus" label="Create agent" @click="edit()" /></template>
+    <template #actions><UButton :class="{ invisible: tab !== 'agents' }" :tabindex="tab === 'agents' ? undefined : -1" icon="i-ph-plus" label="Create agent" @click="edit()" /></template>
   </SettingsHeader>
-  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }] : [])]" :content="false" class="mt-6 mb-5" />
+  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
   <SettingsAgentProviderSettings v-if="tab === 'providers'" :server-id="serverId" :is-owner="isOwner" />
+  <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" />
   <template v-else>
   <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search agents" aria-label="Search agents" class="w-full" />
   <LayoutSkeleton v-if="agentsQ.isPending.value" variant="nav" class="mt-6" :rows="3" />

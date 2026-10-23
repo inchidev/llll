@@ -13,7 +13,7 @@ let db: DatabaseSync, env: L4Env
 const config = { kind: 'chatgpt' as const, name: 'Personal Codex', enabled: true, webSearch: false, models: [] }
 beforeEach(() => {
   db = new DatabaseSync(':memory:')
-  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(owner_id TEXT); INSERT INTO server VALUES ('owner')")
+  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(id TEXT,owner_id TEXT); INSERT INTO server VALUES ('server-fixture','owner'); CREATE TABLE audit_log(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)")
   env = { DB: d1(db), AUTH_SECRET: 'test-auth-secret-for-this-server-only' } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
@@ -57,6 +57,8 @@ describe('ChatGPT account connection', () => {
     })
     vi.stubGlobal('fetch', fetcher)
     await completeChatGPT(env, callback, keySet)
+    expect(db.prepare('SELECT action FROM audit_log').get()).toMatchObject({ action: 'agent.provider.connect' })
+    expect(JSON.stringify(db.prepare('SELECT * FROM audit_log').all())).not.toContain('access-fixture')
     const stored = await loadAgentProvider(env, 'personal-codex')
     expect(JSON.stringify(stored)).not.toContain('access-fixture')
     expect(JSON.stringify(await agentProviderCatalog(env, { actorId: 'other' }))).not.toContain('Personal Codex')

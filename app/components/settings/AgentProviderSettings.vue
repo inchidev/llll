@@ -90,6 +90,12 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
 
 <template>
   <section class="space-y-5" aria-label="Model providers">
+    <section class="space-y-3 border-b border-default pb-5" aria-label="Model defaults">
+      <h2 class="text-sm font-medium text-highlighted">Model defaults</h2>
+      <UFormField v-if="isOwner" label="Default model" description="Used when the agent and conversation have no override.">
+        <USelectMenu v-model:search-term="modelSearch" :loading="modelOptions.isPending.value" :disabled="!modelOptions.data.value?.models.length && !modelSearch" placeholder="Connect a provider to choose a model" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? undefined" value-key="value" :items="(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))" class="w-full" virtualize @update:model-value="setDefault" />
+      </UFormField>
+    </section>
     <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-muted">Named connections used by Pi.</p><UButton v-if="isOwner" label="Add provider" icon="i-ph-plus" @click="edit()" /></div>
     <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
@@ -102,9 +108,6 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
       </li>
     </ul>
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
-    <UFormField v-if="isOwner && (modelOptions.data.value?.models.length || modelSearch)" label="Default model" description="Used when the agent and conversation have no override.">
-      <USelectMenu v-model:search-term="modelSearch" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? undefined" value-key="value" :items="(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))" class="w-full" virtualize @update:model-value="setDefault" />
-    </UFormField>
   </section>
   <UModal v-model:open="open" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose the models Pi can use.">
     <template #body>

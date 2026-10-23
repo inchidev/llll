@@ -31,6 +31,16 @@ const isMobile = useIsMobile()
 const detailBack = provideSettingsDetailBack()
 
 const query = ref('')
+const searchActivated = ref(false)
+const searchQuery = computed({ get: () => query.value, set: (value: string | number) => { if (searchActivated.value) query.value = String(value) } })
+function activateSearch(event: Event) {
+  if (event instanceof KeyboardEvent && ['Tab', 'Shift', 'Escape', 'Control', 'Alt', 'Meta'].includes(event.key)) return
+  searchActivated.value = true
+  if (event.target instanceof HTMLInputElement) event.target.readOnly = false
+}
+function guardSearchInput(event: Event) {
+  if (!searchActivated.value && event.target instanceof HTMLInputElement) event.target.value = ''
+}
 /**
  * On mobile the two panes become two screens: pick a section, then read it.
  * A link that names a section (`?section=email`) opens that section directly.
@@ -63,6 +73,7 @@ const activeLabel = computed(() => props.groups
 function select(id: string) {
   section.value = id
   query.value = ''
+  searchActivated.value = false
   mobileView.value = 'detail'
 }
 
@@ -89,6 +100,7 @@ watch(open, (value) => {
   if (!value) return
   void $pwa?.check()
   query.value = ''
+  searchActivated.value = false
   mobileView.value = isMobile.value && !deepLinked() ? 'nav' : 'detail'
 }, { immediate: true })
 
@@ -144,8 +156,11 @@ function onEscape(event: KeyboardEvent) {
             <p class="mb-2 truncate px-2.5 text-[11px] font-bold uppercase tracking-wide text-muted">{{ title }}</p>
 
             <UInput
-              v-model="query"
+              v-model="searchQuery"
               type="search"
+              :readonly="!searchActivated"
+              data-form-type="other"
+              data-bwignore
               name="settings-filter"
               data-1p-ignore
               data-lpignore="true"
@@ -157,6 +172,9 @@ function onEscape(event: KeyboardEvent) {
               class="mb-2 px-0.5"
               :ui="{ root: 'w-full' }"
               aria-label="Search settings"
+              @pointerdown="activateSearch"
+              @keydown="activateSearch"
+              @input="guardSearchInput"
               @keydown.enter.prevent="submitSearch"
               @keydown.down.prevent="step(1)"
               @keydown.up.prevent="step(-1)"
@@ -206,7 +224,7 @@ function onEscape(event: KeyboardEvent) {
           class="min-w-0 flex-1 bg-default md:flex md:flex-[1_1_800px]"
           :class="isMobile && mobileView === 'nav' ? 'hidden' : 'flex'"
         >
-          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
+          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
             <div class="mb-4 flex items-center gap-1 md:hidden">
               <UButton
                 icon="i-ph-arrow-left"

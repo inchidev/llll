@@ -3,6 +3,7 @@ import { decryptSecret } from '../../../../../shared/encrypted-secret'
 import { agentProviderKey, agentProviderScope, loadAgentProvider, type ChatGPTCredentials } from '../../../../utils/agent-providers'
 import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
+import { writeAudit } from '../../../../utils/messages'
 import { parseBody } from '../../../../utils/validate'
 export default defineEventHandler(async event => {
   const actor = await requireMember(event, getRouterParam(event, 'id')!)
@@ -20,6 +21,7 @@ export default defineEventHandler(async event => {
       revoked = response.ok
     } catch { revoked = false }
   }
+  if (current) await writeAudit(env, { serverId: getRouterParam(event, 'id')!, actorId: actor.user.id, action: 'agent.provider.remove', targetType: 'agent_provider', targetId: id, meta: { kind: current.kind, revoked } })
   setHeader(event, 'Cache-Control', 'no-store')
   return { removed: true, revoked }
 })

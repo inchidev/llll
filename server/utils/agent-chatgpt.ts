@@ -7,6 +7,7 @@ import type { L4Env } from '../../workers/env'
 import { agentProviderKey, agentProviderScope, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
 import { discoverAgentModels } from './agent-provider-models'
 import { fail } from './cf'
+import { writeAudit } from './messages'
 const issuer = 'https://auth.openai.com'
 const resource = 'https://api.openai.com/v1'
 const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`))
@@ -56,7 +57,7 @@ export async function completeChatGPT(env: L4Env, callback: URL, keySet: JWTVeri
   const state = callback.searchParams.get('state') ?? ''
   const pending = await loadChatGPTAttempt(env, state)
   if (`${callback.origin}${callback.pathname}` !== pending.redirectUri) fail(400, 'invalid_callback', 'Callback does not match this sign-in')
-  const owner = await env.DB.prepare('SELECT owner_id as id FROM server LIMIT 1').first<{ id: string }>()
+  const owner = await env.DB.prepare('SELECT owner_id as id,id as serverId FROM server LIMIT 1').first<{ id: string; serverId: string }>()
   if (owner?.id !== pending.actorId) fail(403, 'forbidden', 'Only the current Server owner can finish this connection')
   const clientId = callback.searchParams.get('client_id') ?? pending.clientId
   if (!clientId || clientId === 'dynamic_agent_client' || (pending.clientId && clientId !== pending.clientId)) fail(400, 'invalid_client', 'ChatGPT registration is incomplete')
@@ -81,6 +82,7 @@ export async function completeChatGPT(env: L4Env, callback: URL, keySet: JWTVeri
   const value = JSON.stringify({ ...current, enabled: true, connectedBy: pending.actorId, account: credentials.email, connectedAt: new Date().toISOString(), models: selected.length ? selected : [models[0]!], secret: await encryptSecret(env.AUTH_SECRET!, agentProviderScope(pending.connectionId), JSON.stringify(credentials)) })
   const updated = await env.DB.prepare('UPDATE server_settings SET value=?,updated_at=? WHERE key=? AND value=? RETURNING key').bind(value, new Date().toISOString(), agentProviderKey(pending.connectionId), original).first()
   if (!updated) fail(409, 'connection_changed', 'Connection changed during sign-in. Connect again.')
+  await writeAudit(env, { serverId: owner.serverId, actorId: pending.actorId, action: 'agent.provider.connect', targetType: 'agent_provider', targetId: pending.connectionId, meta: { kind: 'chatgpt' } })
   return { returnOrigin: pending.returnOrigin, connectionId: pending.connectionId }
 }
 export async function chatGPTAccessToken(env: L4Env, connectionId: string, actorId: string): Promise<string> {

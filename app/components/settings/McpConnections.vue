@@ -1,7 +1,14 @@
 <script setup lang="ts">
+import { useClipboard } from '@vueuse/core'
 import { MCP_SCOPE_LABELS, type McpConnectionDTO } from '~~/shared/mcp'
 
 const { api, serverUrl } = useApi()
+const { copy } = useClipboard()
+const toast = useToast()
+async function copyUrl() {
+  try { await copy(serverUrl('/mcp')); toast.add({ title: 'MCP Server URL copied', color: 'success' }) }
+  catch { toast.add({ title: 'Could not copy the URL', color: 'error' }) }
+}
 const connections = shallowRef<McpConnectionDTO[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -32,13 +39,16 @@ async function revoke() {
 <template>
   <div>
     <h1 class="text-xl font-semibold text-highlighted">Connected apps</h1>
-    <p class="mt-2 text-sm text-muted">Applications connected as you, and connections for Agents you manage.</p>
+    <p class="mt-2 text-sm text-muted">OAuth applications connected as you, and OAuth connections for Agents you manage.</p>
     <UFormField label="MCP Server URL" class="mt-6">
-      <UInput :model-value="serverUrl('/mcp')" readonly class="w-full font-mono" />
+      <div class="flex items-center gap-2">
+        <UInput :model-value="serverUrl('/mcp')" readonly class="min-w-0 flex-1 font-mono" />
+        <UButton icon="i-ph-copy" label="Copy" color="neutral" variant="outline" aria-label="Copy MCP Server URL" @click="copyUrl" />
+      </div>
     </UFormField>
     <UAlert v-if="error" class="mt-6" color="error" variant="subtle" title="Connections could not be updated" :description="error" />
     <p v-if="loading" role="status" class="mt-6 text-sm text-muted">Loading connections…</p>
-    <p v-else-if="!connections.length && !error" class="mt-6 text-sm text-muted">No connected apps. Add the MCP Server URL in your client to connect.</p>
+    <p v-else-if="!connections.length && !error" class="mt-6 text-sm text-muted">No OAuth connections. Add the MCP Server URL in your client and sign in to authorize access.</p>
     <ul v-else class="mt-6 divide-y divide-default">
       <li v-for="connection in connections" :key="connection.id" class="flex flex-wrap items-start gap-4 py-5">
         <div class="min-w-0 flex-1">
