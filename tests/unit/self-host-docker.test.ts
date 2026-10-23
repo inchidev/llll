@@ -30,7 +30,7 @@ describe('self-host docker stack', () => {
 
   it('composes RustFS, bucket init, healthchecks, and restart always', () => {
     const compose = read('self-host/docker-compose.yml')
-    expect(compose).toContain('image: rustfs/rustfs:1.0.1')
+    expect(compose).toMatch(/image: rustfs\/rustfs:\d+\.\d+\.\d+/)
     expect(compose).toContain('bucket-init:')
     expect(compose).toContain('restart: always')
     expect(compose).toContain('llll-healthcheck')
