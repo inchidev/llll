@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
 import { onKeyStroke, useMediaQuery } from '@vueuse/core'
-import type { ChannelDTO, MemberDTO, MessageDTO } from '~~/shared/types'
+import type { ChannelDTO, MemberDTO, MessageDTO, PublicUser } from '~~/shared/types'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
 import type { RealtimeConnection } from '../../composables/useChannelSocket'
 import { serverConnectionKey } from '../../composables/useServerSocket'
