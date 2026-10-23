@@ -1,4 +1,4 @@
-FROM node:24.21.0-bookworm-slim AS build
+FROM node:26.11.1-bookworm-slim AS build
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -9,7 +9,7 @@ COPY packages/agent-runtime/src packages/agent-runtime/src
 # re-resolves dependencies and can silently change the runtime between builds.
 RUN pnpm --config.inject-workspace-packages=true --filter @llll/agent-runtime deploy --prod /out
 
-FROM node:24.21.0-bookworm-slim
+FROM node:26.11.1-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep ca-certificates tini && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/agent
 COPY --from=build /out ./
