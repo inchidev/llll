@@ -483,6 +483,9 @@ export const channels = sqliteTable('channels', {
   visibility: text('visibility', { enum: ['server', 'private'] }).notNull().default('server'),
   categoryId: text('category_id').references(() => channelCategories.id, { onDelete: 'set null' }),
   position: integer('position').notNull().default(0),
+  /** DM identity is persistent; a group with two remaining members is still a group. */
+  dmKind: text('dm_kind', { enum: ['pair', 'group'] }).notNull().default('pair'),
+  dmOwnerId: text('dm_owner_id').references(() => users.id, { onDelete: 'set null' }),
   /** The active Live room's RealtimeKit meeting. */
   liveMeetingId: text('live_meeting_id'),
   parentId: text('parent_id').references((): AnySQLiteColumn => channels.id, { onDelete: 'cascade' }),

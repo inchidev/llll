@@ -1,9 +1,10 @@
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { channels, channelMembers } from '../../../../drizzle/schema'
+import { channels, channelMembers, users } from '../../../../drizzle/schema'
 import { DM_GROUP_MAX } from '../../../../shared/dm'
 import { nowIso } from '../../../../shared/ids'
-import { requireChannelAccess } from '../../../utils/guards'
+import { Permission } from '../../../../shared/permissions'
+import { requireChannelAccess, requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { fanoutDm, loadParticipants, requireServerUser, toDmDto } from '../../../utils/dms'
@@ -17,11 +18,15 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const access = await requireChannelAccess(event, id)
   if (access.channel.type !== 'dm') fail(404, 'not_found', 'Channel not found')
+  if (access.channel.dmKind !== 'group') fail(409, 'dm_pair_private', 'Start a new group to include someone else. This conversation stays private.')
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   const db = getDb(env.DB)
   const inServer = await requireServerUser(env, body.userId)
   if (!inServer) fail(403, 'forbidden', 'User is not in this server')
+
+  const target = (await db.select({ kind: users.kind }).from(users).where(eq(users.id, body.userId)).limit(1))[0]!
+  if (target.kind === 'agent') await requireMember(event, access.serverId, Permission.useAgents)
 
   const existing = (await db.select().from(channelMembers).where(and(eq(channelMembers.channelId, id), eq(channelMembers.userId, body.userId))).limit(1))[0]
   if (!existing) {

@@ -255,6 +255,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             live.setState(id, parsed.live)
             break
           case 'dm.participants':
+            void queryClient()?.invalidateQueries({ queryKey: ['channel', id] })
             void queryClient()?.invalidateQueries({ queryKey: ['dms'] })
             break
           case 'dm.update':
