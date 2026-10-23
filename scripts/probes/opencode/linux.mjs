@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {OpenCode} from '/tmp/sdk/node_modules/@opencode/sdk/dist/index.js';
+import {fixture} from './linux-gateway.cjs';
+const gateway=fixture('/tmp/l4-gateway.sqlite');
+const run=await gateway.run();let sid;let resolveDone;const done=new Promise(r=>resolveDone=r);const texts=[];
+const host=await OpenCode.create({app:{name:'l4',version:'2.1.4',channel:'oss'},config:{project:false,claude:false,content:JSON.stringify({plugins:[]})},fs:{fff:false,filewatcher:false},models:{fetch:true},log:{level:'error'},plugins:[{id:'l4-linux',setup:async ctx=>{await ctx.tool.transform(tools=>tools.add({name:'list_tasks',description:'Read the tasks and boards authorized for this L4 Run.',input:{type:'object',properties:{}},options:{codemode:false},execute:async(args,context)=>{const response=await gateway.tools(new Request('http://l4/tools',{method:'POST',headers:{Authorization:'Bearer '+run.capability,'x-run-id':run.runId,'Content-Type':'application/json'},body:JSON.stringify({callId:context.id,name:'list_tasks',arguments:args})}));assert.equal(response.status,200);return{content:await response.text()}}}));}}]});
+const abort=new AbortController();
+try {
+const events=(async()=>{for await(const e of host.events.subscribe({signal:abort.signal})){if(e.data?.sessionID!==sid)continue;if(e.type==='permission.asked')await host.permission.reply({sessionID:sid,requestID:e.data.id,decision:'reject',message:'Native tools disabled in acceptance.'});if(e.type==='session.text.ended')texts.push(e.data.text);if(e.type==='session.execution.succeeded'){resolveDone('success');break;}if(e.type==='session.execution.failed'){console.log('MODEL_ERROR',JSON.stringify({type:e.data.error.type,status:e.data.error.status}));resolveDone('failed');break;}}})();
+const s=await host.session.create({location:{directory:'/tmp/project'},title:'Linux L4 acceptance',model:{providerID:'opencode',id:'glm-5.3-flash-free'},permissions:[{action:'*',resource:'*',effect:'ask'},{action:'list_tasks',resource:'*',effect:'allow'}]});sid=s.id;
+await host.session.prompt({sessionID:sid,text:'Call list_tasks once and report the board name it returns. Do not use any other tools.'});let timer;try{assert.equal(await Promise.race([done,new Promise(r=>timer=setTimeout(()=>r('timeout'),60000))]),'success');}finally{clearTimeout(timer);}
+assert.match(texts.join('\n'),/Allowed board/iu);assert.equal(gateway.db.prepare("SELECT count(*) as count FROM agent_run_tools WHERE run_id=? AND status='completed'").get(run.runId).count,1);console.log('PASS: Linux Node 24 + OpenCode SDK 2.1.4 + free GLM + real L4 authorized tool gateway');abort.abort();await events;
+} finally {abort.abort();await host.close();gateway.db.close();}

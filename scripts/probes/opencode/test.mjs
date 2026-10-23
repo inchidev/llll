@@ -83,6 +83,13 @@ try {
   assert.equal(gateway.db.prepare('SELECT count(*) as count FROM tasks').get().count, 2, 'Expected a retry under a new call ID to demonstrate the native recovery boundary')
   assert.ok(JSON.stringify(recovered.context).includes('Tool execution interrupted'))
   console.log('OBSERVED: native recovery marks the committed in-flight tool aborted; a new model call ID creates a duplicate task')
+  const budget = randomUUID(), budgetRun = await gateway.run()
+  const beforeBudget = modelRequests
+  await request(budget, '/start', { ...budgetRun, fixture: true, prompt: 'Read the board', maxModelCalls: 1 })
+  const exhausted = await finished(budget)
+  assert.equal(exhausted.result.type, 'session.execution.failed')
+  assert.equal(modelRequests - beforeBudget, 1, 'The budget must reject the second upstream request')
+  console.log('PASS: the model hook prevents requests beyond the admitted call budget')
   const cancelled = randomUUID(), cancelRun = await gateway.run()
   const beforeCancellation = modelRequests
   holdModel = true

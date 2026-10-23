@@ -32,6 +32,7 @@ export class OpenCodeProbe {
               return { content: JSON.stringify({ boards: [{ id: 'board-allowed', name: 'Allowed board' }], evidence: 'L4_TOOL_OK' }) }
             } })
           })
+          await plugin.session.hook('retry', value => { value.decision = { retry: false } })
           await plugin.session.hook('http.request', async value => {
             this.modelCalls++
             await ctx.storage.put('modelCalls', this.modelCalls)
