@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { ChannelDTO, PublicUser } from '~~/shared/types'
+import type { ChannelDTO, PublicUser, SidebarThreadDTO } from '~~/shared/types'
 import { channelPath } from '~~/shared/paths'
 import { Permission } from '~~/shared/permissions'
 import { isAgentChat } from '~~/shared/inbox'
@@ -23,7 +23,7 @@ const warm = useMessagePrefetch()
 
 const dmsQ = useQuery({
   queryKey: ['dms'],
-  queryFn: () => api<{ channels: ChannelDTO[] }>('/api/dms'),
+  queryFn: () => api<{ channels: ChannelDTO[]; threads?: SidebarThreadDTO[] }>('/api/dms'),
 })
 
 const q = ref('')
@@ -136,6 +136,7 @@ function searchName(member: DmSearchMember) {
             :title="`Close ${titleOf(ch)}`"
             @click.prevent="hide(ch.id)"
           />
+          <LayoutNavThreads :channel="ch" :threads="dmsQ.data.value?.threads?.filter(thread => thread.parentId === ch.id) ?? []" :label="titleOf(ch)" />
           <div v-if="inCall(ch)" class="pl-8 flex gap-1 pb-1 text-success">
             <UIcon name="i-ph-speaker-high" class="size-3" />
           </div>

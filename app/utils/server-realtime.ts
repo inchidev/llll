@@ -37,7 +37,7 @@ function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean
 function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId: string, change: { unread: boolean | 'if-opened', increment?: boolean, at?: string }) {
   let found = false
   let parentListed = false
-  cache.setQueriesData<ChannelList>({ queryKey: ['channels'] }, (old) => {
+  const update = (old: ChannelList | undefined) => {
     if (old?.channels.some(channel => channel.id === parentId)) parentListed = true
     if (!old?.threads?.some(thread => thread.id === threadId)) return old
     found = true
@@ -55,8 +55,13 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
         }
       }),
     }
-  })
-  if (!found && parentListed && change.increment) void cache.invalidateQueries({ queryKey: ['channels'] })
+  }
+  cache.setQueriesData<ChannelList>({ queryKey: ['channels'] }, update)
+  cache.setQueriesData<ChannelList>({ queryKey: ['dms'] }, update)
+  if (!found && parentListed && change.increment) {
+    void cache.invalidateQueries({ queryKey: ['channels'] })
+    void cache.invalidateQueries({ queryKey: ['dms'] })
+  }
 }
 
 export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerRealtimeEvent) {

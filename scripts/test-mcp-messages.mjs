@@ -92,6 +92,19 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   const dm = (await api('alpha', '/api/dms', { actor: 'alpha-member', method: 'POST', body: { userId: ownerId } })).payload.channel
   assert.ok(!(await tool(token, 'send_message', { channelId: dm.id, content: 'DM works without global send' })).error)
 
+  // Agent and human DMs share channel navigation's thread query and access boundary.
+  const agentDm = (await api('alpha', '/api/dms', { method: 'POST', body: { userId: agentId } })).payload.channel
+  const rootMessageId = randomUUID(), agentThreadId = randomUUID(), replyId = randomUUID(), at = new Date().toISOString()
+  await db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES (?,?,?,'Plan the next steps',?)").bind(rootMessageId, agentDm.id, ownerId, at).run()
+  await db.prepare("INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id,created_at,updated_at) VALUES (?,'Plan the next steps','thread','private',?,?,?,?)").bind(agentThreadId, agentDm.id, rootMessageId, at, at).run()
+  await db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES (?,?,?,'Here is the plan',?)").bind(replyId, agentThreadId, agentId, at).run()
+  const ownerDms = (await api('alpha', '/api/dms')).payload
+  assert.ok(ownerDms.threads.some(t => t.id === agentThreadId && t.parentId === agentDm.id))
+  assert.ok(!(await api('alpha', '/api/dms', { actor: 'alpha-member' })).payload.threads.some(t => t.id === agentThreadId))
+  const channelsNav = (await api('alpha', root + '/channels')).payload
+  assert.ok(!channelsNav.threads.some(t => t.id === agentThreadId))
+  assert.ok(channelsNav.threads.some(t => t.id === thread.id))
+
   await api('alpha', root + '/roles/' + role.id, { method: 'PATCH', body: { permissions: 16 } })
   assert.equal((await tool(token, 'list_messages', { channelId: chat.id })).status, 401)
   await api('alpha', root + '/members/' + memberId, { method: 'PATCH', body: { roleId: originalRole.role_id } })

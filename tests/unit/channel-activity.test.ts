@@ -265,6 +265,7 @@ describe('server unread cache events', () => {
     const cache = new QueryClient()
     const thread = (id: string, opened: boolean) => ({ id, parentId: 'parent', title: id, lastMessageAt: '2026-09-27T10:00:00.000Z', opened, unread: false, unreadCount: 0 })
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }], threads: [thread('opened', true), thread('new', false)] })
+    cache.setQueryData(['dms'], { channels: [{ id: 'parent', unread: false }], threads: [thread('opened', true), thread('new', false)] })
     const activity = (sourceChannelId: string, n: number) => applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
       sourceChannelId,
@@ -279,6 +280,7 @@ describe('server unread cache events', () => {
     const threads = () => Object.fromEntries((cache.getQueryData<Threads>(['channels', 'main'])?.threads ?? []).map(item => [item.id, item]))
     expect(threads().opened).toMatchObject({ unread: true, unreadCount: 1 })
     expect(threads().new).toMatchObject({ unread: false, unreadCount: 0 })
+    expect(cache.getQueryData<Threads>(['dms'])?.threads[0]).toMatchObject({ unread: true, unreadCount: 1 })
 
     applyServerRealtimeEvent(cache, {
       t: 'channel.read',
@@ -288,5 +290,6 @@ describe('server unread cache events', () => {
       unread: false,
     })
     expect(threads().opened).toMatchObject({ unread: false, unreadCount: 0 })
+    expect(cache.getQueryData<Threads>(['dms'])?.threads[0]).toMatchObject({ unread: false, unreadCount: 0 })
   })
 })

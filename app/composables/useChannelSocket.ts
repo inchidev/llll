@@ -220,6 +220,8 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
               }
             })
             void qc?.invalidateQueries({ queryKey: ['threads', id] })
+            void qc?.invalidateQueries({ queryKey: ['channels'] })
+            void qc?.invalidateQueries({ queryKey: ['dms'] })
             break
           }
           case 'message.delete': {

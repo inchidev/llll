@@ -1,3 +1,4 @@
+import type { SidebarThreadDTO } from '../shared/types'
 type D1Reader = Pick<D1Database, 'prepare'>
 
 export const channelUnreadSql = `
@@ -107,4 +108,21 @@ export type RecentThreadRow = {
 export async function recentThreads(db: D1Reader, userId: string, since: string): Promise<RecentThreadRow[]> {
   const rows = await db.prepare(recentThreadsSql).bind(userId, since).all<RecentThreadRow>()
   return (rows.results ?? []).map(row => ({ ...row, opened: Boolean(row.opened), unreadCount: Number(row.unreadCount) }))
+}
+
+/** Apply the same navigation window and access filter to channels and DMs. */
+export async function sidebarThreads(db: D1Reader, userId: string, parentIds: string[]): Promise<SidebarThreadDTO[]> {
+  if (!parentIds.length) return []
+  const visible = new Set(parentIds)
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const groups = new Map<string, SidebarThreadDTO[]>()
+  for (const row of await recentThreads(db, userId, since)) {
+    if (!visible.has(row.parentId)) continue
+    const group = groups.get(row.parentId) ?? []
+    group.push({ ...row, unread: row.unreadCount > 0 })
+    groups.set(row.parentId, group)
+  }
+  return [...groups.values()].flatMap(group => group
+    .sort((a, b) => Number(b.unread) - Number(a.unread) || b.lastMessageAt.localeCompare(a.lastMessageAt))
+    .slice(0, 5))
 }

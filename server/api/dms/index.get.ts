@@ -2,7 +2,7 @@ import { getServerId } from '../../../shared/server-id'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { channels, channelMembers, users } from '../../../drizzle/schema'
 import { hasPermission, Permission } from '../../../shared/permissions'
-import { channelUnreadCounts } from '../../../workers/unread'
+import { channelUnreadCounts, sidebarThreads } from '../../../workers/unread'
 import { requireMember } from '../../utils/guards'
 import { cf } from '../../utils/cf'
 import { getDb } from '../../utils/db'
@@ -38,5 +38,5 @@ export default defineEventHandler(async (event) => {
     }
   }))
   dtos.sort((a, b) => (b.lastMessageAt || b.createdAt).localeCompare(a.lastMessageAt || a.createdAt))
-  return { channels: dtos }
+  return { channels: dtos, threads: await sidebarThreads(env.DB, me.id, visible.map(row => row.channel.id)) }
 })
