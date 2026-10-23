@@ -118,10 +118,10 @@ describe('recent threads for the navigation', () => {
   beforeEach(() => {
     tdb = new DatabaseSync(':memory:')
     tdb.exec(`
-      CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL);
+      CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
       CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE channel_reads (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read_message_id TEXT, PRIMARY KEY (channel_id, user_id));
-      INSERT INTO channels VALUES
+      INSERT INTO channels(id,type,parent_id,name) VALUES
         ('channel-1', 'text', NULL, 'general'),
         ('recent', 'thread', 'channel-1', 'Recent thread'),
         ('stale', 'thread', 'channel-1', 'Stale thread'),
@@ -140,6 +140,12 @@ describe('recent threads for the navigation', () => {
   })
 
   afterEach(() => tdb.close())
+
+  it('shows a newly created agent thread while its reply is still queued', () => {
+    tdb.exec("INSERT INTO channels VALUES ('queued', 'thread', 'channel-1', 'Waiting for the agent', '2026-09-27T10:00:00.000Z')")
+    const rows = tdb.prepare(recentThreadsSql).all('user-1', '2026-09-20T00:00:00.000Z')
+    expect(rows).toContainEqual(expect.objectContaining({ id: 'queued', unreadCount: 0, lastMessageAt: '2026-09-27T10:00:00.000Z' }))
+  })
 
   it('keeps recently active threads and older ones with unread replies the member has opened', () => {
     const rows = tdb.prepare(recentThreadsSql).all('user-1', '2026-09-20T00:00:00.000Z') as Array<{ id: string, unreadCount: number, title: string }>

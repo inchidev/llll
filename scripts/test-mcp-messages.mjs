@@ -97,6 +97,7 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   const rootMessageId = randomUUID(), agentThreadId = randomUUID(), replyId = randomUUID(), at = new Date().toISOString()
   await db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES (?,?,?,'Plan the next steps',?)").bind(rootMessageId, agentDm.id, ownerId, at).run()
   await db.prepare("INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id,created_at,updated_at) VALUES (?,'Plan the next steps','thread','private',?,?,?,?)").bind(agentThreadId, agentDm.id, rootMessageId, at, at).run()
+  assert.ok((await api('alpha', '/api/dms')).payload.threads.some(t => t.id === agentThreadId), 'Queued agent thread must already appear')
   await db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES (?,?,?,'Here is the plan',?)").bind(replyId, agentThreadId, agentId, at).run()
   const ownerDms = (await api('alpha', '/api/dms')).payload
   assert.ok(ownerDms.threads.some(t => t.id === agentThreadId && t.parentId === agentDm.id))

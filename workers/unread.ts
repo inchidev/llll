@@ -75,7 +75,7 @@ export async function channelUnreadCounts(
 }
 
 /**
- * Threads with a message since `since`, or with messages the member has not
+ * Threads created or active since `since`, or with messages the member has not
  * read in a thread they have opened before. Threads they never opened do not
  * count as unread here; the parent channel already reports that activity.
  */
@@ -83,17 +83,17 @@ export const recentThreadsSql = `
   SELECT t.id AS id,
          t.parent_id AS parentId,
          t.name AS title,
-         MAX(m.created_at) AS lastMessageAt,
+         COALESCE(MAX(m.created_at), t.created_at) AS lastMessageAt,
          MAX(cr.last_read_message_id IS NOT NULL) AS opened,
          CAST(SUM(CASE
            WHEN cr.last_read_message_id IS NOT NULL AND cr.last_read_message_id < m.id THEN 1 ELSE 0
          END) AS INTEGER) AS unreadCount
   FROM channels t
-  JOIN messages m ON m.channel_id = t.id
+  LEFT JOIN messages m ON m.channel_id = t.id
   LEFT JOIN channel_reads cr ON cr.channel_id = t.id AND cr.user_id = ?
   WHERE t.type = 'thread' AND t.parent_id IS NOT NULL
   GROUP BY t.id
-  HAVING MAX(m.created_at) >= ? OR unreadCount > 0
+  HAVING COALESCE(MAX(m.created_at), t.created_at) >= ? OR unreadCount > 0
 `
 
 export type RecentThreadRow = {

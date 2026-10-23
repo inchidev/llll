@@ -300,6 +300,8 @@ async function onThread(msg: MessageDTO) {
   linkThreadToMessage(msg.id, res.channel.id)
   if (ui.threadId === pendingId) ui.threadId = res.channel.id
   void qc.invalidateQueries({ queryKey: ['threads', channelId.value] })
+  void qc.invalidateQueries({ queryKey: ['channels'] })
+  void qc.invalidateQueries({ queryKey: ['dms'] })
 }
 
 const privateMembersOpen = ref(false)
