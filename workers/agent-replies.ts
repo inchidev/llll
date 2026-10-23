@@ -1,5 +1,5 @@
 import { newId, nowIso } from '../shared/ids'
-import { threadTitle } from '../shared/threads'
+import { messageThreadTitle } from '../server/utils/thread-title'
 
 export type AgentReplyTarget = {
   channelId: string
@@ -39,7 +39,7 @@ export async function ensureAgentReplyTarget(
     `INSERT OR IGNORE INTO channels
       (id, name, topic, type, visibility, position, live_meeting_id, parent_id, parent_message_id, created_at, updated_at)
      VALUES (?, ?, '', 'thread', ?, 0, NULL, ?, ?, ?, ?)`,
-  ).bind(id, threadTitle(root.content, filenames), source.visibility, sourceChannelId, sourceMessageId, timestamp, timestamp).run()
+  ).bind(id, await messageThreadTitle(db, root.content, filenames), source.visibility, sourceChannelId, sourceMessageId, timestamp, timestamp).run()
 
   const target = await db.prepare(
     "SELECT id FROM channels WHERE parent_message_id = ? AND type = 'thread'",

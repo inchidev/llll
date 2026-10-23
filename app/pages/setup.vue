@@ -52,12 +52,12 @@ onMounted(async () => {
   else if (session.health?.ready) await navigateTo('/login')
   else if (session.health?.ownerSetup && claimToken.value) {
     try {
-      const identity = await api<{ email: string }>('/api/setup/owner/identity', {
+      const identity = await api<{ email: string; serverName?: string }>('/api/setup/owner/identity', {
         method: 'POST',
         body: { token: claimToken.value },
       })
       ownerEmail.value = identity.email
-      state.serverName = session.health?.appName || state.serverName
+      state.serverName = identity.serverName || session.health?.appName || state.serverName
     }
     catch (cause) {
       error.value = errorMessage(cause)

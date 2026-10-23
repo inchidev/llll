@@ -79,7 +79,7 @@ function serverConfiguration(
     workerName,
     adminEmail: '',
     allowedEmails: [],
-    appName: 'L4',
+    appName: textBinding(bindings, 'APP_NAME') || 'L4',
     authMode: mode,
     registrationMode: registration === 'open' ? 'open' : 'invite_only',
     customDomainEnabled,

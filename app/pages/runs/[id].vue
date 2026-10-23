@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
+import type { RunDelivery } from '~~/server/utils/agent-run-delivery'
 import { Permission } from '~~/shared/permissions'
 import type { AgentRun } from '~~/shared/agent-execution'
 
@@ -35,14 +36,22 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
-  refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') ? 2000 : false,
+  queryFn: () => api<{ delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
 async function cancel() {
   cancelling.value = true
   try { await api(`/api/agent-runs/${route.params.id}/cancel`, { method: 'POST' }); await runQ.refetch() }
   finally { cancelling.value = false }
+}
+const delivering = ref(false)
+async function retryDelivery() {
+  if (delivering.value) return
+  delivering.value = true
+  try { await api(`/api/agent-runs/${route.params.id}/deliver`, { method: 'POST' }); await runQ.refetch() }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { delivering.value = false }
 }
 const retrying = ref(false)
 async function retryRun() {
@@ -73,6 +82,15 @@ async function retryRun() {
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <section v-if="runQ.data.value?.delivery" class="space-y-2">
+        <h2 class="text-sm font-medium">Result delivery</h2>
+        <p v-if="run.taskId" class="text-sm">Task result: {{ runQ.data.value.delivery.taskStatus }}</p>
+        <p class="text-sm">Conversation report: {{ runQ.data.value.delivery.reportStatus }}</p>
+        <p v-if="runQ.data.value.delivery.taskError" class="text-sm text-warning">{{ runQ.data.value.delivery.taskError }}</p>
+        <p v-if="runQ.data.value.delivery.reportError" class="text-sm text-warning">{{ runQ.data.value.delivery.reportError }}</p>
+        <UButton v-if="runQ.data.value.canRetry && (runQ.data.value.delivery.taskStatus === 'blocked' || runQ.data.value.delivery.reportStatus === 'blocked')" label="Retry delivery" :loading="delivering" color="neutral" variant="outline" @click="retryDelivery" />
+        <p v-if="runQ.data.value.delivery.reportStatus !== 'complete'" class="text-xs text-muted">Delivery uses the saved result and does not run the model again.</p>
+      </section>
       <section class="space-y-2"><h2 class="text-sm font-medium">Instruction</h2><p class="whitespace-pre-wrap text-sm text-muted">{{ run.prompt }}</p></section>
       <section v-if="runQ.data.value?.modelCalls?.length" class="space-y-2"><h2 class="text-sm font-medium">Model requests</h2><ol class="space-y-2"><li v-for="call in runQ.data.value.modelCalls" :key="call.callNumber" class="rounded border border-default p-3 text-sm"><p class="break-all">#{{ call.callNumber }} · {{ call.model }} · {{ call.status }}</p><p class="text-xs text-muted">{{ new Date(call.startedAt).toLocaleString() }} · {{ call.totalTokens ?? 'reserved' }} tokens</p><p v-if="call.error" class="text-error">{{ call.error }}</p></li></ol></section>
       <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />

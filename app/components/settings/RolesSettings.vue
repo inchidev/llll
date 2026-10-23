@@ -105,6 +105,8 @@ const roleName = ref('')
 const rolePermissions = ref(0)
 const saving = ref(false)
 const creating = ref(false)
+const createOpen = ref(false)
+const newRoleName = ref('')
 const deleteOpen = ref(false)
 const deleting = ref(false)
 
@@ -157,16 +159,15 @@ async function refreshRoles() {
 }
 
 async function createRole() {
+  if (creating.value || !newRoleName.value.trim()) return
   creating.value = true
   try {
-    const names = new Set(roles.value.map(role => role.name.toLocaleLowerCase()))
-    let name = 'New role'
-    let suffix = 2
-    while (names.has(name.toLocaleLowerCase())) name = `New role ${suffix++}`
+    const name = newRoleName.value.trim()
     const res = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
       method: 'POST',
       body: { name, permissions: MemberPermissions },
     })
+    createOpen.value = false
     await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
     selectedRoleId.value = res.role.id
     tab.value = 'display'
@@ -249,6 +250,7 @@ function memberName(member: MemberDTO) {
 }
 
 async function assign(userId: string, roleId: string) {
+  if (assigningId.value) return
   assigningId.value = userId
   try {
     await api(`/api/servers/${props.serverId}/members/${userId}`, { method: 'PATCH', body: { roleId } })
@@ -272,11 +274,14 @@ watch(addMemberId, async (userId) => {
 
 <template>
   <div>
+    <UModal v-model:open="createOpen" title="Create role" :dismissible="!creating">
+      <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name"><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
+    </UModal>
     <!-- Role list -->
     <template v-if="!selectedRole">
       <SettingsHeader title="Roles" description="Every member has one role. A role decides what its members can do across the server.">
         <template #actions>
-          <UButton v-if="canManage" icon="i-ph-plus" label="Create role" size="sm" :loading="creating" @click="createRole" />
+          <UButton v-if="canManage" icon="i-ph-plus" label="Create role" size="sm" :loading="creating" @click="newRoleName = ''; createOpen = true" />
         </template>
       </SettingsHeader>
 
@@ -386,7 +391,8 @@ watch(addMemberId, async (userId) => {
             :search-input="{ placeholder: 'Find a member' }"
             icon="i-ph-user-plus"
             class="w-48"
-            :disabled="!assignableMembers.length"
+            :loading="Boolean(assigningId)"
+            :disabled="Boolean(assigningId) || !assignableMembers.length"
           />
         </div>
         <p v-if="!roleMembers.length" class="mt-4 rounded-lg border border-dashed border-default px-4 py-6 text-center text-sm text-muted">

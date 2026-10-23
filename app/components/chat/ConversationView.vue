@@ -276,7 +276,7 @@ async function onThread(msg: MessageDTO) {
   }
   // Open the panel at once; creating the thread is a network round trip.
   const pendingId = `${PENDING_THREAD_PREFIX}${msg.id}`
-  ui.pendingThreadTitle = threadTitle(msg.content, msg.attachments.map(item => item.filename))
+  ui.pendingThreadTitle = threadTitle(msg.content, msg.attachments.map(item => item.filename), Object.fromEntries(members.value.map(member => [member.user.id, member.nickname || member.user.displayName])))
   ui.threadId = pendingId
   let res: { channel: { id: string }, created?: boolean }
   try {

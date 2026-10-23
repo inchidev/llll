@@ -2,7 +2,7 @@ import { getServerId } from '../../../shared/server-id'
 import { requireChannelAccess } from '../../utils/guards'
 import { cf } from '../../utils/cf'
 import { toDmDto } from '../../utils/dms'
-import { threadTitle } from '../../../shared/threads'
+import { messageThreadTitle } from '../../utils/thread-title'
 import { attachments, messages } from '../../../drizzle/schema'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../../utils/db'
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
     const db = getDb(env.DB)
     const [root] = await db.select().from(messages).where(eq(messages.id, ch.parentMessageId)).limit(1)
     const attachmentRows = await db.select({ filename: attachments.filename }).from(attachments).where(eq(attachments.messageId, ch.parentMessageId))
-    title = threadTitle(root?.content ?? '', attachmentRows.map(row => row.filename))
+    title = await messageThreadTitle(env.DB, root?.content ?? '', attachmentRows.map(row => row.filename))
   }
   let live: LiveState | null = null
   if (ch.liveMeetingId) {

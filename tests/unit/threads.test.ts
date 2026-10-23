@@ -17,3 +17,9 @@ describe('threadTitle', () => {
     expect(threadTitle('x'.repeat(120)).endsWith('…')).toBe(true)
   })
 })
+
+it('resolves mentions before shortening thread titles and hides unknown raw IDs', () => {
+  const id = '00000000-0000-4000-8000-000000000001'
+  expect(threadTitle(`<@${id}> Reply with evidence`, [], { [id]: 'Pi' })).toBe('@Pi Reply with evidence')
+  expect(threadTitle(`<@${id}> Reply`)).toBe('@Member Reply')
+})

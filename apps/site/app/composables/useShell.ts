@@ -339,6 +339,7 @@ export function useShell() {
       }
       if (
         m.type === 'navigate' &&
+        ready.value[server.origin] &&
         server.origin === selected.value &&
         route.params.serverId === server.id &&
         m.serverId === server.id &&

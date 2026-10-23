@@ -2,8 +2,9 @@ import { agentProviderCatalog } from '../../../utils/agent-providers'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { agents, roles, users } from '../../../../drizzle/schema'
+import { assertRoleAssignable } from '../../../utils/role-policy'
 import { newId, nowIso } from '../../../../shared/ids'
-import { Permission } from '../../../../shared/permissions'
+import { hasPermission, Permission } from '../../../../shared/permissions'
 import type { AgentDTO } from '../../../../shared/types'
 import { requireMember } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
@@ -14,6 +15,7 @@ import { signalMembersChanged } from '../../../../workers/member-events'
 
 const bodySchema = z.object({
   harness: z.literal('pi').optional(),
+  roleId: z.string().min(8).optional(),
   displayName: z.string().trim().min(1).max(80),
   // Empty model resolves to this Server's default profile (openai-compatible: AI_MODEL).
   model: z.string().trim().max(200).default(''),
@@ -30,6 +32,14 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   const db = getDb(env.DB)
   const memberRole = (await db.select().from(roles).where(eq(roles.key, 'member')).limit(1))[0]
   if (!memberRole) fail(409, 'server_incomplete', 'Member role not found')
+  let selectedRole = memberRole
+  if (body.roleId && body.roleId !== memberRole.id) {
+    if (!actor.isOwner && !hasPermission(actor.perms, Permission.manageRoles)) fail(403, 'forbidden', 'Manage roles is required to choose an agent role')
+    const role = (await db.select().from(roles).where(eq(roles.id, body.roleId)).limit(1))[0]
+    if (!role) fail(404, 'not_found', 'Role not found')
+    assertRoleAssignable(actor, role)
+    selectedRole = role
+  }
 
   const id = newId()
   const now = nowIso()
@@ -41,7 +51,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
       displayName: body.displayName,
       avatarR2Key: null,
       status: 'active',
-      roleId: memberRole.id,
+      roleId: selectedRole.id,
       nickname: null,
       joinedAt: now,
       createdAt: now,

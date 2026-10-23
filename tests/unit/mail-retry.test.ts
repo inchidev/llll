@@ -5,7 +5,7 @@ import { d1 } from '../helpers/sqlite-d1'
 import type { L4Env } from '../../workers/env'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { deliverOutboundEmail } from '../../server/utils/mail-outbound'
-import migration from '../../drizzle/server-migrations/0014_mail_delivery.sql?raw'
+import migration from '../../drizzle/server-migrations/0015_mail_delivery.sql?raw'
 
 const state = vi.hoisted(() => ({ env: null as L4Env | null, confirmed: false, canSend: true, path: 'conversation', bodyId: 'reply-0001' }))
 vi.mock('../../server/utils/cf', async original => ({ ...await original<typeof import('../../server/utils/cf')>(), cf: () => ({ env: state.env!, waitUntil: (promise: Promise<unknown>) => promise }) }))

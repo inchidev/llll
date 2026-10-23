@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { attachments, channels, messages } from '../../../../drizzle/schema'
 import { newId, nowIso } from '../../../../shared/ids'
-import { threadTitle } from '../../../../shared/threads'
+import { messageThreadTitle } from '../../../utils/thread-title'
 import { Permission } from '../../../../shared/permissions'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
   const msg = msgRows[0]
   if (!msg) fail(404, 'not_found', 'Message not found')
   const existing = existingRows[0]
-  const title = body.name?.trim() || threadTitle(msg.content, attachmentRows.map(row => row.filename))
+  const title = body.name?.trim() || await messageThreadTitle(env.DB, msg.content, attachmentRows.map(row => row.filename))
   if (existing) return { channel: { ...existing, title }, created: false }
   const created = nowIso()
   const row = (await db.insert(channels).values({

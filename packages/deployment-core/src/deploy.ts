@@ -911,7 +911,7 @@ export async function deployL4(
   const ownerSetupToken = existing.exists || request.authMode === 'access' ? null : options.setupToken || randomBase64Url(32)
   await progress('storage', 'active')
   const { databaseId, bucketName, kvId } = await provisionServerStorage(client, request, existing)
-  await progress('storage', 'complete', bucketName ? 'D1, R2, and KV ready' : 'D1 and KV ready; files and backups disabled')
+  await progress('storage', 'complete', bucketName ? 'D1, R2, and KV ready' : 'Basic file storage (KV) ready; backups download to your device')
 
   await progress('database', 'active')
   const appliedMigrations = await applyD1Migrations(accessToken, request.accountId, databaseId, release.assets)

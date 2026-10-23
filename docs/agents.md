@@ -1,6 +1,6 @@
 # Governed agents
 
-An Agent is a non-human Member with one assigned Role. Its profile contains its name, instructions and model. Assign or change its Role in Settings → Roles → Members; Agents appear in that list alongside people. The Owner role cannot be assigned.
+An Agent is a non-human Member with one assigned Role. Its profile contains its name, instructions and model. Creators with Manage roles can choose its Role in the creation dialog. Assign or change its Role in Settings → Roles → Members; Agents appear in that list alongside people. The Owner role cannot be assigned.
 
 ## Role permissions
 
@@ -25,7 +25,7 @@ All profiles use Pi. The default embedded executor uses `@earendil-works/pi-dura
 
 Runs are durable, bounded attempts. Sessions and archived context belong to one Agent and conversation. Every model/tool request reloads current roles and checks the saved ceiling. Removal, pause, reduced role or resource access revokes execution. Defaults are 15 minutes, 20 model steps/calls, 100 Server tool calls and 64,000 tokens per Run; admission also limits each Agent to two concurrent Runs and each Server to four; admission also limits each Agent to 50 admissions and 250,000 tokens per 24 hours. Queued work shares conversation context sequentially. A tool with an uncertain outcome is never silently replayed.
 
-Web research requires `browseWeb` in both the Agent’s Role and the initiating member’s authority. Search uses `EXA_API_KEY`, or the OpenRouter web-search option in Server settings. Public page reading additionally uses configured Browser access. Search returns source URLs and excerpts. Table records and Documents use the same scoped operations as HTTP and MCP. Agents with `executeTasks` can create assigned Tasks and execute them through `execute_task`; child work inherits the original ceiling, has a maximum nesting of two, and consumes the same daily Agent budget. Computer tools additionally require `useComputer` for both the Agent and initiator, and a task-backed Run. Agent results go to review rather than asserting work is accepted.
+Web research requires `browseWeb` in both the Agent’s Role and the initiating member’s authority. Search uses `EXA_API_KEY`, or the OpenRouter web-search option in Server settings. Public page reading additionally uses configured Browser access. Search returns source URLs and excerpts. Table records and Documents use the same scoped operations as HTTP and MCP. Agents with `writeTasks` can create Tasks; `executeTasks` permits executing assigned Tasks through `execute_task`; child work inherits the original ceiling, has a maximum nesting of two, and consumes the same daily Agent budget. Computer tools additionally require `useComputer` for both the Agent and initiator, and a task-backed Run. Agent results go to review rather than asserting work is accepted.
 
 Schedules support one-time, daily and weekly reminders and task execution. They retain their original role/resource ceiling, preserve the chosen wall time across DST, skip missed repetitions, and deduplicate each occurrence. Current membership and grants are checked before delivery. Changing permissions can block an existing schedule; create a new mandate after reviewing the new role. Manage your schedules at `/schedules`.
 
@@ -81,3 +81,13 @@ ChatGPT / Codex uses **Continue with ChatGPT** with the [official open-source OA
 For a local HTTP Server, the browser returns to `127.0.0.1` on the Server port. A remote Server offers a downloadable Node 24 sign-in helper: run the displayed command on the computer hosting the browser. The helper listens only on `127.0.0.1:1455`, opens OpenAI sign-in, and relays the one-time callback to the chosen HTTPS Server. It writes no credential file. Removing a ChatGPT connection stops local use and attempts to revoke the renewable session; if remote revocation fails, disconnect L4 in ChatGPT settings.
 
 In an agent DM, a message starts a reply thread. Direct Run admission into the DM root is rejected. New messages queue in send order across that DM's threads; **Steer** on an already queued message submits it to the sender's running embedded Pi attempt at its next tool boundary. If steering is unavailable, the message stays queued. If delivery is uncertain, it is not executed a second time. **Stop** appears while the agent is working and cancels pending work before the active attempt. Separate conversations can run concurrently within the existing limits.
+
+## Model selection and task completion
+
+Connecting a provider adds choices; it never selects the first model as a Server default. Choose the default explicitly in Providers, or select an Agent/conversation model. A disabled default does not fall back to another model. Explicit operator model configuration remains supported; an AI binding by itself does not enable a default. Workers AI appears as a deployment connection whose account access, quota and compatibility are verified on use. Known OpenRouter models without tool support are excluded from Agent choices; missing capability metadata is not proof of incompatibility.
+
+Task execution requires Read tasks and Execute assigned tasks, plus access and Send messages in the report conversation, for both the Agent and initiator. Admission checks these before inference. Completion can record only that Run’s result on its assigned, unchanged Task; it does not grant general task editing. Results move to Review. Human changes, reassignment and archival are preserved.
+
+Computation, Task-result recording and report delivery have independent states on the Run page. Delivery failures retain the computed result. Pending delivery retries are bounded; only the original initiator can explicitly retry blocked delivery, under current permissions and the saved mandate. Retrying delivery does not call the model. Successful delivery is not posted twice.
+
+Every model request includes the current UTC time and Server timezone (UTC by default). The `get_current_time` tool refreshes this reference during longer work. Ambiguous scheduling timezones still require clarification.

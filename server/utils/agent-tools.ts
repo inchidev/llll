@@ -1,3 +1,4 @@
+import { agentTimeContext } from './agent-time'
 import { agentBrowserConfigured } from '../../workers/env'
 import { searchWeb, searchRunWeb } from './agent-search'
 import { createTable, createTableSchema } from './table-service'
@@ -23,6 +24,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
     definitions[name] = { action, schema, description, execute: value => execute(schema.parse(value)) }
   }
+  add('get_current_time', undefined, z.object({}), 'Read the current date and time with the Server timezone (UTC by default). Confirm the user’s timezone for ambiguous schedules.', async () => agentTimeContext(env))
   add('list_tasks', ServerAction.readTasks, z.object({}), 'Read authorized task boards and tasks.', async () => ({ boards: await listTasks(env, authorization) }))
   add('get_task', ServerAction.readTasks, z.object({ taskId: z.string().min(1) }), 'Read one authorized task.', async ({ taskId }) => ({ task: await getTask(env, authorization, taskId) }))
   add('create_task', ServerAction.writeTasks, z.object({ boardId: z.string().min(1), title: z.string().min(1).max(160), description: z.string().max(12000).default(''), environmentId: z.string().min(8).nullable().optional() }),

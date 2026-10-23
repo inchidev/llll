@@ -22,9 +22,9 @@ describe('Server model credentials', () => {
     expect(JSON.stringify(stored)).not.toContain(config.apiKey)
     const catalog = await agentProviderCatalog(env)
     expect(JSON.stringify(catalog)).not.toContain(config.apiKey)
-    expect(catalog.defaultModel).toBe('l4:openrouter:vendor/model')
+    expect(catalog.defaultModel).toBeNull()
     await saveAgentProvider(env, 'openrouter', { ...config, apiKey: undefined })
-    expect((await resolveSavedAgentModel(env, catalog.defaultModel!))?.apiKey).toBe(config.apiKey)
+    expect((await resolveSavedAgentModel(env, 'l4:openrouter:vendor/model'))?.apiKey).toBe(config.apiKey)
   })
   it('fails closed on disabled providers and cannot decrypt with another Server secret', async () => {
     await saveAgentProvider(env, 'openrouter', config)
@@ -52,6 +52,7 @@ describe('Server model credentials', () => {
     Object.assign(env, { AI_BASE_URL: 'https://openrouter.ai/api/v1', AI_API_KEY: 'deployment-key', AI_MODEL: 'default/model' })
     await importOpenRouterDeployment(env, false)
     const catalog = await agentProviderCatalog(env)
+    expect(catalog.defaultModel).toBe('l4:openrouter:default/model')
     expect(catalogAgentModel(env, 'custom/model', catalog)).toBe('l4:openrouter:custom/model')
     expect((await resolveSavedAgentModel(env, 'l4:openrouter:custom/model'))?.apiKey).toBe('deployment-key')
     expect(catalog.models.map(model => model.value)).toEqual(['l4:openrouter:default/model', 'l4:openrouter:custom/model'])
@@ -63,6 +64,26 @@ describe('Server model credentials', () => {
     for (const id of ['first', 'second']) await saveAgentProvider(env, id, { ...config, kind: 'openrouter' })
     expect(catalogAgentModel(env, 'vendor/model', await agentProviderCatalog(env))).toBeNull()
   })
+})
+
+it('requires an explicit default in both model catalogs and never selects another model after disabling it', async () => {
+  const { agentModelOptions } = await import('../../server/utils/agent-model-options')
+  await saveAgentProvider(env, 'openrouter', { ...config, models: [{ id: 'paid', api: 'chat' }, { id: 'free', api: 'chat' }] })
+  expect((await agentProviderCatalog(env)).defaultModel).toBeNull()
+  expect((await agentModelOptions(env, 'owner')).defaultModel).toBeNull()
+  await writeServerSetting(env.DB, 'agents.defaultModel', 'l4:openrouter:free')
+  expect((await agentProviderCatalog(env)).defaultModel).toBe('l4:openrouter:free')
+  expect((await agentModelOptions(env, 'owner')).defaultModel).toBe('l4:openrouter:free')
+  await saveAgentProvider(env, 'openrouter', { ...config, enabled: false })
+  expect((await agentProviderCatalog(env)).defaultModel).toBeNull()
+  expect((await agentModelOptions(env, 'owner')).defaultModel).toBeNull()
+})
+
+it('does not treat the presence of an AI binding as consent to use a default model', async () => {
+  const { agentModelOptions } = await import('../../server/utils/agent-model-options')
+  env.AI = {} as Ai
+  expect((await agentProviderCatalog(env)).defaultModel).toBeNull()
+  expect((await agentModelOptions(env, 'owner')).defaultModel).toBeNull()
 })
 
 it('keeps independently named connections and exposes key fragments only to the owner', async () => {
@@ -88,4 +109,18 @@ it('paginates named connections and searches models on the Server while retainin
   expect(catalog.models.some(m => m.value === 'l4:connection-17:model-17-3')).toBe(true)
   expect(catalog.hasMore).toBe(true)
   expect((await agentModelOptions(env, 'owner', 'Model 17 3')).models.filter(m => m.label === 'Model 17 3')).toHaveLength(1)
+})
+
+it('excludes known models without tools while preserving unknown capability metadata', async () => {
+  const { discoverAgentModels } = await import('../../server/utils/agent-provider-models')
+  const { agentModelOptions } = await import('../../server/utils/agent-model-options')
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({ data: [{ id: 'text-only', supported_parameters: ['temperature'] }, { id: 'tools', supported_parameters: ['tools'] }, { id: 'unknown' }] })
+  try {
+    const models = await discoverAgentModels('openrouter')
+    expect(models).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'text-only', tools: false }), expect.objectContaining({ id: 'tools', tools: true }), expect.objectContaining({ id: 'unknown' })]))
+    await saveAgentProvider(env, 'openrouter', { ...config, models })
+    expect((await agentProviderCatalog(env)).models.map(m => m.value)).toEqual(['l4:openrouter:tools', 'l4:openrouter:unknown'])
+    expect((await agentModelOptions(env, 'owner')).models.some(m => m.value.endsWith('text-only'))).toBe(false)
+  } finally { globalThis.fetch = original }
 })

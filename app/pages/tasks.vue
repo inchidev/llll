@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { CodeEnvironment } from '~~/shared/code-environments'
-import { Permission } from '~~/shared/permissions'
+import { hasPermission, Permission } from '~~/shared/permissions'
 import type {
   ChannelDTO,
   MemberDTO,
@@ -26,7 +26,7 @@ const toast = useToast()
 const startingRun = ref(false)
 async function runSelectedTask() {
   const task = selectedTask.value
-  if (!task?.assigneeId || !task.channelId) return
+  if (startingRun.value || !task?.assigneeId || !task.channelId || taskRunProblem.value) return
   startingRun.value = true
   try {
     const result = await api<{ run: { id: string } }>('/api/agent-runs', { method: 'POST', body: {
@@ -38,6 +38,16 @@ async function runSelectedTask() {
   finally { startingRun.value = false }
 }
 
+const taskRunProblem = computed(() => {
+  const task = selectedTask.value
+  if (!task?.channelId) return 'Choose and save a report channel before starting the task.'
+  const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
+  if (!member || member.user.kind !== 'agent') return 'Assign an active agent to this task.'
+  for (const [permission, label] of [[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages']] as const) {
+    if (!hasPermission(member.role.permissions, permission)) return `${member.user.displayName}’s role needs ${label}. Change the role in Server settings.`
+  }
+  return ''
+})
 /** Board and the archived view live in the URL so the sidebar can link to them. */
 const route = useRoute()
 const nav = useNavActions()
@@ -314,7 +324,7 @@ function openRenameBoard() {
 }
 
 async function saveBoard() {
-  if (!boardName.value.trim()) return
+  if (saving.value || !boardName.value.trim()) return
   const editing = editingBoardId.value
   const action = editing
     ? async () => { await api(`/api/boards/${editing}`, { method: 'PATCH', body: { name: boardName.value } }) }
@@ -757,8 +767,8 @@ const boardMenu = computed(() => [[
           <LayoutSaveBar v-if="can(Permission.writeTasks)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
         </fieldset>
         <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mt-6 space-y-2 border-t border-default pt-4">
-          <UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="!selectedTask.channelId || !agents.some(agent => agent.id === selectedTask!.assigneeId && agent.status === 'active')" @click="runSelectedTask" />
-          <p v-if="!selectedTask.channelId" class="text-xs text-muted">Choose and save a report channel before starting the task.</p>
+          <UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem) || !agents.some(agent => agent.id === selectedTask!.assigneeId && agent.status === 'active')" @click="runSelectedTask" />
+          <p v-if="taskRunProblem" class="text-xs text-muted">{{ taskRunProblem }}</p>
         </section>
       </template>
     </USlideover>

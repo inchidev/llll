@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
-import type { AgentDTO } from '~~/shared/types'
+import { Permission } from '~~/shared/permissions'
+import type { AgentDTO, RoleDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
 const open = defineModel<boolean>('open', { default: false })
@@ -16,6 +17,9 @@ function defaultModel() {
   // The Server resolves an empty model to its default provider profile.
   return ''
 }
+const { can } = useRoleGrants()
+const roleId = ref('member')
+const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: computed(() => open.value && can(Permission.manageRoles)) })
 const saving = ref(false)
 const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
@@ -43,7 +47,7 @@ const form = reactive<AgentForm>({
 const modelSearch = ref('')
 const providers = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value, form.model]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value, selected: form.model } }), enabled: open })
 const savedModels = computed(() => providers.data.value?.models ?? [])
-const agentsUnavailable = computed(() => session.health?.aiProvider === null && !providers.data.value?.defaultModel)
+const agentsUnavailable = computed(() => !providers.isPending.value && !form.model && !providers.data.value?.defaultModel)
 
 const selectedAgent = shallowRef<AgentDTO | null>(null)
 const isNew = computed(() => !selectedAgent.value)
@@ -67,6 +71,7 @@ function selectAgent(agent: AgentDTO) {
 }
 
 function createAgent() {
+  roleId.value = 'member'
   selectedAgent.value = null
   avatarFile.value = null
   removeCurrentAvatar.value = false
@@ -105,6 +110,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       result = await api<{ agent: AgentDTO }>(`/api/servers/${props.serverId}/agents`, {
         method: 'POST',
         body: {
+          roleId: roleId.value === 'member' ? undefined : roleId.value,
           displayName: event.data.displayName,
           model: event.data.model,
           instructions: event.data.instructions,
@@ -127,13 +133,13 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       await api(`/api/servers/${props.serverId}/agents/${result.agent.id}/avatar`, { method: 'DELETE' })
       result.agent.avatarR2Key = null
     }
+    open.value = false
+    emit('saved', result.agent)
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
       qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
     ])
     selectAgent(result.agent)
-    emit('saved', result.agent)
-    open.value = false
     toast.add({ title: creating ? 'Agent created' : 'Agent updated', color: 'success' })
   }
   catch (error) {
@@ -162,13 +168,13 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 <template>
   <UModal v-model:open="open" :title="isNew ? 'Create agent' : `Edit ${selectedAgent?.displayName || 'agent'}`" :dismissible="!saving" :close="!saving" :ui="{ content: 'max-w-xl' }">
     <template #body>
-    <UForm :schema="schema" :state="form" class="min-w-0 space-y-5" :data-update-blocked="saving" @submit="saveAgent">
+    <UForm :schema="schema" :state="form" :disabled="saving" class="min-w-0 space-y-5" :data-update-blocked="saving" @submit="saveAgent">
       <UAlert
         v-if="agentsUnavailable"
         color="neutral"
         variant="subtle"
         title="Agents need a model provider"
-        description="Ask the Server operator to connect a model provider."
+        description="Choose a model below or set a Server default in Providers. Connecting a provider does not select a default."
       />
       <UFormField label="Avatar">
         <div class="flex items-center gap-4">
@@ -198,10 +204,13 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       </UFormField>
 
       <UFormField name="model" label="Model (optional)" description="Empty uses the Server default. The conversation can override this model.">
-        <USelectMenu v-model:search-term="modelSearch" v-model="form.model" ignore-filter value-key="value" virtualize :items="[{ value: '', label: 'Server default' }, ...savedModels.map(model => ({ value: model.value, label: agentModelLabel(model) })), ...(form.model && !savedModels.some(model => model.value === form.model) ? [{ value: form.model, label: form.model + ' (unavailable)' }] : [])]" placeholder="Server default" class="w-full" />
+        <USelectMenu v-model:search-term="modelSearch" v-model="form.model" :loading="providers.isFetching.value" :disabled="providers.isPending.value" ignore-filter value-key="value" virtualize :items="[{ value: '', label: 'Server default' }, ...savedModels.map(model => ({ value: model.value, label: agentModelLabel(model) })), ...(form.model && !providers.isFetching.value && !savedModels.some(model => model.value === form.model) ? [{ value: form.model, label: form.model + ' (unavailable)' }] : [])]" placeholder="Server default" class="w-full" />
         <LayoutLoadError v-if="providers.error.value" message="Model choices did not load." :retry="providers.refetch" inline />
       </UFormField>
 
+      <UFormField v-if="isNew && can(Permission.manageRoles)" label="Role" description="Tasks need Read tasks and Execute assigned tasks; reporting also needs Send messages in the chosen channel.">
+        <USelect v-model="roleId" :loading="roles.isPending.value" :disabled="roles.isPending.value" :items="[{ value: 'member', label: 'Member' }, ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name }))]" class="w-full" />
+      </UFormField>
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />
       </UFormField>

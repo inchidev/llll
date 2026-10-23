@@ -19,6 +19,6 @@ export async function discoverAgentModels(kind: AgentProviderId, apiKey?: string
     if (typeof id !== 'string' || !id || id.length > 160 || (kind === 'chatgpt' && row.visibility !== 'list')) return []
     const api = kind === 'anthropic' ? 'anthropic' : kind === 'chatgpt' ? 'responses' : 'chat'
     const label = row.display_name ?? row.name ?? id
-    return [{ id, label: typeof label === 'string' ? label.slice(0, 200) : id, api }]
+    return [{ id, label: typeof label === 'string' ? label.slice(0, 200) : id, api, ...(kind === 'openrouter' && Array.isArray(row.supported_parameters) ? { tools: row.supported_parameters.includes('tools') } : {}) }]
   })
 }

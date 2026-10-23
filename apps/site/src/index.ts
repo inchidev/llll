@@ -2,7 +2,7 @@ import { enableL4Files } from '../../../packages/deployment-core/src/storage'
 import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode, refreshCloudflareGrant } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
-import { advanceDeployment, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
+import { advanceDeployment, deploymentFailure, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
 import { webSession, digest, clearDeployment } from './session'
@@ -99,6 +99,9 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     if (session.data.worker && !session.data.completed && url.searchParams.get('resume') !== '1') fail(409, 'Resume your current deployment before starting another')
     if (url.searchParams.get('storage') === '1') session.data.storageRequest = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/u), workerName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/u), origin: z.string().url() }).parse({ accountId: url.searchParams.get('account'), workerName: url.searchParams.get('worker'), origin: url.searchParams.get('server') })
     else delete session.data.storageRequest
+    const running = await env.DB.prepare('SELECT lease_until FROM deployment_sessions WHERE id_hash=?').bind(session.id).first<{ lease_until: number }>()
+    if (running && running.lease_until > Date.now()) fail(409, 'Wait for the current deployment step to finish before reconnecting')
+    delete session.data.grant
     session.data.state = randomCode(); session.data.verifier = randomCode(); delete session.data.error
     session.data.oauthNext = url.searchParams.get('next') === 'domain' ? 'domain' : 'create'
     await session.save()
@@ -146,7 +149,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
         delete data.grant; authorized = false; await session.save()
       }
     }
-    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data), domainRequest: publicDomainRequest(data) })
+    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, progress: data.progress, paused: data.paused?.map(item => ({ serverId: item.serverId, name: item.name, version: item.version })), name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data), domainRequest: publicDomainRequest(data) })
   }
   if (path === '/api/deploy/domain/prepare' && request.method === 'POST') {
     const session = await webSession(request, env, true)
@@ -199,9 +202,33 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const servers = await listL4Servers(grant.accessToken, accountId, { strict: true })
     return json({ servers: servers.flatMap(server => {
       try {
-        return [{ origin: publicOrigin(server.origin, env), name: server.configuration.appName, version: server.version, accountId }]
+        return [{ origin: publicOrigin(server.origin, env), name: [...(session.data.deployments || []), ...[session.data]].find(item => item.origin === server.origin && item.accountId === accountId)?.name || server.configuration.appName, version: server.version, accountId }]
       } catch { return [] }
     }) })
+  }
+  if (['/api/deploy/disconnect', '/api/deploy/pause', '/api/deploy/resume'].includes(path) && request.method === 'POST') {
+    const session = await webSession(request, env)
+    const running = await env.DB.prepare('SELECT lease_until FROM deployment_sessions WHERE id_hash=?').bind(session.id).first<{ lease_until: number }>()
+    if (running && running.lease_until > Date.now()) fail(409, 'Wait for the current deployment step to finish')
+    if (path.endsWith('/disconnect')) delete session.data.grant
+    else if (path.endsWith('/pause')) {
+      if (session.data.worker && !session.data.completed) {
+        const { grant: _grant, deployments: _deployments, paused: _paused, state: _state, verifier: _verifier, ...attempt } = session.data
+        if ((session.data.paused?.length ?? 0) >= 20) fail(409, 'Resume an existing paused deployment before starting another')
+        session.data.paused = [...(session.data.paused || []), attempt]
+      }
+      clearDeployment(session.data)
+    } else {
+      if (session.data.worker && !session.data.completed) fail(409, 'Pause the current deployment first')
+      const { serverId } = z.object({ serverId: uuidSchema }).parse(await input(request))
+      const attempt = session.data.paused?.find(item => item.serverId === serverId)
+      if (!attempt) fail(404, 'Paused deployment not found')
+      clearDeployment(session.data)
+      Object.assign(session.data, attempt)
+      session.data.paused = session.data.paused?.filter(item => item.serverId !== serverId)
+    }
+    await session.save()
+    return json({ ok: true })
   }
   if (path === '/api/deploy/start' && request.method === 'POST') {
     const session = await webSession(request, env)
@@ -289,7 +316,13 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const lease = await env.DB.prepare('UPDATE deployment_sessions SET lease_until=? WHERE id_hash=? AND lease_until<? RETURNING id_hash').bind(leaseUntil, session.id, Date.now()).first()
     if (!lease) fail(409, 'Deployment is already running; wait before retrying')
     try { delete session.data.error; await advanceDeployment(session.data, env, session.save) }
-    catch (error) { session.data.error = error instanceof Error ? error.message : 'Deployment failed. Retry to resume.'; await session.save(); throw error }
+    catch (error) {
+      const failure = deploymentFailure(error)
+      session.data.error = failure.message
+      if (failure.reconnect) delete session.data.grant
+      await session.save()
+      fail(409, failure.message)
+    }
     finally { await env.DB.prepare('UPDATE deployment_sessions SET lease_until=0 WHERE id_hash=? AND lease_until=?').bind(session.id, leaseUntil).run() }
     return json({ step: session.data.step, completed: session.data.completed })
   }

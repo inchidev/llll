@@ -307,7 +307,10 @@ export async function advanceDeployment(
         mailSubdomain: '',
         mailLocalPart: '',
       },
-      { verify: false, setupToken: state.setupToken },
+      { verify: false, setupToken: state.setupToken, report: async event => {
+        state.progress = [...(state.progress || []).filter(item => item.step !== event.step), event].slice(-20)
+        await save()
+      } },
     )
     state.origin = result.url
     state.step = 2
@@ -362,4 +365,13 @@ export function deploymentParameters(
     setupToken: randomCode(),
     step: 0,
   }
+}
+
+/** Never retain a grant that requires fresh account consent, or expose raw upstream diagnostics. */
+export function deploymentFailure(error: unknown): { message: string; reconnect: boolean } {
+  const value = error && typeof error === 'object' ? error as { message?: string; status?: number; statusCode?: number } : {}
+  if (/verify.*email|email.*verif/iu.test(value.message || '')) return { message: 'Verify your Cloudflare email, then reconnect Cloudflare and resume this deployment.', reconnect: true }
+  if ([401, 403].includes(value.status ?? value.statusCode ?? 0) || /authorization expired|reconnect cloudflare/iu.test(value.message || '')) return { message: 'Cloudflare access needs renewal. Reconnect Cloudflare, approve the requested permissions, then resume this deployment.', reconnect: true }
+  if ((value.status ?? value.statusCode) === 429) return { message: 'Cloudflare reached a rate limit. Wait briefly, then resume the same deployment.', reconnect: false }
+  return { message: 'Deployment paused. Review the last step and resume the same Server. Reconnect Cloudflare if account access changed.', reconnect: false }
 }
