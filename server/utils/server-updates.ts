@@ -86,7 +86,7 @@ export async function updateOwner(event: H3Event) {
 
 export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
   const accountId = env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim()
-  if (!env.BACKUPS || !env.FILES || !accountId || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require a separate backup bucket and a published L4 Server release. VPS operators use llll upgrade.')
+  if ((!env.FILES && !env.TICKETS) || !accountId || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require storage and a published L4 Server release. VPS operators use llll upgrade.')
   // Reads must start on the primary so a fresh request cannot miss an active Build.
   const database = env.DB.withSession('first-primary')
   return createUpdateStore(async (sql, params) => (await database.prepare(sql).bind(...params).all<{ payload: string; revision: number }>()).results)

@@ -1,0 +1,1 @@
+CREATE TABLE agent_model_calls (run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, call_number INTEGER NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, completed_at TEXT, total_tokens INTEGER, error TEXT, PRIMARY KEY(run_id,call_number));

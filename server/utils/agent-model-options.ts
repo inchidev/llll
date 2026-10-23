@@ -1,3 +1,4 @@
+import { workersAiModels } from '../../shared/workers-ai-models'
 import { readServerSetting } from '../../shared/server-settings'
 import { aiProvider, resolveAgentModelId, type L4Env } from '../../workers/env'
 import type { AgentModelOption } from '../../shared/agent-providers'
@@ -17,6 +18,9 @@ export async function agentModelOptions(env: L4Env, actorId: string, search = ''
   if (selectedOption && !models.some(m => m.value === selectedOption.value)) models.unshift(selectedOption)
   const imported = await env.DB.prepare("SELECT key FROM server_settings WHERE key LIKE 'agents.provider.%' AND json_type(value,'$.secret')='object' AND (json_extract(value,'$.kind')='openrouter' OR key='agents.provider.openrouter') LIMIT 1").first()
   const deployment = aiProvider(env) && !(imported && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1') ? resolveAgentModelId(env) : null
-  if (deployment && (!search || deployment.toLowerCase().includes(search.toLowerCase()) || selected === deployment || configuredDefault === deployment)) models.push({ value: deployment, label: deployment, provider: 'Deployment' })
+  if (deployment && aiProvider(env) !== 'openai-compatible') {
+    for (const model of workersAiModels) if (!search || `${model.id} ${model.label}`.toLowerCase().includes(search.toLowerCase()) || selected === model.id) models.push({ value: model.id, label: model.label, provider: 'Workers AI' })
+  }
+  if (deployment && !models.some(m => m.value === deployment) && (!search || deployment.toLowerCase().includes(search.toLowerCase()) || selected === deployment || configuredDefault === deployment)) models.push({ value: deployment, label: deployment, provider: 'Deployment' })
   return { models, defaultModel: configuredDefault === deployment ? deployment : first?.value ?? deployment, hasMore: rows.length > 50 }
 }

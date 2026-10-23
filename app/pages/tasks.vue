@@ -721,7 +721,7 @@ const boardMenu = computed(() => [[
           <section>
             <div class="mb-2 flex items-center justify-between gap-2">
               <span class="text-sm font-medium">Files</span>
-              <UButton size="xs" color="neutral" variant="soft" icon="i-ph-paperclip" label="Attach file" :disabled="useSessionStore().health?.bindings.r2 === false" :loading="saving" @click="fileInput?.click()" />
+              <UButton size="xs" color="neutral" variant="soft" icon="i-ph-paperclip" label="Attach file" :disabled="(useSessionStore().health?.bindings.r2 === false && !useSessionStore().health?.bindings.kv)" :loading="saving" @click="fileInput?.click()" />
               <input ref="fileInput" type="file" class="hidden" @change="uploadAttachment">
             </div>
             <p v-if="!selectedTask.attachments.length" class="text-sm text-muted">No files yet.</p>

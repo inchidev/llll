@@ -551,6 +551,7 @@ export type ChannelDTO = {
   live: LiveState | null
   createdAt: string
   title?: string
+  createdBy?: string | null
   dmKind?: 'pair' | 'group'
   dmOwnerId?: string | null
   participants?: PublicUser[]

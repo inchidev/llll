@@ -1,3 +1,4 @@
+import { createError } from 'h3'
 import { chatGPTAccessToken } from '../server/utils/agent-chatgpt'
 import { chatGPTFetch } from '../server/utils/chatgpt-transport'
 import { createAnthropic } from '@ai-sdk/anthropic'
@@ -8,7 +9,7 @@ import { aiProvider, resolveAgentModelId, type L4Env } from './env'
 import { workersAiRestModel } from './workers-ai-rest-model'
 
 /**
- * Workers AI keeps the model id string so Think resolves it through the `AI` binding.
+ * Workers AI keeps the model id string for the Server gateway’s `AI` binding.
  * REST and OpenAI-compatible endpoints must be a LanguageModel: a string would be sent to `env.AI`.
  */
 export function modelForAgent(env: L4Env, profileModel?: string | null): LanguageModel | string {
@@ -26,16 +27,21 @@ export function modelForAgent(env: L4Env, profileModel?: string | null): Languag
 /** Provider credentials stay on the Server; compute receives only a Run capability. */
 export async function modelForRun(env: L4Env, reference: string, sessionId: string, actorId?: string): Promise<LanguageModel | string> {
   const saved = await resolveSavedAgentModel(env, reference, actorId)
-  if (!saved) return modelForAgent(env, reference)
+  if (!saved) {
+    if (reference.startsWith('@cf/') && aiProvider(env) === 'openai-compatible') throw createError({ statusCode: 409, statusMessage: 'The selected Workers AI model is unavailable under the current provider configuration' })
+    return modelForAgent(env, reference)
+  }
   if (saved.id === 'chatgpt') return createOpenAI({ apiKey: await chatGPTAccessToken(env, saved.connectionId, actorId!), fetch: chatGPTFetch }).responses(saved.model.id)
   if (saved.id === 'anthropic') return createAnthropic({ apiKey: saved.apiKey })(saved.model.id)
   const headers = { 'x-opencode-session': sessionId }
   // AI SDK adds its own User-Agent after provider headers; identify L4 at the final transport boundary.
-  const providerFetch: typeof fetch = (input, init) => {
+  const providerFetch: typeof fetch = async (input, init) => {
     const outgoing = new Headers(init?.headers)
     outgoing.set('User-Agent', 'l4/pi')
     outgoing.set('x-opencode-session', sessionId)
-    return globalThis.fetch(input, { ...init, headers: outgoing, redirect: 'error' })
+    const response = await globalThis.fetch(input, { ...init, headers: outgoing, redirect: 'manual' })
+    if (response.status >= 300 && response.status < 400) { await response.body?.cancel(); throw new Error('The model provider returned an unexpected redirect') }
+    return response
   }
   if (saved.id === 'openrouter') return createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: saved.apiKey }).chat(saved.model.id)
   const base = saved.id === 'opencode-go' ? 'https://opencode.ai/inference/go' : 'https://opencode.ai/inference'

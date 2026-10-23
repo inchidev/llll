@@ -9,7 +9,7 @@ const { api } = useApi()
 const health = computed(() => session.health)
 const busy = ref(false)
 const error = ref<string | null>(null)
-const claimToken = ref('')
+const claimToken = useState('owner-claim', () => '')
 const ownerEmail = ref('')
 
 const schema = z.object({
@@ -40,11 +40,11 @@ onMounted(async () => {
   const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get('claim') || ''
   if (fragmentToken) {
     claimToken.value = fragmentToken
-    sessionStorage.setItem('df:owner-setup-token', fragmentToken)
+    try { sessionStorage.setItem('df:owner-setup-token', fragmentToken) } catch { /* Memory fallback. */ }
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`)
   }
   else {
-    claimToken.value = sessionStorage.getItem('df:owner-setup-token') || ''
+    try { claimToken.value ||= sessionStorage.getItem('df:owner-setup-token') || '' } catch { /* Memory fallback. */ }
   }
 
   await session.refresh(api)
@@ -57,6 +57,7 @@ onMounted(async () => {
         body: { token: claimToken.value },
       })
       ownerEmail.value = identity.email
+      state.serverName = session.health?.appName || state.serverName
     }
     catch (cause) {
       error.value = errorMessage(cause)
@@ -77,7 +78,8 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
         password: event.data.password,
       },
     })
-    sessionStorage.removeItem('df:owner-setup-token')
+    try { sessionStorage.removeItem('df:owner-setup-token') } catch { /* Memory fallback. */ }
+    claimToken.value = ''
     await session.refresh(api)
     await navigateTo('/')
   }
@@ -113,7 +115,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
         v-if="!claimToken"
         color="warning"
         variant="subtle"
-        title="Continue from the installer in the browser you used to create this Server."
+        title="This setup link is missing its private claim. Return to the installer and choose Finish setup on your Server."
         class="mt-6"
       />
       <template v-else>

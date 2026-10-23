@@ -1,3 +1,4 @@
+import { d1 } from '../helpers/sqlite-d1'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ensureAgentReplyTarget } from '../../workers/agent-replies'
@@ -5,27 +6,6 @@ import { ensureAgentReplyTarget } from '../../workers/agent-replies'
 let sqlite: DatabaseSync
 let db: D1Database
 
-function d1(database: DatabaseSync): D1Database {
-  return {
-    prepare(sql: string) {
-      let values: unknown[] = []
-      const statement = {
-        bind(...next: unknown[]) {
-          values = next
-          return statement
-        },
-        async first<T>() {
-          return (database.prepare(sql).get(...values) as T | undefined) ?? null
-        },
-        async run() {
-          database.prepare(sql).run(...values)
-          return { success: true }
-        },
-      }
-      return statement
-    },
-  } as unknown as D1Database
-}
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
@@ -46,6 +26,7 @@ beforeEach(() => {
     CREATE UNIQUE INDEX channels_thread_root_unique ON channels(parent_message_id) WHERE type = 'thread';
     CREATE TABLE channel_members (channel_id TEXT NOT NULL, user_id TEXT NOT NULL);
     CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, content TEXT NOT NULL);
+    CREATE TABLE attachments(id TEXT PRIMARY KEY,message_id TEXT,filename TEXT,created_at TEXT);
 
     INSERT INTO channels VALUES
       ('dm', 'DM', '', 'dm', 'private', 0, NULL, NULL, NULL, 'now', 'now'),
@@ -73,23 +54,16 @@ describe('agent reply target', () => {
     ])
   })
 
-  it('keeps server-channel replies flat', async () => {
-    await expect(ensureAgentReplyTarget(db, 'general', 'general-message')).resolves.toEqual({
-      channelId: 'general',
-      parentChannelId: null,
-      parentMessageId: null,
-      created: false,
-    })
+  it('names an attachment-only thread after its file', async () => {
+    sqlite.exec("INSERT INTO messages VALUES('file-message','dm',''); INSERT INTO attachments VALUES('file','file-message','report.pdf','now')")
+    const target = await ensureAgentReplyTarget(db, 'dm', 'file-message')
+    expect(sqlite.prepare('SELECT name FROM channels WHERE id=?').get(target.channelId)?.name).toBe('report.pdf')
   })
 
-  it('keeps group-DM replies flat', async () => {
-    sqlite.exec("INSERT INTO channel_members VALUES ('dm', 'third-person')")
-
-    await expect(ensureAgentReplyTarget(db, 'dm', 'dm-message')).resolves.toEqual({
-      channelId: 'dm',
-      parentChannelId: null,
-      parentMessageId: null,
-      created: false,
-    })
+  it('creates a thread for a public channel root', async () => {
+    const target = await ensureAgentReplyTarget(db, 'general', 'general-message')
+    expect(target).toMatchObject({ parentChannelId: 'general', parentMessageId: 'general-message', created: true })
+    expect(target.channelId).not.toBe('general')
+    expect(await ensureAgentReplyTarget(db, target.channelId, 'unused')).toEqual({ channelId: target.channelId, parentChannelId: null, parentMessageId: null, created: false })
   })
 })

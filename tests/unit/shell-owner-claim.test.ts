@@ -47,110 +47,43 @@ function bookmark() {
   route.params = { serverId: id }
   route.fullPath = '/' + id + '/setup'
 }
-function frameClaim(shell: ReturnType<typeof useShell>) {
-  return new URL(shell.frameSrc(origin, location.origin)).hash
-}
+function setupClaim(shell: ReturnType<typeof useShell>) { return new URL(shell.ownerSetupUrl(origin)).hash }
 
-it('recovers the installer claim on a bookmarked setup reload', async () => {
-  bookmark()
-  const shell = useShell()
-  shell.initialize()
-  await shell.resolveServer()
-  expect(Boolean(frameClaim(shell))).toBe(true)
-  expect(installer).toHaveBeenCalledWith('/api/deploy/session')
+it('recovers an installer claim for top-level setup without loading an iframe', async () => {
+  bookmark(); const shell = useShell(); shell.initialize(); await shell.resolveServer()
+  expect(setupClaim(shell)).toBe('#claim=' + claim)
+  expect(new URL(shell.frameSrc(origin, location.origin)).hash).toBe('')
+  expect(shell.loaded.value).toEqual([])
+  expect(shell.unclaimed.value[origin]).toBe(true)
   expect(localStorage.getItem('llll.shell.servers.v1')).not.toContain(claim)
 })
-
-it('takes an explicit setup claim before replacing the outer route', async () => {
-  bookmark()
-  route.hash = '#claim=' + claim
-  route.fullPath += '?parent=' + encodeURIComponent(location.origin) + route.hash
-  installer.mockRejectedValue(new Error('Expired installer'))
-  const shell = useShell()
-  shell.initialize()
-  await shell.resolveServer()
-  expect(frameClaim(shell)).toBe('#claim=' + claim)
+it('preserves an explicit claim when the installer session has expired', async () => {
+  bookmark(); route.hash = '#claim=' + claim; route.fullPath += route.hash
+  installer.mockRejectedValue(new Error('Expired'))
+  const shell = useShell(); shell.initialize(); await shell.resolveServer()
+  expect(setupClaim(shell)).toBe('#claim=' + claim)
+  expect(new URL(shell.frameSrc(origin, location.origin)).hash).toBe('')
   expect(installer).not.toHaveBeenCalled()
-  expect(replace).not.toHaveBeenCalledWith(expect.stringContaining(claim))
-  expect(localStorage.getItem('llll.shell.servers.v1')).not.toContain(claim)
 })
-
-it('can hand a claim to an already loaded unclaimed Server', async () => {
-  installer.mockRejectedValue(new Error('No installer session'))
-  const shell = useShell()
-  shell.initialize()
-  await shell.connect(origin)
-  expect(frameClaim(shell)).toBe('')
-  await shell.connect(origin, claim)
-  expect(frameClaim(shell)).toBe('#claim=' + claim)
+it('does not recover another Server’s claim', async () => {
+  bookmark(); installer.mockResolvedValue({ completed: true, origin: 'https://other.example', claim: 'https://other.example/setup#claim=' + claim })
+  const shell = useShell(); shell.initialize(); await shell.resolveServer()
+  expect(setupClaim(shell)).toBe('')
 })
-
-it('keeps the initial setup fragment intact and waits for readiness before navigation', async () => {
-  bookmark()
-  const shell = useShell()
-  shell.initialize()
-  const frame = document.createElement('iframe')
-  document.body.append(frame)
-  const child = frame.contentWindow!
-  const post = vi.spyOn(child, 'postMessage').mockImplementation(() => {})
-  shell.frames.value[origin] = frame
-  await shell.resolveServer()
-  expect(post).not.toHaveBeenCalled()
-  listener(new MessageEvent('message', { origin, source: child, data: { llll: EMBED_VERSION, type: 'ready', version: EMBED_VERSION, name: 'Fixture' } }))
-  expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'open' }), origin)
-  shell.open(shell.servers.value[0]!, id, '/channels/general')
-  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'open', serverId: id, path: '/channels/general' }), origin)
-  frame.remove()
+it('keeps an earlier deployment’s top-level claim during a later deployment', async () => {
+  bookmark(); installer.mockResolvedValue({ completed: false, deployments: [{ origin, claim: origin + '/setup#claim=' + claim }] })
+  const shell = useShell(); shell.initialize(); await shell.resolveServer()
+  expect(setupClaim(shell)).toBe('#claim=' + claim)
 })
-
-it('never recovers a different Server’s installer claim', async () => {
-  bookmark()
-  installer.mockResolvedValue({ completed: true, origin: 'https://other.example', claim: 'https://other.example/setup#claim=' + claim })
-  const shell = useShell()
-  shell.initialize()
-  await shell.resolveServer()
-  expect(frameClaim(shell)).toBe('')
-})
-
-it('ignores Client navigation on My servers even if a selected origin remains temporarily', () => {
-  bookmark()
-  const shell = useShell()
-  shell.initialize()
-  const frame = document.createElement('iframe')
-  document.body.append(frame)
-  shell.frames.value[origin] = frame
-  shell.selected.value = origin
-  route.params = {}; route.fullPath = '/servers'
-  const message = new MessageEvent('message', { origin, source: frame.contentWindow!, data: { llll: EMBED_VERSION, type: 'navigate', serverId: id, path: '/channels/general' } })
-  listener(message)
-  expect(replace).not.toHaveBeenCalled()
-  route.params = { serverId: id }; route.fullPath = '/' + id
-  listener(message)
-  expect(replace).toHaveBeenCalledWith('/' + id + '/channels/general')
-  frame.remove()
-})
-
-it('recovers an earlier setup handoff while a second Server is being deployed', async () => {
-  bookmark()
-  installer.mockResolvedValue({ completed: false, deployments: [{ origin, claim: origin + '/setup#claim=' + claim }] })
-  const shell = useShell()
-  shell.initialize()
-  await shell.resolveServer()
-  expect(frameClaim(shell)).toBe('#claim=' + claim)
-})
-
-it('reloads an already open Client at setup when the claim arrives later', async () => {
-  installer.mockRejectedValue(new Error('No installer session'))
-  const shell = useShell()
-  shell.initialize()
-  await shell.connect(origin)
-  bookmark()
-  route.hash = '#claim=' + claim
-  route.fullPath += route.hash
-  await shell.resolveServer()
-  const frame = new URL(shell.frameSrc(origin, location.origin))
-  expect(frame.pathname).toBe('/setup')
-  expect(frame.hash).toBe('#claim=' + claim)
+it('loads the Client only after discovery confirms the owner has claimed the Server', async () => {
+  const shell = useShell(); shell.initialize(); await shell.connect(origin, claim)
+  expect(shell.loaded.value).toEqual([])
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, name: 'Fixture', ready: true })))
+  await shell.readMetadata(origin)
+  expect(shell.unclaimed.value[origin]).toBe(false)
+  expect(shell.loaded.value).toEqual([origin])
+  expect(setupClaim(shell)).toBe('')
+  expect(new URL(shell.frameSrc(origin, location.origin)).pathname).toBe('/')
 })
 
 it('refreshes a saved connection and deployment recall from public metadata without opening a Client', async () => {

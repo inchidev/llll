@@ -1,4 +1,3 @@
-import { piConfigured } from '../../../../utils/agent-run-service'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { agents, users } from '../../../../../drizzle/schema'
@@ -10,13 +9,12 @@ import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
 import { parseBody } from '../../../../utils/validate'
-import { resolveAgentModelId } from '../../../../../workers/env'
 import { signalMembersChanged } from '../../../../../workers/member-events'
 
 const bodySchema = z.object({
-  harness: z.enum(['pi', 'think']).optional(),
+  harness: z.literal('pi').optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
-  model: z.string().trim().min(1).max(200).optional(),
+  model: z.string().trim().max(200).optional(),
   instructions: z.string().trim().max(12_000).optional(),
   status: z.enum(['active', 'paused']).optional(),
 }).refine(body => Object.values(body).some(value => value !== undefined), 'No changes')
@@ -34,11 +32,10 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     .limit(1))[0]
   if (!current) fail(404, 'not_found', 'Agent not found')
 
-  const harness = body.harness ?? current.profile.harness
-  if (harness === 'pi' && !await piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider first')
+  const harness = 'pi'
   const now = nowIso()
   const displayName = body.displayName ?? current.user.displayName
-  const model = body.model !== undefined ? resolveAgentModelId(env, body.model) : current.profile.model
+  const model = body.model ?? current.profile.model
   const instructions = body.instructions ?? current.profile.instructions
   const status = body.status ?? current.profile.status
 

@@ -2,7 +2,8 @@ import { embedCommand, EMBED_VERSION, safeEmbedPath } from '~~/shared/embed'
 export default defineNuxtPlugin(async (nuxt) => {
   if (window.parent === window) return
   const connection = useServers()
-  const server = await connection.discover(location.origin)
+  const server = await connection.discover(location.origin).catch(() => null)
+  if (!server) return
   const parent =
     new URLSearchParams(location.search).get('parent') ||
     (() => {

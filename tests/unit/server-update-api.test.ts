@@ -77,3 +77,20 @@ it('refuses a resume when the request is already claimed and refuses updates wit
   context.body = { requestId, release: 'v0.3.0' }
   await expect(request()).rejects.toMatchObject({ statusCode: 409 })
 })
+
+it('allows KV-only updates but accepts a download receipt only for the complete matching archive', async () => {
+  delete context.env.FILES; delete context.env.BACKUPS; context.env.TICKETS = {}
+  await request()
+  const record = JSON.parse(context.stored!)
+  record.job.backup = { destination: 'download', bucket: '', key: 'backup.tar', sha256: 'a'.repeat(64), sizeBytes: 8192, createdAt: new Date().toISOString(), verified: false }
+  context.stored = JSON.stringify(record)
+  const confirm = (await import('../../server/api/servers/[id]/updates/downloaded.post')).default
+  context.body = { requestId, sha256: 'b'.repeat(64), sizeBytes: 8192 }
+  await expect(confirm({} as H3Event)).rejects.toMatchObject({ statusCode: 409 })
+  expect(JSON.parse(context.stored!).job.backup.verified).toBe(false)
+  context.body.sha256 = 'a'.repeat(64); context.body.sizeBytes = 8191
+  await expect(confirm({} as H3Event)).rejects.toMatchObject({ statusCode: 409 })
+  context.body.sizeBytes = 8192
+  await expect(confirm({} as H3Event)).resolves.toEqual({ ok: true })
+  expect(JSON.parse(context.stored!).job.backup.verified).toBe(true)
+})

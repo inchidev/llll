@@ -57,6 +57,7 @@ export default defineEventHandler(async (event) => {
     channels: list.map((ch) => {
       return {
         id: ch.id,
+        createdBy: ch.createdBy,
         serverId,
         name: ch.name,
         topic: ch.topic,

@@ -1,3 +1,5 @@
+import { H3Error } from 'h3'
+import { inferenceFailure } from './agent-inference-errors'
 import { streamText, jsonSchema, tool, type ModelMessage } from 'ai'
 import { createWorkersAI } from 'workers-ai-provider'
 import { z } from 'zod'
@@ -38,16 +40,26 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const reservation = new TextEncoder().encode(JSON.stringify(input)).byteLength + maxOutputTokens + 2048
   const admitted = await env.DB.prepare(`UPDATE agent_runs SET model_calls=model_calls+1,total_tokens=total_tokens+? WHERE id=? AND status='running'
     AND model_calls<? AND total_tokens+?<=?
-    AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id`).bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now()-86400000).toISOString(), reservation).first()
+    AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id,model_calls AS callNumber`).bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now()-86400000).toISOString(), reservation).first<{ id: string; callNumber: number }>()
   if (!admitted) return Response.json({ error: { message: 'Run inference budget exhausted' } }, { status: 429 })
+  await env.DB.prepare("INSERT INTO agent_model_calls(run_id,call_number,model,status,started_at) VALUES(?,?,?,'running',?)").bind(run.id, admitted.callNumber, run.model, new Date().toISOString()).run()
+  const complete = async (tokens: number) => { await env.DB.batch([
+    env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?),last_error=NULL WHERE id=?').bind(tokens - reservation, run.id),
+    env.DB.prepare("UPDATE agent_model_calls SET status='completed',total_tokens=?,completed_at=? WHERE run_id=? AND call_number=?").bind(tokens, new Date().toISOString(), run.id, admitted.callNumber),
+  ]) }
+  const failed = async (error: unknown) => { const message = inferenceFailure(error); await env.DB.batch([
+    env.DB.prepare('UPDATE agent_runs SET last_error=? WHERE id=?').bind(message, run.id),
+    env.DB.prepare("UPDATE agent_model_calls SET status='failed',error=?,completed_at=? WHERE run_id=? AND call_number=?").bind(message, new Date().toISOString(), run.id, admitted.callNumber),
+  ]); return message }
   const resolved = await modelForRun(env, run.model, run.sessionId, run.initiatedBy)
   const model = typeof resolved === 'string' && env.AI ? createWorkersAI({ binding: env.AI })(resolved) : resolved
-  if (typeof model === 'string') return Response.json({ error: { message: 'Model provider unavailable' } }, { status: 503 })
+  if (typeof model === 'string') { const message = await failed(new Error('Model provider unavailable')); return Response.json({ error: { message } }, { status: 503 }) }
   const tools = Object.fromEntries((input.tools ?? []).map(definition => [definition.function.name, tool({
     description: definition.function.description, inputSchema: jsonSchema(definition.function.parameters),
   })]))
   const instructions = input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
-  const settings = { model, instructions, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
+  let providerFailure: unknown
+  const settings = { model, instructions, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }
   if (input.stream) {
     const abort = new AbortController()
@@ -65,32 +77,33 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
             const next = await iterator.next()
             if (next.done) {
               const usage = await result.totalUsage
-              await env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?) WHERE id=?').bind((usage.totalTokens ?? reservation) - reservation, run.id).run()
+              await complete(usage.totalTokens ?? reservation)
               controller.enqueue(chunk({}, callIndex ? 'tool_calls' : 'stop'))
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: run.model, choices: [], usage: { prompt_tokens: usage.inputTokens ?? 0, completion_tokens: usage.outputTokens ?? 0, total_tokens: usage.totalTokens ?? 0 } })}\n\ndata: [DONE]\n\n`))
               controller.close()
               return
             }
             const part = next.value
-            if (part.type === 'error' || part.type === 'abort') throw new Error('Inference interrupted')
+            if (part.type === 'error') throw part.error
+            if (part.type === 'abort') throw new Error('Inference interrupted')
             if (part.type === 'text-delta') { controller.enqueue(chunk({ content: part.text })); return }
             if (part.type === 'tool-call') {
               controller.enqueue(chunk({ tool_calls: [{ index: callIndex++, id: part.toolCallId, type: 'function', function: { name: part.toolName, arguments: JSON.stringify(part.input) } }] }))
               return
             }
           }
-        } catch { abort.abort(); controller.error(new Error('Inference stream interrupted')) }
+        } catch (error) { abort.abort(); controller.error(new Error(await failed(error))) }
       },
-      async cancel() { abort.abort(); await iterator.return?.() },
+      async cancel() { abort.abort(); await iterator.return?.(); await failed(new Error('Inference cancelled')) },
     })
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
   }
   const streamed = streamText(settings)
-  const [text, usage, toolCalls] = await Promise.all([streamed.text, streamed.totalUsage, streamed.toolCalls])
+  const [text, usage, toolCalls] = await Promise.all([streamed.text, streamed.totalUsage, streamed.toolCalls]).catch(error => { throw providerFailure ?? error })
   const result = { text, usage, toolCalls }
   const used = result.usage.totalTokens ?? reservation
   // Never refund more than the reserved amount, and keep unexpected provider overruns visible.
-  await env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?) WHERE id=?').bind(used - reservation, run.id).run()
+  await complete(used)
   const calls = result.toolCalls.map(call => ({ id: call.toolCallId, type: 'function', function: { name: call.toolName, arguments: JSON.stringify(call.input) } }))
   const id = `l4-${run.id}-${run.modelCalls + 1}`
   const created = Math.floor(Date.now() / 1000)
@@ -127,6 +140,11 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
   } catch (error) {
     // Upstream exceptions may contain provider headers; never forward them to untrusted compute.
     console.warn('agent.gateway.failed', { runId, operation, errorType: error instanceof Error ? error.name : 'Unknown' })
+    if (operation === 'v1/chat/completions' && !(error instanceof H3Error && error.statusCode === 403)) {
+      const message = inferenceFailure(error)
+      await env.DB.batch([env.DB.prepare('UPDATE agent_runs SET last_error=? WHERE id=?').bind(message, run.id), env.DB.prepare("UPDATE agent_model_calls SET status='failed',error=?,completed_at=? WHERE run_id=? AND status='running'").bind(message, new Date().toISOString(), run.id)])
+      return Response.json({ error: { message } }, { status: 502 })
+    }
     const code = error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 502
     return Response.json({ error: { message: code === 403 ? 'Current permissions do not allow this operation' : 'The operation failed; inspect the Run before retrying' } }, { status: code })
   }

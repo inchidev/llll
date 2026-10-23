@@ -35,6 +35,7 @@ export function useShell() {
   )
   const selected = useState('shell-selected', () => '')
   const loaded = useState<string[]>('shell-loaded', () => [])
+  const unclaimed = useState<Record<string, boolean>>('shell-unclaimed', () => ({}))
   const ready = useState<Record<string, boolean>>('shell-ready', () => ({}))
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
   const initialized = useState('shell-initialized', () => false)
@@ -77,7 +78,28 @@ export function useShell() {
     if (!response.ok) throw new Error('Server is unavailable')
     const data = serverDiscovery(await response.json(), origin)
     if (!updateMetadata(origin, data)) throw new Error('Server identity did not match the saved connection')
+    const wasUnclaimed = unclaimed.value[origin]
+    unclaimed.value[origin] = !data.ready
+    if (data.ready && wasUnclaimed) {
+      Reflect.deleteProperty(claims.value, origin)
+      starts.value[origin] = '/'
+      if (selected.value === origin) { if (!loaded.value.includes(origin)) loaded.value.push(origin); void router.replace('/' + data.id) }
+    }
     return data
+  }
+  function ownerSetupUrl(origin: string) {
+    const url = new URL('/setup', origin)
+    if (claims.value[origin]) url.hash = 'claim=' + claims.value[origin]
+    return url.toString()
+  }
+  async function bookmark(origin: string) {
+    initialize()
+    const d = await readMetadata(origin)
+    if (!servers.value.some(server => server.id === d.id)) {
+      servers.value.push({ origin, id: d.id, name: d.name, unread: 0 })
+      updateMetadata(origin, d)
+      persist()
+    }
   }
   async function refreshMetadata() {
     let cursor = 0
@@ -93,7 +115,7 @@ export function useShell() {
     }))
   }
   function send(origin: string, data: object) {
-    if (!ready.value[origin]) return
+    if (unclaimed.value[origin] || !ready.value[origin]) return
     frames.value[origin]?.contentWindow?.postMessage(
       { llll: EMBED_VERSION, ...data },
       origin,
@@ -131,7 +153,7 @@ export function useShell() {
   function open(server: ShellServer, id = server.id, path = '/') {
     if (id !== server.id) return
     selected.value = server.origin
-    if (!loaded.value.includes(server.origin)) loaded.value.push(server.origin)
+    if (!unclaimed.value[server.origin] && !loaded.value.includes(server.origin)) loaded.value.push(server.origin)
     void router.push('/' + server.id + (path === '/' ? '' : path))
     send(server.origin, { type: 'open', serverId: server.id, path })
   }
@@ -192,7 +214,8 @@ export function useShell() {
     }
     if (server.origin === origin) updateMetadata(origin, d)
     const targetOrigin = server.origin
-    if (claim || !loaded.value.includes(targetOrigin)) await restoreClaim(targetOrigin, claim)
+    unclaimed.value[targetOrigin] = !d.ready
+    if (!d.ready) await restoreClaim(targetOrigin, claim)
     if (claims.value[targetOrigin]) starts.value[targetOrigin] = '/setup'
     else if (!loaded.value.includes(targetOrigin)) {
       starts.value[targetOrigin] = url.pathname.startsWith('/invite/')
@@ -208,7 +231,6 @@ export function useShell() {
   function frameSrc(origin: string, parent: string) {
     const target = new URL(starts.value[origin] || '/', origin)
     target.searchParams.set('parent', parent)
-    if (claims.value[origin]) target.hash = 'claim=' + claims.value[origin]
     return target.toString()
   }
   async function submitAddress() {
@@ -236,12 +258,13 @@ export function useShell() {
       if (server.id !== id)
         throw new Error('Server identity did not match the link')
     }
-    if (/^\/setup(?:\/|\?|#|$)/.test(path)) await restoreClaim(server.origin, claim)
+    if (!loaded.value.includes(server.origin)) await readMetadata(server.origin)
+    if (unclaimed.value[server.origin]) await restoreClaim(server.origin, claim)
     selected.value = server.origin
     if (!loaded.value.includes(server.origin) || (claims.value[server.origin] && !ready.value[server.origin]))
       starts.value[server.origin] = path
     await router.replace('/' + id + (path === '/' ? '' : path))
-    if (!loaded.value.includes(server.origin)) {
+    if (!unclaimed.value[server.origin] && !loaded.value.includes(server.origin)) {
       loaded.value.push(server.origin)
     }
     send(server.origin, { type: 'open', serverId: id, path })
@@ -338,6 +361,7 @@ export function useShell() {
     Reflect.deleteProperty(starts.value, origin)
     Reflect.deleteProperty(claims.value, origin)
     Reflect.deleteProperty(ready.value, origin)
+    Reflect.deleteProperty(unclaimed.value, origin)
     Reflect.deleteProperty(calls.value, origin)
     Reflect.deleteProperty(metadata.value, origin)
     if (selected.value === origin) selected.value = ''
@@ -350,9 +374,13 @@ export function useShell() {
     updateMetadata,
     readMetadata,
     refreshMetadata,
+    bookmark,
     groups,
     selected,
     loaded,
+    ready,
+    unclaimed,
+    ownerSetupUrl,
     calls,
     frames,
     frameSrc,

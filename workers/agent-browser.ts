@@ -1,3 +1,4 @@
+import { fileStorage, type FileStorageEnv } from '../shared/file-storage'
 import { chromiumBrowser } from './browser-cdp'
 import { cloudflareBrowser, cloudflareRestConfigured } from './cloudflare-rest'
 
@@ -162,7 +163,7 @@ export async function listBrowserLinks(
 }
 
 export async function captureBrowserScreenshot(
-  env: BrowserEnv & { FILES?: R2Bucket, PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string },
+  env: BrowserEnv & FileStorageEnv & { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: string },
   url: string,
   objectKey: string,
 ): Promise<{ url: string, r2Key: string | null, contentType: string, sizeBytes: number }> {
@@ -175,8 +176,8 @@ export async function captureBrowserScreenshot(
   if (!bytes.byteLength) throw new Error('Browser screenshot was empty')
   if (bytes.byteLength > MAX_SCREENSHOT_BYTES) throw new Error('Browser screenshot exceeded 4 MB')
   let r2Key: string | null = null
-  if (env.FILES) {
-    await env.FILES.put(objectKey, bytes, { httpMetadata: { contentType } })
+  if (env.FILES || (env.DB && env.TICKETS)) {
+    await fileStorage(env).put(objectKey, bytes, { httpMetadata: { contentType } })
     r2Key = objectKey
   }
   return { url: parsed.toString(), r2Key, contentType, sizeBytes: bytes.byteLength }

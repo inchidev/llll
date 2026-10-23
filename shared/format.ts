@@ -37,5 +37,5 @@ export function sameDay(a: string, b: string): boolean {
 }
 
 export function formatFullDateTime(iso: string): string {
-  return dayjs(iso).format('dddd, D MMMM YYYY HH:mm')
+  return `${dayjs(iso).format('dddd, D MMMM YYYY HH:mm')} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
 }

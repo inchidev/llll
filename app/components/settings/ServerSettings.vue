@@ -87,6 +87,7 @@ const serverNav = computed(() => [
 const featureNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
+  ...(isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-hard-drives', keywords: ['files', 'kv', 'r2', 'quota'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
 ])
@@ -234,7 +235,7 @@ async function onSave(name: string) {
 }
 
 async function uploadServerIcon(event: Event) {
-  if (session.health?.bindings.r2 === false) return
+  if ((session.health?.bindings.r2 === false && !session.health?.bindings.kv)) return
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
@@ -484,7 +485,7 @@ function roleLabel(name: string) {
               color="neutral"
               variant="soft"
               label="Change icon"
-              :disabled="session.health?.bindings.r2 === false"
+              :disabled="(session.health?.bindings.r2 === false && !session.health?.bindings.kv)"
               :loading="serverIconBusy"
               @click="serverIconInput?.click()"
             />
@@ -552,7 +553,7 @@ function roleLabel(name: string) {
             size="xs"
             @click="editChannelPermissions(channel.id)"
           />
-          <UButton v-if="channel.visibility === 'private' && can(Permission.manageChannels)" icon="i-ph-users" label="Members" color="neutral" variant="ghost" size="xs" :aria-label="`Manage members of ${channel.name}`" @click="memberChannelId = channel.id" />
+          <UButton v-if="channel.visibility === 'private' && channel.createdBy === session.user?.id" icon="i-ph-users" label="Members" color="neutral" variant="ghost" size="xs" :aria-label="`Manage members of ${channel.name}`" @click="memberChannelId = channel.id" />
           <UButton icon="i-ph-folder" label="Move" color="neutral" variant="ghost" size="sm" :aria-label="`Move ${channel.name} to a category`" @click="moveChannelId = channel.id; moveCategoryId = channel.categoryId || 'uncategorized'" />
         </li>
       </ul>
@@ -619,7 +620,7 @@ function roleLabel(name: string) {
     </template>
 
     <template v-else-if="section === 'agents'">
-      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" />
+      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" @navigate="open = false" />
     </template>
 
     <template v-else-if="section === 'members'">
@@ -678,6 +679,7 @@ function roleLabel(name: string) {
       </ul>
     </template>
 
+    <template v-else-if="section === 'storage'"><SettingsStorageSettings :server-id="serverId" /></template>
     <template v-else-if="section === 'live'">
       <SettingsRealtimeKitSettings :server-id="serverId" />
     </template>

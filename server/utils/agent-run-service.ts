@@ -22,15 +22,15 @@ const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id
  deadline, created_at as createdAt, updated_at as updatedAt`
 
 export async function piConfigured(env: L4Env): Promise<boolean> {
-  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && env.FILES && (await agentProviderCatalog(env)).defaultModel)
+  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && (env.FILES || env.TICKETS) && (await agentProviderCatalog(env)).defaultModel)
 }
 export async function findAgentRun(env: L4Env, id: string): Promise<AgentRun | null> {
   return env.DB.prepare(`SELECT ${runColumns} FROM agent_runs WHERE id = ?`).bind(id).first<AgentRun>()
 }
 
 async function wakeAdmittedRun(env: L4Env, run: AgentRun): Promise<void> {
-  if (!['queued', 'running'].includes(run.status)) return
-  if (run.sourceMessageId) {
+  if (!['queued', 'running'].includes(run.status) && !(run.status === 'failed' && run.sourceMessageId)) return
+  if (run.sourceMessageId && ['queued', 'running'].includes(run.status)) {
     await env.DB.prepare(`INSERT INTO agent_turns(submission_id,agent_id,channel_id,source_message_id,initiated_by,status,detail,created_at,updated_at)
       SELECT id,agent_id,channel_id,source_message_id,initiated_by,'queued','Queued',created_at,updated_at FROM agent_runs
       WHERE id=? AND status IN ('queued','running') ON CONFLICT(submission_id) DO NOTHING`).bind(run.id).run()
@@ -87,7 +87,11 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (!source) fail(404, 'not_found', 'Source message not found in this conversation')
   }
   if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.useAgents))) fail(403, 'forbidden', 'Cannot invoke agents')
-  if (!await piConfigured(env)) fail(409, 'pi_unconfigured', 'Configure a Pi execution provider before starting work')
+  let admissionError: string | null = null
+  if (!await piConfigured(env)) {
+    if (input.sourceMessageId && env.AGENT_RUN_DO) admissionError = 'Agent execution is unavailable. Ask the Server operator to check its configuration.'
+    else fail(409, 'pi_unconfigured', 'Agent execution is unavailable. Ask the Server operator to check its configuration.')
+  }
   const previous = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?')
     .bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
   if (previous) {
@@ -99,7 +103,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   }
   const profile = await env.DB.prepare(`SELECT a.harness,a.status,a.model,a.instructions FROM agents a JOIN users u ON u.id=a.user_id WHERE a.user_id=? AND u.status='active'`)
     .bind(input.agentId).first<{ harness: string; status: string; model: string; instructions: string }>()
-  if (!profile || profile.harness !== 'pi' || profile.status !== 'active') fail(409, 'agent_unavailable', 'Choose an active Pi agent')
+  if (!profile || profile.harness !== 'pi' || profile.status !== 'active') fail(409, 'agent_unavailable', 'Choose an active agent')
   const agent = await loadAuthorizationContext(env, { principalId: input.agentId, credential: { kind: 'agent_runtime' }, delegatedBy: actor.principal.id })
   if (!agent) fail(403, 'forbidden', 'Agent unavailable')
   const computer = Boolean(input.taskId && hasPermission(agent.principal.permissions, Permission.useComputer)
@@ -113,11 +117,17 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     environmentId ??= task.environmentId ?? null
   }
   const catalog = await agentProviderCatalog(env, { actorId: actor.principal.id })
-  if (catalog.providers.some(provider => provider.configured) && !catalog.defaultModel) fail(409, 'model_unavailable', 'Enable a model provider in Server settings')
   const selected = await agentConversationModel(env, input.channelId)
-  // An explicit selection fails closed if its provider was disabled after selection.
-  if (selected && !catalog.models.some(m => m.value === selected)) fail(409, 'model_unavailable', 'The conversation model is disabled; choose another model')
-  const model = selected ?? (catalog.models.some(m => m.value === profile.model) ? profile.model : catalog.defaultModel) ?? profile.model
+  const model = selected ?? (profile.model || catalog.defaultModel) ?? 'Unconfigured'
+  const modelError = selected && !catalog.models.some(item => item.value === selected)
+    ? 'The conversation model is disabled; choose another model'
+    : profile.model && !selected && !catalog.models.some(item => item.value === profile.model)
+      ? 'The agent model is unavailable; choose another model in agent settings'
+      : model === 'Unconfigured' ? 'Connect a model provider in Server settings' : null
+  if (modelError) {
+    if (input.sourceMessageId && env.AGENT_RUN_DO) admissionError = modelError
+    else fail(409, 'model_unavailable', modelError)
+  }
   const now = nowIso()
   const sessionId = newId()
   await env.DB.prepare('INSERT INTO agent_sessions (id,agent_id,channel_id,created_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(agent_id,channel_id) DO NOTHING')
@@ -151,12 +161,12 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     mandate.environmentId = environment.id
     mandate.environmentVersion = environment.version
   }
-  const admitted = await env.DB.prepare(`INSERT INTO agent_runs (id,session_id,agent_id,channel_id,initiated_by,task_id,source_message_id,idempotency_key,status,prompt,model,instructions,mandate_json,environment_json,deadline,created_at,updated_at)
-    SELECT ?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
+  const admitted = await env.DB.prepare(`INSERT INTO agent_runs (id,session_id,agent_id,channel_id,initiated_by,task_id,source_message_id,idempotency_key,status,prompt,model,instructions,mandate_json,environment_json,deadline,created_at,updated_at,last_error,result_message_id)
+    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
     ON CONFLICT(agent_id,initiated_by,idempotency_key) DO NOTHING RETURNING id`)
-    .bind(id, session!.id, input.agentId, input.channelId, actor.principal.id, input.taskId ?? null, input.sourceMessageId ?? null, input.idempotencyKey,
+    .bind(id, session!.id, input.agentId, input.channelId, actor.principal.id, input.taskId ?? null, input.sourceMessageId ?? null, input.idempotencyKey, admissionError ? 'failed' : 'queued',
       input.prompt, model, profile.instructions, JSON.stringify(mandate), environment ? JSON.stringify(environment) : null,
-      new Date(Date.now() + 15 * 60_000).toISOString(), now, now, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
+      new Date(Date.now() + 15 * 60_000).toISOString(), now, now, admissionError, admissionError ? newId() : null, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
   if (!admitted) {
     const duplicate = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?').bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
     if (duplicate) {

@@ -47,6 +47,7 @@ export function useServers() {
     const response = await fetch(normalized + path, {
       method: options.method || 'GET',
       credentials: 'include',
+      signal: AbortSignal.timeout(15000),
       headers: {
         Accept: 'application/json',
         ...(tokens.value[normalized]

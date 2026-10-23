@@ -38,7 +38,6 @@ export type L4Env = {
   RATE_LIMIT_DO: DurableObjectNamespace
   NOTIFICATION_DO: DurableObjectNamespace
   AGENT_DO: DurableObjectNamespace
-  AGENT_THINK: DurableObjectNamespace
   AI?: Ai
   /** OpenAI-compatible chat completions base, including `/v1` when the server expects it. */
   AI_BASE_URL?: string
@@ -205,7 +204,7 @@ export function resolveAgentModelId(env: L4Env, profileModel?: string | null): s
  * experimental embedded harness can run (model provider reachable, run DO and
  * file storage bound). The embedded executor uses the model gateway only. */
 export function piRuntimeConfigured(env: L4Env): boolean {
-  if (!env.AGENT_RUN_DO || !env.FILES) return false
+  if (!env.AGENT_RUN_DO || (!env.FILES && !env.TICKETS)) return false
   if (env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)) return true
   // Embedded pi-durable executor: needs a resolvable model provider.
   return Boolean(aiProvider(env))

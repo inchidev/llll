@@ -142,7 +142,7 @@ describe('agent message ingress', () => {
     expect(receiveMessage).toHaveBeenCalled()
   })
 
-  it('does not start a turn without a model provider', async () => {
+  it('routes to the coordinator without a model provider so it can report configuration failure', async () => {
     const receiveMessage = vi.fn(async () => 'workflow-id')
     const env = {
       DB: db,
@@ -158,7 +158,7 @@ describe('agent message ingress', () => {
       mentionIds: [],
     })
 
-    expect(receiveMessage).not.toHaveBeenCalled()
+    expect(receiveMessage).toHaveBeenCalled()
   })
 
   it('does not let a chat-only member start an agent turn', async () => {

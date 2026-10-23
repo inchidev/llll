@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
   if (!row) fail(404, 'not_found', 'File not found')
   await requireTask(env, row.taskId, actor.authorization)
   const rangeHeader = getHeader(event, 'range')
-  let object: R2ObjectBody | null
+  let object: import('../../../shared/file-storage').FileBody | null
   if (rangeHeader) {
     const metadata = await requireFiles(env).head(row.r2Key)
     if (!metadata) fail(404, 'not_found', 'Blob missing')

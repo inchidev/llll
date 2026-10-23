@@ -1,3 +1,4 @@
+import { fileStorage } from '../shared/file-storage'
 import { getServerId } from '../shared/server-id'
 import PostalMime, { type Address } from 'postal-mime'
 import { newId, nowIso } from '../shared/ids'
@@ -138,6 +139,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   const created = nowIso()
   const messageId = newId()
   const subject = (parsed.subject || '(no subject)').replace(/[\r\n]+/gu, ' ').trim().slice(0, 500)
+  const files = env.FILES || env.TICKETS ? fileStorage(env) : null
   const rawKey = `${serverId}/mail/raw/${messageId}.eml`
 
   // Keep attachments within the limits; the message says what was left out.
@@ -160,7 +162,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
       key: `${serverId}/mail/attachments/${messageId}/${id}-${filename}`,
     }]
   })
-  if (!env.FILES) omitted.push(...attachmentRows.splice(0).map(attachment => `${attachment.filename} (R2 is disabled)`))
+  if (!files) omitted.push(...attachmentRows.splice(0).map(attachment => `${attachment.filename} (file storage is unavailable)`))
   for (const extra of attachmentRows.splice(MAIL_LIMITS.attachments)) omitted.push(extra.filename)
   const body = plainMailBody(parsed.text, parsed.html)
   const content = omitted.length
@@ -219,11 +221,11 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
       parsed.messageId || null,
       parsed.inReplyTo || null,
       JSON.stringify(refs),
-      env.FILES ? rawKey : null,
+      files ? rawKey : null,
       rawHash,
       created,
     ),
-    ...(env.FILES ? attachmentRows : []).map(attachment => env.DB.prepare(
+    ...(files ? attachmentRows : []).map(attachment => env.DB.prepare(
       `INSERT INTO attachments
        (id, message_id, channel_id, uploader_id, r2_key, filename, content_type, size_bytes, width, height, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
@@ -231,7 +233,6 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   )
 
   // Files go to R2 before their rows exist; if the rows cannot be written, remove them again.
-  const files = env.FILES
   const keys = [rawKey, ...attachmentRows.map(attachment => attachment.key)]
   try {
     if (files) await Promise.all([

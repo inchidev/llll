@@ -28,7 +28,6 @@ const dmsQ = useQuery({
 
 const q = ref('')
 const picker = ref(false)
-const picked = ref<string[]>([])
 const searchQ = useQuery({
   queryKey: computed(() => ['dm-search', props.serverId, props.kind, q.value]),
   queryFn: () => api<{ members: DmSearchMember[] }>('/api/dms/search', { query: { serverId: props.serverId, q: q.value, kind: props.kind } }),
@@ -57,29 +56,11 @@ function avatarUser(ch: ChannelDTO) {
   return others.length === 1 ? others[0] : null
 }
 
-function togglePick(id: string) {
-  picked.value = picked.value.includes(id) ? picked.value.filter((x) => x !== id) : [...picked.value, id]
-}
-
 async function openDm(userId: string) {
   const res = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, serverId: props.serverId } })
   await qc.invalidateQueries({ queryKey: ['dms'] })
   picker.value = false
   q.value = ''
-  picked.value = []
-  await navigateTo(channelPath(res.channel))
-}
-
-async function startGroup() {
-  if (picked.value.length < 2) return
-  const res = await api<{ channel: ChannelDTO }>('/api/dms/group', {
-    method: 'POST',
-    body: { userIds: picked.value, serverId: props.serverId },
-  })
-  await qc.invalidateQueries({ queryKey: ['dms'] })
-  picker.value = false
-  q.value = ''
-  picked.value = []
   await navigateTo(channelPath(res.channel))
 }
 
@@ -162,7 +143,7 @@ function searchName(member: DmSearchMember) {
       </ul>
     </div>
 
-    <UModal v-model:open="picker" :title="kind === 'agent' ? 'New Agent chat' : 'New message'" :description="kind === 'agent' ? 'Find an Agent in this Server.' : 'Find someone in this Server, or pick two or more for a group.'">
+    <UModal v-model:open="picker" :title="kind === 'agent' ? 'New Agent chat' : 'New message'" :description="kind === 'agent' ? 'Find an Agent in this Server.' : 'Find someone in this Server.'">
       <template #body>
         <UInput
           v-model="q"
@@ -179,12 +160,6 @@ function searchName(member: DmSearchMember) {
         <p v-else-if="!searchQ.isPending.value && !searchResults.length" class="mt-3 text-sm text-muted">{{ kind === 'agent' ? 'No available Agents found.' : 'No members found.' }}</p>
         <ul :id="`dm-search-results-${kind}`" class="mt-3 max-h-64 overflow-y-auto space-y-0.5" role="listbox">
           <li v-for="m in searchResults" :key="m.id" class="flex items-center gap-2">
-            <UCheckbox
-              v-if="kind === 'human'"
-              :model-value="picked.includes(m.id)"
-              :aria-label="`Add ${searchName(m)} to group`"
-              @update:model-value="togglePick(m.id)"
-            />
             <button type="button" class="flex-1 flex items-center gap-2 h-9 px-1 rounded-md hover:bg-elevated text-start" @click="openDm(m.id)">
               <UserAvatar :user="m" size="xs" />
               <span class="min-w-0 flex-1">
@@ -198,15 +173,7 @@ function searchName(member: DmSearchMember) {
           </li>
         </ul>
       </template>
-      <template #footer>
-        <UButton
-          v-if="kind === 'human' && picked.length >= 2"
-          block
-          icon="i-ph-users"
-          :label="`Create Group DM (${picked.length + 1})`"
-          @click="startGroup"
-        />
-      </template>
+
     </UModal>
   </section>
 </template>

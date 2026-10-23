@@ -96,7 +96,7 @@ onChange((list) => {
   resetFiles()
 })
 
-const attachmentsDisabled = computed(() => props.disabled || props.canAttach === false || session.health?.bindings.r2 === false)
+const attachmentsDisabled = computed(() => props.disabled || props.canAttach === false || (session.health?.bindings.r2 === false && !session.health?.bindings.kv))
 
 function addFiles(incoming: File[]) {
   if (!incoming.length) return

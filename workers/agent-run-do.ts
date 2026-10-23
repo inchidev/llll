@@ -1,3 +1,4 @@
+import { fileStorage } from '../shared/file-storage'
 import { admitQueuedAgentRun } from './agent-run-admission'
 import { getRunBlob, putRunBlob, deleteRunBlob } from './agent-run-storage'
 import { deleteAgentTurn, patchAgentTurn, fanoutAgentTurns } from './agent-turns'
@@ -165,8 +166,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         }
       }
     }
-    const stopped = await this.runtime(run, 'lifecycle', 'DELETE')
-    if (!stopped.ok) throw new Error('Executor cleanup unavailable')
+    // Release admission before cleanup: a slow executor must not hold the conversation queue.
+    this.ctx.waitUntil(this.runtime(run, 'lifecycle', 'DELETE').catch(() => undefined))
     await deleteAgentTurn(this.env, run.id)
     await fanoutAgentTurns(this.env, run.channelId, run.agentId)
     await this.env.DB.prepare('UPDATE agent_sessions SET active_run_id=NULL,updated_at=? WHERE id=? AND active_run_id=?').bind(nowIso(), run.sessionId, run.id).run()
@@ -175,10 +176,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   }
 
   private async publish(run: AgentRun): Promise<void> {
-    if (!run.resultText) return
-    const content = run.resultText.length > 1800
-      ? `${run.resultText.slice(0, 1800)}\n\n[Full result](${this.env.PUBLIC_ORIGIN}/runs/${run.id})`
-      : run.resultText
+    const text = run.status === 'failed' ? `Run failed: ${run.lastError || 'Execution stopped'}.\n\n[View details and retry](/runs/${run.id})` : run.resultText
+    if (!text) return
+    const content = text.length > 1800 ? `${text.slice(0, 1800)}\n\n[Full result](/runs/${run.id})` : text
     await asRpc<{ postAgentMessage: (input: { agentId: string; content: string; sourceRunId: string }) => Promise<unknown> }>(this.env.CHANNEL_DO.getByName(`channel:${run.channelId}`))
       .postAgentMessage({ agentId: run.agentId, content, sourceRunId: run.id })
   }
@@ -200,7 +200,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     const run = await findAgentRun(this.env, id)
     if (!run) return
     if (!['queued', 'running'].includes(run.status)) {
-      if (run.status === 'completed') {
+      if (run.status === 'completed' || run.status === 'failed') {
         await this.ctx.storage.setAlarm(Date.now() + 5000)
         try { await runAuthorization(this.env, run); await this.publish(run) }
         catch (error) {
@@ -224,7 +224,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })
         await fanoutAgentTurns(this.env, run.channelId, run.agentId)
       }
-      const files = this.env.FILES
+      const files = fileStorage(this.env)
       if (!files) throw new Error('Pi file storage unavailable')
       const mandate = JSON.parse(run.mandateJson) as RunMandate
       if (!await this.ctx.storage.get<boolean>('submitted')) {
@@ -308,10 +308,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         }
       }
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
+      const failure = terminal.type === 'error' ? (await findAgentRun(this.env, run.id))?.lastError || terminal.message : null
       const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
-        .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, terminal.type === 'result' ? newId() : null,
-          terminal.type === 'error' ? terminal.message : null, nowIso(), run.id).first<{ id: string }>()
-      if (finalized && terminal.type === 'result') await this.publish({ ...run, resultText: terminal.text })
+        .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, newId(),
+          failure, nowIso(), run.id).first<{ id: string }>()
+      if (finalized) await this.publish({ ...run, status: terminal.type === 'result' ? 'completed' : 'failed', resultText: terminal.type === 'result' ? terminal.text : null, lastError: failure })
       await this.release(run)
       await this.ctx.storage.deleteAlarm()
     } catch (error) {
@@ -319,9 +320,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const forbidden = error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403
       const permanent = forbidden || run.deadline <= nowIso() || (error instanceof Error && error.message.includes('interrupted'))
       if (!permanent) return
-      await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,updated_at=? WHERE id=? AND status IN ('queued','running')")
-        .bind(forbidden ? 'Authorization revoked' : 'Run interrupted or deadline reached', nowIso(), run.id).run()
+      await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=COALESCE(result_message_id,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
+        .bind(forbidden ? 'Authorization revoked' : 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
+      const failed = await findAgentRun(this.env, run.id)
+      if (failed && !forbidden) await this.publish(failed)
       await this.release(run)
       await this.ctx.storage.deleteAlarm()
     }

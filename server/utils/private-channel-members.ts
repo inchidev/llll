@@ -1,7 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import type { H3Event } from 'h3'
 import { channelMembers, channels, tasks, users } from '../../drizzle/schema'
-import { Permission } from '../../shared/permissions'
 import type { PrivateChannelMemberDTO } from '../../shared/types'
 import type { ServerChannelAccessChangedEvent } from '../../shared/server-realtime'
 import type { L4Env } from '../../workers/env'
@@ -12,7 +11,8 @@ import { toPublicUser } from './messages'
 
 /** Management never grants admission: managers must already belong to the channel. */
 export async function requirePrivateChannelManager(event: H3Event, id: string) {
-  const access = await requireChannelAccess(event, id, Permission.manageChannels)
+  const access = await requireChannelAccess(event, id)
+  if (access.channel.createdBy !== access.user.id) fail(403, 'forbidden', 'Only the channel creator can manage its members')
   if (access.channel.type !== 'text' || access.channel.visibility !== 'private' || access.mailPermission) {
     fail(400, 'invalid_channel', 'Manage members here only for private server channels')
   }

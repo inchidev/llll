@@ -33,9 +33,10 @@ export default defineEventHandler(async (event) => {
       .where(eq(channelCategories.id, categoryId)).limit(1)
     if (!category.length) fail(400, 'bad_request', 'Channel category not found')
   }
-  const position = Date.now() % 100000
+  const position = Number((await env.DB.prepare("SELECT COALESCE(MAX(position),0)+1 AS position FROM channels WHERE type='text'").first<{ position: number }>())?.position ?? 1)
   const channel = {
     id,
+    createdBy: member.user.id,
     name,
     topic: body.topic ?? '',
     type,

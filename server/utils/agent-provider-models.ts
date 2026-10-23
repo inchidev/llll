@@ -5,9 +5,12 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 
 /** Known origins only: a submitted provider never supplies a URL for credential-bearing requests. */
 export async function discoverAgentModels(kind: AgentProviderId, apiKey?: string): Promise<AgentProviderModel[]> {
+  if (!apiKey && kind !== 'openrouter') fail(400, 'key_required', 'Enter an API key before loading models')
   const url = kind === 'openrouter' ? 'https://openrouter.ai/api/v1/models' : kind === 'anthropic' ? 'https://api.anthropic.com/v1/models?limit=1000' : kind === 'chatgpt' ? 'https://api.openai.com/v1/models' : `https://opencode.ai/inference/${kind === 'opencode-go' ? 'go/' : ''}v1/models`
   const headers: Record<string, string> = kind === 'anthropic' ? { 'x-api-key': apiKey ?? '', 'anthropic-version': '2023-06-01' } : apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000), redirect: 'error' })
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000), redirect: 'manual' })
+  if (response.status >= 300 && response.status < 400) { await response.body?.cancel(); fail(502, 'catalog_redirect', 'The provider returned an unexpected redirect. Check its configuration.') }
+  if ([401, 403].includes(response.status)) { await response.body?.cancel(); fail(400, 'provider_auth', 'The provider rejected this API key. Check the key and account access.') }
   const body = await readLimitedStream(response.body, 5000000)
   if (!response.ok || !body.ok) fail(502, 'catalog_failed', 'Could not load models. Check the connection and try again.')
   const raw = z.object({ data: z.array(z.record(z.string(), z.unknown())).optional(), models: z.array(z.record(z.string(), z.unknown())).optional() }).parse(JSON.parse(new TextDecoder().decode(body.bytes)))

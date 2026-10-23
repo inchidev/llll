@@ -35,6 +35,7 @@ export default defineEventHandler(async (event) => {
   return {
     channel: {
       id: ch.id,
+      createdBy: ch.createdBy,
       serverId: (await getServerId(cf(event).env.DB)),
       name: ch.name,
       topic: ch.topic,

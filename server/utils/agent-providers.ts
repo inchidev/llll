@@ -1,3 +1,4 @@
+import { workersAiModels } from '../../shared/workers-ai-models'
 import { agentProviderIds, agentModelRef, parseAgentModelRef, providerNames, type AgentProviderId, type AgentProviderCatalog, type AgentProviderDTO, type agentProviderSchema } from '../../shared/agent-providers'
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
 import { readServerSetting, writeServerSetting } from '../../shared/server-settings'
@@ -38,7 +39,13 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
   }))).filter((p): p is NonNullable<typeof p> => Boolean(p))
   const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
   const imported = providers.some(p => p.kind === 'openrouter' && p.configured) && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
-  if (aiProvider(env) && !imported) models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })
+  if (aiProvider(env) && !imported) {
+    if (aiProvider(env) === 'openai-compatible') models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })
+    else {
+      models.push({ value: resolveAgentModelId(env), label: workersAiModels.find(m => m.id === resolveAgentModelId(env))?.label ?? resolveAgentModelId(env), provider: 'Workers AI' })
+      models.push(...workersAiModels.filter(m => m.id !== resolveAgentModelId(env)).map(m => ({ value: m.id, label: m.label, provider: 'Workers AI' })))
+    }
+  }
   const savedDefault = await readServerSetting(env.DB, 'agents.defaultModel')
   return { providers, models, canImportOpenRouter: Boolean(!imported && env.AI_API_KEY && env.AI_MODEL && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'), defaultModel: models.find(m => m.value === savedDefault)?.value ?? models[0]?.value ?? null }
 }

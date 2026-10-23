@@ -53,3 +53,7 @@ A Server can answer at several public **addresses**. The **primary address** is 
 ## Provider and Backup
 
 A Provider supplies an optional capability such as email delivery, inference or calls. A Backup is a recovery copy stored separately from live files; it is not a second running Server.
+
+## Conversations
+
+A DM has two participants inside one Server. Larger conversations use channels, which are open or private. Changing a private channel's members preserves its ID, threads and history. Only its creator can add or remove members; existing groups without recorded creators receive no guessed administrator. Adding a member grants the whole history, with the previous messages treated as read. New messages after the grant remain unread. Agent replies use threads in every conversation.

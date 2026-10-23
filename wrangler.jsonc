@@ -71,10 +71,6 @@
         "class_name": "L4Agent"
       },
       {
-        "name": "AGENT_THINK",
-        "class_name": "L4Think"
-      },
-      {
         "name": "AGENT_RUN_DO",
         "class_name": "AgentRunDurableObject"
       },
@@ -107,6 +103,10 @@
       "new_sqlite_classes": [
         "AgentScheduleDurableObject"
       ]
+    },
+    {
+      "tag": "v4-retire-think",
+      "deleted_classes": ["L4Think"]
     }
   ],
   "vars": {
@@ -131,7 +131,6 @@
         { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
         { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
         { "name": "AGENT_DO", "class_name": "L4Agent" },
-        { "name": "AGENT_THINK", "class_name": "L4Think" },
         { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
         { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" }
       ]

@@ -52,7 +52,8 @@ Contents
 - database/*.sql is a logical D1 export. Concatenate the fragments in filename order into one restore.sql, then import that entire file into an empty D1 database. Do not import fragments separately: foreign-key checks must stay deferred until all related rows are restored.
   Example: cat database/*.sql > restore.sql
   Import: npx wrangler d1 execute <database-name> --remote --file=restore.sql
-- r2/*.json stores metadata for the adjacent numbered .bin object. The JSON field "key" is the original R2 key.
+- r2/*.json stores metadata for the adjacent numbered .bin object. The JSON field "key" is the original logical file key, for either R2 or basic KV storage. Restore payloads to R2/S3 by this key.
+- Basic storage records are marked as copied and the restored backend is R2. Restoring payloads through the basic adapter instead rebuilds its physical index.
 - The update journal keeps its schema and encrypted hook, but resets the operation and single-job capability on restore.
 - summary.json is written last and records the completed table, row, and R2 object counts. If it is missing, discard the incomplete archive.
 
@@ -93,6 +94,7 @@ async function* backupEntries(env: { DB: BackupDatabase; FILES?: BackupFiles }, 
   const database = env.DB.withSession('first-primary')
   const schema = await schemaRows(database)
   const tables = schema.filter(item => item.type === 'table')
+  if (tables.some(table => table.name === 'file_uploads') && (await database.prepare('SELECT id FROM file_uploads LIMIT 1').all()).results.length) throw new Error('A file upload is still in progress. Retry the backup after it completes.')
   // Foreign keys can reference UNIQUE alternate keys (OAuth client/resource IDs).
   // SQLite needs those indexes when preparing inserts, even with deferred checks.
   const uniqueIndexes = schema.filter(item => item.type === 'index' && /^\s*CREATE\s+UNIQUE\s+INDEX\b/iu.test(item.sql))
@@ -126,6 +128,10 @@ async function* backupEntries(env: { DB: BackupDatabase; FILES?: BackupFiles }, 
         `SELECT * FROM ${sqlIdentifier(table.name)} LIMIT ? OFFSET ?`,
       ).bind(DATABASE_PAGE_ROWS, offset).all<Record<string, unknown>>()
       const rows = (result.results ?? []).map(row => {
+        // Payloads are restored by logical key. Never require the source namespace's physical KV keys.
+        if (table.name === 'file_objects') return { ...row, copied: 1 }
+        if (table.name === 'server_settings' && row.key === 'storage.backend') return { ...row, value: 'r2' }
+        if (table.name === 'server_settings' && row.key === 'storage.migration') return { ...row, value: '' }
         if (table.name !== 'server_update_control') return row
         // Restoring a backup must never revive an in-flight Build or its capability.
         const saved = readUpdateRecord(String(row.payload))

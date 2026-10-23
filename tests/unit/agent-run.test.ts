@@ -30,11 +30,11 @@ beforeEach(() => {
       ('owner-user','human','Owner','active','owner-role','2026-10-21'),
       ('${agentId}','agent','Researcher','active','agent-role','2026-10-21');
     INSERT INTO server(id,name,owner_id) VALUES('${serverId}','L4','owner-user');
-    INSERT INTO agents(user_id,created_by,harness) VALUES('${agentId}','owner-user','pi');
+    INSERT INTO agents(user_id,created_by,harness,model) VALUES('${agentId}','owner-user','pi','');
     INSERT INTO channels(id,name,type,visibility) VALUES('public-chat','Research','text','server');
     INSERT INTO task_boards(id,name,created_by) VALUES('board-allowed','Allowed','owner-user'),('board-private','Private','owner-user');`)
   env = { DB: d1(db), AUTH_SECRET: 'test-server-secret-with-32-characters', FILES: {},
-    AGENT_RUN_DO: { getByName: () => ({ wake }) }, AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret' } as unknown as L4Env
+    AI: {}, AGENT_RUN_DO: { getByName: () => ({ wake }) }, AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret' } as unknown as L4Env
 })
 afterEach(() => db.close())
 
@@ -159,6 +159,7 @@ it('streams provider text before generation completes instead of buffering the r
     finish = () => { controller.enqueue(encoder.encode(frame({}, 'stop') + 'data: [DONE]\n\n')); controller.close() }
   } }), { headers: { 'Content-Type': 'text/event-stream' } })))
   try {
+    delete env.AI
     Object.assign(env, { AI_BASE_URL: 'https://fixture.invalid/v1', AI_API_KEY: 'fixture-key', AI_MODEL: 'fixture' })
     const run = await createAgentRun(env, (await start())!, input())
     db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
@@ -196,4 +197,41 @@ it('keeps web search role-gated and accounts its bounded OpenRouter call in the 
 it('rejects direct Run admission into a pair DM so replies cannot bypass the message thread', async () => {
   db.exec(`INSERT INTO channels(id,name,type,visibility) VALUES('pair-dm-channel','dm','dm','private'); INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES('pair-dm-channel','owner-user','2026-10-23'),('pair-dm-channel','${agentId}','2026-10-23');`)
   await expect(createAgentRun(env, (await start())!, { ...input(), channelId: 'pair-dm-channel' })).rejects.toMatchObject({ statusCode: 400, data: { error: { code: 'thread_required' } } })
+})
+
+it('uses the profile selection before the Server default and fails when that selection is disabled', async () => {
+  const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+  await saveAgentProvider(env, 'chosen-provider', { kind: 'openrouter', enabled: true, webSearch: false, apiKey: 'fixture-key', models: [{ id: 'chosen', api: 'chat' }] })
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('l4:chosen-provider:chosen', agentId)
+  expect((await createAgentRun(env, (await start())!, input())).model).toBe('l4:chosen-provider:chosen')
+  await saveAgentProvider(env, 'chosen-provider', { enabled: false, webSearch: false, models: [{ id: 'chosen', api: 'chat' }] })
+  await expect(createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'disabled-selection' })).rejects.toMatchObject({ statusCode: 409 })
+})
+
+it('records a readable provider rejection without leaking its raw response or falling back to another model', async () => {
+  const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+  await saveAgentProvider(env, 'opencode', { enabled: true, webSearch: false, apiKey: 'private-provider-key', models: [{ id: 'big-pickle', api: 'chat' }] })
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('l4:opencode:big-pickle', agentId)
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'FreeTierError', message: 'OpenCode free tier can only be used from within OpenCode. secret-leak-fixture' } }, { status: 403 })))
+  try {
+    const run = await createAgentRun(env, (await start())!, input())
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }] }) }), env, run.id, 'v1/chat/completions', () => {})
+    expect(response.status).toBe(502)
+    expect(await response.text()).toContain('OpenCode rejected free-tier access')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const call = db.prepare('SELECT model,status,error FROM agent_model_calls WHERE run_id=?').get(run.id)
+    expect(call).toMatchObject({ model: 'l4:opencode:big-pickle', status: 'failed' })
+    expect(JSON.stringify(call)).not.toMatch(/secret-leak-fixture|private-provider-key/u)
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('persists and wakes a failed chat attempt when its selected model becomes unavailable', async () => {
+  db.prepare('INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES(?,?,?,?,?)').run('source-fixture', 'public-chat', 'owner-user', 'Hello', new Date().toISOString())
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('l4:missing:disabled', agentId)
+  const run = await createAgentRun(env, (await start())!, { ...input(), sourceMessageId: 'source-fixture' })
+  expect(run).toMatchObject({ status: 'failed', model: 'l4:missing:disabled' })
+  expect(run.lastError).toContain('agent model is unavailable')
+  expect(wake).toHaveBeenCalledWith(run.id)
+  expect(db.prepare('SELECT result_message_id FROM agent_runs WHERE id=?').get(run.id)?.result_message_id).toBeTruthy()
 })

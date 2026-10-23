@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   await requireChannelMember(event, row.channelId)
 
   const rangeHeader = getHeader(event, 'range')
-  let obj: R2ObjectBody | null
+  let obj: import('../../../shared/file-storage').FileBody | null
   if (rangeHeader) {
     const metadata = await requireFiles(env).head(row.r2Key)
     if (!metadata) fail(404, 'not_found', 'Blob missing')

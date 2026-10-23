@@ -8,7 +8,7 @@ export type AgentReplyTarget = {
   created: boolean
 }
 
-/** A one-to-one DM reply starts a thread; replies elsewhere stay in their source channel. */
+/** Agent replies start a thread in every conversation; an existing thread remains the target. */
 export async function ensureAgentReplyTarget(
   db: D1Database,
   sourceChannelId: string,
@@ -18,16 +18,7 @@ export async function ensureAgentReplyTarget(
     'SELECT id, type, visibility FROM channels WHERE id = ?',
   ).bind(sourceChannelId).first<{ id: string; type: string; visibility: string }>()
   if (!source) throw new Error('Channel not found')
-  if (source.type !== 'dm') {
-    return { channelId: source.id, parentChannelId: null, parentMessageId: null, created: false }
-  }
-
-  const participants = await db.prepare(
-    'SELECT count(*) as count FROM channel_members WHERE channel_id = ?',
-  ).bind(sourceChannelId).first<{ count: number }>()
-  if (Number(participants?.count ?? 0) !== 2) {
-    return { channelId: source.id, parentChannelId: null, parentMessageId: null, created: false }
-  }
+  if (source.type === 'thread') return { channelId: source.id, parentChannelId: null, parentMessageId: null, created: false }
 
   const root = await db.prepare(
     'SELECT content FROM messages WHERE id = ? AND channel_id = ?',
@@ -41,13 +32,14 @@ export async function ensureAgentReplyTarget(
     return { channelId: existing.id, parentChannelId: sourceChannelId, parentMessageId: sourceMessageId, created: false }
   }
 
+  const filenames = root.content.trim() ? [] : (await db.prepare('SELECT filename FROM attachments WHERE message_id=? ORDER BY created_at,id LIMIT 20').bind(sourceMessageId).all<{ filename: string }>()).results.map(item => item.filename)
   const id = newId()
   const timestamp = nowIso()
   await db.prepare(
     `INSERT OR IGNORE INTO channels
       (id, name, topic, type, visibility, position, live_meeting_id, parent_id, parent_message_id, created_at, updated_at)
      VALUES (?, ?, '', 'thread', ?, 0, NULL, ?, ?, ?, ?)`,
-  ).bind(id, threadTitle(root.content), source.visibility, sourceChannelId, sourceMessageId, timestamp, timestamp).run()
+  ).bind(id, threadTitle(root.content, filenames), source.visibility, sourceChannelId, sourceMessageId, timestamp, timestamp).run()
 
   const target = await db.prepare(
     "SELECT id FROM channels WHERE parent_message_id = ? AND type = 'thread'",

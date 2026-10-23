@@ -1,3 +1,4 @@
+import { fileStorage } from '../../shared/file-storage'
 import { z } from 'zod'
 import type { AgentRun } from '../../shared/agent-execution'
 import type { L4Env } from '../../workers/env'
@@ -29,7 +30,7 @@ export async function runtimeFiles(env: L4Env, run: AgentRun): Promise<Response>
   const auth = await runAuthorization(env, run)
   await requireRunFiles(env, auth, run)
   const key = await previousRunFiles(env, run)
-  const object = key ? await env.FILES?.get(key) : null
+  const object = key ? await fileStorage(env).get(key) : null
   if (!object || object.size > 2000000) fail(404, 'not_found', 'Saved working files are unavailable')
   return new Response(object.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 }

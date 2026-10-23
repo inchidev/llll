@@ -2,7 +2,6 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
-import { Permission } from '../../shared/permissions'
 import { findPairDm } from '../../server/utils/dms'
 import type { L4Env } from '../../workers/env'
 
@@ -72,113 +71,25 @@ beforeEach(() => {
 afterEach(() => sqlite.close())
 const event = { path: '/api/dms/test/participants', method: 'POST' }
 
-describe('DM privacy at HTTP handlers with real membership and database policy', () => {
-  it('rejects adding a third member to an existing pair without exposing its history', async () => {
-    const { default: add } = await import('../../server/api/dms/[id]/participants.post')
-    await expect(add(event as never)).rejects.toMatchObject({ statusCode: 409 })
-    expect(sqlite.prepare('SELECT count(*) AS n FROM channel_members WHERE channel_id = ?').get(state.id)).toMatchObject({ n: 2 })
+describe('DMs have exactly two participants', () => {
+  it.each(['add', 'remove', 'group'])('retires the %s group operation without changing membership or history', async operation => {
+    const handler = operation === 'add'
+      ? (await import('../../server/api/dms/[id]/participants.post')).default
+      : operation === 'remove' ? (await import('../../server/api/dms/[id]/participants/[userId].delete')).default
+      : (await import('../../server/api/dms/group.post')).default
+    await expect(handler(event as never)).rejects.toMatchObject({ statusCode: 410 })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM channel_members WHERE channel_id=?').get('pair-001')).toMatchObject({ n: 2 })
+    expect(sqlite.prepare('SELECT content FROM messages WHERE id=?').get('secret-001')?.content).toBe('Private pair history')
   })
-  it('rejects removal of another group member by an ordinary participant', async () => {
-    state.actor = 'member-001'
-    state.id = 'group-001'
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await expect(remove(event as never)).rejects.toMatchObject({ statusCode: 403 })
-    expect(sqlite.prepare('SELECT count(*) AS n FROM channel_members WHERE channel_id = ?').get(state.id)).toMatchObject({ n: 3 })
-  })
-  it('rejects adding an Agent without Use agents', async () => {
-    state.actor = 'member-001'
-    state.id = 'group-001'
-    state.body = { userId: 'agent-001' }
-    const { default: add } = await import('../../server/api/dms/[id]/participants.post')
-    await expect(add(event as never)).rejects.toMatchObject({ statusCode: 403 })
-  })
-  it('creates a separate group and keeps the original pair inaccessible to the new member', async () => {
-    state.body = { userIds: ['member-001', 'third-001'] }
-    const { default: create } = await import('../../server/api/dms/group.post')
-    const { channel } = await create(event as never)
-    expect(channel).toMatchObject({ dmKind: 'group', dmOwnerId: state.actor })
-    expect(channel.id).not.toBe('pair-001')
-    expect(sqlite.prepare('SELECT count(*) AS n FROM messages WHERE channel_id = ?').get(channel.id)).toMatchObject({ n: 0 })
+  it('keeps pair history inaccessible to an unrelated member', async () => {
     state.actor = 'third-001'
     const { requireChannelAccess } = await import('../../server/utils/guards')
     await expect(requireChannelAccess(event as never, 'pair-001')).rejects.toMatchObject({ statusCode: 404 })
-    expect((await requireChannelAccess(event as never, channel.id)).participants).toHaveLength(3)
-  })
-  it('lets the group creator remove others, and revokes their conversation access', async () => {
-    state.id = 'group-001'
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await expect(remove(event as never)).resolves.toEqual({ ok: true })
-    state.actor = state.target
-    const { requireChannelAccess } = await import('../../server/utils/guards')
-    await expect(requireChannelAccess(event as never, state.id)).rejects.toMatchObject({ statusCode: 404 })
-  })
-  it("does not grant a Server owner removal power in someone else's group", async () => {
-    state.id = 'group-001'
-    sqlite.prepare("UPDATE channels SET dm_owner_id = 'member-001' WHERE id = ?").run(state.id)
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await expect(remove(event as never)).rejects.toMatchObject({ statusCode: 403 })
-  })
-  it('lets an ordinary member leave and preserves the group identity at two participants', async () => {
-    state.id = 'group-001'
-    state.actor = 'third-001'
-    state.target = state.actor
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await expect(remove(event as never)).resolves.toEqual({ ok: true })
     expect(await findPairDm(state.env!, 'owner-001', 'member-001')).toBe('pair-001')
-    state.actor = 'owner-001'
-    state.body = { userId: 'fourth-001' }
-    const { default: add } = await import('../../server/api/dms/[id]/participants.post')
-    expect((await add(event as never)).channel.participants).toHaveLength(3)
   })
-  it('never opens a two-member former group as a private pair', async () => {
-    state.id = 'group-001'
-    state.target = 'member-001'
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await remove(event as never)
-    expect(await findPairDm(state.env!, 'owner-001', 'third-001')).toBeNull()
-    state.body = { userId: 'third-001' }
-    const { default: create } = await import('../../server/api/dms/index.post')
-    const { channel } = await create(event as never)
-    expect(channel.id).not.toBe(state.id)
-    expect(channel.dmKind).toBe('pair')
-  })
-  it('clears creator authority when the creator leaves, even if invited back', async () => {
-    state.id = 'group-001'
-    state.target = state.actor
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await remove(event as never)
-    state.actor = 'member-001'
-    state.body = { userId: 'owner-001' }
-    const { default: add } = await import('../../server/api/dms/[id]/participants.post')
-    expect((await add(event as never)).channel.dmOwnerId).toBeNull()
-    state.actor = 'owner-001'
-    state.target = 'third-001'
-    await expect(remove(event as never)).rejects.toMatchObject({ statusCode: 403 })
-  })
-  it('denies removing others from historical groups with no recorded creator', async () => {
-    state.id = 'group-001'
-    sqlite.prepare('UPDATE channels SET dm_owner_id = NULL WHERE id = ?').run(state.id)
-    const { default: remove } = await import('../../server/api/dms/[id]/participants/[userId].delete')
-    await expect(remove(event as never)).rejects.toMatchObject({ statusCode: 403 })
-  })
-  it('rejects creating an Agent pair without Use agents', async () => {
-    state.actor = 'member-001'
-    state.body = { userId: 'agent-001' }
-    const { default: create } = await import('../../server/api/dms/index.post')
-    await expect(create(event as never)).rejects.toMatchObject({ statusCode: 403 })
-  })
-  it('allows adding an Agent with the actual Role permission, outside DM send permissions', async () => {
-    state.id = 'group-001'
-    state.actor = 'member-001'
-    state.body = { userId: 'agent-001' }
-    sqlite.prepare('UPDATE roles SET permissions_bitmask = permissions_bitmask | ?').run(Permission.useAgents)
-    const { default: add } = await import('../../server/api/dms/[id]/participants.post')
-    expect((await add(event as never)).channel.participants?.some(member => member.kind === 'agent')).toBe(true)
-  })
-  it('rejects group creation with an Agent without Use agents', async () => {
-    state.actor = 'member-001'
-    state.body = { userIds: ['third-001', 'agent-001'] }
-    const { default: create } = await import('../../server/api/dms/group.post')
+  it('still requires Use agents to create a pair with an agent', async () => {
+    state.actor = 'member-001'; state.body = { userId: 'agent-001' }
+    const create = (await import('../../server/api/dms/index.post')).default
     await expect(create(event as never)).rejects.toMatchObject({ statusCode: 403 })
   })
 })
@@ -199,4 +110,21 @@ describe('DM privacy migration', () => {
       expect(legacy.prepare("SELECT dm_kind, dm_owner_id FROM channels WHERE id = 'group'").get()).toMatchObject({ dm_kind: 'group', dm_owner_id: null })
     } finally { legacy.close() }
   })
+})
+
+it('converts a legacy group in place without losing its history, threads, members or recorded creator', () => {
+  const legacy = new DatabaseSync(':memory:')
+  try {
+    legacy.exec(INIT_SQL.slice(0, INIT_SQL.indexOf('CREATE TABLE file_objects')))
+    legacy.exec(`INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('role','member','Member',112); INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('a','human','A','active','role','2026-01-01'),('b','human','B','active','role','2026-01-01'),('c','human','C','active','role','2026-01-01');
+      INSERT INTO channels(id,name,type,visibility,dm_kind,dm_owner_id) VALUES('old-group','Team','dm','private','group','a');
+      INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES('old-group','a','2026-01-01'),('old-group','b','2026-01-01'),('old-group','c','2026-01-01');
+      INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('history','old-group','a','Keep me','2026-01-01');
+      INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('old-thread','Thread','thread','private','old-group','history');`)
+    legacy.exec(readFileSync(new URL('../../drizzle/server-migrations/0012_server_storage_and_channels.sql', import.meta.url), 'utf8'))
+    expect(legacy.prepare('SELECT id,type,visibility,created_by FROM channels WHERE id=?').get('old-group')).toMatchObject({ id: 'old-group', type: 'text', visibility: 'private', created_by: 'a' })
+    expect(legacy.prepare('SELECT parent_id FROM channels WHERE id=?').get('old-thread')?.parent_id).toBe('old-group')
+    expect(legacy.prepare('SELECT content FROM messages WHERE id=?').get('history')?.content).toBe('Keep me')
+    expect(legacy.prepare('SELECT count(*) AS n FROM channel_members WHERE channel_id=?').get('old-group')?.n).toBe(3)
+  } finally { legacy.close() }
 })

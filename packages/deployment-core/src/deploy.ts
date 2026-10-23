@@ -405,6 +405,8 @@ async function seedNewServer(
   await d1Query(accessToken, accountId, databaseId,
     'INSERT INTO server_identity (singleton, id) VALUES (1, ?) ON CONFLICT(singleton) DO NOTHING',
     [request.serverId])
+  if (request.filesEnabled === false) await d1Query(accessToken, accountId, databaseId,
+    "INSERT INTO server_settings(key,value,updated_at) VALUES('storage.backend','kv',?) ON CONFLICT(key) DO NOTHING", [now])
   const backupBucketName = serverBackupBucketName(request)
   if (backupBucketName) {
     await d1Query(accessToken, accountId, databaseId,
@@ -551,7 +553,7 @@ async function uploadWorker(
 
   const definedBindings = new Set(bindings.map(binding => String(binding.name)))
   for (const name of existing.lifecycleBindingNames || []) {
-    if (!definedBindings.has(name)) bindings.push({ type: 'inherit', name })
+    if (!definedBindings.has(name) && !manifest.removedBindings?.includes(name)) bindings.push({ type: 'inherit', name })
   }
 
   const migrations = durableObjectMigrations(manifest, existing)
@@ -596,6 +598,7 @@ export function updateWorkerBindings(
 ) {
   const replaced = new Set([
     'ASSETS',
+    ...manifest.removedBindings || [],
     'LLLL_VERSION',
     'LLLL_SERVER_MARKER',
     ...(options.minimal ? legacyEnvBindings : []),

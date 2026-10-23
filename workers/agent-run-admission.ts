@@ -4,7 +4,7 @@ import { nowIso } from '../shared/ids'
 
 /** One running reply per conversation, in send order, even when messages create separate threads. */
 export async function admitQueuedAgentRun(env: L4Env, run: Pick<AgentRun, 'id' | 'agentId' | 'channelId' | 'sessionId'>): Promise<boolean> {
-  const claim = await env.DB.prepare('UPDATE agent_sessions SET active_run_id=? WHERE id=? AND (active_run_id IS NULL OR active_run_id=?) RETURNING id')
+  const claim = await env.DB.prepare("UPDATE agent_sessions SET active_run_id=? WHERE id=? AND (active_run_id IS NULL OR active_run_id=? OR active_run_id IN (SELECT id FROM agent_runs WHERE status IN ('completed','failed','cancelled'))) RETURNING id")
     .bind(run.id, run.sessionId, run.id).first()
   if (!claim) return false
   const now = nowIso()

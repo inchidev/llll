@@ -317,7 +317,7 @@ export const users = sqliteTable('users', {
 
 /** Stateful AI participant profile. Runtime memory lives in its Agent Durable Object. */
 export const agents = sqliteTable('agents', {
-  harness: text('harness', { enum: ['think', 'pi'] }).notNull().default('think'),
+  harness: text('harness', { enum: ['think', 'pi'] }).notNull().default('pi'),
   userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   model: text('model').notNull().default('@cf/moonshotai/kimi-k2.7-code'),
   instructions: text('instructions').notNull().default(''),
@@ -483,7 +483,8 @@ export const channels = sqliteTable('channels', {
   visibility: text('visibility', { enum: ['server', 'private'] }).notNull().default('server'),
   categoryId: text('category_id').references(() => channelCategories.id, { onDelete: 'set null' }),
   position: integer('position').notNull().default(0),
-  /** DM identity is persistent; a group with two remaining members is still a group. */
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  /** Legacy metadata retained for forward-compatible migration of existing conversations. */
   dmKind: text('dm_kind', { enum: ['pair', 'group'] }).notNull().default('pair'),
   dmOwnerId: text('dm_owner_id').references(() => users.id, { onDelete: 'set null' }),
   /** The active Live room's RealtimeKit meeting. */

@@ -217,9 +217,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
     let id = newId()
     if (body.sourceRunId) {
-      const run = await this.env.DB.prepare("SELECT result_message_id as messageId FROM agent_runs WHERE id=? AND agent_id=? AND channel_id=? AND status='completed'")
+      const run = await this.env.DB.prepare("SELECT result_message_id as messageId FROM agent_runs WHERE id=? AND agent_id=? AND channel_id=? AND status IN ('completed','failed')")
         .bind(body.sourceRunId, body.agentId, channel.id).first<{ messageId: string }>()
-      if (!run?.messageId) throw new Error('Completed Run not found')
+      if (!run?.messageId) throw new Error('Finished Run not found')
       id = run.messageId
       const previous = await this.env.DB.prepare('SELECT id FROM messages WHERE id=? AND channel_id=? AND author_id=?').bind(id, channel.id, agent.id).first()
       if (previous) return { id, channelId: channel.id }

@@ -6,7 +6,7 @@ export default defineEventHandler(async event => {
   const id = getRouterParam(event, 'id')!
   const userId = getRouterParam(event, 'userId')!
   const actor = await requirePrivateChannelManager(event, id)
-  if (userId === actor.user.id) fail(400, 'self_removal', 'Ask another channel manager to remove your access')
+  if (userId === actor.user.id) fail(400, 'self_removal', 'The channel creator must keep access to manage its members')
   const { env } = cf(event)
   const removed = await env.DB.prepare(`DELETE FROM channel_members WHERE channel_id=? AND user_id=?
     AND EXISTS(SELECT 1 FROM channel_members actor WHERE actor.channel_id=? AND actor.user_id=?) RETURNING user_id`)

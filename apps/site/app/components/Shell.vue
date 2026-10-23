@@ -16,6 +16,21 @@ const queryOrigin = computed(() => {
 })
 const queryClaim = computed(() => readDeploymentClaim(route.hash))
 const checkingAddress = ref('')
+const frameVersions = ref<Record<string, number>>({})
+const frameSlow = ref(false)
+let frameTimer: ReturnType<typeof setTimeout> | undefined
+function waitForFrame() {
+  clearTimeout(frameTimer); frameSlow.value = false
+  if (shell.selected.value && !shell.unclaimed.value[shell.selected.value] && !shell.ready.value[shell.selected.value]) frameTimer = setTimeout(() => { frameSlow.value = true }, 15000)
+}
+function retryFrame() {
+  const origin = shell.selected.value
+  shell.ready.value[origin] = false
+  frameVersions.value[origin] = (frameVersions.value[origin] || 0) + 1
+  waitForFrame()
+}
+watch(() => [shell.selected.value, shell.ready.value[shell.selected.value], shell.unclaimed.value[shell.selected.value]], waitForFrame)
+onUnmounted(() => clearTimeout(frameTimer))
 const serversOpen = ref(false)
 const activeServer = computed(() => shell.servers.value.find(item => item.origin === shell.selected.value))
 function openServer(origin: string, id: string) {
@@ -90,7 +105,11 @@ onMounted(async () => {
   refreshMetadata()
   window.addEventListener('focus', refreshMetadata)
   document.addEventListener('visibilitychange', refreshMetadata)
-  metadataTimer = setInterval(refreshMetadata, 60_000)
+  metadataTimer = setInterval(() => {
+    const origin = shell.selected.value
+    if (!document.hidden && origin && shell.unclaimed.value[origin]) void shell.readMetadata(origin).catch(() => {})
+    else refreshMetadata()
+  }, 10000)
   if (showNavigation.value) shell.selected.value = ''
   if (showCreate.value && queryOrigin.value) await handleQuery(queryOrigin.value, queryClaim.value)
   else if (route.params.serverId) await mountServer()
@@ -161,9 +180,9 @@ async function mountServer() {
       </header>
       <section class="relative min-h-0 min-w-0 flex-1">
         <iframe
-          v-for="origin in shell.loaded.value"
+          v-for="origin in shell.loaded.value.filter(item => !shell.unclaimed.value[item])"
           v-show="shell.selected.value === origin && !showNavigation"
-          :key="origin"
+          :key="origin + (frameVersions[origin] || 0)"
           :ref="(element) => selectFrame(element, origin)"
           :src="shell.frameSrc(origin, ownOrigin)"
           :title="`${shell.servers.value.find((i) => i.origin === origin)?.name || 'L4'} server`"
@@ -172,6 +191,15 @@ async function mountServer() {
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
           referrerpolicy="no-referrer"
         />
+        <div v-if="!showNavigation && shell.selected.value && shell.unclaimed.value[shell.selected.value]" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-default p-6 text-center">
+          <h1 class="text-lg font-semibold">Finish setting up your Server</h1><p class="max-w-md text-sm text-muted">Choose your owner password on the Server’s own website. This page will open its Client when setup is complete.</p>
+          <UButton :to="shell.ownerSetupUrl(shell.selected.value)" external target="_blank" rel="noopener" label="Finish setup on your Server" />
+        </div>
+        <div v-else-if="!showNavigation && shell.selected.value && !shell.ready.value[shell.selected.value]" role="status" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-default p-6 text-center">
+          <UIcon v-if="!frameSlow" name="i-ph-circle-notch" class="size-7 animate-spin text-muted" />
+          <p class="text-sm text-muted">{{ frameSlow ? 'The Server is taking longer to open.' : 'Opening your Server…' }}</p>
+          <template v-if="frameSlow"><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /></template>
+        </div>
         <div
           v-if="checkingAddress"
           class="flex h-full flex-col items-center justify-center gap-3 text-muted"

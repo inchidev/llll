@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sha256 } from '@noble/hashes/sha2.js'
 import { useNow } from '@vueuse/core'
 import { useQuery } from '@tanstack/vue-query'
 import type { UpdateStatusDTO } from '~~/shared/releases'
@@ -66,6 +67,25 @@ async function resume(cancel = false) {
     await progressQ.refetch(); busy.value = false
   }
 }
+const downloading = ref(false)
+async function downloadUpdateBackup() {
+  if (!job.value || downloading.value) return
+  downloading.value = true
+  const id = job.value.id
+  try {
+    const blob = await api<Blob>(`/api/servers/${props.serverId}/backup`, { method: 'POST', query: { update: id }, responseType: 'blob', retry: 0 })
+    const hash = sha256.create(), reader = blob.stream().getReader()
+    try { while (true) { const next = await reader.read(); if (next.done) break; hash.update(next.value) } } finally { reader.releaseLock() }
+    const digest = Array.from(hash.digest()).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    const href = URL.createObjectURL(blob), link = document.createElement('a')
+    link.href = href; link.download = `llll-backup-before-${id}.tar`; document.body.appendChild(link); link.click(); link.remove()
+    setTimeout(() => URL.revokeObjectURL(href), 60000)
+    await api(`/api/servers/${props.serverId}/updates/downloaded`, { method: 'POST', body: { requestId: id, sha256: digest, sizeBytes: blob.size } })
+    await progressQ.refetch()
+  } catch (error) { toast.add({ title: 'Backup download did not complete', description: errorMessage(error), color: 'error' }) }
+  finally { downloading.value = false }
+}
+const needsDownload = computed(() => status.value?.updateControl?.backupDestination === 'download' && !job.value?.backup?.verified)
 </script>
 
 <template>
@@ -73,7 +93,7 @@ async function resume(cancel = false) {
     <div class="flex items-start justify-between gap-4">
       <div>
         <h1 class="text-xl font-semibold text-highlighted">Updates</h1>
-        <p class="mt-1 text-sm text-muted">Choose a release. A verified backup is saved before your Server is updated.</p>
+        <p class="mt-1 text-sm text-muted">Choose a release and save a verified backup before your Server is updated.</p>
       </div>
       <UButton icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" square aria-label="Check for updates" :loading="updateQ.isFetching.value" @click="refresh" />
     </div>
@@ -95,7 +115,8 @@ async function resume(cancel = false) {
         <UAlert v-if="job.error" :color="job.stage === 'attention' ? 'warning' : 'error'" :title="job.error" />
         <UAlert v-if="progressQ.error.value && active" color="warning" title="Waiting for the Server" description="The update may still be running. Open llll.gg to check its progress before starting another update." />
         <div class="flex flex-wrap gap-2">
-          <UButton v-if="launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
+          <UButton v-if="needsDownload && job.stage === 'queued'" label="Download backup" icon="i-ph-download" :loading="downloading" @click="downloadUpdateBackup" />
+          <UButton v-if="!needsDownload && launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
           <UButton v-if="canResume && launchUrl" :to="launchUrl" external color="neutral" variant="outline" label="Open the official installer" />
           <UButton v-if="job.stage === 'queued'" label="Cancel request" color="neutral" variant="ghost" :disabled="busy" @click="resume(true)" />
           <UButton v-if="job.stage === 'complete' && $pwa?.waiting.value" label="Update Client" data-client-update-action :loading="$pwa.updating.value" @click="$pwa.update()" />
@@ -112,7 +133,7 @@ async function resume(cancel = false) {
             </UFormField>
             <a v-if="selectedRelease" :href="selectedRelease.url" target="_blank" rel="noopener noreferrer" class="text-sm underline">View {{ selectedRelease.tagName }} release notes</a>
             <p v-if="selectedRelease?.notes" class="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted">{{ selectedRelease.notes }}</p>
-            <p class="text-sm text-muted">Database and files are backed up to this deployment’s separate backup bucket and verified before upload. Existing Accounts, UUID and storage are kept. This may take several minutes.</p>
+            <p class="text-sm text-muted">{{ status.updateControl?.backupDestination === 'download' ? 'Download a backup of the database and files to your computer before continuing in the installer.' : 'Database and files are saved to the separate backup bucket and verified before the update.' }} Existing Accounts, UUID and storage are kept.</p>
             <UButton label="Back up and update" icon="i-ph-cloud-arrow-up" :loading="busy" :disabled="active || !selectedRelease" @click="start" />
           </template>
           <p v-else class="text-sm text-muted">No newer {{ prereleases ? 'published' : 'stable' }} release is available.</p>

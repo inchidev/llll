@@ -1,7 +1,7 @@
 import type { EncryptedSecret } from './encrypted-secret'
 
 export type ServerUpdateStage = 'queued' | 'backing_up' | 'updating' | 'verifying' | 'complete' | 'failed' | 'attention' | 'cancelled'
-export type UpdateBackup = { key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
+export type UpdateBackup = { destination?: 'bucket' | 'download'; key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
 export type ServerUpdateJob = {
   id: string
   serverId: string

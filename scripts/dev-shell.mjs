@@ -7,6 +7,12 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
 const root = resolve(import.meta.dirname, '..')
 const state = resolve(root, '.deployment/dev-stack/shell')
 await mkdir(state, { recursive: true })
+// Populate the Shell's default tsconfig references before its separate HMR build directory is selected.
+await new Promise((accept, reject) => {
+  const prepare = spawn('pnpm', ['exec', 'nuxt', 'prepare', 'apps/site'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', LLLL_DEV_SHELL_API_ORIGIN: '' }, stdio: 'inherit' })
+  prepare.once('error', reject)
+  prepare.once('exit', code => code === 0 ? accept() : reject(new Error(`Shell preparation failed (${code})`)))
+})
 const bundle = resolve(state, 'worker.mjs')
 const origin = process.env.LLLL_SHELL_ORIGIN
 const port = Number(new URL(origin).port)

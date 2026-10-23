@@ -1,3 +1,4 @@
+import { fileStorage } from '../shared/file-storage'
 import { getServerId } from '../shared/server-id'
 import { createStorageBackup } from '../shared/storage-backup'
 import { uploadBackupToR2 } from '../shared/r2-backup'
@@ -15,7 +16,7 @@ export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
 export { RateLimitDurableObject } from '../workers/rate-limit-do'
 export { NotificationDurableObject } from '../workers/notification-do'
-export { L4Agent, L4Think } from '../workers/llll-agent'
+export { L4Agent } from '../workers/llll-agent'
 export { AgentRunDurableObject } from '../workers/agent-run-do'
 export { AgentScheduleDurableObject } from '../workers/agent-schedule-do'
 export { AgentComputeDurableObject } from '../workers/agent-compute'
@@ -70,9 +71,9 @@ export default {
     await routeServerEmail(message, env)
   },
   async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
-    if (env.BACKUPS && env.FILES) {
+    if (env.BACKUPS && (env.FILES || env.TICKETS)) {
       const createdAt = new Date().toISOString()
-      await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, env.FILES, createdAt, version))
+      await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, fileStorage(env), createdAt, version))
     }
   },
 }

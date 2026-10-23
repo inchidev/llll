@@ -33,12 +33,11 @@
       { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
       { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
       { "name": "AGENT_DO", "class_name": "L4Agent" },
-      { "name": "AGENT_THINK", "class_name": "L4Think" },
       { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
       { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChannelDurableObject", "ServerDurableObject", "RateLimitDurableObject", "NotificationDurableObject", "L4Agent", "L4Think"] }, { "tag": "v2-agent-runs", "new_sqlite_classes": ["AgentRunDurableObject"] }, { "tag": "v3-agent-schedules", "new_sqlite_classes": ["AgentScheduleDurableObject"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChannelDurableObject", "ServerDurableObject", "RateLimitDurableObject", "NotificationDurableObject", "L4Agent", "L4Think"] }, { "tag": "v2-agent-runs", "new_sqlite_classes": ["AgentRunDurableObject"] }, { "tag": "v3-agent-schedules", "new_sqlite_classes": ["AgentScheduleDurableObject"] }, { "tag": "v4-retire-think", "deleted_classes": ["L4Think"] }],
   "vars": {
     "AGENT_MODEL": "@cf/moonshotai/kimi-k2.7-code"
   }

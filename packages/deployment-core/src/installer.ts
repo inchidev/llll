@@ -49,6 +49,18 @@ export async function installL4(
   }
   await progress('release', 'complete', `L4 ${release.manifest.version}`)
 
+  // Probe activation before allocating D1/KV. Permission and transport failures must not silently downgrade storage.
+  if (request.filesEnabled !== false) {
+    try { await client.r2.buckets.list({ account_id: request.accountId }) }
+    catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (!/(?:r2.*(?:not enabled|enable|activation)|(?:enable|activate).*r2)/iu.test(message)) throw error
+      if (!release.manifest.capabilities?.includes('basic-kv-storage-v1')) throw createError({ statusCode: 409, statusMessage: 'R2 is not enabled. Choose a release with Basic storage or enable R2 in Cloudflare and retry.' })
+      request.filesEnabled = false
+      request.backupBucketName = undefined
+    }
+  }
+
   const deployed = await deployL4(
     client,
     accessToken,

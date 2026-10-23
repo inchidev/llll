@@ -110,6 +110,8 @@ export type InstallerReleaseManifest = {
   capabilities?: string[]
   worker: ReleaseAsset
   assets: ReleaseAsset
+  durableObjectMigrations?: Array<{ tag: string; new_sqlite_classes?: string[]; deleted_classes?: string[] }>
+  removedBindings?: string[]
   durableObjects: Array<{
     binding: string
     className: string

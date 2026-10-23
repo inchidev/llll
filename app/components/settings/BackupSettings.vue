@@ -5,7 +5,7 @@ import type { BackupDestinationDTO, BucketBackupResultDTO } from '~~/shared/back
 import { formatBytes, formatDateTime } from '~~/shared/format'
 const { api } = useApi()
 
-const filesEnabled = computed(() => useSessionStore().health?.bindings.r2 !== false)
+const filesEnabled = computed(() => Boolean(useSessionStore().health?.bindings.r2 || useSessionStore().health?.bindings.kv))
 
 const props = defineProps<{ serverId: string }>()
 const toast = useToast()

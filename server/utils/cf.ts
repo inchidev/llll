@@ -1,3 +1,4 @@
+import { fileStorage, type FileStore, type FileStorageEnv } from '../../shared/file-storage'
 import type { H3Event } from 'h3'
 import { createError } from 'h3'
 import type { L4Env } from '../../workers/env'
@@ -35,9 +36,8 @@ export function fail(status: number, code: string, message: string): never {
   })
 }
 
-export function requireFiles(env: Pick<L4Env, 'FILES'>): R2Bucket {
-  if (!env.FILES) fail(409, 'files_disabled', 'Files and backups are disabled. Ask the server operator to configure file storage for this server, then reload.')
-  return env.FILES
+export function requireFiles(env: FileStorageEnv): FileStore {
+  return fileStorage(env)
 }
 
 export async function originOk(event: H3Event): Promise<boolean> {

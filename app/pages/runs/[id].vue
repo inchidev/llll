@@ -9,6 +9,17 @@ const { api } = useApi()
 const { can } = useRoleGrants()
 const toast = useToast()
 const downloading = ref(false)
+const transcriptDownloading = ref(false)
+async function downloadTranscript() {
+  transcriptDownloading.value = true
+  try {
+    const blob = await api<Blob>(`/api/agent-runs/${route.params.id}/transcript`, { responseType: 'blob' })
+    const url = URL.createObjectURL(blob), anchor = document.createElement('a')
+    anchor.href = url; anchor.download = `run-${route.params.id}.jsonl`; document.body.appendChild(anchor); anchor.click(); anchor.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { transcriptDownloading.value = false }
+}
 const cancelling = ref(false)
 async function downloadFiles() {
   downloading.value = true
@@ -24,7 +35,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -32,6 +43,15 @@ async function cancel() {
   cancelling.value = true
   try { await api(`/api/agent-runs/${route.params.id}/cancel`, { method: 'POST' }); await runQ.refetch() }
   finally { cancelling.value = false }
+}
+const retrying = ref(false)
+async function retryRun() {
+  retrying.value = true
+  try {
+    const result = await api<{ run: { id: string } }>(`/api/agent-runs/${route.params.id}/retry`, { method: 'POST', body: { requestId: crypto.randomUUID() } })
+    await navigateTo(`/runs/${result.run.id}`)
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { retrying.value = false }
 }
 </script>
 
@@ -48,12 +68,23 @@ async function cancel() {
       </div>
       <dl class="grid grid-cols-2 gap-3 text-sm">
         <dt class="text-muted">Started</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
+        <dt class="text-muted">Model</dt><dd class="break-all">{{ run.model }}</dd>
         <dt class="text-muted">Model calls</dt><dd>{{ run.modelCalls }}</dd>
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
       <section class="space-y-2"><h2 class="text-sm font-medium">Instruction</h2><p class="whitespace-pre-wrap text-sm text-muted">{{ run.prompt }}</p></section>
+      <section v-if="runQ.data.value?.modelCalls?.length" class="space-y-2"><h2 class="text-sm font-medium">Model requests</h2><ol class="space-y-2"><li v-for="call in runQ.data.value.modelCalls" :key="call.callNumber" class="rounded border border-default p-3 text-sm"><p class="break-all">#{{ call.callNumber }} · {{ call.model }} · {{ call.status }}</p><p class="text-xs text-muted">{{ new Date(call.startedAt).toLocaleString() }} · {{ call.totalTokens ?? 'reserved' }} tokens</p><p v-if="call.error" class="text-error">{{ call.error }}</p></li></ol></section>
+      <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><div class="whitespace-pre-wrap text-sm text-default">{{ run.resultText }}</div></section>
+      <section v-if="runQ.data.value?.events?.length" class="space-y-2">
+        <h2 class="text-sm font-medium">Activity</h2>
+        <ol class="space-y-2"><li v-for="entry in runQ.data.value.events" :key="entry.sequence" class="rounded border border-default p-3 text-sm">
+          <span class="text-xs text-muted">{{ new Date(entry.createdAt).toLocaleString() }} · {{ entry.event.type }}</span>
+          <p class="whitespace-pre-wrap break-words">{{ entry.event.message || entry.event.text || entry.event.name }}</p>
+        </li></ol>
+      </section>
+      <UButton v-if="runQ.data.value?.canCancel && ['failed', 'cancelled'].includes(run.status)" label="Retry run" icon="i-ph-arrow-clockwise" :loading="retrying" @click="retryRun" />
       <UButton v-if="run.hasFiles && can(Permission.useComputer)" label="Download working files" icon="i-ph-download" color="neutral" variant="outline" :loading="downloading" @click="downloadFiles" />
       <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
     </template>

@@ -14,7 +14,7 @@ export type DomainRequest = {
   makePrimary?: boolean
   serverId?: string
 }
-export type UpdateBackupReceipt = { key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
+export type UpdateBackupReceipt = { destination?: 'bucket' | 'download'; key: string; bucket: string; sizeBytes: number; sha256: string; createdAt: string; verified: boolean }
 export type UpdateState = UpdateRequest & {
   serverId: string
   databaseId: string
@@ -37,6 +37,7 @@ export type DeploymentState = {
   updateRequest?: UpdateRequest
   update?: UpdateState
   domainRequest?: DomainRequest
+  storageRequest?: { accountId: string; workerName: string; origin: string }
   oauthNext?: 'create' | 'domain'
   deployments?: { accountId: string; origin: string; name: string; version: string; setupToken: string }[]
 }

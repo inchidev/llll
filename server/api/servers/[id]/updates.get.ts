@@ -15,9 +15,9 @@ export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
   }
   try {
     const config = await updateConfiguration(event, env, serverId)
-    status.updateControl = { available: true, configured: true, mode: 'installer', source: null, job: config.value.job, buildUrl: null, launchUrl: await serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
+    status.updateControl = { available: true, configured: true, mode: 'installer', backupDestination: env.BACKUPS ? 'bucket' : 'download', source: null, job: config.value.job, buildUrl: null, launchUrl: await serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
   } catch {
-    status.updateControl!.reason = 'Cloudflare updates need a separate backup bucket and the published L4 installer. On a VPS use llll upgrade.'
+    status.updateControl!.reason = 'Cloudflare updates need the published L4 installer. On a VPS use llll upgrade.'
   }
   try {
     const prereleases = getQuery(event).prereleases === 'true'

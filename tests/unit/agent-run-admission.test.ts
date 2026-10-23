@@ -28,3 +28,8 @@ it('cannot start a cancelled queued message after Steer claimed it', async () =>
   db.exec("INSERT INTO agent_runs VALUES('01','pi','thread-a','cancelled','', '2999-01-01')")
   expect(await admitQueuedAgentRun(env, run('01', 'thread-a'))).toBe(false)
 })
+it('recovers a terminal session claim immediately without waiting for executor cleanup', async () => {
+  db.exec("INSERT INTO agent_runs VALUES('old','pi','thread-a','failed','', '2999-01-01'),('01','pi','thread-a','queued','', '2999-01-01'); UPDATE agent_sessions SET active_run_id='old' WHERE id='session-01'")
+  expect(await admitQueuedAgentRun(env, run('01', 'thread-a'))).toBe(true)
+  expect(db.prepare("SELECT active_run_id FROM agent_sessions WHERE id='session-01'").get()?.active_run_id).toBe('01')
+})

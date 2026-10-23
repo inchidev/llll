@@ -52,6 +52,7 @@ beforeEach(() => {
       ('removed-001','human','Removed','removed',NULL,NULL);
     INSERT INTO server(id,name,owner_id) VALUES('00000000-0000-4000-8000-000000000001','Private test','owner-001');
     INSERT INTO channels(id,name,type,visibility) VALUES('private-001','secret','text','private'),('public-001','general','text','server'),('dm-001','dm','dm','private'),('mailbox-001','mail','text','private');
+    UPDATE channels SET created_by='manager-001' WHERE id='private-001';
     INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('root-001','private-001','manager-001','Private root','2026-10-23');
     INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('thread-001','Thread','thread','server','private-001','root-001');
     INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES
@@ -156,4 +157,22 @@ describe('private channel member management', () => {
     state.target = state.actor
     await expect(remove()).rejects.toMatchObject({ statusCode: 400 })
   })
+})
+
+it('lets the creator manage members without Manage channels, while denying another manager', async () => {
+  sqlite.prepare('UPDATE users SET role_id=? WHERE id=?').run('member-role', state.actor)
+  await expect(add()).resolves.toHaveProperty('members')
+  state.actor = 'other-001'
+  sqlite.prepare('UPDATE users SET role_id=? WHERE id=?').run('manager-role', state.actor)
+  await expect(add()).rejects.toMatchObject({ statusCode: 403 })
+})
+
+it('grants all past channel and thread history as read while leaving later messages unread', async () => {
+  sqlite.exec("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('thread-past','thread-001','manager-001','Old reply','2026-10-23');")
+  await add()
+  expect(sqlite.prepare('SELECT channel_id,last_read_message_id FROM channel_reads WHERE user_id=? ORDER BY channel_id').all(state.target)).toEqual(expect.arrayContaining([
+    { channel_id: 'private-001', last_read_message_id: 'root-001' }, { channel_id: 'thread-001', last_read_message_id: 'thread-past' },
+  ]))
+  sqlite.exec("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('zz-new','private-001','manager-001','New message','2026-10-24');")
+  expect(sqlite.prepare('SELECT last_read_message_id FROM channel_reads WHERE channel_id=? AND user_id=?').get('private-001', state.target)?.last_read_message_id).toBe('root-001')
 })

@@ -55,10 +55,6 @@
         "class_name": "L4Agent"
       },
       {
-        "name": "AGENT_THINK",
-        "class_name": "L4Think"
-      },
-      {
         "name": "AGENT_RUN_DO",
         "class_name": "AgentRunDurableObject"
       },

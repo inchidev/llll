@@ -72,6 +72,18 @@ async function copyAddress(origin: string) {
   try { await navigator.clipboard.writeText(origin); copied.value = origin }
   catch { /* The displayed address remains selectable. */ }
 }
+const storageMode = computed(() => route.query?.storage === '1')
+const storageConnected = ref(false)
+const oauthUrl = computed(() => '/api/deploy/oauth?' + new URLSearchParams({ ...(pending.value ? { resume: '1' } : {}), ...(storageMode.value ? { storage: '1', account: String(route.query.account || ''), worker: String(route.query.worker || ''), server: String(route.query.server || '') } : {}) }).toString())
+async function enableStorage() {
+  busy.value = true
+  error.value = ''
+  try {
+    await $fetch('/api/deploy/storage/enable', { method: 'POST', body: { accountId: route.query.account, workerName: route.query.worker } })
+    storageConnected.value = true
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not connect R2 storage' }
+  finally { busy.value = false }
+}
 const pending = computed(() => session.value?.step !== undefined && !session.value.completed)
 const connected = computed(() => Boolean(session.value?.authorized && now.value < session.value.sessionExpiresAt && now.value < (session.value.grantExpiresAt || 0)))
 const expired = computed(() => sessionEnded.value || Boolean(session.value && (!session.value.authorized || now.value >= Math.min(session.value.sessionExpiresAt, session.value.grantExpiresAt || 0))))
@@ -126,6 +138,7 @@ async function checkServer(origin: string) {
   try {
     const data = await shell.readMetadata(origin, controller.signal)
     statuses.value[origin] = data.ready ? 'ready' : 'setup'
+    await shell.bookmark(origin)
   } catch { statuses.value[origin] = 'unavailable' }
   finally { clearTimeout(timer); probes.delete(controller); checking.value[origin] = false }
 }
@@ -174,8 +187,7 @@ async function deploy() {
     }
     creating.value = false
     await loadServers()
-    if (session.value?.completed && session.value.origin)
-      await navigateTo(deploymentShellUrl(session.value.origin, session.value.claim))
+    if (session.value?.completed && session.value.origin) await checkServer(session.value.origin)
   } catch (cause) {
     error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same Server.'
   } finally { busy.value = false }
@@ -233,16 +245,31 @@ onMounted(async () => {
     version.value = data.releases[0]?.version || ''
   } catch { releasesError.value = 'Could not load releases. Enter a published release version.' }
 })
+let readinessTimer: ReturnType<typeof setInterval> | undefined
+let readinessAttempts = 0
+function refreshReadiness() { if (!document.hidden && readinessAttempts++ < 60 && rows.value.some(row => statuses.value[row.origin] !== 'ready')) void checkRows() }
+function focusReadiness() { readinessAttempts = 0; refreshReadiness() }
+onMounted(() => {
+  window.addEventListener('focus', focusReadiness)
+  readinessTimer = setInterval(refreshReadiness, 5000)
+})
+onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('focus', focusReadiness) })
 </script>
 
 <template>
   <section class="space-y-6">
     <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update a Server from a published release. Your Cloudflare account is billed directly, and the Server receives no account credential.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
     <p v-if="loading" role="status" class="text-sm text-muted">Checking Cloudflare connection…</p>
+    <section v-if="storageMode" class="space-y-4 rounded-xl border border-default p-5">
+      <h2 class="text-lg font-semibold">Connect R2 storage</h2>
+      <p class="text-sm text-muted">Authorize the Cloudflare account that owns this Server. Connecting the bucket preserves existing files; start the verified migration in your Server’s Storage settings.</p>
+      <UButton v-if="!storageConnected" label="Connect R2" :disabled="!connected" :loading="busy" @click="enableStorage" />
+      <UAlert v-else color="success" title="R2 connected" description="Return to your Server’s Storage settings to move your existing files." />
+    </section>
     <section v-else class="space-y-4 rounded-lg border border-default p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="font-medium">{{ connected ? 'Cloudflare connected' : expired ? 'Cloudflare connection ended' : 'Connect Cloudflare' }}</p>
-        <UButton v-if="!connected" :to="pending ? '/api/deploy/oauth?resume=1' : '/api/deploy/oauth'" external :label="expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth" size="sm" />
+        <UButton v-if="!connected" :to="oauthUrl" external :label="expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth" size="sm" />
       </div>
       <template v-if="connected && session">
         <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy || updating" class="w-full" /></UFormField>
@@ -269,11 +296,12 @@ onMounted(async () => {
               <p class="break-all text-xs leading-5 text-muted">{{ entry.origin.replace(/^https?:\/\//, '') }}</p>
               <p v-if="entry.version" class="text-xs text-muted">{{ entry.version }}</p>
             </div>
-            <UBadge :color="statuses[entry.origin] === 'ready' ? 'success' : statuses[entry.origin] === 'setup' ? 'warning' : 'neutral'" variant="subtle">{{ checking[entry.origin] ? 'Checking…' : statuses[entry.origin] ? statusLabel(entry.origin) : 'Not checked' }}</UBadge>
+            <UBadge :color="statuses[entry.origin] === 'ready' ? 'success' : statuses[entry.origin] === 'setup' ? 'warning' : 'neutral'" variant="subtle">{{ checking[entry.origin] ? 'Checking…' : statuses[entry.origin] === 'unavailable' && claimFor(entry.origin) ? 'Waiting for HTTPS…' : statuses[entry.origin] ? statusLabel(entry.origin) : 'Not checked' }}</UBadge>
           </div>
+          <p v-if="statuses[entry.origin] === 'ready'" class="text-sm text-muted">Ready. This Server is saved in your Shell.</p>
           <div class="flex flex-wrap gap-2">
-            <UButton v-if="statuses[entry.origin] === 'setup' && claimFor(entry.origin)" :to="openRoute(entry.origin)" label="Continue owner setup" size="sm" />
-            <UButton v-else :to="openRoute(entry.origin)" label="Open Server" size="sm" color="neutral" variant="outline" />
+            <UButton v-if="statuses[entry.origin] === 'setup' && claimFor(entry.origin)" :to="claimFor(entry.origin)" external target="_blank" rel="noopener noreferrer" label="Finish setup on your Server" size="sm" />
+            <UButton v-else :to="openRoute(entry.origin)" label="Open in Shell" size="sm" color="neutral" variant="outline" :disabled="statuses[entry.origin] !== 'ready'" />
             <UButton :to="statuses[entry.origin] === 'setup' && claimFor(entry.origin) || entry.origin" external label="Open directly" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="ghost" />
             <UButton :label="copied === entry.origin ? 'Copied' : 'Copy address'" size="sm" color="neutral" variant="ghost" @click="copyAddress(entry.origin)" />
           </div>
@@ -293,7 +321,7 @@ onMounted(async () => {
           <UInput v-else v-model="version" placeholder="v0.2.0-alpha.3" class="w-full" />
         </UFormField>
         <p v-if="releasesError" class="text-sm text-muted">{{ releasesError }}</p>
-        <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Enable R2 in your account first; no Git integration or Workers Builds token is required.</p>
+        <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Basic file storage works without R2; no Git integration or Workers Builds token is required.</p>
       </template>
       <ol v-else class="space-y-3"><li v-for="(phase, index) in phases" :key="phase" class="flex items-center gap-3" :class="index > (session?.step || 0) ? 'text-dimmed' : 'text-highlighted'"><UIcon :name="index < (session?.step || 0) ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-5" />{{ phase }}</li></ol>
       <p v-if="pending && session?.version" class="text-sm text-muted">Release {{ session.version }}</p>

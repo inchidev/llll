@@ -205,11 +205,7 @@ export async function prepareUpdate(
     throw new Error('The Server is not in the connected Cloudflare account')
   if (!server.resources.databaseId)
     throw new Error('The Server database is missing from Cloudflare')
-  if (!server.resources.bucketName)
-    throw new Error('The Server files bucket is missing from Cloudflare')
-  if (!server.resources.backupBucketName)
-    throw new Error('This Server has no separate update backup bucket')
-  if (server.resources.backupBucketName === server.resources.bucketName)
+  if (server.resources.backupBucketName && server.resources.backupBucketName === server.resources.bucketName)
     throw new Error('The update backup bucket must be separate from the Server files bucket')
   const origins = await serverOrigins(token, request.accountId, server.resources.databaseId, server.origin)
   if (!origins.includes(request.origin))
@@ -228,8 +224,8 @@ export async function prepareUpdate(
       origins,
       serverId: well.id,
       databaseId: server.resources.databaseId,
-      filesBucket: server.resources.bucketName,
-      backupBucket: server.resources.backupBucketName,
+      filesBucket: server.resources.bucketName || '',
+      backupBucket: server.resources.backupBucketName || '',
       installedVersion: job.targetVersion,
       targetVersion: job.targetVersion,
       executorId: state.update?.executorId || crypto.randomUUID(),
@@ -283,8 +279,8 @@ export async function prepareUpdate(
     origins,
     serverId: well.id,
     databaseId: server.resources.databaseId,
-    filesBucket: server.resources.bucketName,
-    backupBucket: server.resources.backupBucketName,
+    filesBucket: server.resources.bucketName || '',
+    backupBucket: server.resources.backupBucketName || '',
     installedVersion: well.version,
     targetVersion: job.targetVersion,
     executorId: previous?.executorId || crypto.randomUUID(),
@@ -366,6 +362,11 @@ async function createVerifiedBackup(
     job.stage === 'complete'
   ) {
     if (!job.backup) throw new Error('The pre-update backup is missing')
+    update.backup = job.backup
+    return
+  }
+  if (!update.backupBucket) {
+    if (!job.backup?.verified || job.backup.destination !== 'download') throw new Error('Download the pre-update backup from your Server before continuing.')
     update.backup = job.backup
     return
   }

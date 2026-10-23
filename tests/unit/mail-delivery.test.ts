@@ -190,7 +190,7 @@ describe('inbound email', () => {
     expect(sqlite.prepare('SELECT raw_r2_key FROM email_messages').get()).toEqual({ raw_r2_key: null })
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM attachments').get()).toEqual({ count: 0 })
     const message = sqlite.prepare("SELECT content FROM messages WHERE author_id = 'mail-external'").get() as { content: string }
-    expect(message.content).toContain('a.bin (R2 is disabled)')
+    expect(message.content).toContain('a.bin (file storage is unavailable)')
     expect(files.size).toBe(0)
   })
 

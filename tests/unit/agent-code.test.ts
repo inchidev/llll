@@ -52,7 +52,7 @@ beforeEach(async () => {
     INSERT INTO task_boards(id,name,created_by) VALUES('code-board','Code','owner-user');`)
   db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)').run('code-env', JSON.stringify(configuration), 'owner-user', '2026-10-21', '2026-10-21')
   db.exec("INSERT INTO tasks(id,board_id,title,description,status,priority,position,assignee_id,environment_id,created_by,created_at,updated_at) VALUES('code-task','code-board','Fix behavior','','ready','normal',1,'agent-user','code-env','owner-user','2026-10-21','2026-10-21')")
-  env = { DB: d1(db), AUTH_SECRET: 'test-only-server-secret-with-32-characters', FILES: {},
+  env = { DB: d1(db), AUTH_SECRET: 'test-only-server-secret-with-32-characters', FILES: {}, AI: {},
     GITHUB_AGENT_APP_ID: '4242', GITHUB_AGENT_APP_PRIVATE_KEY: privateKey,
     AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret', AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) } } as unknown as L4Env
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL, options: RequestInit = {}) => {

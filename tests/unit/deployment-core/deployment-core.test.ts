@@ -166,3 +166,15 @@ describe('published installer core integration', () => {
     })
   })
 })
+
+it('retires Think after its historical creation step and does not inherit its binding on upgrade', () => {
+  const manifest: InstallerReleaseManifest = {
+    schemaVersion: 1, version: '0.3.0', releasedAt: '2026-10-23', compatibilityDate: '2026-10-16', compatibilityFlags: ['nodejs_compat'],
+    worker: { url: 'https://releases.example/worker', sha256: 'a'.repeat(64), size: 1 }, assets: { url: 'https://releases.example/assets', sha256: 'b'.repeat(64), size: 1 },
+    durableObjects: [{ binding: 'AGENT_DO', className: 'L4Agent', migration: 'v1' }], removedBindings: ['AGENT_THINK'],
+    durableObjectMigrations: [{ tag: 'v1', new_sqlite_classes: ['L4Agent', 'L4Think'] }, { tag: 'v4-retire-think', deleted_classes: ['L4Think'] }],
+  }
+  expect(durableObjectMigrations(manifest, { exists: true, migrationTag: 'v1' })).toEqual({ old_tag: 'v1', new_tag: 'v4-retire-think', steps: [{ deleted_classes: ['L4Think'] }] })
+  expect(durableObjectMigrations(manifest, { exists: false })?.steps).toEqual([{ new_sqlite_classes: ['L4Agent', 'L4Think'] }, { deleted_classes: ['L4Think'] }])
+  expect(updateWorkerBindings([{ name: 'AGENT_THINK', type: 'durable_object_namespace' }], manifest).some(binding => binding.name === 'AGENT_THINK')).toBe(false)
+})

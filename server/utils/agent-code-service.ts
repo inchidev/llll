@@ -1,3 +1,4 @@
+import { fileStorage } from '../../shared/file-storage'
 import { z } from 'zod'
 import { codeProposalSchema, type RunEnvironment } from '../../shared/code-environments'
 import { authorize, ServerAction } from '../../shared/authorization'
@@ -15,7 +16,7 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<Response> {
   const { environment: item } = await codeRun(env, runId)
   const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
-  const cached = await env.FILES?.get(key)
+  const cached = await fileStorage(env).get(key)
   if (cached && cached.size <= 20000000) return new Response(cached.body, { headers: { 'Content-Type': 'application/gzip' } })
   const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const redirected = await client.raw(`/repos/${item.sourceRepo}/tarball/${item.baseSha}`)
@@ -26,7 +27,7 @@ export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<
   const downloaded = await fetch(location, { redirect: 'error', signal: AbortSignal.timeout(30000) })
   const body = await readLimitedStream(downloaded.body, 20000000)
   if (!downloaded.ok || !body.ok) fail(413, 'code_archive', 'Repository archive exceeds the execution limit or is unavailable')
-  await env.FILES?.put(key, body.bytes, { httpMetadata: { contentType: 'application/gzip' } })
+  await fileStorage(env).put(key, body.bytes, { httpMetadata: { contentType: 'application/gzip' } })
   return new Response(new Uint8Array(body.bytes), { headers: { 'Content-Type': 'application/gzip' } })
 }
 

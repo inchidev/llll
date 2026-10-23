@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Miniflare, convertV4MiniflareOptions, Log, LogLevel } from 'miniflare'
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
@@ -8,6 +9,7 @@ import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
+const basicStorage = process.argv.includes('--basic')
 const password = 'LocalServerIntegrationPassword123!'
 const setup = 'local-owner-claim-'.repeat(4)
 const classes = {
@@ -16,7 +18,6 @@ const classes = {
   RATE_LIMIT_DO: 'RateLimitDurableObject',
   NOTIFICATION_DO: 'NotificationDurableObject',
   AGENT_DO: 'L4Agent',
-  AGENT_THINK: 'L4Think',
 }
 const origins = {
   alpha: `http://127.0.0.1:${port}`,
@@ -129,7 +130,7 @@ try {
               'global_fetch_strictly_public',
             ],
             d1Databases: { DB: name },
-            r2Buckets: { FILES: name + '-files', BACKUPS: name + '-backups' },
+            r2Buckets: basicStorage ? {} : { FILES: name + '-files', BACKUPS: name + '-backups' },
             kvNamespaces: { TICKETS: name + '-tickets' },
             durableObjects: Object.fromEntries(
               Object.entries(classes).map(([binding, className]) => [
@@ -152,7 +153,7 @@ try {
               LLLL_WORKER_NAME: 'server-' + name,
               LLLL_SERVER_MARKER: 'llll.gg/server-v1',
               LLLL_VERSION: '0.2.0-alpha.8',
-              BACKUP_BUCKET_NAME: name + '-backups',
+              ...(basicStorage ? {} : { BACKUP_BUCKET_NAME: name + '-backups' }),
               AUTH_SECRET: (name + '-server-secret-').repeat(4),
               APP_NAME: name,
               ADMIN_EMAIL: 'owner@example.com',
@@ -239,6 +240,52 @@ try {
     )
   }
   assert.notEqual(ids.alpha, ids.beta)
+  if (basicStorage) {
+    const storage = (await api('alpha', `/api/servers/${ids.alpha}/storage`)).payload
+    assert.equal(storage.backend, 'kv'); assert.equal(storage.r2Available, false)
+    const general = (await api('alpha', `/api/servers/${ids.alpha}/channels`)).payload.channels.find(channel => channel.type === 'text')
+    const form = new FormData(); form.append('file', new File(['private basic attachment'], 'basic.txt', { type: 'text/plain' }))
+    const request = new Request(origins.alpha + `/api/channels/${general.id}/attachments`, { method: 'POST', headers: { Origin: origins.alpha, Cookie: cookies['alpha-owner'] }, body: form })
+    const uploaded = await runtimes.alpha.dispatchFetch(request.url, { method: 'POST', headers: request.headers, body: await request.arrayBuffer() })
+    assert.equal(uploaded.status, 200, await uploaded.clone().text())
+    const attachment = (await uploaded.json()).attachment
+    assert.equal(await (await api('alpha', '/api/files/' + attachment.id)).response.text(), 'private basic attachment')
+    await api('alpha', '/api/files/' + attachment.id, { actor: 'anonymous', expected: 401 })
+    const requestId = crypto.randomUUID()
+    await api('alpha', `/api/servers/${ids.alpha}/updates/request`, { method: 'POST', body: { requestId, release: 'v0.3.0' } })
+    const backup = await api('alpha', `/api/servers/${ids.alpha}/backup?update=${requestId}`, { method: 'POST' })
+    const bytes = Buffer.from(await backup.response.arrayBuffer())
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    await api('alpha', `/api/servers/${ids.alpha}/updates/downloaded`, { method: 'POST', body: { requestId, sha256: '0'.repeat(64), sizeBytes: bytes.length }, expected: 409 })
+    await api('alpha', `/api/servers/${ids.alpha}/updates/downloaded`, { method: 'POST', body: { requestId, sha256, sizeBytes: bytes.length } })
+    const archive = resolve(root, '.deployment/integration/basic.tar')
+    await mkdir(resolve(root, '.deployment/integration'), { recursive: true }); await writeFile(archive, bytes, { mode: 0o600 })
+    const entries = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' }).trim().split('\n')
+    const restored = new DatabaseSync(':memory:'); restored.exec('PRAGMA foreign_keys=ON; BEGIN;')
+    restored.exec(entries.filter(name => /^database\/[0-9]{6}-(?:schema|indexes|[0-9]{6})\.sql$/.test(name)).sort().map(name => execFileSync('tar', ['-xOf', archive, name], { encoding: 'utf8' })).join('\n'))
+    restored.exec('COMMIT;'); assert.deepEqual(restored.prepare('PRAGMA foreign_key_check').all(), [])
+    assert.equal(restored.prepare('SELECT id FROM server_identity').get().id, ids.alpha)
+    assert.ok(restored.prepare('SELECT COUNT(*) AS n FROM file_objects').get().n > 0)
+    const restoredKey = restored.prepare('SELECT r2_key FROM attachments WHERE id=?').get(attachment.id).r2_key
+    const payloads = new Map(entries.filter(name => /^r2\/[0-9]+\.json$/.test(name)).map(name => {
+      const metadata = JSON.parse(execFileSync('tar', ['-xOf', archive, name], { encoding: 'utf8' }))
+      return [metadata.key, execFileSync('tar', ['-xOf', archive, name.replace(/\.json$/, '.bin')])]
+    }))
+    const { fileStorage } = await import('../shared/file-storage.ts')
+    const { d1 } = await import('../tests/helpers/sqlite-d1.ts')
+    const restoredFiles = fileStorage({
+      DB: d1(restored),
+      TICKETS: { get: async () => { throw new Error('The original KV namespace is unavailable after restore') } },
+      FILES: { get: async key => { const bytes = payloads.get(key); return bytes ? { text: async () => bytes.toString() } : null } },
+    })
+    assert.equal(await (await restoredFiles.get(restoredKey)).text(), 'private basic attachment')
+    restored.close()
+    console.log('PASS: KV-only Servers, icon and attachment read/write/authorization, downloaded backup digest rejection/confirmation and UUID-preserving SQL restore')
+    if (process.argv.includes('--serve')) {
+      console.log(`Basic storage Servers: ${origins.alpha}, ${origins.beta}`)
+      await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve) })
+    }
+  } else {
   await api('beta', '/api/me', { actor: 'alpha-owner', expected: 401 })
   await api('alpha', '/api/me', {
     actor: 'anonymous',
@@ -632,6 +679,7 @@ try {
       process.once('SIGINT', resolve)
       process.once('SIGTERM', resolve)
     })
+  }
   }
 } finally {
   await Promise.all(Object.values(runtimes).map((m) => m.dispose()))

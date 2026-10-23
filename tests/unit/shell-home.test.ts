@@ -19,7 +19,7 @@ const initialize = vi.fn()
 const navigate = vi.fn()
 const headConfig = vi.fn()
 const shell = {
-  servers, selected, loaded, error,
+  servers, selected, loaded, error, ready: ref({ [origin]: true } as Record<string, boolean>), unclaimed: ref({} as Record<string, boolean>),
   groups: computed(() => [{ origin, name: 'Fixture', servers: servers.value }]),
   frames: ref({}),
   frameSrc: () => 'about:blank', initialize, forget,

@@ -189,7 +189,7 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     expect(page.messages.map(x => x.content)).toEqual(['', 'Last'])
     expect(page.nextCursor).toBe('message-2')
     expect((await read('public-chat', context(), { cursor: page.nextCursor })).messages.map(x => x.content)).toEqual(['First'])
-    expect(sqlite.prepare('SELECT count(*) as n FROM channel_reads').get()?.n).toBe(0)
+    expect(sqlite.prepare('SELECT last_read_message_id FROM channel_reads WHERE user_id=?').get('member-user')?.last_read_message_id).not.toBe('message-004')
     await expect(send('public-chat', '  ')).rejects.toMatchObject({ statusCode: 400 })
     await expect(send('public-chat', 'x'.repeat(2001))).rejects.toThrow()
     sqlite.exec("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES ('foreign-message','private-chat','other-user','Private','2026-10-21')")

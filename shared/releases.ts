@@ -19,6 +19,7 @@ export type UpdateStatusDTO = {
     available: boolean
     configured: boolean
     mode?: 'build' | 'installer'
+    backupDestination?: 'bucket' | 'download'
     source: 'binding' | 'saved' | null
     job: import('./server-updates').ServerUpdateJob | null
     buildUrl?: string | null

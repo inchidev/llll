@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import type { AgentDTO } from '~~/shared/types'
+const emit = defineEmits<{ navigate: [] }>()
 const props = defineProps<{ serverId: string; isOwner?: boolean }>()
 const { api } = useApi()
 const editing = shallowRef<AgentDTO | null>(null)
@@ -20,7 +21,7 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
   </SettingsHeader>
   <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
   <SettingsAgentProviderSettings v-if="tab === 'providers'" :server-id="serverId" :is-owner="isOwner" />
-  <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" />
+  <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" @navigate="emit('navigate')" />
   <template v-else>
   <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search agents" aria-label="Search agents" class="w-full" />
   <LayoutSkeleton v-if="agentsQ.isPending.value" variant="nav" class="mt-6" :rows="3" />
@@ -30,7 +31,7 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
     <li v-for="agent in visible" :key="agent.id">
       <button type="button" class="flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-3 text-start hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`Edit ${agent.displayName}`" @click="edit(agent)">
         <UserAvatar :user="{ ...agent, kind: 'agent' }" size="md" />
-        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ agent.displayName }}</span><span class="block text-xs text-muted">{{ agent.status === 'paused' ? 'Paused' : 'Active' }} · {{ agent.harness === 'pi' ? 'Pi' : 'Think' }}</span></span>
+        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ agent.displayName }}</span><span class="block text-xs text-muted">{{ agent.status === 'paused' ? 'Paused' : 'Active' }}</span></span>
         <UIcon name="i-ph-pencil-simple" class="size-4 text-muted" />
       </button>
     </li>
