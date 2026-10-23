@@ -318,6 +318,25 @@ try {
   })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
   await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
+  const recoveryDb = await runtimes.alpha.getD1Database('DB')
+  const ownerId = (await recoveryDb.prepare('SELECT owner_id FROM server').first()).owner_id
+  const orphanId = crypto.randomUUID()
+  await recoveryDb.batch([
+    recoveryDb.prepare("INSERT INTO channels(id,name,type,visibility) VALUES(?,'legacy-private','text','private')").bind(orphanId),
+    recoveryDb.prepare('INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES(?,?,?)').bind(orphanId, memberId, new Date().toISOString()),
+  ])
+  await api('alpha', `/api/servers/${ids.alpha}/channels/recovery`, { actor: 'alpha-member', expected: 403 })
+  const recoverable = await api('alpha', `/api/servers/${ids.alpha}/channels/recovery`)
+  assert.ok(recoverable.payload.channels.some(channel => channel.id === orphanId))
+  const candidates = await api('alpha', `/api/servers/${ids.alpha}/channels/${orphanId}/creator`)
+  assert.deepEqual(candidates.payload.members.map(member => member.id), [memberId])
+  await api('alpha', `/api/servers/${ids.alpha}/channels/${orphanId}/creator`, { method: 'PUT', body: { userId: ownerId }, expected: 409 })
+  await api('alpha', `/api/servers/${ids.alpha}/channels/${orphanId}/creator`, { method: 'PUT', body: { userId: memberId } })
+  await api('alpha', `/api/servers/${ids.alpha}/channels/${orphanId}/creator`, { method: 'PUT', body: { userId: memberId }, expected: 409 })
+  await api('alpha', `/api/channels/${orphanId}/members`, { expected: 404 })
+  await api('alpha', `/api/channels/${orphanId}/members`, { actor: 'alpha-member' })
+  assert.equal((await recoveryDb.prepare("SELECT count(*) AS n FROM audit_log WHERE target_id=? AND action='channel.creator.assign'").bind(orphanId).first()).n, 1)
+  console.log('PASS: owner explicitly recovers a missing creator without gaining channel access; only the chosen participant manages membership')
   const sent = await api('alpha', `/api/channels/${general.id}/messages`, {
     actor: 'alpha-member',
     method: 'POST',
@@ -662,6 +681,13 @@ try {
     'PASS: independent UUIDs, owner/member/invite/message, session isolation, HTTP denial, WebSocket isolation/revocation, PKCE replay denial, separate files and UUID-preserving backup restore',
   )
   if (process.argv.includes('--serve')) {
+    const reviewChannelId = crypto.randomUUID()
+    const reviewMemberId = crypto.randomUUID()
+    await recoveryDb.batch([
+      recoveryDb.prepare("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) SELECT ?,'human','Legacy participant','active',id,? FROM roles WHERE key='member'").bind(reviewMemberId, new Date().toISOString()),
+      recoveryDb.prepare("INSERT INTO channels(id,name,type,visibility) VALUES(?,'review-private-creator','text','private')").bind(reviewChannelId),
+      recoveryDb.prepare('INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES(?,?,?)').bind(reviewChannelId, reviewMemberId, new Date().toISOString()),
+    ])
     await writeFile(
       resolve(root, '.deployment/integration/fixture.json'),
       JSON.stringify({

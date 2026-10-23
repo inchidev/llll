@@ -558,6 +558,7 @@ function roleLabel(name: string) {
         </li>
       </ul>
       <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
+      <SettingsChannelCreatorRecovery v-if="isOwner" :server-id="serverId" />
       <UModal :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
         <div class="flex items-center gap-3">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">

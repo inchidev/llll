@@ -9,6 +9,7 @@ export default defineEventHandler(async event => {
   const run = await findAgentRun(env, getRouterParam(event, 'id')!)
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
+  if (actor.user.id !== run.initiatedBy) fail(403, 'forbidden', 'Only the member who initiated this run can retry it')
   if (!['failed', 'cancelled'].includes(run.status)) fail(409, 'run_active', 'Only a stopped run can be retried')
   const { requestId } = parseBody(z.object({ requestId: z.string().uuid() }), await readBody(event))
   return { run: await createAgentRun(env, actor.authorization, {

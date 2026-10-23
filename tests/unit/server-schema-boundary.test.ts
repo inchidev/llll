@@ -1,20 +1,11 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { expect, it, vi } from 'vitest'
+import { d1 } from '../helpers/sqlite-d1'
 import { ensureMigrated, INIT_SQL } from '../../server/utils/db'
 
 function binding(sqlite: DatabaseSync) {
   const exec = vi.fn(async (sql: string) => { sqlite.exec(sql) })
-  const db = {
-    exec,
-    prepare(sql: string) {
-      let values: SQLInputValue[] = []
-      const statement = {
-        bind(...args: SQLInputValue[]) { values = args; return statement },
-        async first() { return sqlite.prepare(sql).get(...values) || null },
-      }
-      return statement
-    },
-  }
+  const db = { ...d1(sqlite), exec }
   return { db: db as unknown as D1Database, exec }
 }
 

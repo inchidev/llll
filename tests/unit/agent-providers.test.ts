@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
-import { agentProviderCatalog, loadAgentProvider, resolveSavedAgentModel, saveAgentProvider } from '../../server/utils/agent-providers'
+import { agentProviderCatalog, catalogAgentModel, importOpenRouterDeployment, loadAgentProvider, resolveSavedAgentModel, saveAgentProvider } from '../../server/utils/agent-providers'
 import { agentModelRef } from '../../shared/agent-providers'
 import { writeServerSetting } from '../../shared/server-settings'
 import { agentConversationModel, agentConversationModelKey } from '../../server/utils/agent-conversation-model'
@@ -47,26 +47,22 @@ describe('Server model credentials', () => {
     expect(await agentConversationModel(env, 'thread')).toBe('l4:openrouter:chosen')
     expect(await agentConversationModel(env, 'other')).toBeNull()
   })
-})
-
-it.each(['opencode', 'opencode-go'] as const)('routes %s through its own endpoint and stable session header', async (id) => {
-  const { vi } = await import('vitest')
-  const { modelForRun } = await import('../../workers/ai-runtime')
-  const { generateText } = await import('ai')
-  await saveAgentProvider(env, id, { enabled: true, webSearch: false, apiKey: 'fixture-token', models: [{ id: 'fixture', api: 'chat' }] })
-  const requests: Array<{ url: string; headers: Headers }> = []
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
-    requests.push({ url: String(url), headers: new Headers(init.headers) })
-    return Response.json({ id: 'test', object: 'chat.completion', created: 0, model: 'fixture', choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })
-  }))
-  try {
-    const model = await modelForRun(env, agentModelRef(id, 'fixture'), 'same-conversation')
-    if (typeof model === 'string') throw new Error('Expected configured model')
-    expect((await generateText({ model, prompt: 'Hello' })).text).toBe('OK')
-    expect(requests[0]!.url).toBe(`https://opencode.ai/inference/${id === 'opencode-go' ? 'go/' : ''}openai/v1/chat/completions`)
-    expect(requests[0]!.headers.get('x-opencode-session')).toBe('same-conversation')
-    expect(requests[0]!.headers.get('User-Agent')).toContain('l4/pi')
-  } finally { vi.unstubAllGlobals() }
+  it('imports every legacy profile selection and keeps disabled models unavailable', async () => {
+    db.exec("CREATE TABLE agents(model TEXT); INSERT INTO agents VALUES('custom/model'),('l4:other:configured'),('@cf/model'),('')")
+    Object.assign(env, { AI_BASE_URL: 'https://openrouter.ai/api/v1', AI_API_KEY: 'deployment-key', AI_MODEL: 'default/model' })
+    await importOpenRouterDeployment(env, false)
+    const catalog = await agentProviderCatalog(env)
+    expect(catalogAgentModel(env, 'custom/model', catalog)).toBe('l4:openrouter:custom/model')
+    expect((await resolveSavedAgentModel(env, 'l4:openrouter:custom/model'))?.apiKey).toBe('deployment-key')
+    expect(catalog.models.map(model => model.value)).toEqual(['l4:openrouter:default/model', 'l4:openrouter:custom/model'])
+    await saveAgentProvider(env, 'openrouter', { ...config, enabled: false })
+    await saveAgentProvider(env, 'other-connection', { ...config, kind: 'anthropic', name: 'Deployment', models: [{ id: 'claude', api: 'anthropic' }] })
+    expect(catalogAgentModel(env, 'custom/model', await agentProviderCatalog(env))).toBeNull()
+  })
+  it('refuses to guess which connection owns an ambiguous legacy model ID', async () => {
+    for (const id of ['first', 'second']) await saveAgentProvider(env, id, { ...config, kind: 'openrouter' })
+    expect(catalogAgentModel(env, 'vendor/model', await agentProviderCatalog(env))).toBeNull()
+  })
 })
 
 it('keeps independently named connections and exposes key fragments only to the owner', async () => {

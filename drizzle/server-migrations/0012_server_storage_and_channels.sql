@@ -5,10 +5,7 @@ CREATE TABLE file_uploads (id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, size I
 --> statement-breakpoint
 ALTER TABLE channels ADD COLUMN created_by TEXT REFERENCES users(id) ON DELETE SET NULL;
 --> statement-breakpoint
-UPDATE channels SET type='text', visibility='private', created_by=dm_owner_id, name=CASE WHEN name='dm' THEN 'private-chat-'||substr(id,1,8) ELSE name END WHERE type='dm' AND dm_kind='group';
---> statement-breakpoint
-UPDATE channels SET created_by=(SELECT actor_id FROM audit_log WHERE action='channel.create' AND target_id=channels.id ORDER BY created_at LIMIT 1) WHERE type='text' AND created_by IS NULL;
---> statement-breakpoint
+-- Conversation data is converted by the new Worker after activation.
 UPDATE agents SET harness='pi';
 --> statement-breakpoint
 CREATE TRIGGER agents_pi_only_insert AFTER INSERT ON agents WHEN NEW.harness <> 'pi' BEGIN UPDATE agents SET harness='pi' WHERE user_id=NEW.user_id; END;

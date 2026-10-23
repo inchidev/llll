@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
-export const agentProviderIds = ['openrouter', 'opencode', 'opencode-go', 'anthropic', 'chatgpt'] as const
+export const agentProviderIds = ['openrouter', 'anthropic', 'chatgpt'] as const
 export type AgentProviderId = typeof agentProviderIds[number]
-export const providerNames: Record<AgentProviderId, string> = { openrouter: 'OpenRouter', opencode: 'OpenCode', 'opencode-go': 'OpenCode Go', anthropic: 'Claude', chatgpt: 'ChatGPT / Codex' }
+export const providerNames: Record<AgentProviderId, string> = { openrouter: 'OpenRouter', anthropic: 'Claude', chatgpt: 'ChatGPT / Codex' }
 export const agentConnectionId = z.string().regex(/^[a-z0-9-]{1,64}$/u)
 export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160), label: z.string().max(200).optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
 export const agentProviderSchema = z.object({

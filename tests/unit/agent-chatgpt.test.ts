@@ -95,7 +95,7 @@ describe('ChatGPT account connection', () => {
 })
 it('discovers provider models and API families without asking for model IDs', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [{ id: 'claude-model' }, { id: 'gpt-model' }, { id: 'kimi-model' }, { id: 'gemini-unsupported' }] })))
-  expect((await discoverAgentModels('opencode', 'fixture-key')).map(m => m.api)).toEqual(['anthropic', 'responses', 'chat'])
+  expect((await discoverAgentModels('anthropic', 'fixture-key')).map(m => m.api)).toEqual(['anthropic', 'anthropic', 'anthropic', 'anthropic'])
 })
 it('uses the public ChatGPT plan contract and namespaces tools while preserving request history', async () => {
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {

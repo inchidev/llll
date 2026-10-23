@@ -81,6 +81,12 @@ export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: stri
     db.prepare('SELECT kind FROM users LIMIT 1').first(),
     db.prepare('SELECT user_id FROM agents LIMIT 1').first(),
   ])
+  // The installer applies additive SQL before uploading code. Defer incompatible
+  // conversation changes until this new Worker is actually serving the database.
+  await db.batch([
+    db.prepare("UPDATE channels SET type='text', visibility='private', created_by=dm_owner_id, name=CASE WHEN name='dm' THEN 'private-chat-'||substr(id,1,8) ELSE name END WHERE type='dm' AND dm_kind='group'"),
+    db.prepare("UPDATE channels SET created_by=(SELECT actor_id FROM audit_log WHERE action='channel.create' AND target_id=channels.id ORDER BY created_at LIMIT 1) WHERE type='text' AND created_by IS NULL"),
+  ])
   migratedDatabases.add(db)
   return true
 }

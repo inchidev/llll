@@ -35,7 +35,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -84,7 +84,7 @@ async function retryRun() {
           <p class="whitespace-pre-wrap break-words">{{ entry.event.message || entry.event.text || entry.event.name }}</p>
         </li></ol>
       </section>
-      <UButton v-if="runQ.data.value?.canCancel && ['failed', 'cancelled'].includes(run.status)" label="Retry run" icon="i-ph-arrow-clockwise" :loading="retrying" @click="retryRun" />
+      <UButton v-if="runQ.data.value?.canRetry && ['failed', 'cancelled'].includes(run.status)" label="Retry run" icon="i-ph-arrow-clockwise" :loading="retrying" @click="retryRun" />
       <UButton v-if="run.hasFiles && can(Permission.useComputer)" label="Download working files" icon="i-ph-download" color="neutral" variant="outline" :loading="downloading" @click="downloadFiles" />
       <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
     </template>

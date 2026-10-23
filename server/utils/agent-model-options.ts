@@ -5,9 +5,9 @@ import type { AgentModelOption } from '../../shared/agent-providers'
 
 /** Search a bounded model page without hydrating every connection or its encrypted credentials. */
 export async function agentModelOptions(env: L4Env, actorId: string, search = '', selected?: string | null) {
-  const name = "COALESCE(json_extract(p.value,'$.name'), CASE substr(p.key,17) WHEN 'anthropic' THEN 'Claude' WHEN 'openrouter' THEN 'OpenRouter' WHEN 'opencode' THEN 'OpenCode' WHEN 'opencode-go' THEN 'OpenCode Go' ELSE substr(p.key,17) END)"
+  const name = "COALESCE(json_extract(p.value,'$.name'), CASE substr(p.key,17) WHEN 'anthropic' THEN 'Claude' WHEN 'openrouter' THEN 'OpenRouter' ELSE substr(p.key,17) END)"
   const projection = `('l4:'||substr(p.key,17)||':'||json_extract(m.value,'$.id')) as value,COALESCE(json_extract(m.value,'$.label'),json_extract(m.value,'$.id')) as label,${name} as provider`
-  const from = `FROM server_settings p,json_each(p.value,'$.models') m WHERE p.key LIKE 'agents.provider.%' AND json_extract(p.value,'$.enabled')=1 AND json_type(p.value,'$.secret')='object' AND (json_extract(p.value,'$.kind') IS NOT 'chatgpt' OR json_extract(p.value,'$.connectedBy')=?)`
+  const from = `FROM server_settings p,json_each(p.value,'$.models') m WHERE p.key LIKE 'agents.provider.%' AND COALESCE(json_extract(p.value,'$.kind'),substr(p.key,17)) IN ('openrouter','anthropic','chatgpt') AND json_extract(p.value,'$.enabled')=1 AND json_type(p.value,'$.secret')='object' AND (json_extract(p.value,'$.kind') IS NOT 'chatgpt' OR json_extract(p.value,'$.connectedBy')=?)`
   const query = async (condition: string, args: unknown[], limit: number, order = `lower(${name}),json_extract(m.value,'$.id')`) => (await env.DB.prepare(`SELECT ${projection} ${from} AND (${condition}) ORDER BY ${order} LIMIT ${limit}`).bind(actorId, ...args).all<AgentModelOption>()).results
   const configuredDefault = await readServerSetting(env.DB, 'agents.defaultModel')
   const defaults = configuredDefault ? await query("('l4:'||substr(p.key,17)||':'||json_extract(m.value,'$.id'))=?", [configuredDefault], 1) : []
@@ -22,5 +22,6 @@ export async function agentModelOptions(env: L4Env, actorId: string, search = ''
     for (const model of workersAiModels) if (!search || `${model.id} ${model.label}`.toLowerCase().includes(search.toLowerCase()) || selected === model.id) models.push({ value: model.id, label: model.label, provider: 'Workers AI' })
   }
   if (deployment && !models.some(m => m.value === deployment) && (!search || deployment.toLowerCase().includes(search.toLowerCase()) || selected === deployment || configuredDefault === deployment)) models.push({ value: deployment, label: deployment, provider: 'Deployment' })
+  if (deployment && selected && !selected.startsWith('l4:') && aiProvider(env) === 'openai-compatible' && !selected.startsWith('@cf/') && !models.some(m => m.value === selected)) models.unshift({ value: selected, label: selected, provider: 'Deployment' })
   return { models, defaultModel: configuredDefault === deployment ? deployment : first?.value ?? deployment, hasMore: rows.length > 50 }
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { agentProviderCatalog, saveAgentProvider } from '../../../../utils/agent-providers'
+import { agentProviderCatalog, importOpenRouterDeployment } from '../../../../utils/agent-providers'
 import { cf, fail } from '../../../../utils/cf'
 import { requireMember } from '../../../../utils/guards'
 import { parseBody } from '../../../../utils/validate'
@@ -10,8 +10,7 @@ export default defineEventHandler(async event => {
   if (!actor.isOwner) fail(403, 'forbidden', 'Only the owner can import credentials')
   const { webSearch } = parseBody(z.object({ webSearch: z.boolean().default(false) }), await readBody(event))
   const { env } = cf(event)
-  if (!(await agentProviderCatalog(env)).canImportOpenRouter) fail(409, 'import_unavailable', 'No OpenRouter deployment credential is available to import')
-  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch, apiKey: env.AI_API_KEY!.trim(), models: [{ id: env.AI_MODEL!.trim(), api: 'chat' }] })
+  await importOpenRouterDeployment(env, webSearch)
   await writeAudit(env, { serverId, actorId: actor.user.id, action: 'agent.provider.import', targetType: 'server', targetId: serverId, meta: { provider: 'openrouter', webSearch } })
   return agentProviderCatalog(env)
 })

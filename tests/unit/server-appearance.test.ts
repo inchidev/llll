@@ -1,6 +1,7 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import type { H3Event } from 'h3'
+import { d1 } from '../helpers/sqlite-d1'
 import { INIT_SQL } from '../../server/utils/db'
 import { getServerId } from '../../shared/server-id'
 import { serverAppearance, serverIconUrl } from '../../shared/server-appearance'
@@ -30,18 +31,7 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllGlobals())
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:'); sqlite.exec(INIT_SQL)
-  db = {
-    exec: async (sql: string) => { sqlite.exec(sql) },
-    prepare(sql: string) {
-      let values: SQLInputValue[] = []
-      const statement = {
-        bind(...args: SQLInputValue[]) { values = args; return statement },
-        async first() { return sqlite.prepare(sql).get(...values) || null },
-        async run() { return sqlite.prepare(sql).run(...values) },
-      }
-      return statement
-    },
-  } as unknown as D1Database
+  db = { ...d1(sqlite), exec: async (sql: string) => { sqlite.exec(sql) } } as D1Database
   id = await getServerId(db)
   sqlite.prepare("INSERT INTO server_settings(key,value,updated_at) VALUES ('initial_name','L4-Four','2026-10-20T00:00:00.000Z')").run()
   files.clear(); getFile.mockClear()

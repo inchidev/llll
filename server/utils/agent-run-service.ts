@@ -1,4 +1,4 @@
-import { agentProviderCatalog } from './agent-providers'
+import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
 import { agentConversationModel } from './agent-conversation-model'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
@@ -118,10 +118,12 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   }
   const catalog = await agentProviderCatalog(env, { actorId: actor.principal.id })
   const selected = await agentConversationModel(env, input.channelId)
-  const model = selected ?? (profile.model || catalog.defaultModel) ?? 'Unconfigured'
-  const modelError = selected && !catalog.models.some(item => item.value === selected)
+  const requested = selected ?? (profile.model || catalog.defaultModel)
+  const resolved = requested ? catalogAgentModel(env, requested, catalog) : null
+  const model = resolved ?? requested ?? 'Unconfigured'
+  const modelError = selected && !resolved
     ? 'The conversation model is disabled; choose another model'
-    : profile.model && !selected && !catalog.models.some(item => item.value === profile.model)
+    : profile.model && !selected && !resolved
       ? 'The agent model is unavailable; choose another model in agent settings'
       : model === 'Unconfigured' ? 'Connect a model provider in Server settings' : null
   if (modelError) {

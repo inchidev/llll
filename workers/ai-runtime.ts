@@ -2,7 +2,7 @@ import { createError } from 'h3'
 import { chatGPTAccessToken } from '../server/utils/agent-chatgpt'
 import { chatGPTFetch } from '../server/utils/chatgpt-transport'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { resolveSavedAgentModel } from '../server/utils/agent-providers'
+import { agentProviderCatalog, catalogAgentModel, resolveSavedAgentModel } from '../server/utils/agent-providers'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModel } from 'ai'
 import { aiProvider, resolveAgentModelId, type L4Env } from './env'
@@ -25,7 +25,12 @@ export function modelForAgent(env: L4Env, profileModel?: string | null): Languag
 }
 
 /** Provider credentials stay on the Server; compute receives only a Run capability. */
-export async function modelForRun(env: L4Env, reference: string, sessionId: string, actorId?: string): Promise<LanguageModel | string> {
+export async function modelForRun(env: L4Env, reference: string, _sessionId: string, actorId?: string): Promise<LanguageModel | string> {
+  if (!reference.startsWith('l4:')) {
+    const resolved = catalogAgentModel(env, reference, await agentProviderCatalog(env, { actorId }))
+    if (!resolved) throw createError({ statusCode: 409, statusMessage: 'The selected model is no longer available' })
+    reference = resolved
+  }
   const saved = await resolveSavedAgentModel(env, reference, actorId)
   if (!saved) {
     if (reference.startsWith('@cf/') && aiProvider(env) === 'openai-compatible') throw createError({ statusCode: 409, statusMessage: 'The selected Workers AI model is unavailable under the current provider configuration' })
@@ -33,19 +38,5 @@ export async function modelForRun(env: L4Env, reference: string, sessionId: stri
   }
   if (saved.id === 'chatgpt') return createOpenAI({ apiKey: await chatGPTAccessToken(env, saved.connectionId, actorId!), fetch: chatGPTFetch }).responses(saved.model.id)
   if (saved.id === 'anthropic') return createAnthropic({ apiKey: saved.apiKey })(saved.model.id)
-  const headers = { 'x-opencode-session': sessionId }
-  // AI SDK adds its own User-Agent after provider headers; identify L4 at the final transport boundary.
-  const providerFetch: typeof fetch = async (input, init) => {
-    const outgoing = new Headers(init?.headers)
-    outgoing.set('User-Agent', 'l4/pi')
-    outgoing.set('x-opencode-session', sessionId)
-    const response = await globalThis.fetch(input, { ...init, headers: outgoing, redirect: 'manual' })
-    if (response.status >= 300 && response.status < 400) { await response.body?.cancel(); throw new Error('The model provider returned an unexpected redirect') }
-    return response
-  }
-  if (saved.id === 'openrouter') return createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: saved.apiKey }).chat(saved.model.id)
-  const base = saved.id === 'opencode-go' ? 'https://opencode.ai/inference/go' : 'https://opencode.ai/inference'
-  if (saved.model.api === 'anthropic') return createAnthropic({ baseURL: `${base}/anthropic/v1`, apiKey: saved.apiKey, fetch: providerFetch, headers: { ...headers, Authorization: `Bearer ${saved.apiKey}` } })(saved.model.id)
-  const provider = createOpenAI({ baseURL: `${base}/openai/v1`, apiKey: saved.apiKey, headers, fetch: providerFetch })
-  return saved.model.api === 'responses' ? provider.responses(saved.model.id) : provider.chat(saved.model.id)
+  return createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: saved.apiKey }).chat(saved.model.id)
 }

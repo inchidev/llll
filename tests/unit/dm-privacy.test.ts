@@ -112,7 +112,7 @@ describe('DM privacy migration', () => {
   })
 })
 
-it('converts a legacy group in place without losing its history, threads, members or recorded creator', () => {
+it('keeps SQL compatible with the old Worker, then converts a legacy group only on new Worker activation', async () => {
   const legacy = new DatabaseSync(':memory:')
   try {
     legacy.exec(INIT_SQL.slice(0, INIT_SQL.indexOf('CREATE TABLE file_objects')))
@@ -122,6 +122,10 @@ it('converts a legacy group in place without losing its history, threads, member
       INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('history','old-group','a','Keep me','2026-01-01');
       INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('old-thread','Thread','thread','private','old-group','history');`)
     legacy.exec(readFileSync(new URL('../../drizzle/server-migrations/0012_server_storage_and_channels.sql', import.meta.url), 'utf8'))
+    expect(legacy.prepare('SELECT type FROM channels WHERE id=?').get('old-group')?.type).toBe('dm')
+    const { ensureMigrated } = await import('../../server/utils/db')
+    const { d1: database } = await import('../helpers/sqlite-d1')
+    await ensureMigrated(database(legacy))
     expect(legacy.prepare('SELECT id,type,visibility,created_by FROM channels WHERE id=?').get('old-group')).toMatchObject({ id: 'old-group', type: 'text', visibility: 'private', created_by: 'a' })
     expect(legacy.prepare('SELECT parent_id FROM channels WHERE id=?').get('old-thread')?.parent_id).toBe('old-group')
     expect(legacy.prepare('SELECT content FROM messages WHERE id=?').get('history')?.content).toBe('Keep me')

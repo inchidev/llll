@@ -208,20 +208,34 @@ it('uses the profile selection before the Server default and fails when that sel
   await expect(createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'disabled-selection' })).rejects.toMatchObject({ statusCode: 409 })
 })
 
+it('preserves a legacy custom deployment model rather than rejecting it or using the default', async () => {
+  Object.assign(env, { AI: undefined, AI_BASE_URL: 'https://inference.example/v1', AI_API_KEY: 'fixture-key', AI_MODEL: 'default-model' })
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('legacy/custom-model', agentId)
+  const run = await createAgentRun(env, (await start())!, input())
+  expect(run.model).toBe('legacy/custom-model')
+})
+
+it('resolves an unambiguous legacy OpenRouter ID to its configured connection', async () => {
+  const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: false, apiKey: 'fixture-key', models: [{ id: 'legacy/model', api: 'chat' }] })
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('legacy/model', agentId)
+  expect((await createAgentRun(env, (await start())!, input())).model).toBe('l4:openrouter:legacy/model')
+})
+
 it('records a readable provider rejection without leaking its raw response or falling back to another model', async () => {
   const { saveAgentProvider } = await import('../../server/utils/agent-providers')
-  await saveAgentProvider(env, 'opencode', { enabled: true, webSearch: false, apiKey: 'private-provider-key', models: [{ id: 'big-pickle', api: 'chat' }] })
-  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('l4:opencode:big-pickle', agentId)
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'FreeTierError', message: 'OpenCode free tier can only be used from within OpenCode. secret-leak-fixture' } }, { status: 403 })))
+  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: false, apiKey: 'private-provider-key', models: [{ id: 'fixture-model', api: 'chat' }] })
+  db.prepare('UPDATE agents SET model=? WHERE user_id=?').run('l4:openrouter:fixture-model', agentId)
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Access denied. secret-leak-fixture' } }, { status: 403 })))
   try {
     const run = await createAgentRun(env, (await start())!, input())
     db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
     const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }] }) }), env, run.id, 'v1/chat/completions', () => {})
     expect(response.status).toBe(502)
-    expect(await response.text()).toContain('OpenCode rejected free-tier access')
+    expect(await response.text()).toContain('The model provider rejected access')
     expect(fetch).toHaveBeenCalledTimes(1)
     const call = db.prepare('SELECT model,status,error FROM agent_model_calls WHERE run_id=?').get(run.id)
-    expect(call).toMatchObject({ model: 'l4:opencode:big-pickle', status: 'failed' })
+    expect(call).toMatchObject({ model: 'l4:openrouter:fixture-model', status: 'failed' })
     expect(JSON.stringify(call)).not.toMatch(/secret-leak-fixture|private-provider-key/u)
   } finally { vi.unstubAllGlobals() }
 })
