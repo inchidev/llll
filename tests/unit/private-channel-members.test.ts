@@ -135,6 +135,15 @@ describe('private channel member management', () => {
     await expect(operation === 'add' ? add() : remove()).rejects.toMatchObject({ statusCode: 404 })
     expect(sqlite.prepare('SELECT user_id FROM channel_members WHERE channel_id=? ORDER BY user_id').all(state.channel)).toEqual([{ user_id: 'other-001' }])
   })
+  it('reports committed removal when connection cleanup fails and allows an idempotent retry', async () => {
+    await add()
+    revalidate.mockRejectedValueOnce(new Error('media unavailable'))
+    await expect(remove()).rejects.toMatchObject({ statusCode: 503, data: { error: { code: 'access_refresh_pending' } } })
+    expect(sqlite.prepare('SELECT user_id FROM channel_members WHERE channel_id=? AND user_id=?').get(state.channel, state.target)).toBeUndefined()
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ revoked: true }), [state.target])
+    await expect(remove()).resolves.toHaveProperty('members')
+    expect(sqlite.prepare("SELECT count(*) AS n FROM audit_log WHERE action='channel.member.remove'").get()).toMatchObject({ n: 1 })
+  })
   it('rejects inactive targets without modifying access', async () => {
     state.body = { userId: 'removed-001' }
     await expect(add()).rejects.toMatchObject({ statusCode: 400 })

@@ -47,6 +47,8 @@ export async function refreshPrivateChannelAccess(env: L4Env, serverId: string, 
   const event = { t: 'channel.access.changed', serverId, channelId: id, conversationIds, revoked: false } as const
   try {
     await Promise.all(conversationIds.map(channelId => asRpc<{ revalidateAccess: () => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${channelId}`)).revalidateAccess()))
+  } catch {
+    fail(503, 'access_refresh_pending', 'Membership changed, but active connections could not all be refreshed. Retry to finish cleanup.')
   } finally {
     // Reflect committed D1 access even when a media provider is unavailable.
     await stub.notifyChannelAccessChanged(event, members.map(member => member.id))
