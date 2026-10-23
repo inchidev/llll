@@ -1,5 +1,5 @@
 FROM node:26.11.1-bookworm-slim AS build
-RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
+RUN npm install --global --ignore-scripts pnpm@10.30.3
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
