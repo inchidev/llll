@@ -18,7 +18,7 @@ services:
       - chown -R 10001:10001 /data
 
   rustfs:
-    image: rustfs/rustfs:1.0.1
+    image: rustfs/rustfs:1.0.3
     depends_on:
       rustfs-perms:
         condition: service_completed_successfully
