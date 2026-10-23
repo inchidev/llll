@@ -1,14 +1,12 @@
-import { DEFAULT_APP_NAME } from '../shared/app-branding'
-import { cloudflareAccountId, cloudflareApiToken } from './cloudflare-rest'
-import { callsProvider, type L4Env } from './env'
+import { getServerId } from '../shared/server-id'
+import { cloudflareApiToken } from './cloudflare-rest'
+import { asRpc, callsProvider, type L4Env } from './env'
+import type { RestRealtimeKitApp } from './realtimekit-rest'
 import {
   addParticipant,
   createMeeting,
-  LLLL_HOST_PRESET,
-  LLLL_PARTICIPANT_PRESET,
   endMeeting,
-  ensureLivePresets,
-  findOrCreateApp,
+  RealtimeKitHttpError,
   loadRealtimeKitConfig,
   realtimekitConfigured,
   removeParticipants,
@@ -46,18 +44,36 @@ function mediaFor(config: Pick<RealtimeKitRuntimeConfig, 'accountId' | 'appId' |
 }
 
 async function restMedia(env: L4Env): Promise<LiveMedia | null> {
-  const accountId = cloudflareAccountId(env)
   const apiToken = cloudflareApiToken(env)
-  if (!accountId || !apiToken) return null
-  const appId = await findOrCreateApp(apiToken, accountId, DEFAULT_APP_NAME)
-  await ensureLivePresets(apiToken, accountId, appId)
-  return mediaFor({
-    accountId,
-    appId,
-    apiToken,
-    hostPreset: LLLL_HOST_PRESET,
-    participantPreset: LLLL_PARTICIPANT_PRESET,
-  })
+  if (!apiToken) return null
+  const server = asRpc<{ restRealtimeKitApp: (failedRevision?: string) => Promise<RestRealtimeKitApp | null> }>(
+    env.SERVER_DO.getByName(`server:${await getServerId(env.DB)}`),
+  )
+  const app = await server.restRealtimeKitApp()
+  if (!app) return null
+  let currentApp = app
+  const token = apiToken
+  const currentMedia = () => mediaFor({ ...currentApp, apiToken: token })
+
+  // Repair only after a definite 404, once. Never replay failed writes on
+  // auth/network/provider errors, or move an existing meeting to another app.
+  async function withRepair<T>(action: (media: LiveMedia) => Promise<T>, existingMeeting = false): Promise<T> {
+    const failedApp = currentApp
+    try { return await action(currentMedia()) }
+    catch (error) {
+      if (!(error instanceof RealtimeKitHttpError) || error.status !== 404) throw error
+      const repaired = await server.restRealtimeKitApp(failedApp.revision)
+      if (!repaired || (existingMeeting && repaired.appId !== failedApp.appId)) throw error
+      currentApp = repaired
+      return action(currentMedia())
+    }
+  }
+  return {
+    createMeeting: title => withRepair(next => next.createMeeting(title)),
+    addParticipant: (meetingId, seat) => withRepair(next => next.addParticipant(meetingId, seat), true),
+    removeParticipants: (meetingId, participantIds) => currentMedia().removeParticipants(meetingId, participantIds),
+    endMeeting: meetingId => currentMedia().endMeeting(meetingId),
+  }
 }
 
 export async function liveMedia(env: L4Env): Promise<LiveMedia | null> {

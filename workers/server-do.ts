@@ -6,11 +6,14 @@ import { sessionFromTicket, socketSessionActive } from './ticket'
 import { sendServerEvent, type ServerSocketAttachment } from './server-events'
 import { serverPresence } from './server-presence'
 import { authorizedSockets } from './socket-access'
+import { RealtimeKitRestProvisioner } from './realtimekit-rest'
 
 const PRESENCE_TICK_MS = 60_000
 
 /** Owns server-wide ephemeral presence and targeted unread signals. D1 remains source of truth. */
 export class ServerDurableObject extends DurableObject<L4Env> {
+  private readonly realtimeKitRest = new RealtimeKitRestProvisioner(this.env)
+
   constructor(ctx: DurableObjectState, env: L4Env) {
     super(ctx, env)
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -64,6 +67,11 @@ export class ServerDurableObject extends DurableObject<L4Env> {
 
   async snapshot(): Promise<Array<{ userId: string; status: PresenceStatus }>> {
     return serverPresence(await this.activeSockets())
+  }
+
+  /** No credential crosses RPC; each room uses its deployment's current token. */
+  async restRealtimeKitApp(failedRevision?: string) {
+    return this.realtimeKitRest.get(failedRevision)
   }
 
   async notifyChannelActivity(event: ServerChannelActivityEvent, recipientIds: string[]): Promise<void> {
