@@ -127,3 +127,21 @@ persistence after a Docker restart, and attachment access revocation after delet
 a Mailbox. It deletes only its random test project's
 volumes and leaves the developer's stack intact. Real Cloudflare domain
 provisioning, sender authentication and external delivery need separate checks.
+# Agent callbacks and corporate proxies
+
+The Compose stack sets `AGENT_CALLBACK_ORIGIN=http://llll:8080` for agent model and tool callbacks inside Docker. `PUBLIC_ORIGIN` remains the address opened in the browser. Override the callback only when the runtime needs a different internal Server address; browser `localhost` points at the runtime container when used there.
+
+If outbound HTTPS uses a proxy with a private CA, install the operator-provided CA in the runtime trust store. Keep TLS verification enabled. For example, mount a complete PEM CA bundle (public roots plus the private CA) in an ignored Compose override:
+
+```yaml
+services:
+  llll:
+    volumes:
+      - /absolute/path/complete-ca-bundle.pem:/etc/ssl/certs/ca-certificates.crt:ro
+    environment:
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      HTTP_PROXY: ${HTTP_PROXY}
+      NO_PROXY: localhost,127.0.0.1,llll,rustfs,gateway
+```
+
+Apply the override when recreating the runtime container; changing a host trust store alone does not update an existing container. This runtime configuration is separate from build-time trust: use the Docker build environment's supported CA mechanism if image downloads also require a private CA. Keep proxy credentials and local overrides out of Git.

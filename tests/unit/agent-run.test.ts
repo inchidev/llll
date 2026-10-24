@@ -251,3 +251,12 @@ it('persists and wakes a failed chat attempt when its selected model becomes una
   expect(wake).toHaveBeenCalledWith(run.id)
   expect(db.prepare('SELECT result_message_id FROM agent_runs WHERE id=?').get(run.id)?.result_message_id).toBeTruthy()
 })
+
+it('persists inference budget denial separately from provider rate limits', async () => {
+  const run = await createAgentRun(env, (await start())!, input())
+  db.prepare("UPDATE agent_runs SET status='running',model_calls=1000 WHERE id=?").run(run.id)
+  const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }] }) }), env, run.id, 'v1/chat/completions', () => {})
+  expect(response.status).toBe(429)
+  expect((await findAgentRun(env, run.id))?.lastError).toContain('Run inference budget exhausted')
+  expect(db.prepare('SELECT count(*) AS count FROM agent_model_calls WHERE run_id=?').get(run.id)).toMatchObject({ count: 0 })
+})
