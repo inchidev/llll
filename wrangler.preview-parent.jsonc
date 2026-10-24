@@ -6,7 +6,7 @@
   "preview_urls": false,
   "routes": [
     {
-      "pattern": "server.dev.llll.gg",
+      "pattern": "server-preview.llll.gg",
       "custom_domain": true,
       "enabled": false,
       "previews_enabled": true
