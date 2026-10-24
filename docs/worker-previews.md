@@ -6,6 +6,8 @@ The official `llll` Worker has a native Preview at `<preview-slug>.dev.llll.gg` 
 
 A Server Preview deploys the one staging Server Worker (`llll-server`) with a **native Worker Preview per PR** via `wrangler preview` (Wrangler ≥ 4.135) inside Workers Builds. The script `scripts/server-preview.mjs` requires the exact head of an open mergeable PR and private Preview secrets; it never creates a per-PR Worker. Developer machines do not run it. Connected Cloudflare tools configure resources and Builds; they never upload code.
 
+The staging Server has its own Workers Builds configuration for the same Git repository. Its PR build runs `pnpm build` and `node scripts/server-preview.mjs` from the repository root with private Preview secrets. The official web Worker retains its separate build configuration. Workers Builds binds each job to its Worker identity, so a web Worker build must not deploy the staging Server. The staging main-branch job performs no application deployment.
+
 Native Preview behavior for the Server Worker:
 
 - **Durable Objects and Containers** are isolated per Preview automatically and deleted with it. Every DO binding declared on the environment is mirrored under `previews.durable_objects.bindings`; a Preview fails with error 1101 otherwise.
