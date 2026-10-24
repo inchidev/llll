@@ -9,12 +9,15 @@ import { writeAudit } from './messages'
 
 const valueSchema = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
 export const createRecordSchema = z.object({ title: z.string().trim().min(1).max(500).default('Untitled'), values: z.record(z.string(), valueSchema).default({}) })
+export const readRecordsSchema = z.object({ databaseId: z.string().min(1), page: z.number().int().positive().default(1), pageSize: z.number().int().min(1).max(100).default(50), search: z.string().max(200).default(''), viewId: z.string().min(1).optional() })
 export const updateRecordSchema = z.object({ title: z.string().trim().min(1).max(500).optional(), values: z.record(z.string(), valueSchema).optional(), version: z.number().int().positive() }).refine(body => body.title !== undefined || body.values !== undefined, 'No changes')
 
-export async function readRecords(env: L4Env, authorization: AuthorizationContext, databaseId: string, page = 1) {
+export async function readRecords(env: L4Env, authorization: AuthorizationContext, databaseId: string, page = 1, options: { pageSize?: number, search?: string, viewId?: string } = {}) {
   authorize(authorization, ServerAction.readRecords)
   authorizeResource(authorization, 'databases', databaseId)
-  return loadDatabasePage(env, databaseId, { page, pageSize: 50, search: '' })
+  const input = readRecordsSchema.parse({ databaseId, page, ...options })
+  const data = await loadDatabasePage(env, databaseId, { ...input, viewId: input.viewId ?? null })
+  return { ...data, view: input.viewId ? data.view : null, nextPage: input.page * input.pageSize < data.total ? input.page + 1 : null }
 }
 
 export async function createRecord(env: L4Env, authorization: AuthorizationContext, databaseId: string, input: z.input<typeof createRecordSchema>) {

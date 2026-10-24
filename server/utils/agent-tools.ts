@@ -14,7 +14,7 @@ import type { L4Env } from '../../workers/env'
 import { newId } from '../../shared/ids'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 import { createDocument, getDocument, listAuthorizedDataResources, updateDocument } from './document-service'
-import { createRecord, createRecordSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
+import { createRecord, createRecordSchema, readRecordsSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
 import { readBrowserMarkdown } from '../../workers/agent-browser'
 import { fail } from './cf'
 
@@ -51,8 +51,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     'Create a document when your resource scope permits new documents.', async input => ({ document: await createDocument(env, authorization, input) }))
   add('update_document', ServerAction.writeDocuments, z.object({ documentId: z.string().min(1), title: z.string().min(1).max(160).optional(), content: z.string().max(100000).optional(), version: z.number().int().positive() }),
     'Update an authorized document using its current version.', async ({ documentId, ...input }) => ({ document: await updateDocument(env, authorization, documentId, input) }))
-  add('read_records', ServerAction.readRecords, z.object({ databaseId: z.string().min(1), page: z.number().int().min(1).default(1) }),
-    'Read authorized table fields and a page of records. Fields are identified by semantic IDs.', async ({ databaseId, page }) => readRecords(env, authorization, databaseId, page))
+  add('read_records', ServerAction.readRecords, readRecordsSchema,
+    'Read authorized table fields and records without saved view filters by default. Supply viewId to apply a saved view, or search/pageSize to page results. Fields use semantic IDs.', async ({ databaseId, page, ...options }) => readRecords(env, authorization, databaseId, page, options))
   add('create_record', ServerAction.writeRecords, createRecordSchema.extend({ databaseId: z.string().min(1) }),
     'Create a record in an authorized table. This cannot change table structure.', async ({ databaseId, ...input }) => ({ item: await createRecord(env, authorization, databaseId, input) }))
   add('update_record', ServerAction.writeRecords, updateRecordSchema.safeExtend({ recordId: z.string().min(1) }),

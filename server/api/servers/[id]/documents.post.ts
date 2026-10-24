@@ -5,7 +5,7 @@ import { createDocument } from '../../../utils/document-service'
 import { requireMember } from '../../../utils/guards'
 import { parseBody } from '../../../utils/validate'
 
-const bodySchema = z.object({ title: z.string().trim().min(1).max(160) })
+const bodySchema = z.object({ title: z.string().trim().min(1).max(160).optional() })
 
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
