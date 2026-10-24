@@ -29,9 +29,11 @@ export async function deliverAgentRun(env: L4Env, run: AgentRun, publish: () => 
       const task = await getTask(env, auth, run.taskId!)
       const eligible = task?.assigneeId === run.agentId && !task.archivedAt
       const result = eligible ? await env.DB.prepare(`UPDATE tasks SET status=?,result_summary=?,result_details=?,last_error=?,updated_at=?
-        WHERE id=? AND assignee_id=? AND archived_at IS NULL AND updated_at<=? AND status NOT IN ('done','review')`)
+        WHERE id=? AND assignee_id=? AND archived_at IS NULL
+        AND (updated_at<=? OR updated_at=(SELECT task_edit_at FROM agent_runs WHERE id=?))
+        AND status NOT IN ('done','review')`)
         .bind(run.status === 'completed' ? 'review' : 'failed', run.resultText?.slice(0, 500) ?? null,
-          run.resultText, run.lastError, nowIso(), run.taskId, run.agentId, run.createdAt).run() : null
+          run.resultText, run.lastError, nowIso(), run.taskId, run.agentId, run.createdAt, run.id).run() : null
       const changed = Boolean(result?.meta.changes)
       await env.DB.prepare('UPDATE agent_run_deliveries SET task_status=?,task_error=?,updated_at=? WHERE run_id=?')
         .bind(changed ? 'complete' : 'skipped', changed ? null : 'The task changed after this Run started; its current state was preserved.', nowIso(), run.id).run()
