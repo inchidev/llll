@@ -250,7 +250,7 @@
     "drizzle-kit": "^0.31.10",
     "esbuild": "0.25.9",
     "eslint": "^10.9.1",
-    "happy-dom": "^20.13.1",
+    "happy-dom": "^21.0.4",
     "miniflare": "5.20260926.0-alpha",
     "nitropack": "2.13.4",
     "tailwindcss": "^4.3.3",
