@@ -1,0 +1,15 @@
+{
+  "name": "llll-server",
+  "main": "workers/preview-parent.ts",
+  "compatibility_date": "2026-10-16",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "server.dev.llll.gg",
+      "custom_domain": true,
+      "enabled": false,
+      "previews_enabled": true
+    }
+  ]
+}

@@ -164,6 +164,9 @@ function wrangler(args) {
   }
   return r.stdout
 }
+// Custom-domain Previews require a deployed parent. Its only code is a 404,
+// with base routing disabled and no data bindings; PR state stays in Previews.
+wrangler(['deploy', '--config', resolve(root, 'wrangler.preview-parent.jsonc')])
 wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', file])
 const output = wrangler([
   'preview',
