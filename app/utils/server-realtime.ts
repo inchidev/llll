@@ -3,9 +3,9 @@ import type { ChannelDTO, SidebarThreadDTO } from '~~/shared/types'
 import type { ServerRealtimeEvent } from '~~/shared/server-realtime'
 
 type ChannelList = { channels: ChannelDTO[], threads?: SidebarThreadDTO[] }
-type ServerQueryCache = Pick<QueryClient, 'getQueryData' | 'setQueryData' | 'setQueriesData' | 'invalidateQueries' | 'removeQueries'>
+type ServerQueryCache = Pick<QueryClient, 'getQueriesData' | 'getQueryData' | 'setQueryData' | 'setQueriesData' | 'invalidateQueries' | 'removeQueries'>
 
-function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean, increment = false) {
+function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean, increment = false, at?: string) {
   let found = false
   const update = (old: ChannelList | undefined) => {
     if (!old?.channels.some(channel => channel.id === channelId)) return old
@@ -16,6 +16,7 @@ function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean
         ? {
             ...channel,
             unread,
+            ...(at && (!channel.lastMessageAt || at > channel.lastMessageAt) ? { lastMessageAt: at } : {}),
             unreadCount: unread ? (increment ? (channel.unreadCount ?? 0) + 1 : channel.unreadCount) : 0,
           }
         : channel),
@@ -24,6 +25,15 @@ function applyUnread(cache: ServerQueryCache, channelId: string, unread: boolean
   cache.setQueriesData<ChannelList>({ queryKey: ['channels'] }, update)
   cache.setQueriesData<ChannelList>({ queryKey: ['dms'] }, update)
   if (!found) {
+    void cache.invalidateQueries({ queryKey: ['channels'] })
+    void cache.invalidateQueries({ queryKey: ['dms'] })
+  }
+}
+
+/** A boolean read acknowledgement cannot describe the remaining partial count. */
+export function applyChannelReadAck(cache: ServerQueryCache, channelId: string, unread: boolean) {
+  applyUnread(cache, channelId, unread)
+  if (unread) {
     void cache.invalidateQueries({ queryKey: ['channels'] })
     void cache.invalidateQueries({ queryKey: ['dms'] })
   }
@@ -119,15 +129,25 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
   const inThread = event.sourceChannelId !== event.rootChannelId
   if (event.t === 'channel.activity') {
     if (!readCursor || readCursor < event.messageId) {
-      applyUnread(cache, event.rootChannelId, true, true)
-      // Only threads the member has opened count as unread; the channel already shows the activity.
-      if (inThread) applyThreadActivity(cache, event.sourceChannelId, event.rootChannelId, { unread: 'if-opened', increment: true, at: new Date().toISOString() })
+      // UUIDv7 carries the persisted message time; delayed events must not bump activity to now.
+      const at = /^[0-9a-f]{8}-[0-9a-f]{4}-7/i.test(event.messageId)
+        ? new Date(Number.parseInt(event.messageId.slice(0, 13).replace('-', ''), 16)).toISOString()
+        : undefined
+      // The sidebar is bounded, so an absent thread needs an authoritative refresh.
+      const lists = [...cache.getQueriesData<ChannelList>({ queryKey: ['channels'] }), ...cache.getQueriesData<ChannelList>({ queryKey: ['dms'] })]
+      const opened = Boolean(readCursor) || lists.some(([, list]) => list?.threads?.some(thread => thread.id === event.sourceChannelId && thread.opened))
+      if (!inThread || opened) applyUnread(cache, event.rootChannelId, true, true, at)
+      if (inThread) applyThreadActivity(cache, event.sourceChannelId, event.rootChannelId, { unread: 'if-opened', increment: true, at })
+      if (inThread && !opened) {
+        void cache.invalidateQueries({ queryKey: ['channels'] })
+        void cache.invalidateQueries({ queryKey: ['dms'] })
+      }
     }
     return
   }
   if (!readCursor || readCursor < event.messageId) {
     cache.setQueryData(['readCursor', event.sourceChannelId], event.messageId)
   }
-  applyUnread(cache, event.rootChannelId, event.unread)
+  applyChannelReadAck(cache, event.rootChannelId, event.unread)
   if (inThread) applyThreadActivity(cache, event.sourceChannelId, event.rootChannelId, { unread: false })
 }
