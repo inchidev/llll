@@ -6,7 +6,7 @@ vi.mock('../../workers/live-media', () => ({ liveMedia: async () => ({ removePar
 vi.mock('../../workers/live-events', () => ({ signalLiveChanged: mocks.signal }))
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 function room(participants: string[]) {
-  vi.stubGlobal('WebSocketRequestResponsePair', class {})
+  vi.stubGlobal('WebSocketRequestResponsePair', class { request = 'ping' })
   const data = new Map<string, unknown>([
     ['live', { active: true, meetingId: 'private-meeting', participantIds: participants, kind: 'live', startedBy: 'member', startedAt: '2026-10-24', ringing: false }],
     ['liveSeats', participants.length ? { member: { participantId: 'seat' } } : {}], ['livePresence', { member: Date.now() }], ['liveCleanupAt', 1234],
