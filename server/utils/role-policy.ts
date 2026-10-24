@@ -34,6 +34,14 @@ export function assertRoleAssignable(actor: Membership, role: RoleRow) {
   assertResourceGrantScope(actor, parseResourceAccess(role.resourceAccessJson))
 }
 
+/** Check the existing role as well as any replacement: downgrades also need authority. */
+export function assertRoleManageable(actor: Membership, role: RoleRow) {
+  if (actor.isOwner) return
+  if (role.key === 'owner' || role.key === 'admin') fail(403, 'forbidden', 'Only the owner can manage this role or its members')
+  assertGrantScope(actor, role.permissionsBitmask)
+  assertResourceGrantScope(actor, parseResourceAccess(role.resourceAccessJson))
+}
+
 export function assertResourceGrantScope(actor: Membership, access: ResourceAccess) {
   if (!actor.isOwner && !resourceAccessWithin(access, actor.authorization.principal.resourceAccess)) {
     fail(403, 'forbidden', 'Cannot grant access to resources outside your own role')
