@@ -29,7 +29,7 @@ const groups = computed(() => [
       <div class="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
         <h2 class="text-xl font-semibold text-highlighted">{{ filterLabel }}</h2>
         <p class="mt-1 text-sm text-muted">Catch up on channels, replies and messages in this Server.</p>
-        <LayoutLoadError v-if="error" class="mt-6" :message="loadError" :retry="retryFailed" />
+        <LayoutLoadError v-if="error" inline class="mt-6" :message="loadError" :retry="retryFailed" />
         <LayoutSkeleton v-if="pending && !unreadConversations.length" variant="nav" class="mt-6" :rows="5" />
         <LayoutEmptyState v-else-if="!pending && !error && !unreadConversations.length" icon="i-ph-check-circle" title="You're all caught up" description="New unread conversations will appear here.">
           <UButton to="/channels" color="neutral" variant="outline" label="Browse channels" />
