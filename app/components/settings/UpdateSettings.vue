@@ -116,8 +116,8 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
         <UAlert v-if="progressQ.error.value && active" color="warning" title="Waiting for the Server" description="The update may still be running. Open llll.gg to check its progress before starting another update." />
         <div class="flex flex-wrap gap-2">
           <UButton v-if="needsDownload && job.stage === 'queued'" label="Download backup" icon="i-ph-download" :loading="downloading" @click="downloadUpdateBackup" />
-          <UButton v-if="!needsDownload && launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
-          <UButton v-if="canResume && launchUrl" :to="launchUrl" external color="neutral" variant="outline" label="Open the official installer" />
+          <UButton v-if="!needsDownload && launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external target="_blank" rel="noopener" :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
+          <UButton v-if="canResume && launchUrl" :to="launchUrl" external target="_blank" rel="noopener" color="neutral" variant="outline" label="Open the official installer" />
           <UButton v-if="job.stage === 'queued'" label="Cancel request" color="neutral" variant="ghost" :disabled="busy" @click="resume(true)" />
           <UButton v-if="job.stage === 'complete' && $pwa?.waiting.value" label="Update Client" data-client-update-action :loading="$pwa.updating.value" @click="$pwa.update()" />
         </div>

@@ -25,7 +25,7 @@ const shell = {
   frameSrc: () => 'about:blank', initialize, forget,
   refreshMetadata: vi.fn(async () => {}),
   resolveServer: vi.fn(async () => { selected.value = origin }),
-  open: vi.fn(),
+  open: vi.fn(), connect: vi.fn(async () => ({ id })),
 }
 let view: ReturnType<typeof mount> | undefined
 function go(path: string) {
@@ -41,6 +41,8 @@ const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: 
 
 beforeEach(() => {
   go('/' + id)
+  route.query = {}
+  shell.connect.mockClear()
   servers.value = [{ id, origin, name: 'Fixture community', unread: 3 }]
   selected.value = origin; loaded.value = [origin]; error.value = ''
   forget.mockReset().mockImplementation(() => { servers.value = [] })
@@ -146,4 +148,32 @@ it('recognizes a fresh /servers/ route as Shell and sets its browser title', () 
   expect(view.get('article').isVisible()).toBe(false)
   const head = headConfig.mock.calls[0]![0]
   expect(head.title.value).toBe('My servers · L4')
+})
+
+it.each([
+  { tab: 'cloudflare', server: origin, account: 'a'.repeat(32), worker: 'llll-server', update: 'update-job' },
+  { tab: 'cloudflare', server: origin, storage: '1' },
+  { server: origin, resume: 'update' },
+])('keeps installer handoffs on /create on mount and history navigation: %j', async query => {
+  go('/create/')
+  route.query = query
+  route.fullPath = '/create/?' + new URLSearchParams(query).toString()
+  view = mount(Shell, { global: { stubs } })
+  await flushPromises()
+  expect(view.get('h1').text()).toBe('Add a server')
+  expect(shell.connect).not.toHaveBeenCalled()
+  go('/servers')
+  await flushPromises()
+  go('/create')
+  route.fullPath += '?' + new URLSearchParams(query).toString()
+  await flushPromises()
+  expect(view.get('h1').text()).toBe('Add a server')
+  expect(shell.connect).not.toHaveBeenCalled()
+})
+it('still connects a plain Server handoff after installation', async () => {
+  go('/create')
+  route.query = { server: origin }
+  view = mount(Shell, { global: { stubs } })
+  await flushPromises()
+  expect(shell.connect).toHaveBeenCalledWith(origin, undefined)
 })

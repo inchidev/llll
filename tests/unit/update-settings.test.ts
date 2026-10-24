@@ -42,6 +42,9 @@ it('selects only newer numeric versions, explicitly includes prereleases, and st
   expect(requests[0]![1]?.body).toMatchObject({ release: 'v0.2.2', prereleases: true })
   expect(String(requests[0]![1]?.body?.requestId)).toMatch(/^[a-f0-9-]{36}$/)
   expect(v.text()).toContain('Waiting to start')
+  const installer = v.findAll('button').find(b => b.text() === 'Continue on llll.gg')!
+  expect(installer.attributes('target')).toBe('_blank')
+  expect(installer.attributes('rel')).toBe('noopener')
   expect(v.get('select').attributes('disabled')).toBeDefined()
   expect(v.get('[data-update-blocked]').attributes('data-update-blocked')).toBe('true')
   v.unmount()
