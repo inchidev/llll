@@ -82,3 +82,14 @@ it('redacts upstream failures and does not retry or pick a second model', async 
   expect(audit).not.toContain('Bearer secret')
   expect(audit).not.toContain('private-request')
 })
+it('classifies credential resolution failures before starting inference', async () => {
+  await saveAgentProvider(env, 'named', config)
+  await saveAiFunction(env, authorization, 'apps.assist', { model: 'l4:named:first' })
+  env.AUTH_SECRET = 'different-fixture-secret-longer-than-32-characters'
+  await expect(inferAiFunction(env, authorization, 'apps.assist', '', 'private-request')).rejects.toMatchObject({ statusCode: 502 })
+  expect(streamText).not.toHaveBeenCalled()
+  const audit = JSON.stringify(sqlite.prepare('SELECT * FROM audit_log').all())
+  expect(audit).toContain('failed')
+  expect(audit).not.toContain('private-request')
+  expect(audit).not.toContain(config.apiKey)
+})

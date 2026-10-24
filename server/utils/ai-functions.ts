@@ -1,5 +1,4 @@
 import { streamText } from 'ai'
-import { createWorkersAI } from 'workers-ai-provider'
 import { aiFunctions, aiFunctionConfigSchema, type AiFunctionId, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
 import { parseAgentModelRef } from '../../shared/agent-providers'
 import { readServerSetting } from '../../shared/server-settings'
@@ -75,12 +74,11 @@ export async function inferAiFunction(env: L4Env, authorization: AuthorizationCo
   const reference = await resolveAiFunction(env, id, authorization.principal.id)
   const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ai-function:${authorization.principal.id}`))
   if (!await limiter.take(20, 60_000)) fail(429, 'rate_limited', 'Too many AI requests. Try again in a minute.')
-  const resolved = await modelForRun(env, reference, '', authorization.principal.id)
-  const model = typeof resolved === 'string' && env.AI ? createWorkersAI({ binding: env.AI })(resolved) : resolved
-  if (typeof model === 'string') fail(503, 'ai_unavailable', 'The selected model provider is unavailable')
   const definition = aiFunctions.find(definition => definition.id === id)!
   let providerFailure: unknown
   try {
+    const model = await modelForRun(env, reference, '', authorization.principal.id)
+    if (typeof model === 'string') fail(503, 'ai_unavailable', 'The selected named model provider is unavailable')
     const response = streamText({ model, instructions, prompt, maxOutputTokens: definition.maxOutputTokens,
       abortSignal: AbortSignal.timeout(30000), maxRetries: 0,
       onError: ({ error }) => { providerFailure = error },
