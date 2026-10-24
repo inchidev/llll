@@ -1,0 +1,99 @@
+import { streamText } from 'ai'
+import { createWorkersAI } from 'workers-ai-provider'
+import { aiFunctions, aiFunctionConfigSchema, type AiFunctionId, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
+import { parseAgentModelRef } from '../../shared/agent-providers'
+import { readServerSetting } from '../../shared/server-settings'
+import { modelForRun } from '../../workers/ai-runtime'
+import type { L4Env } from '../../workers/env'
+import type { AuthorizationContext } from '../../shared/authorization'
+import { agentProviderCatalog, loadAgentProvider } from './agent-providers'
+import { asRpc, fail } from './cf'
+import { auditStatement, writeAudit } from './messages'
+import { inferenceFailure } from './agent-inference-errors'
+
+export const aiFunctionKey = (id: AiFunctionId) => `ai.function.${id}`
+export async function aiFunctionConfig(env: L4Env, id: AiFunctionId): Promise<AiFunctionConfig> {
+  const raw = await readServerSetting(env.DB, aiFunctionKey(id))
+  if (!raw) return { model: null }
+  try { return aiFunctionConfigSchema.parse(JSON.parse(raw)) }
+  catch { fail(409, 'ai_function_invalid', 'This AI function has an invalid configuration. Choose its model again in Providers.') }
+}
+
+/** Function choices are independent of Agent profiles and the Server default. */
+export async function aiFunctionCatalog(env: L4Env, actorId: string) {
+  const catalog = await agentProviderCatalog(env, { actorId, requireTools: false })
+  const functions: AiFunctionDTO[] = await Promise.all(aiFunctions.map(async definition => {
+    let config: AiFunctionConfig
+    try { config = await aiFunctionConfig(env, definition.id) }
+    catch { return { ...definition, model: null, available: false, invalid: true } }
+    const selected = parseAgentModelRef(config.model ?? '')
+    const provider = selected && catalog.providers.find(provider => provider.id === selected.provider)
+    const available = Boolean(provider?.configured && provider.enabled && provider.models.some(model => model.id === selected!.model)
+      && (definition.id !== 'web.search' || (provider.kind === 'openrouter' && provider.webSearch)))
+    return { ...definition, ...config, available }
+  }))
+  return { functions, models: catalog.models.map(model => ({ ...model, webSearch: catalog.providers.some(provider => provider.id === parseAgentModelRef(model.value)?.provider && provider.kind === 'openrouter' && provider.webSearch) })) }
+}
+
+export async function saveAiFunction(env: L4Env, authorization: AuthorizationContext, id: AiFunctionId, config: AiFunctionConfig) {
+  if (!authorization.principal.isOwner) fail(403, 'forbidden', 'Only the owner can assign models to AI functions')
+  if (config.model) {
+    if (!parseAgentModelRef(config.model)) fail(400, 'model_unavailable', 'Choose a named provider connection and model')
+    const catalog = await aiFunctionCatalog(env, authorization.principal.id)
+    if (!catalog.models.some(model => model.value === config.model)) fail(400, 'model_unavailable', 'Choose an available model')
+    if (id === 'web.search') {
+      const provider = catalog.models.find(model => model.value === config.model)
+      const parsed = parseAgentModelRef(provider!.value)!
+      const connection = (await agentProviderCatalog(env, { actorId: authorization.principal.id, requireTools: false })).providers.find(provider => provider.id === parsed.provider)
+      if (connection?.kind !== 'openrouter' || !connection.webSearch) fail(400, 'search_unavailable', 'Choose an OpenRouter connection with web search enabled')
+    }
+  }
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at')
+      .bind(aiFunctionKey(id), JSON.stringify(config), new Date().toISOString()),
+    await auditStatement(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.configure', targetType: 'ai_function', targetId: id, meta: config, authorization }),
+  ])
+}
+
+export async function resolveAiFunction(env: L4Env, id: AiFunctionId, actorId: string): Promise<string> {
+  const config = await aiFunctionConfig(env, id)
+  const definition = aiFunctions.find(definition => definition.id === id)!
+  if (!config.model) fail(409, 'ai_function_unconfigured', `Choose a model for ${definition.label} in Settings → Agents → Providers`)
+  const selected = parseAgentModelRef(config.model)
+  const provider = selected ? await loadAgentProvider(env, selected.provider) : null
+  if (!selected || !provider?.enabled || !provider.secret || !provider.models.some(model => model.id === selected.model)
+    || (provider.kind === 'chatgpt' && provider.connectedBy !== actorId)
+    || (id === 'web.search' && (provider.kind !== 'openrouter' || !provider.webSearch))) {
+    fail(409, 'ai_function_unavailable', `${definition.label} uses an unavailable connection or model. Update its assignment in Providers.`)
+  }
+  return config.model
+}
+
+/** One bounded, tool-free call; models cannot read resources or perform actions. */
+export async function inferAiFunction(env: L4Env, authorization: AuthorizationContext, id: AiFunctionId, instructions: string, prompt: string): Promise<string> {
+  if (new TextEncoder().encode(prompt).byteLength > 64000) fail(413, 'ai_context_too_large', 'This AI request has too much context. Reduce the number of sources or shorten the request.')
+  const reference = await resolveAiFunction(env, id, authorization.principal.id)
+  const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ai-function:${authorization.principal.id}`))
+  if (!await limiter.take(20, 60_000)) fail(429, 'rate_limited', 'Too many AI requests. Try again in a minute.')
+  const resolved = await modelForRun(env, reference, '', authorization.principal.id)
+  const model = typeof resolved === 'string' && env.AI ? createWorkersAI({ binding: env.AI })(resolved) : resolved
+  if (typeof model === 'string') fail(503, 'ai_unavailable', 'The selected model provider is unavailable')
+  const definition = aiFunctions.find(definition => definition.id === id)!
+  let providerFailure: unknown
+  try {
+    const response = streamText({ model, instructions, prompt, maxOutputTokens: definition.maxOutputTokens,
+      abortSignal: AbortSignal.timeout(30000), maxRetries: 0,
+      onError: ({ error }) => { providerFailure = error },
+    })
+    const text = await response.text
+    if (providerFailure) throw providerFailure
+    if (text.length > 24000) throw new Error('Model output too large')
+    const usage = await response.totalUsage
+    await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: id, meta: { model: reference, status: 'completed', totalTokens: usage.totalTokens ?? null }, authorization })
+    return text
+  } catch (error) {
+    const message = inferenceFailure(providerFailure ?? error)
+    await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: id, meta: { model: reference, status: 'failed', error: message }, authorization })
+    fail(502, 'ai_function_failed', message)
+  }
+}

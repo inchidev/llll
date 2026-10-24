@@ -89,7 +89,7 @@ export async function createGadget(
   input: { name: string; description?: string; spec?: GadgetSpec; roleIds?: string[] },
 ): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
-  const spec = await validateGadgetSpec(env, input.spec ?? emptyGadgetSpec())
+  const spec = await validateGadgetSpec(env, input.spec ?? emptyGadgetSpec(), { authorization: actor.authorization })
   const roleIds = await validateRoleIds(env, input.roleIds ?? [])
   const duplicate = await env.DB.prepare('SELECT id FROM gadgets WHERE lower(name) = lower(?) LIMIT 1').bind(input.name).first()
   if (duplicate) fail(409, 'duplicate_name', 'An App with this name already exists')
@@ -117,7 +117,7 @@ export async function updateGadget(
   if (input.name && await env.DB.prepare('SELECT id FROM gadgets WHERE id <> ? AND lower(name) = lower(?) LIMIT 1').bind(id, input.name).first()) {
     fail(409, 'duplicate_name', 'An App with this name already exists')
   }
-  const spec = input.spec ? await validateGadgetSpec(env, input.spec) : parseGadgetSpec(JSON.parse(current.draftSpecJson))
+  const spec = await validateGadgetSpec(env, input.spec ?? JSON.parse(current.draftSpecJson), { authorization: actor.authorization })
   const roleIds = input.roleIds ? await validateRoleIds(env, input.roleIds) : null
   const updated = await env.DB.prepare(
     `UPDATE gadgets SET name = ?, description = ?, draft_spec_json = ?, draft_revision = draft_revision + 1, updated_at = ?
@@ -133,7 +133,7 @@ export async function publishGadget(env: L4Env, actor: Membership, id: string, r
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
   const current = await requireGadget(env, id)
   if (current.draftRevision !== revision) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')
-  const spec = await validateGadgetSpec(env, JSON.parse(current.draftSpecJson), { publish: true })
+  const spec = await validateGadgetSpec(env, JSON.parse(current.draftSpecJson), { publish: true, authorization: actor.authorization })
   const version = (current.publishedVersion ?? 0) + 1
   const versionId = newId()
   const now = nowIso()

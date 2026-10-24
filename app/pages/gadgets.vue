@@ -16,8 +16,12 @@ const route = useRoute()
 const nav = useNavActions()
 const qc = useQueryClient()
 const toast = useToast()
-const session = useSessionStore()
-const workersAi = computed(() => !session.health || session.health.aiProvider === 'workers-ai')
+const functionsQ = useQuery({
+  queryKey: computed(() => ['ai-functions', serverId.value]),
+  queryFn: () => api<{ functions: Array<{ id: string; available: boolean }> }>(`/api/servers/${serverId.value}/ai-functions`),
+  enabled: computed(() => Boolean(serverId.value)),
+})
+const canGenerate = computed(() => Boolean(functionsQ.data.value?.functions.find(item => item.id === 'apps.assist')?.available))
 
 const gadgetsQ = useQuery({
   queryKey: computed(() => ['gadgets', serverId.value]),
@@ -74,7 +78,7 @@ async function createGadget(event: FormSubmitEvent<CreateSchema>) {
       body: {
         name: event.data.name,
         description: event.data.description,
-        prompt: workersAi.value ? (event.data.prompt || undefined) : undefined,
+        prompt: event.data.prompt || undefined,
       },
     })
     nav.createGadgetOpen.value = false
@@ -540,11 +544,11 @@ function roleAccessLabel(role: RoleDTO) {
           <UFormField name="description" label="Description"><UInput v-model="createState.description" class="w-full" /></UFormField>
           <UFormField
             name="prompt"
-            label="Generate with Jev"
-            :hint="workersAi ? 'Optional' : 'Needs Workers AI'"
-            :description="workersAi ? undefined : 'Jev uses Workers AI and is unavailable on this server. Create the app directly instead.'"
+            label="Help with Apps"
+            :hint="canGenerate ? 'Optional' : 'Choose a model'"
+            :description="canGenerate ? 'Only available Database View names and visible Field names are sent to the selected model.' : 'Ask the Server owner to assign a model to Help with Apps in Settings → Agents → Providers, or create the App directly.'"
           >
-            <UTextarea v-model="createState.prompt" :disabled="!workersAi" class="w-full" autoresize :rows="3" placeholder="Build a sales overview from Leads and Companies" />
+            <UTextarea v-model="createState.prompt" :disabled="!canGenerate" class="w-full" autoresize :rows="3" placeholder="Build a sales overview from Leads and Companies" />
           </UFormField>
         </UForm>
       </template>

@@ -28,7 +28,7 @@ export class L4Agent extends Agent<L4Env> {
         if (await run.steer(input.messageId, input.content, input.authorId)) return active.id
       }
     }
-    const target = await ensureAgentReplyTarget(this.env.DB, input.channelId, input.messageId)
+    const target = await ensureAgentReplyTarget(this.env.DB, input.channelId, input.messageId, { env: this.env, authorization: actor, schedule: promise => this.ctx.waitUntil(promise) })
     if (target.parentChannelId && target.parentMessageId) {
       const parent = this.env.CHANNEL_DO.getByName(`channel:${target.parentChannelId}`) as DurableObjectStub & { fanout: (event: unknown) => Promise<void> }
       await parent.fanout({ t: 'thread.created', messageId: target.parentMessageId, threadId: target.channelId })

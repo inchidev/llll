@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
     return [{
       id: row.id,
       parentMessageId: row.parentMessageId,
-      title: await messageThreadTitle(env.DB, root.content, root.attachments.map(attachment => attachment.filename)),
+      title: await messageThreadTitle(env.DB, row.name || root.content, root.attachments.map(attachment => attachment.filename)),
       author: root.author,
       replyCount: Number(replies?.replyCount ?? 0),
       lastReplyAt: replies?.lastReplyAt ?? null,

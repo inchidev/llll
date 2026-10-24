@@ -175,14 +175,16 @@ it('streams provider text before generation completes instead of buffering the r
 
 it('keeps web search role-gated and accounts its bounded OpenRouter call in the Run budget', async () => {
   const { saveAgentProvider } = await import('../../server/utils/agent-providers')
-  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: true, apiKey: 'search-key', models: [{ id: 'fixture', api: 'chat' }] })
+  await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: true, apiKey: 'search-key', models: [{ id: 'not-selected', api: 'chat' }, { id: 'fixture', api: 'chat' }] })
+  const { writeServerSetting } = await import('../../shared/server-settings')
+  await writeServerSetting(env.DB, 'ai.function.web.search', JSON.stringify({ model: 'l4:openrouter:fixture' }))
   const denied = await createAgentRun(env, (await start())!, input())
   expect(agentTools(env, await runAuthorization(env, denied), () => {}, denied).descriptors.map(t => t.name)).not.toContain('search_web')
   db.prepare("UPDATE roles SET permissions_bitmask=permissions_bitmask|? WHERE id='agent-role'").run(Permission.browseWeb)
   const run = await createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'web-authorized-run' })
   db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
   const network = vi.fn(async (_url: unknown, init: RequestInit) => {
-    expect(JSON.parse(String(init.body))).toMatchObject({ plugins: [{ id: 'web', engine: 'exa', max_results: 3 }] })
+    expect(JSON.parse(String(init.body))).toMatchObject({ model: 'fixture', plugins: [{ id: 'web', engine: 'exa', max_results: 3 }] })
     return Response.json({ choices: [{ message: { content: 'Verified source', annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.com/source', title: 'Source' } }] } }], usage: { total_tokens: 42 } })
   })
   vi.stubGlobal('fetch', network)
