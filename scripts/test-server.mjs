@@ -10,6 +10,7 @@ import { testMcpMessages } from './test-mcp-messages.mjs'
 import { testRoleManagement } from './test-role-management.mjs'
 import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 import { testInbox } from './test-inbox.mjs'
+import { testAgentBudget } from './test-agent-budget.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -319,6 +320,7 @@ try {
     method: 'POST',
     body: {},
   })
+  await testAgentBudget({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   await testRoleManagement({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })

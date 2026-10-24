@@ -191,7 +191,7 @@ it('keeps web search role-gated and accounts its bounded OpenRouter call in the 
     expect(result).toMatchObject({ sources: [{ url: 'https://example.com/source' }] })
     expect((await findAgentRun(env, run.id))?.totalTokens).toBe(42)
     db.prepare('UPDATE agent_runs SET model_calls=20 WHERE id=?').run(run.id)
-    await expect(agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'One more' })).rejects.toMatchObject({ statusCode: 429 })
+    await expect(agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'One more' })).rejects.toMatchObject({ statusCode: 400 })
     expect(network).toHaveBeenCalledTimes(1)
   } finally { vi.unstubAllGlobals() }
 })
@@ -256,7 +256,7 @@ it('persists inference budget denial separately from provider rate limits', asyn
   const run = await createAgentRun(env, (await start())!, input())
   db.prepare("UPDATE agent_runs SET status='running',model_calls=1000 WHERE id=?").run(run.id)
   const response = await agentGateway(new Request('http://server/model', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }] }) }), env, run.id, 'v1/chat/completions', () => {})
-  expect(response.status).toBe(429)
-  expect((await findAgentRun(env, run.id))?.lastError).toContain('Run inference budget exhausted')
+  expect(response.status).toBe(400)
+  expect((await findAgentRun(env, run.id))?.lastError).toContain('model-call limit')
   expect(db.prepare('SELECT count(*) AS count FROM agent_model_calls WHERE run_id=?').get(run.id)).toMatchObject({ count: 0 })
 })

@@ -1,3 +1,4 @@
+import { reserveRunInference } from './agent-inference-budget'
 import { agentTimeContext } from './agent-time'
 import { H3Error } from 'h3'
 import { inferenceFailure } from './agent-inference-errors'
@@ -11,7 +12,7 @@ import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
 import { modelForRun } from '../../workers/ai-runtime'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
-import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import type { AgentRun } from '../../shared/agent-execution'
 
 const modelRequest = z.object({
   messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant', 'tool']), content: z.unknown().optional(),
@@ -35,18 +36,11 @@ function messagesForModel(input: z.infer<typeof modelRequest>['messages']): Mode
 }
 
 async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof modelRequest>, signal: AbortSignal): Promise<Response> {
-  const mandate = JSON.parse(run.mandateJson) as RunMandate
   const maxOutputTokens = 4096
   // Conservative reservation includes input bytes, output allowance and protocol overhead.
   const reservation = new TextEncoder().encode(JSON.stringify(input)).byteLength + maxOutputTokens + 2048
-  const admitted = await env.DB.prepare(`UPDATE agent_runs SET model_calls=model_calls+1,total_tokens=total_tokens+? WHERE id=? AND status='running'
-    AND model_calls<? AND total_tokens+?<=?
-    AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id,model_calls AS callNumber`).bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now()-86400000).toISOString(), reservation).first<{ id: string; callNumber: number }>()
-  if (!admitted) {
-    const message = 'Run inference budget exhausted. Review the Run limits before starting another attempt.'
-    await env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'").bind(message, run.id).run()
-    return Response.json({ error: { message } }, { status: 429 })
-  }
+  const admitted = await reserveRunInference(env, run, reservation)
+  if (!admitted.ok) return Response.json({ error: { code: admitted.code, message: admitted.message } }, { status: admitted.status })
   await env.DB.prepare("INSERT INTO agent_model_calls(run_id,call_number,model,status,started_at) VALUES(?,?,?,'running',?)").bind(run.id, admitted.callNumber, run.model, new Date().toISOString()).run()
   const complete = async (tokens: number) => { await env.DB.batch([
     env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?),last_error=NULL WHERE id=?').bind(tokens - reservation, run.id),
