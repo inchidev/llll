@@ -43,6 +43,10 @@ const run = computed(() => runQ.data.value?.run)
 async function cancel() {
   cancelling.value = true
   try { await api(`/api/agent-runs/${route.params.id}/cancel`, { method: 'POST' }); await runQ.refetch() }
+  catch (error) {
+    toast.add({ title: errorMessage(error), color: 'error' })
+    await runQ.refetch()
+  }
   finally { cancelling.value = false }
 }
 const delivering = ref(false)
