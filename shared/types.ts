@@ -589,6 +589,7 @@ export type RoleDTO = {
 
 export type MemberDTO = {
   user: PublicUser
+  agentStatus?: AgentDTO['status']
   role: RoleDTO
   nickname: string | null
   status: PresenceStatus
