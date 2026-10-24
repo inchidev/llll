@@ -258,7 +258,7 @@ describe('mail gateways', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const env = restEnv({ MAIL_GATEWAY_URL: 'https://mail.example.com/send', MAIL_GATEWAY_TOKEN: 'mail-token' }) as never
-    await expect(sendServerEmail(env, message)).resolves.toEqual({ messageId: 'cloudflare:person@example.net' })
+    await expect(sendServerEmail(env, message)).resolves.toEqual({ messageId: null })
     expect(emailProvider(env)).toBe('cloudflare-rest')
     expect(fetchMock).toHaveBeenCalledTimes(1)
 

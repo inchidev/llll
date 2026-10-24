@@ -4,6 +4,7 @@ import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { users } from '../../drizzle/schema'
 import { newId, nowIso } from '../../shared/ids'
+import { asRpc } from '../../workers/env'
 import type { L4Env } from '../../workers/env'
 import type { MailboxPermission } from '../../shared/types'
 import { MAIL_EXTERNAL_USER_ID, mailAddress, mailPermissionAllows, normalizeMailLocalPart } from '../../shared/mail'
@@ -180,4 +181,17 @@ export async function replaceMailboxAccess(env: L4Env, channelId: string, rows: 
       env.DB.prepare('INSERT INTO email_mailbox_access (channel_id, user_id, permission, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(channelId, userId, permission, created, created),
     ]),
   ])
+}
+
+/** Bound external sends per Member and mailbox, shared by new mail, replies and retries. */
+export async function requireMailSendLimit(env: L4Env, mailboxId: string, userId: string): Promise<void> {
+  let allowed: boolean
+  try {
+    const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`mail:${mailboxId}:${userId}`))
+    allowed = await limiter.take(10, 60_000)
+  }
+  catch {
+    fail(503, 'mail_rate_limit_unavailable', 'Email sending is temporarily unavailable. Try again shortly.')
+  }
+  if (!allowed) fail(429, 'rate_limited', 'Too many emails. Try again in a minute.')
 }

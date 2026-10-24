@@ -232,11 +232,12 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
                 ...old,
                 pages: old.pages.map((p) => ({
                   ...p,
-                  messages: p.messages.map((m) => m.id === parsed.id ? { ...m, deletedAt: new Date().toISOString(), content: '' } : m),
+                  messages: p.messages.map((m) => m.id === parsed.id ? { ...m, deletedAt: new Date().toISOString(), content: '', attachments: [] } : m),
                 })),
               }
             })
             void qc?.invalidateQueries({ queryKey: ['pins', id] })
+            void qc?.invalidateQueries({ queryKey: ['files'] })
             break
           }
           case 'ack':

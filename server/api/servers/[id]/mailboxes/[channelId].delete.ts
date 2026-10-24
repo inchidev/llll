@@ -1,3 +1,4 @@
+import { removeMailboxData, cleanMailFiles } from '../../../../utils/mail-cleanup'
 import { Permission } from '../../../../../shared/permissions'
 import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
@@ -13,9 +14,10 @@ export default defineEventHandler(async (event) => {
      FROM email_mailboxes mb JOIN email_domains d ON d.id = mb.domain_id
      WHERE mb.channel_id = ?`,
   ).bind(channelId).first<{ address: string }>()
-  if (!mailbox) fail(404, 'not_found', 'Mailbox not found')
-  await env.DB.prepare('DELETE FROM channels WHERE id = ?').bind(channelId).run()
-  await writeAudit(env, {
+  const pending = !mailbox && await env.DB.prepare('SELECT key FROM file_deletions WHERE scope_id = ? LIMIT 1').bind(channelId).first()
+  if (!mailbox && !pending) fail(404, 'not_found', 'Mailbox not found')
+  if (mailbox) await removeMailboxData(env, channelId)
+  if (mailbox) await writeAudit(env, {
     serverId,
     actorId: actor.user.id,
     action: 'mailbox.delete',
@@ -23,6 +25,10 @@ export default defineEventHandler(async (event) => {
     targetId: channelId,
     meta: { address: mailbox.address },
   })
+  try {
+    while (await cleanMailFiles(env, channelId) === 100) { /* Drain this mailbox; interrupted work remains queued. */ }
+  }
+  catch { fail(503, 'mail_cleanup_pending', 'The mailbox was removed, but file cleanup is pending. Retry deletion or refresh Mail settings to continue cleanup.') }
   setResponseStatus(event, 204)
   return null
 })

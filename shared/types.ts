@@ -304,9 +304,11 @@ export type MailMessageDTO = MessageDTO & {
     to: string[]
     cc: string[]
     bcc: string[]
+    replyTo?: string[]
     deliveryStatus: 'received' | 'pending' | 'sent' | 'failed'
     /** Why the last delivery attempt failed, when it did. */
     deliveryError: string | null
+    deliveryUncertain?: boolean
   }
 }
 
@@ -324,7 +326,7 @@ export type MailSettingsDTO = {
     appHostname: string
   }>
   sendingBound: boolean
-  mailboxes: Array<MailboxDTO & { domainId: string, access: Array<{ userId: string; permission: MailboxPermission }> }>
+  mailboxes: Array<MailboxDTO & { domainId: string, conversationCount: number, access: Array<{ userId: string; permission: MailboxPermission }> }>
 }
 
 export type SessionUser = PublicUser & {

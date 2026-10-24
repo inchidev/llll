@@ -3,6 +3,7 @@ import { getServerId } from '../shared/server-id'
 import PostalMime, { type Address } from 'postal-mime'
 import { newId, nowIso } from '../shared/ids'
 import { MAIL_EXTERNAL_USER_ID, MAIL_LIMITS, mailAddressList, mergeMailAddresses } from '../shared/mail'
+import { sniffMime } from '../shared/mime'
 import { plainMailBody } from '../shared/mail-content'
 import type { L4Env } from './env'
 import { signalMailChanged } from './mail-events'
@@ -156,7 +157,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
     return [{
       id,
       filename,
-      contentType: attachment.mimeType || 'application/octet-stream',
+      contentType: /\.(?:html?|svg|xml|xhtml)$/iu.test(filename) || /^(?:text\/html|image\/svg\+xml|application\/(?:xml|xhtml\+xml))$/iu.test(attachment.mimeType || '')
+        ? 'application/octet-stream'
+        : sniffMime(content, filename) || 'application/octet-stream',
       content,
       size: content.byteLength,
       key: `${serverId}/mail/attachments/${messageId}/${id}-${filename}`,
@@ -199,7 +202,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
          VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)`,
       ).bind(messageId, threadChannelId, MAIL_EXTERNAL_USER_ID, content, created),
       env.DB.prepare(
-        `UPDATE email_threads SET status = 'inbox', participants_json = ?, last_message_at = ?, updated_at = ? WHERE channel_id = ?`,
+        `UPDATE email_threads SET status = CASE WHEN status IN ('spam', 'trash') THEN status ELSE 'inbox' END, participants_json = ?, last_message_at = ?, updated_at = ? WHERE channel_id = ?`,
       ).bind(JSON.stringify(participants), created, created, threadChannelId),
     )
   }
@@ -207,8 +210,8 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
     env.DB.prepare(
       `INSERT INTO email_messages
        (message_id, thread_channel_id, mailbox_channel_id, direction, from_address, from_name, to_json, cc_json, bcc_json,
-        rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at)
-       VALUES (?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?)`,
+        rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at, reply_to_json)
+       VALUES (?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?, ?)`,
     ).bind(
       messageId,
       threadChannelId,
@@ -224,6 +227,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
       files ? rawKey : null,
       rawHash,
       created,
+      JSON.stringify(mergeMailAddresses(addressList(parsed.replyTo).map(item => item.address))),
     ),
     ...(files ? attachmentRows : []).map(attachment => env.DB.prepare(
       `INSERT INTO attachments

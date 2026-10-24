@@ -15,6 +15,8 @@ import dmPrivacySql from '../../drizzle/server-migrations/0011_dm_privacy.sql?ra
 import storageChannelsSql from '../../drizzle/server-migrations/0012_server_storage_and_channels.sql?raw'
 import modelCallsSql from '../../drizzle/server-migrations/0013_agent_model_calls.sql?raw'
 import runDeliverySql from '../../drizzle/server-migrations/0014_agent_run_delivery.sql?raw'
+import mailDeliverySql from '../../drizzle/server-migrations/0015_mail_delivery.sql?raw'
+import mailFileCleanupSql from '../../drizzle/server-migrations/0016_file_cleanup.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -53,6 +55,8 @@ export const INIT_SQL = d1ExecSql([
   storageChannelsSql,
   modelCallsSql,
   runDeliverySql,
+  mailDeliverySql,
+  mailFileCleanupSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

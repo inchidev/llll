@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { isolatedPreviewBindings, nativeServerPreviewOrigin } from './server-preview-config.mjs'
 import { compareVersions, parseVersion } from './release-policy.mjs'
 import {
   pullRequestCandidate,
@@ -91,6 +92,13 @@ const files = await ensureStagingResource('r2', staging.r2, { name: `llll-server
 const backups = await ensureStagingResource('r2', staging.r2, { name: `llll-server-staging-backups` }, 'llll-server-staging-backups')
 const tickets = await ensureStagingResource('kv', staging.kv, { title: 'llll-server-staging-tickets' }, 'llll-server-staging-tickets')
 if (backups.name === files.name) throw new Error('Backup destination must be separate from live files')
+// Only the staging parent is deployed here; it has no data bindings or base routing.
+wrangler(['deploy', '--config', resolve(root, 'wrangler.preview-parent.jsonc')])
+const previewPath = '/workers/workers/llll-server/previews'
+const previews = await api(`${previewPath}?name=${encodeURIComponent(branch)}&per_page=100`)
+const preview = previews.find(item => item.name === branch)
+  || await api(previewPath, 'POST', { name: branch })
+const previewOrigin = nativeServerPreviewOrigin(preview)
 const config = {
   ...base,
   main: resolve(root, '.output/server/index.mjs'),
@@ -115,7 +123,7 @@ const config = {
   kv_namespaces: [{ binding: 'TICKETS', id: tickets.id }],
   // Previews do not inherit vars from production; declare every required one.
   vars: {
-    PUBLIC_ORIGIN: 'https://server-preview.dev.llll.gg',
+    PUBLIC_ORIGIN: previewOrigin,
     ADMIN_EMAIL: 'owner@example.com',
     AUTH_REGISTRATION_MODE: 'invite_only',
     EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
@@ -136,6 +144,7 @@ if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
   // Version stays a local fixture override only; the updater reads discovery.
   Object.assign(config.vars, { LLLL_VERSION: installed })
 }
+config.previews = isolatedPreviewBindings(config)
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
@@ -163,6 +172,11 @@ function wrangler(args) {
   return r.stdout
 }
 wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', file])
+// Repair the old script's placeholder only; real operator-selected origins stay intact.
+await api(`/d1/database/${db.uuid}/query`, 'POST', {
+  sql: 'UPDATE server_domains SET origin = ?, hostname = ? WHERE origin = ?',
+  params: [previewOrigin, new URL(previewOrigin).hostname, 'https://server-preview.dev.llll.gg'],
+})
 const output = wrangler([
   'preview',
   '--config',
@@ -175,16 +189,8 @@ const output = wrangler([
   '--json',
 ])
 const data = JSON.parse(output.slice(output.indexOf('{')))
-const url = data.preview?.urls?.find((value) => {
-  try {
-    const candidate = new URL(value)
-    return candidate.protocol === 'https:' && candidate.hostname.endsWith('.workers.dev') ? candidate : false
-  }
-  catch {
-    return false
-  }
-}) || data.preview?.urls?.[0]
-if (!url) throw new Error('Cloudflare did not return a Preview URL')
+const url = nativeServerPreviewOrigin(data.preview)
+if (url !== previewOrigin) throw new Error('The Server Preview URL changed during deployment')
 let verified = false
 for (let attempt = 0; attempt < 150; attempt++) {
   const check = await fetch(url + '/.well-known/llll', {

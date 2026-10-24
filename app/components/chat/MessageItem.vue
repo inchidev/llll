@@ -189,7 +189,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
         <span v-if="streaming" class="inline-block h-4 w-0.5 animate-pulse bg-primary align-text-bottom" aria-label="Streaming" />
         <span v-if="message.editedAt" class="ms-1 select-none text-[11px] text-muted" :title="formatFullDateTime(message.editedAt)">(edited)</span>
       </div>
-      <AttachmentGallery v-if="message.attachments.length" :attachments="message.attachments" />
+      <AttachmentGallery v-if="!message.deletedAt && message.attachments.length" :attachments="message.attachments" />
       <!-- A message on its way is only dimmed, as in Discord; uploads say so because they can take a while. -->
       <div v-if="message.deliveryState && message.deliveryState !== 'sending'" class="mt-0.5 flex h-5 items-center gap-1.5 text-xs" aria-live="polite">
         <template v-if="message.deliveryState === 'uploading'">

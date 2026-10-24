@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { newId, nowIso } from '../../../../../shared/ids'
 import type { MailMessageDTO, MailThreadDTO } from '../../../../../shared/types'
 import { mergeMailAddresses } from '../../../../../shared/mail'
-import { requireMailboxPermission } from '../../../../utils/server-mail'
+import { requireMailboxPermission, requireMailSendLimit } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage, mailThreadDto } from '../../../../utils/mail-data'
@@ -13,7 +13,7 @@ import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({
   to: z.array(z.string().trim().email().max(254)).min(1).max(50),
-  subject: z.string().trim().min(1).max(500),
+  subject: z.string().trim().min(1).max(500).transform(value => value.replace(/[\r\n]+/gu, ' ').trim()),
   content: z.string().trim().min(1).max(100_000),
   /** Set by the client for each email, so retrying one is not emailed twice. */
   clientId: z.string().trim().min(8).max(80).optional(),
@@ -26,6 +26,7 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
   const body = parseBody(schema, await readBody(event))
   const { env, waitUntil } = cf(event)
   if (!serverEmailAvailable(env)) fail(503, 'mail_unavailable', 'Server email sending is not bound')
+  await requireMailSendLimit(env, mailboxId, access.user.id)
 
   const existing = body.clientId ? await findOutboundRequest(env, mailboxId, body.clientId) : null
   let messageId = existing?.messageId ?? null

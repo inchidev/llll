@@ -21,7 +21,7 @@ See [standalone Servers and Shell](server.md). Accounts, UUID identity and authe
 14. Terms, Privacy, and Server rules are one immutable onboarding revision in D1. Access, email, and social admissions record acceptance of the current revision before a pending User can become an active Member; later publications apply only to future admissions.
 15. Agents reply in chat and may read or create Tasks through the same authorized domain operations as HTTP and MCP. They have no project, repository, filesystem, shell, Workflow, or Container execution capability. Those connections are deferred until their lifecycle and isolation model is designed separately.
 16. Default inference is Workers AI through the `AI` binding. When that binding is absent, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` call Workers AI REST (`aiProvider: workers-ai-rest`). An OpenAI-compatible chat endpoint (`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`) is next. A profile stores a model id, not a vendor key. Public-web reading uses the `BROWSER` binding, then Browser Run REST, then Chromium at `BROWSER_CDP_URL`, on a caller-supplied http(s) URL after SSRF checks. That is not a search index. Outbound mail uses an email binding, then Email Sending REST, then an HTTP or SMTP gateway. Calls use RealtimeKit on Cloudflare's network, or RealtimeKit REST with the same token off that network. Inbound email uses Email Routing on Cloudflare. Off that network, `POST /api/email/inbound` checks an HMAC-SHA256 signature and timestamp (`INBOUND_EMAIL_SECRET`), and Postmark, Mailgun, and Amazon SES webhooks check that provider's own signature, then the same mailbox ingest runs. Agents still have no container, computer, or shell. The core architecture has no Hermes, OpenRouter Spawn, Neon, or external machine dependency.
-17. A Mailbox is a private text Channel marked by `email_mailboxes`; an Email Conversation is its ordinary child Thread. Email messages extend `messages`, while Internal Notes remain plain Messages. D1 owns the searchable conversation facts and mailbox registry, while R2 owns raw MIME and attachment bytes. Each server may own multiple Email Domains and an Email Sending binding; an Email Domain belongs to exactly one server. Every Mailbox has one exact Cloudflare literal-address routing rule to that server Worker, so multiple servers can share a zone without sharing mail and unknown addresses never reach the application. Agent mail tools treat external fields as untrusted data, use the same Mailbox grants as humans, and require durable human approval before external sending.
+17. A Mailbox is a private text Channel marked by `email_mailboxes`; an Email Conversation is its ordinary child Thread. Email messages extend `messages`, while Internal Notes remain plain Messages. D1 owns the searchable conversation facts and mailbox registry, while R2 owns raw MIME and attachment bytes. Each server may own multiple Email Domains and an Email Sending binding; an Email Domain belongs to exactly one server. The Cloudflare installer configures a zone catch-all route to the Server Worker. Ingest accepts only enabled addresses in the local mailbox registry and rejects unknown recipients. A zone catch-all belongs to one destination; sharing a mail zone across Servers requires operator-managed address routing. Domain connect/disconnect remain operator-managed; the Client displays configured domains without offering unimplemented routing actions. Agent mail tools treat external fields as untrusted data, use the same Mailbox grants as humans, and require durable human approval before external sending.
 18. Each Server is independently deployed and updated by its operator. Our own application deployments (the official `llll` Worker, llll.gg and Previews) run only in Workers Builds from Git from immutable release artifacts. Customer Server installation and updates are separate: they may upload only a published, immutable, checksum-verified release artifact through the customer's own OAuth grant, with no Git integration or Workers Builds requirement. A Server runtime holds no account-wide provisioning credential; the installer keeps a temporary encrypted browser-bound OAuth grant only within its bounded session.
 19. A fresh Access server becomes ready when the deployment-selected Owner email first arrives with a verified Access identity. A fresh builtin server remains unavailable until that Owner completes the private Owner Setup Claim. Both paths create the Owner and Server atomically, and other identities cannot bootstrap the server.
 20. Data is human-managed server state. The `manageDatabases` Grant controls Database discovery, shared Views, schema and Record mutations, Documents, and Canvases; the default Member Role remains chat-only. Bookmark writes derive the User from the authenticated session and can change only that User's private shortcuts. The Data navigation index returns only lightweight resource and View metadata, while an active Database View, Document, or Canvas body loads on demand. Tasks and Mail remain purpose-built models rather than special cases of Data.
@@ -33,7 +33,7 @@ In RealtimeKit REST mode, the Server Durable Object serializes app and preset pr
 ## Email flow
 
 ```text
-Internet email → exact Cloudflare literal-address rule → owning server Worker → local email handler
+Internet email → Cloudflare zone catch-all → Server Worker → enabled mailbox lookup
   → size and attachment limits (25 MiB message, 20 attachments of up to 10 MiB each)
   → raw MIME + attachments in R2, removed again if the D1 write fails
   → Mailbox Channel root Message + Email Conversation Thread in D1
@@ -43,7 +43,7 @@ Off Cloudflare's network the same limits and ingest run after a signed check:
   Email Routing catch-all → examples/email-bridge → POST /api/email/inbound
   Postmark, Mailgun, or Amazon SES → POST /api/email/inbound/postmark|mailgun|ses
 
-New email/reply → mailbox send permission → pending email in D1 → Email Sending → sent or failed
+New email/reply → mailbox send permission + rate limit → pending email in D1 → configured transport → sent or failed
 Internal note   → ordinary Message in the same Thread → server only
 ```
 
@@ -53,18 +53,40 @@ A replayed signed request inside the replay window returns success and does not
 add a second copy. Duplicate detection and reply threading look only inside the
 Mailbox that received the email, so one email sent to two Mailboxes lands in
 both and a reply never joins another Mailbox's conversation. A reply goes to
-the sender, To, and Cc of the latest email received in the conversation.
+Reply-To of the latest received email, falling back to its sender. Reply all is an explicit choice that also includes To and Cc, excluding the Mailbox itself.
 
 Inbox lists conversations in the inbox that contain received email; a
 conversation a Member starts appears there once it gets a reply. Sent lists every
 conversation with sent email, by when it was last sent, except those in Spam or
-Trash. Archive, Spam, and Trash list conversations moved there.
+Trash. Archive, Spam, and Trash list conversations moved there. New mail brings Archive back to Inbox but preserves Spam and Trash.
 
 Each outbound email is recorded before it is sent and keeps its delivery
 attempts, last error, and delivery time. A client request key makes a retried
 send return the email already recorded, and a delivery attempt first claims the
-email, so it is never sent twice concurrently. A failed email can be retried
-from the conversation.
+email, preventing concurrent delivery during its five-minute lease. A failed email can be retried
+from the conversation. An interrupted attempt becomes Delivery unknown after five minutes;
+sending another copy requires explicit confirmation because the first may have arrived.
+A late result cannot overwrite a newer attempt. A receipt-write failure never marks a
+successful transport call as failed. Delivery still runs within the HTTP request;
+background queues and automatic retries are not implemented.
+
+Provider identifiers are stored separately from RFC Message-IDs. Cloudflare REST
+returns delivery status by recipient, not a Message-ID; this cannot be used to
+thread a later reply to an initial outbound message. Known valid In-Reply-To and
+References headers are preserved. Cloudflare controls Message-ID and rejects a
+caller-supplied override.
+
+Inbound attachments are typed from their bytes, with active document types kept
+as downloads. Every file response, including legacy rows, uses a restrictive CSP
+sandbox and nosniff; only safe preview types are served inline. New mail, replies
+and retries share a limit of ten requests per minute per Member and Mailbox.
+
+Deleting a Mailbox records its raw MIME and attachment keys in a persistent
+cleanup queue in the same transaction that removes its channels. Cleanup removes
+only those live-file keys. Storage failures retain the queue; repeating deletion
+or refreshing Mail or its settings retries a bounded batch. The queue has no
+independent background scheduler. Backup destinations are never enumerated or
+removed by this process.
 
 ## Agent task access
 

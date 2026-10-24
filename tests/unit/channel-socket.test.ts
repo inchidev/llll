@@ -341,6 +341,18 @@ describe('channel read reconnect delivery', () => {
     channel.disconnect()
   })
 
+  it('removes deleted attachments from the cache and refreshes Files for retained thread roots', async () => {
+    queryData.set('messages:channel-1', { pages: [{ messages: [{ id: 'm1', content: 'Photo', threadId: 'thread1', attachments: [{ id: 'file1' }] }], nextCursor: null }], pageParams: [undefined] })
+    const channel = useChannelSocket(ref('channel-1'))
+    await flush()
+    const socket = FakeWebSocket.instances[0]!
+    socket.open()
+    socket.message({ t: 'message.delete', id: 'm1' })
+    expect(queryData.get('messages:channel-1')).toMatchObject({ pages: [{ messages: [{ id: 'm1', content: '', attachments: [], threadId: 'thread1', deletedAt: expect.any(String) }] }] })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['files'] })
+    channel.disconnect()
+  })
+
   it('keeps the viewer\'s own reactions when an edited message is broadcast', async () => {
     const author = { id: 'user-2', displayName: 'B', avatarR2Key: null }
     const base = { id: 'm1', channelId: 'channel-1', author, attachments: [], content: 'old' }

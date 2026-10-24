@@ -31,6 +31,17 @@ describe('basic files in the existing tickets namespace', () => {
     expect(await files.get('attachment/a')).toBeNull()
     expect(objects.size).toBe(0)
   })
+  it('keeps the KV object index until deletion succeeds so cleanup remains retryable', async () => {
+    const files = fileStorage(state.env)
+    await files.put('mail/file', 'pending deletion')
+    const remove = vi.fn().mockRejectedValueOnce(new Error('KV unavailable')).mockImplementation(async (key: string) => { objects.delete(key) })
+    state.env.TICKETS.delete = remove
+    await expect(files.delete('mail/file')).rejects.toThrow('KV unavailable')
+    expect(db.prepare("SELECT key FROM file_objects WHERE key = 'mail/file'").get()).toEqual({ key: 'mail/file' })
+    await files.delete('mail/file')
+    expect(objects.size).toBe(0)
+    expect(await files.get('mail/file')).toBeNull()
+  })
   it('does not lose a previous version when KV rejects a replacement', async () => {
     const files = fileStorage(state.env)
     await files.put('a', 'original')

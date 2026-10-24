@@ -96,7 +96,7 @@ export function fileStorage(env: FileStorageEnv): FileStore {
       if ((await db.prepare("SELECT value FROM server_settings WHERE key='storage.migration'").first<{ value: string }>())?.value === 'r2') throw unavailable('storage_migrating', 'File migration is in progress. Retry after it completes.')
       for (const key of Array.isArray(keys) ? keys : [keys]) {
         const stored = await row(key)
-        if (stored) { await db.prepare('DELETE FROM file_objects WHERE key=?').bind(key).run(); await kv.delete(stored.storage_key) }
+        if (stored) { await kv.delete(stored.storage_key); await db.prepare('DELETE FROM file_objects WHERE key=? AND storage_key=?').bind(key, stored.storage_key).run() }
         if (r2) await r2.delete(key)
       }
     },

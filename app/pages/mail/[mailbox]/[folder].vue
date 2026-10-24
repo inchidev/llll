@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
+import { mailReplyRecipients, mergeMailAddresses } from '~~/shared/mail'
 import { formatDateTime } from '~~/shared/format'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
 import { withMailboxUnread, withMessage, withoutMessage, withoutThread, withThreadActivity, withThreadFirst, withThreadRead, type MailThreadDetail, type MailThreadPages } from '~/utils/mail-cache'
@@ -26,6 +27,11 @@ const folder = computed<MailFolder>(() => {
 const activeThreadId = computed(() => String(route.query.thread || '') || null)
 
 const composerMode = ref<'reply' | 'note'>('reply')
+const replyAll = ref(false)
+const replyTo = ref('')
+const replyToEdited = ref(false)
+const replyAddresses = computed(() => mergeMailAddresses(replyTo.value.split(/[;,\s]+/u).filter(Boolean)))
+const uncertainRetry = ref<MailMessageDTO | null>(null)
 const draft = ref('')
 const sending = ref(false)
 const composeTo = ref('')
@@ -79,6 +85,12 @@ const threadQ = useQuery({
 })
 const thread = computed(() => threadQ.data.value?.thread ?? null)
 const messages = computed(() => threadQ.data.value?.messages ?? [])
+const defaultRecipients = computed(() => mailReplyRecipients(
+  [...messages.value].reverse().find(message => message.email?.direction === 'inbound')?.email ?? null,
+  thread.value?.participants ?? [], activeMailbox.value?.address ?? '', replyAll.value,
+).join(', '))
+watch(defaultRecipients, (value) => { if (!replyToEdited.value) replyTo.value = value }, { immediate: true })
+watch(replyAll, () => { replyToEdited.value = false; replyTo.value = defaultRecipients.value })
 const loadingMessages = computed(() => Boolean(activeThreadId.value) && (threadQ.isPending.value || threadQ.isPlaceholderData.value))
 
 /** Hovering a conversation loads it, so opening it is immediate. Loading does not mark it read. */
@@ -103,6 +115,10 @@ watch(() => threadQ.data.value?.thread.status, (status) => {
 })
 
 watch(activeThreadId, () => {
+  replyToEdited.value = false
+  replyAll.value = false
+  replyTo.value = defaultRecipients.value
+  uncertainRetry.value = null
   draft.value = ''
   composerMode.value = 'reply'
   replyKey.value = newRequestKey()
@@ -144,7 +160,7 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
           direction: 'outbound',
           fromAddress: activeMailbox.value?.address ?? '',
           fromName: activeMailbox.value?.displayName ?? null,
-          to: thread.value?.participants ?? [],
+          to: replyAddresses.value,
           cc: [],
           bcc: [],
           deliveryStatus: 'pending',
@@ -175,7 +191,7 @@ async function send() {
   try {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
-      body: mode === 'reply' ? { content, clientId: key } : { content },
+      body: mode === 'reply' ? { content, clientId: key, to: replyAddresses.value } : { content },
     })
     replyKey.value = newRequestKey()
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message, pending.id))
@@ -192,13 +208,15 @@ async function send() {
   }
 }
 
-async function retry(message: MailMessageDTO) {
+async function retry(message: MailMessageDTO, confirmUncertain = false) {
+  if (message.email?.deliveryUncertain && !confirmUncertain) { uncertainRetry.value = message; return }
   const threadId = activeThreadId.value
   if (!threadId || !message.email) return
-  const sendingAgain = { ...message, email: { ...message.email, deliveryStatus: 'pending' as const, deliveryError: null } }
+  uncertainRetry.value = null
+  const sendingAgain = { ...message, email: { ...message.email, deliveryStatus: 'pending' as const, deliveryError: null, deliveryUncertain: false } }
   qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, sendingAgain))
   try {
-    const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/retry`, { method: 'POST', body: { messageId: message.id } })
+    const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/retry`, { method: 'POST', body: { messageId: message.id, confirmUncertain } })
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message))
     if (result.message.email?.deliveryStatus === 'failed') deliveryFailed(result.message, 'email')
   }
@@ -360,9 +378,9 @@ const deliveryBadge = {
                     <UBadge v-if="!message.email" label="Internal note" color="warning" variant="subtle" size="sm" />
                     <UBadge
                       v-else-if="message.email.direction === 'outbound'"
-                      :label="deliveryBadge[message.email.deliveryStatus].label"
+                      :label="message.email.deliveryUncertain ? 'Delivery unknown' : deliveryBadge[message.email.deliveryStatus].label"
                       :color="deliveryBadge[message.email.deliveryStatus].color"
-                      :icon="message.email.deliveryStatus === 'pending' ? 'i-ph-circle-notch' : undefined"
+                      :icon="message.email.deliveryStatus === 'pending' && !message.email.deliveryUncertain ? 'i-ph-circle-notch' : undefined"
                       :ui="{ leadingIcon: 'animate-spin' }"
                       variant="subtle"
                       size="sm"
@@ -375,10 +393,10 @@ const deliveryBadge = {
                 </div>
               </div>
               <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-default">{{ message.content }}</p>
-              <div v-if="message.email?.deliveryStatus === 'failed'" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+              <div v-if="message.email?.deliveryStatus === 'failed' || message.email?.deliveryUncertain" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
                 <UIcon name="i-ph-warning-circle" class="size-4 shrink-0" />
-                <span class="min-w-0 flex-1">{{ message.email.deliveryError || 'This email was not delivered.' }}</span>
-                <UButton v-if="canSend" label="Retry" size="xs" color="error" variant="soft" @click="retry(message)" />
+                <span class="min-w-0 flex-1">{{ message.email?.deliveryUncertain ? 'Delivery could not be confirmed. The recipient may already have this email.' : message.email?.deliveryError || 'This email was not delivered.' }}</span>
+                <UButton v-if="canSend" :label="message.email?.deliveryUncertain ? 'Send again…' : 'Retry'" size="xs" color="error" variant="soft" @click="retry(message)" />
               </div>
               <div v-if="message.attachments.length" class="mt-4 flex flex-wrap gap-2">
                 <UButton
@@ -398,11 +416,15 @@ const deliveryBadge = {
           <form v-if="canSend" class="border-t border-default p-3" @submit.prevent="send">
             <div class="mb-2 flex items-center gap-1">
               <UButton label="Reply" size="xs" color="neutral" :variant="composerMode === 'reply' ? 'soft' : 'ghost'" @click="composerMode = 'reply'" />
+              <UButton v-if="composerMode === 'reply'" :label="replyAll ? 'Reply all' : 'Reply to sender'" size="xs" color="neutral" variant="ghost" @click="replyAll = !replyAll" />
               <UButton label="Internal note" size="xs" color="warning" :variant="composerMode === 'note' ? 'soft' : 'ghost'" @click="composerMode = 'note'" />
             </div>
+            <UFormField v-if="composerMode === 'reply'" label="To" hint="Separate addresses with commas" class="mb-2">
+              <UInput v-model="replyTo" class="w-full" @update:model-value="replyToEdited = true" />
+            </UFormField>
             <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
             <div class="mt-2 flex justify-end">
-              <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim()" />
+              <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim() || (composerMode === 'reply' && !replyAddresses.length)" />
             </div>
           </form>
           <div v-else class="border-t border-default p-4 text-sm text-muted">Read only</div>
@@ -412,6 +434,13 @@ const deliveryBadge = {
       </section>
     </div>
 
+    <UModal :open="Boolean(uncertainRetry)" title="Send another copy?" @update:open="value => { if (!value) uncertainRetry = null }">
+      <template #body><p class="text-sm text-muted">The recipient may already have this email. Sending again may deliver a duplicate.</p></template>
+      <template #footer>
+        <UButton label="Cancel" color="neutral" variant="ghost" @click="uncertainRetry = null" />
+        <UButton label="Send another copy" color="warning" @click="uncertainRetry && retry(uncertainRetry, true)" />
+      </template>
+    </UModal>
     <UModal v-model:open="nav.composeOpen.value" title="New email">
       <template #body>
         <div class="space-y-4">

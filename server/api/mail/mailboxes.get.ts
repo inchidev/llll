@@ -1,3 +1,4 @@
+import { retryMailFileCleanup } from '../../utils/mail-cleanup'
 import { getServerId } from '../../../shared/server-id'
 import type { MailboxDTO } from '../../../shared/types'
 import { requireMember } from '../../utils/guards'
@@ -5,7 +6,8 @@ import { cf } from '../../utils/cf'
 
 export default defineEventHandler(async (event): Promise<{ mailboxes: MailboxDTO[] }> => {
   const member = await requireMember(event, (await getServerId(cf(event).env.DB)))
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
+  waitUntil(retryMailFileCleanup(env))
   const rows = await env.DB.prepare(
     `SELECT mb.channel_id as channelId, mb.display_name as displayName, mb.enabled,
        a.permission, lower(mb.local_part || '@' || d.domain) as address,

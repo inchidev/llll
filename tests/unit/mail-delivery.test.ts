@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDb, INIT_SQL } from '../../server/utils/db'
-import { deliverOutboundEmail, replyRecipients } from '../../server/utils/mail-outbound'
+import { deliverOutboundEmail, replyRecipients, replyThreading } from '../../server/utils/mail-outbound'
 import { listMailThreads } from '../../server/utils/mail-threads'
 import { hydrateMailMessages } from '../../server/utils/mail-data'
 import { messages } from '../../drizzle/schema'
@@ -46,10 +46,11 @@ function stream(text: string): ReadableStream<Uint8Array> {
   return new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } })
 }
 
-function email(input: { id: string; to: string; subject?: string; from?: string; cc?: string; inReplyTo?: string; body?: string; attachments?: Array<{ name: string; bytes: number }> }) {
+function email(input: { id: string; to: string; subject?: string; from?: string; replyTo?: string; cc?: string; inReplyTo?: string; body?: string; attachments?: Array<{ name: string; bytes: number }> }) {
   const headers = [
     `From: Customer <${input.from ?? 'customer@example.net'}>`,
     `To: ${input.to}`,
+    ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
     ...(input.cc ? [`Cc: ${input.cc}`] : []),
     `Subject: ${input.subject ?? 'Help'}`,
     `Message-ID: ${input.id}`,
@@ -99,7 +100,7 @@ beforeEach(() => {
   } as unknown as L4Env
 })
 
-afterEach(() => sqlite.close())
+afterEach(() => { sqlite.close(); vi.unstubAllGlobals() })
 
 describe('inbound email', () => {
   it('reads HTML mislabeled as quoted-printable plain text without exposing markup', async () => {
@@ -127,6 +128,24 @@ describe('inbound email', () => {
     expect(inbox.threads[0]?.preview).toContain('Welcome back!')
     expect(inbox.threads[0]?.preview).not.toContain('<table')
     expect(sqlite.prepare("SELECT content FROM messages WHERE author_id = 'mail-external'").get()).toEqual({ content: body })
+  })
+
+  it.each(['spam', 'trash', 'archive'])('preserves %s placement when a new reply arrives', async (status) => {
+    await receive(email({ id: '<original@example.net>', to: 'support@example.com' }), 'support@example.com')
+    sqlite.prepare('UPDATE email_threads SET status = ?').run(status)
+    await receive(email({ id: '<followup@example.net>', to: 'support@example.com', inReplyTo: '<original@example.net>' }), 'support@example.com')
+    expect(sqlite.prepare('SELECT status FROM email_threads').get()).toEqual({ status: status === 'archive' ? 'inbox' : status })
+  })
+
+  it('does not trust an attachment declared to be HTML or SVG', async () => {
+    for (const [type, name] of [['text/html', 'attack.html'], ['image/svg+xml', 'attack.svg'], ['image/png', 'disguised.png']]) {
+      const raw = email({ id: `<${name}@example.net>`, to: 'support@example.com', attachments: [{ name, bytes: 20 }] })
+        .replace('Content-Type: application/octet-stream', `Content-Type: ${type}`)
+      await receive(raw, 'support@example.com')
+    }
+    expect(sqlite.prepare('SELECT content_type FROM attachments').all()).toEqual([
+      { content_type: 'application/octet-stream' }, { content_type: 'application/octet-stream' }, { content_type: 'application/octet-stream' },
+    ])
   })
 
   it('delivers one email sent to two mailboxes into both', async () => {
@@ -171,6 +190,13 @@ describe('inbound email', () => {
     expect(salesThread).toBeDefined()
     expect(salesThread!.id).not.toBe(supportThread!.id)
     expect(sqlite.prepare('SELECT COUNT(*) as count FROM messages WHERE channel_id = ?').get(supportThread!.id)).toEqual({ count: 0 })
+  })
+
+  it('uses Reply-To and only includes To/Cc for an explicit Reply all', async () => {
+    await receive(email({ id: '<reply-to@example.net>', to: 'support@example.com, colleague@example.net', cc: 'copy@example.net', replyTo: 'replies@example.net' }), 'support@example.com')
+    const thread = threadsIn('support')[0]!
+    expect(await replyRecipients(env, thread.id, 'support@example.com')).toEqual(['replies@example.net'])
+    expect(await replyRecipients(env, thread.id, 'support@example.com', 'all')).toEqual(['replies@example.net', 'colleague@example.net', 'copy@example.net'])
   })
 
   it('keeps everyone who took part when a reply joins a conversation', async () => {
@@ -255,6 +281,51 @@ describe('outbound email', () => {
     expect(row()).toEqual({ status: 'failed', attempts: 1, error: 'Recipient rejected', rfc: null })
     await deliverOutboundEmail(env, 'reply')
     expect(row()).toEqual({ status: 'sent', attempts: 2, error: null, rfc: '<retry@example.com>' })
+  })
+
+  it('does not confuse REST recipient delivery status with an RFC Message-ID', async () => {
+    outbound('pending', 0)
+    sqlite.exec(`INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('reply2','conversation','owner','Again','2026-09-29');
+      INSERT INTO email_messages(message_id,thread_channel_id,mailbox_channel_id,direction,from_address,to_json,delivery_status,created_at)
+      VALUES('reply2','conversation','support','outbound','support@example.com','["customer@example.net"]','pending','2026-09-29');`)
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ success: true, result: { delivered: ['customer@example.net'], queued: [], permanent_bounces: [] } })))
+    env = { ...env, CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), CLOUDFLARE_API_TOKEN: 't'.repeat(32) }
+    await deliverOutboundEmail(env, 'reply')
+    await deliverOutboundEmail(env, 'reply2')
+    expect(sqlite.prepare('SELECT delivery_status, rfc_message_id FROM email_messages ORDER BY message_id').all()).toEqual([
+      { delivery_status: 'sent', rfc_message_id: null }, { delivery_status: 'sent', rfc_message_id: null },
+    ])
+  })
+
+  it('does not record a delivered email as failed when saving the receipt fails', async () => {
+    outbound('pending', 0)
+    sqlite.exec("CREATE TRIGGER fail_receipt BEFORE UPDATE ON email_messages WHEN NEW.delivery_status = 'sent' BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END")
+    env = { ...env, MAIL_EMAIL: { send: vi.fn(async () => ({ messageId: '<sent@example.com>' })) } } as unknown as L4Env
+    await expect(deliverOutboundEmail(env, 'reply')).rejects.toThrow('receipt unavailable')
+    expect(row()).toMatchObject({ status: 'pending', attempts: 1 })
+  })
+
+  it('never places synthetic provider identifiers in reply headers', async () => {
+    outbound('pending', 0)
+    sqlite.exec("UPDATE email_messages SET rfc_message_id = 'cloudflare:customer@example.net'")
+    expect(await replyThreading(env, 'conversation')).toEqual({ inReplyTo: null, references: [] })
+  })
+
+  it('recovers an interrupted attempt only after the lease and an explicit resend', async () => {
+    outbound('pending', 1)
+    const send = vi.fn(async () => ({ messageId: '<resent@example.com>' }))
+    env = { ...env, MAIL_EMAIL: { send } } as unknown as L4Env
+    const loaded = await hydrateMailMessages(env, await getDb(env.DB).select().from(messages), 'owner')
+    expect(loaded.find(message => message.id === 'reply')?.email?.deliveryUncertain).toBe(true)
+    await deliverOutboundEmail(env, 'reply')
+    expect(send).not.toHaveBeenCalled()
+    sqlite.prepare("UPDATE email_messages SET delivery_started_at = ? WHERE message_id = 'reply'").run(new Date().toISOString())
+    await deliverOutboundEmail(env, 'reply', { retryUncertain: true })
+    expect(send).not.toHaveBeenCalled()
+    sqlite.exec("UPDATE email_messages SET delivery_started_at = '2026-09-29' WHERE message_id = 'reply'")
+    await Promise.all([deliverOutboundEmail(env, 'reply', { retryUncertain: true }), deliverOutboundEmail(env, 'reply', { retryUncertain: true })])
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(row()).toMatchObject({ status: 'sent', attempts: 2 })
   })
 
   it('leaves an email being sent by another request alone', async () => {

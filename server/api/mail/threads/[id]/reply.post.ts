@@ -1,7 +1,8 @@
 import { z } from 'zod'
+import { MAIL_LIMITS, mergeMailAddresses } from '../../../../../shared/mail'
 import { newId, nowIso } from '../../../../../shared/ids'
 import type { MailMessageDTO } from '../../../../../shared/types'
-import { requireMailboxPermission } from '../../../../utils/server-mail'
+import { requireMailboxPermission, requireMailSendLimit } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage } from '../../../../utils/mail-data'
@@ -11,6 +12,8 @@ import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({
+  to: z.array(z.string().trim().email().max(254)).min(1).max(MAIL_LIMITS.addresses).optional(),
+  replyAll: z.boolean().default(false),
   content: z.string().trim().min(1).max(100_000),
   /** Set by the client for each reply, so retrying one is not emailed twice. */
   clientId: z.string().trim().min(8).max(80).optional(),
@@ -23,6 +26,7 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
   const body = parseBody(schema, await readBody(event))
   const { env, waitUntil } = cf(event)
   if (!serverEmailAvailable(env)) fail(503, 'mail_unavailable', 'Server email sending is not bound')
+  await requireMailSendLimit(env, access.mailboxId, access.user.id)
 
   const existing = body.clientId ? await findOutboundRequest(env, access.mailboxId, body.clientId) : null
   if (existing && existing.threadChannelId !== id) fail(409, 'conflict', 'This request was already used for another email')
@@ -36,7 +40,9 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
       replyThreading(env, id),
     ])
     if (!mailbox) fail(404, 'not_found', 'Mailbox not found')
-    const recipients = await replyRecipients(env, id, mailbox.address)
+    const recipients = body.to
+      ? mergeMailAddresses(body.to).filter(address => address !== mailbox.address.toLowerCase())
+      : await replyRecipients(env, id, mailbox.address, body.replyAll ? 'all' : 'reply')
     if (!recipients.length) fail(409, 'no_recipient', 'This conversation has no external recipient')
     const created = nowIso()
     messageId = newId()

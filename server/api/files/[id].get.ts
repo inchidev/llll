@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { attachments } from '../../../drizzle/schema'
+import { attachments, messages } from '../../../drizzle/schema'
+import { fileResponseHeaders } from '../../../shared/file-response'
 import { parseByteRange } from '../../../shared/http-range'
 import { requireChannelMember } from '../../utils/guards'
 import { cf, requireFiles, fail } from '../../utils/cf'
@@ -12,6 +13,10 @@ export default defineEventHandler(async (event) => {
   const row = (await db.select().from(attachments).where(eq(attachments.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'File not found')
   await requireChannelMember(event, row.channelId)
+  if (row.messageId) {
+    const parent = (await db.select({ deletedAt: messages.deletedAt }).from(messages).where(eq(messages.id, row.messageId)).limit(1))[0]
+    if (!parent || parent.deletedAt) fail(404, 'not_found', 'File not found')
+  }
 
   const rangeHeader = getHeader(event, 'range')
   let obj: import('../../../shared/file-storage').FileBody | null
@@ -33,8 +38,7 @@ export default defineEventHandler(async (event) => {
     if (obj) setHeader(event, 'Content-Length', obj.size)
   }
   if (!obj) fail(404, 'not_found', 'Blob missing')
-  setHeader(event, 'Content-Type', row.contentType)
-  setHeader(event, 'Content-Disposition', `inline; filename="${row.filename.replaceAll('"', '')}"`)
+  for (const [name, value] of Object.entries(fileResponseHeaders(row.contentType, row.filename))) setHeader(event, name, value)
   setHeader(event, 'Cache-Control', 'private, no-store')
   setHeader(event, 'Accept-Ranges', 'bytes')
   setHeader(event, 'ETag', obj.httpEtag)
