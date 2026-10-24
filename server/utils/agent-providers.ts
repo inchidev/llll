@@ -30,7 +30,7 @@ export async function agentProviderPage(env: L4Env, actorId: string, search: str
   const providers = (await Promise.all(rows.results.map(async row => { const id = row.key.slice('agents.provider.'.length); const saved = await loadAgentProvider(env, id); return saved ? providerDTO(env, id, saved, { owner: true, actorId }) : null }))).filter((p): p is AgentProviderDTO => Boolean(p))
   return { providers, total: count?.total ?? 0 }
 }
-export async function agentProviderCatalog(env: L4Env, options: { owner?: boolean; actorId?: string } = {}): Promise<AgentProviderCatalog> {
+export async function agentProviderCatalog(env: L4Env, options: { owner?: boolean; actorId?: string; requireTools?: boolean } = {}): Promise<AgentProviderCatalog> {
   const rows = await env.DB.prepare("SELECT key FROM server_settings WHERE key LIKE 'agents.provider.%' ORDER BY key").all<{ key: string }>()
   const providers = (await Promise.all(rows.results.map(async row => {
     const id = row.key.slice('agents.provider.'.length)
@@ -38,7 +38,7 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
     if (!saved || !agentProviderIds.includes(saved.kind)) return null
     return providerDTO(env, id, saved, options)
   }))).filter((p): p is NonNullable<typeof p> => Boolean(p))
-  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
+  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => options.requireTools === false || m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
   const imported = providers.some(p => p.kind === 'openrouter' && p.configured) && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
   if (aiProvider(env) && !imported) {
     if (aiProvider(env) === 'openai-compatible') models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })

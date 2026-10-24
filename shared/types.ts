@@ -688,6 +688,7 @@ export type ServerMsg =
   | { t: 'message'; message: MessageDTO }
   | { t: 'message.update'; message: MessageDTO; streaming?: boolean }
   | { t: 'thread.created'; messageId: string; threadId: string }
+  | { t: 'thread.updated'; threadId: string }
   | { t: 'message.delete'; id: string }
   | { t: 'typing'; userId: string; active: boolean }
   | { t: 'agent.state'; agentId: string; runs: AgentTurnDTO[] }

@@ -20,6 +20,7 @@ export default defineEventHandler(async (event): Promise<{ gadget: GadgetDetailD
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
   const body = parseBody(bodySchema, await readBody(event))
   const env = cf(event).env
-  const spec = body.prompt ? await composeGadgetSpec(env, body.prompt) : body.spec as GadgetSpec | undefined
-  return { gadget: await createGadget(env, actor, { name: body.name, description: body.description, spec, roleIds: body.roleIds }) }
+  const spec = body.prompt ? await composeGadgetSpec(env, actor.authorization, body.prompt) : body.spec as GadgetSpec | undefined
+  const currentActor = body.prompt ? await requireMember(event, serverId) : actor
+  return { gadget: await createGadget(env, currentActor, { name: body.name, description: body.description, spec, roleIds: body.roleIds }) }
 })

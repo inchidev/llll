@@ -5,9 +5,12 @@ import type { GadgetSpec } from '../../shared/gadgets'
 import { INIT_SQL } from '../../server/utils/db'
 import { createGadget, listGadgets, publishGadget, updateGadget } from '../../server/utils/gadget-catalog'
 import { composeGadgetSpec } from '../../server/utils/gadget-composer'
+import { inferAiFunction } from '../../server/utils/ai-functions'
 import { invokeGadget, openGadget } from '../../server/utils/gadget-runtime'
 import { parseGadgetSpec, validateGadgetSpec } from '../../server/utils/gadget-spec'
 import type { Membership } from '../../server/utils/guards'
+
+vi.mock('../../server/utils/ai-functions', () => ({ inferAiFunction: vi.fn() }))
 
 beforeAll(() => vi.stubGlobal('createError', (input: { statusCode: number; statusMessage: string; data: unknown }) => Object.assign(new Error(input.statusMessage), input)))
 afterAll(() => vi.unstubAllGlobals())
@@ -112,25 +115,45 @@ describe('Gadgets', () => {
     sqlite.close()
   })
 
-  it('lets Jev select and rank prepared sources without sending Record values', async () => {
+  it('uses the assigned function model to select read-only sources without sending Record values', async () => {
     const sqlite = fixture()
-    let sent: Record<string, unknown> | undefined
-    const generated = await composeGadgetSpec({
-      DB: d1(sqlite),
-      AI: {
-        async run(_model: string, input: Record<string, unknown>) {
-          sent = input
-          return { answers: {
-            include_0: { noul: 0.9 }, presentation_0: { choice: 'table' }, priority_0: { score: 1 },
-            include_1: { noul: 0.9 }, presentation_1: { choice: 'list' }, priority_1: { score: 2 },
-          } }
-        },
-      },
-    } as never, 'Combine companies and leads')
+    vi.mocked(inferAiFunction).mockResolvedValueOnce(JSON.stringify({ sources: [{ index: 1, presentation: 'list' }, { index: 0, presentation: 'table' }] }))
+    const generated = await composeGadgetSpec({ DB: d1(sqlite) } as never, actor().authorization, 'Combine companies and leads')
     expect(generated.bindings.map(binding => binding.source.databaseId)).toEqual(['companies', 'leads'])
     expect(generated.sections.map(section => section.presentation)).toEqual(['list', 'table'])
-    expect(JSON.stringify(sent)).not.toContain('Acme deal')
-    expect(JSON.stringify(sent)).not.toContain('Enterprise')
+    expect(generated.bindings.every(binding => binding.operations.join() === 'read')).toBe(true)
+    const sent = vi.mocked(inferAiFunction).mock.calls.at(-1)![4]
+    expect(sent).not.toContain('Acme deal')
+    expect(sent).not.toContain('Enterprise')
+    sqlite.close()
+  })
+
+  it('filters restricted Databases before any metadata reaches the model', async () => {
+    const sqlite = fixture()
+    const authorization = actor().authorization
+    authorization.principal.isOwner = false
+    authorization.principal.resourceAccess = { databases: ['leads'] }
+    sqlite.exec(`UPDATE database_views SET config_json='{"visibleFieldIds":["lead-status"]}' WHERE database_id='leads'`)
+    vi.mocked(inferAiFunction).mockResolvedValueOnce('{"sources":[{"index":0,"presentation":"table"}]}')
+    const generated = await composeGadgetSpec({ DB: d1(sqlite) } as never, authorization, 'Show leads')
+    const sent = vi.mocked(inferAiFunction).mock.calls.at(-1)![4]
+    expect(sent).toContain('Leads')
+    expect(sent).not.toContain('Companies')
+    expect(sent).not.toContain('Tier')
+    expect(sent).not.toContain('Secret')
+    expect(generated.bindings[0]?.fieldIds).toEqual(['lead-status'])
+    sqlite.close()
+  })
+
+  it.each([
+    '{"sources":[{"index":12,"presentation":"table"}]}',
+    '{"sources":[{"index":0,"presentation":"table"},{"index":0,"presentation":"list"}]}',
+    '{"sources":[{"index":0,"presentation":"table","operations":["write"]}]}',
+    'not json',
+  ])('rejects model output that attempts to escape the prepared catalog: %s', async response => {
+    const sqlite = fixture()
+    vi.mocked(inferAiFunction).mockResolvedValueOnce(response)
+    await expect(composeGadgetSpec({ DB: d1(sqlite) } as never, actor().authorization, 'Build an app')).rejects.toMatchObject({ statusCode: 422 })
     sqlite.close()
   })
 
@@ -254,4 +277,19 @@ describe('Gadgets', () => {
     expect(sqlite.prepare("SELECT title FROM database_items WHERE id = 'lead-won'").get()).toEqual({ title: 'Closed deal' })
     sqlite.close()
   })
+})
+
+it('rejects manually supplied restricted bindings on create, edit and publish', async () => {
+  const sqlite = fixture()
+  const env = { DB: d1(sqlite) } as never
+  const owner = actor()
+  const created = await createGadget(env, owner, { name: 'Restricted draft', spec })
+  const manager = actor({ isOwner: false })
+  manager.authorization.principal.isOwner = false
+  manager.authorization.principal.resourceAccess = { databases: ['leads'] }
+  await expect(createGadget(env, manager, { name: 'Forged', spec })).rejects.toMatchObject({ statusCode: 403 })
+  await expect(updateGadget(env, manager, created.id, { revision: created.draftRevision, spec })).rejects.toMatchObject({ statusCode: 403 })
+  await expect(publishGadget(env, manager, created.id, created.draftRevision)).rejects.toMatchObject({ statusCode: 403 })
+  expect(sqlite.prepare('SELECT published_version FROM gadgets WHERE id=?').get(created.id)).toMatchObject({ published_version: null })
+  sqlite.close()
 })

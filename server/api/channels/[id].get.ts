@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
     const db = getDb(env.DB)
     const [root] = await db.select().from(messages).where(eq(messages.id, ch.parentMessageId)).limit(1)
     const attachmentRows = await db.select({ filename: attachments.filename }).from(attachments).where(eq(attachments.messageId, ch.parentMessageId))
-    title = await messageThreadTitle(env.DB, root?.content ?? '', attachmentRows.map(row => row.filename))
+    title = await messageThreadTitle(env.DB, ch.name || root?.content || '', attachmentRows.map(row => row.filename))
   }
   let live: LiveState | null = null
   if (ch.liveMeetingId) {

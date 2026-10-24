@@ -30,6 +30,9 @@ watch([search, view], () => { page.value = 1 })
           <p class="break-words text-sm font-medium text-highlighted">{{ entry.action }}</p>
           <p class="text-xs text-muted">{{ entry.actorName }} · {{ formatDateTime(entry.createdAt) }}</p>
           <p class="truncate text-xs text-muted" :title="entry.targetId">{{ entry.targetType }} · {{ entry.targetId }}</p>
+          <p v-if="entry.model" class="break-words text-sm text-muted">{{ entry.model }}</p>
+          <p v-if="entry.status" class="text-xs text-muted">{{ entry.status }}<template v-if="entry.totalTokens != null"> · {{ entry.totalTokens.toLocaleString() }} tokens</template></p>
+          <p v-if="entry.error" class="text-sm text-error">{{ entry.error }}</p>
         </template>
       </li>
     </ul>

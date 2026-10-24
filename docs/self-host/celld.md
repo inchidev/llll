@@ -130,7 +130,7 @@ Optional model and browser values, in the same `vars` object, used when the Clou
 
 `AI_BASE_URL` includes `/v1` when the server expects it. `BROWSER_CDP_URL` is a private Chromium started with `--remote-debugging-port=9222`.
 
-`AI_MODEL` is the model id sent to that endpoint. A profile model that starts with `@cf/` is a Workers AI id and is not sent there. With the Cloudflare token, those `@cf/` ids are sent to Workers AI REST instead. `/api/setup/health` reports `aiProvider` as `workers-ai`, `workers-ai-rest`, `openai-compatible`, or `null`. Agents cannot be created while it is `null`. Jev still needs the Workers AI binding.
+`AI_MODEL` is the model id sent to that endpoint. A profile model that starts with `@cf/` is a Workers AI id and is not sent there. With the Cloudflare token, those `@cf/` ids are sent to Workers AI REST instead. `/api/setup/health` reports `aiProvider` as `workers-ai`, `workers-ai-rest`, `openai-compatible`, or `null`. Agents cannot be created while it is `null`. Apps assistance uses its explicitly assigned named model connection; it does not require a Workers AI binding.
 
 Deploy the local config, then apply migrations. The migrations command takes the **database name**, not the binding name `DB`:
 
