@@ -42,7 +42,11 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const admitted = await env.DB.prepare(`UPDATE agent_runs SET model_calls=model_calls+1,total_tokens=total_tokens+? WHERE id=? AND status='running'
     AND model_calls<? AND total_tokens+?<=?
     AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id,model_calls AS callNumber`).bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now()-86400000).toISOString(), reservation).first<{ id: string; callNumber: number }>()
-  if (!admitted) return Response.json({ error: { message: 'Run inference budget exhausted' } }, { status: 429 })
+  if (!admitted) {
+    const message = 'Run inference budget exhausted. Review the Run limits before starting another attempt.'
+    await env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'").bind(message, run.id).run()
+    return Response.json({ error: { message } }, { status: 429 })
+  }
   await env.DB.prepare("INSERT INTO agent_model_calls(run_id,call_number,model,status,started_at) VALUES(?,?,?,'running',?)").bind(run.id, admitted.callNumber, run.model, new Date().toISOString()).run()
   const complete = async (tokens: number) => { await env.DB.batch([
     env.DB.prepare('UPDATE agent_runs SET total_tokens=MAX(0,total_tokens+?),last_error=NULL WHERE id=?').bind(tokens - reservation, run.id),

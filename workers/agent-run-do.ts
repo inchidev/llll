@@ -291,7 +291,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         }
       }
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
-      const failure = terminal.type === 'error' ? (await findAgentRun(this.env, run.id))?.lastError || terminal.message : null
+      const current = terminal.type === 'error' ? await findAgentRun(this.env, run.id) : null
+      const failure = terminal.type === 'error' ? current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')
+        ? 'No model request reached the Server. Ask the operator to check AGENT_CALLBACK_ORIGIN, runtime connectivity and trusted CA certificates, then retry.'
+        : terminal.message) : null
       const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
         .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, newId(),
           failure, nowIso(), run.id).first<{ id: string }>()
