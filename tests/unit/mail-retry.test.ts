@@ -117,6 +117,13 @@ describe('edited reply recipients', () => {
     await reply({} as never)
     expect(send).toHaveBeenCalledTimes(1)
   })
+  it('accepts a full Reply all list up to the inbound address limit', async () => {
+    const to = Array.from({ length: 100 }, (_, i) => `person${i}@example.net`)
+    vi.stubGlobal('readBody', async () => ({ content: 'Reply all', to, clientId: 'full-reply-001' }))
+    const reply = (await import('../../server/api/mail/threads/[id]/reply.post')).default
+    expect((await reply({} as never)).message.email?.to).toEqual(to)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to }))
+  })
   it('rejects malformed explicit recipients without sending', async () => {
     vi.stubGlobal('readBody', async () => ({ content: 'Bad address', to: ['recipient@example.net\r\nBcc: victim@example.net'] }))
     const reply = (await import('../../server/api/mail/threads/[id]/reply.post')).default
