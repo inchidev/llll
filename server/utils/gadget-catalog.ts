@@ -1,4 +1,4 @@
-import { hasPermission, Permission } from '../../shared/permissions'
+import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { emptyGadgetSpec, type GadgetDetailDTO, type GadgetListDTO, type GadgetSpec, type GadgetSummaryDTO } from '../../shared/gadgets'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -10,13 +10,18 @@ import { writeAudit } from './messages'
 export type GadgetRow = GadgetSummaryDTO & { draftSpecJson: string }
 
 export function canManageGadgets(actor: Membership): boolean {
-  return actor.isOwner || (hasPermission(actor.perms, Permission.manageGadgets) && hasPermission(actor.perms, Permission.manageDatabases))
+  return allowed(actor, ServerAction.manageGadgets) && allowed(actor, ServerAction.manageData)
+}
+
+function allowed(actor: Membership, action: ServerAction): boolean {
+  try { authorize(actor.authorization, action); return true }
+  catch (error) { if (error instanceof AuthorizationError) return false; throw error }
 }
 
 export function canUseGadgets(actor: Membership): boolean {
   return canManageGadgets(actor)
-    || hasPermission(actor.perms, Permission.useGadgets)
-    || hasPermission(actor.perms, Permission.manageGadgets)
+    || allowed(actor, ServerAction.useGadgets)
+    || allowed(actor, ServerAction.manageGadgets)
 }
 
 function summary(row: GadgetRow): GadgetSummaryDTO {
@@ -65,6 +70,7 @@ export async function getGadgetDetail(env: L4Env, actor: Membership, id: string)
   let draftSpec: GadgetSpec
   try { draftSpec = parseGadgetSpec(JSON.parse(row.draftSpecJson)) }
   catch { fail(409, 'gadget_draft_invalid', 'The App draft is invalid') }
+  await validateGadgetSpec(env, draftSpec, { authorization: actor.authorization })
   return { ...summary(row), draftSpec, roleIds: (access.results ?? []).map(item => item.roleId) }
 }
 
@@ -89,7 +95,7 @@ export async function createGadget(
   input: { name: string; description?: string; spec?: GadgetSpec; roleIds?: string[] },
 ): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
-  const spec = await validateGadgetSpec(env, input.spec ?? emptyGadgetSpec())
+  const spec = await validateGadgetSpec(env, input.spec ?? emptyGadgetSpec(), { authorization: actor.authorization })
   const roleIds = await validateRoleIds(env, input.roleIds ?? [])
   const duplicate = await env.DB.prepare('SELECT id FROM gadgets WHERE lower(name) = lower(?) LIMIT 1').bind(input.name).first()
   if (duplicate) fail(409, 'duplicate_name', 'An App with this name already exists')
@@ -117,7 +123,7 @@ export async function updateGadget(
   if (input.name && await env.DB.prepare('SELECT id FROM gadgets WHERE id <> ? AND lower(name) = lower(?) LIMIT 1').bind(id, input.name).first()) {
     fail(409, 'duplicate_name', 'An App with this name already exists')
   }
-  const spec = input.spec ? await validateGadgetSpec(env, input.spec) : parseGadgetSpec(JSON.parse(current.draftSpecJson))
+  const spec = await validateGadgetSpec(env, input.spec ?? JSON.parse(current.draftSpecJson), { authorization: actor.authorization })
   const roleIds = input.roleIds ? await validateRoleIds(env, input.roleIds) : null
   const updated = await env.DB.prepare(
     `UPDATE gadgets SET name = ?, description = ?, draft_spec_json = ?, draft_revision = draft_revision + 1, updated_at = ?
@@ -133,7 +139,7 @@ export async function publishGadget(env: L4Env, actor: Membership, id: string, r
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
   const current = await requireGadget(env, id)
   if (current.draftRevision !== revision) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')
-  const spec = await validateGadgetSpec(env, JSON.parse(current.draftSpecJson), { publish: true })
+  const spec = await validateGadgetSpec(env, JSON.parse(current.draftSpecJson), { publish: true, authorization: actor.authorization })
   const version = (current.publishedVersion ?? 0) + 1
   const versionId = newId()
   const now = nowIso()

@@ -7,7 +7,7 @@ import { writeAudit } from './messages'
 import { authorize, authorizeResource, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 
 export type CreateDocumentInput = {
-  title: string
+  title?: string
   content?: string
 }
 
@@ -52,27 +52,38 @@ export async function createDocument(
   authorizeResource(authorization, 'documents', '*')
   const serverId = authorization.serverId
   const actorId = authorization.principal.id
-  if (await env.DB.prepare('SELECT id FROM documents WHERE lower(title) = lower(?) LIMIT 1').bind(input.title).first()) {
-    fail(409, 'duplicate_name', 'A document with this title already exists')
-  }
   const position = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) + 1024 as value FROM documents').first<{ value: number }>()
   const id = newId()
   const now = nowIso()
   const content = input.content ?? ''
-  await env.DB.prepare(
+  let title = input.title ?? 'Untitled'
+  let inserted = false
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (input.title === undefined) {
+      const names = (await env.DB.prepare('SELECT lower(title) AS title FROM documents').all<{ title: string }>()).results
+      const used = new Set(names.map(row => row.title))
+      let suffix = 1
+      while (used.has((suffix === 1 ? 'Untitled' : `Untitled ${suffix}`).toLowerCase())) suffix++
+      title = suffix === 1 ? 'Untitled' : `Untitled ${suffix}`
+    }
+    const saved = await env.DB.prepare(
     `INSERT INTO documents (id, title, content, position, version, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
-  ).bind(id, input.title, content, position?.value ?? 1024, actorId, now, now).run()
+     SELECT ?, ?, ?, ?, 1, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM documents WHERE lower(title)=lower(?)) RETURNING id`,
+    ).bind(id, title, content, position?.value ?? 1024, actorId, now, now, title).first()
+    if (saved) { inserted = true; break }
+    if (input.title !== undefined) fail(409, 'duplicate_name', 'A document with this title already exists')
+  }
+  if (!inserted) fail(409, 'conflict', 'Document titles changed concurrently; retry creating the document')
   await writeAudit(env, {
     serverId,
     actorId,
     action: 'document.create',
     targetType: 'document',
     targetId: id,
-    meta: { title: input.title },
+    meta: { title },
     authorization,
   })
-  return { id, title: input.title, content, position: position?.value ?? 1024, version: 1, createdBy: actorId, createdAt: now, updatedAt: now }
+  return { id, title, content, position: position?.value ?? 1024, version: 1, createdBy: actorId, createdAt: now, updatedAt: now }
 }
 
 export async function updateDocument(

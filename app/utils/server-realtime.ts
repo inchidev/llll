@@ -83,6 +83,7 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
   }
   if (event.t === 'members.changed') {
     void cache.invalidateQueries({ queryKey: ['members', event.serverId] })
+    void cache.invalidateQueries({ queryKey: ['roles', event.serverId] })
     void cache.invalidateQueries({ queryKey: ['dms'] })
     return
   }
