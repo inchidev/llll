@@ -11,6 +11,7 @@ afterEach(() => vi.unstubAllGlobals())
 it('lists agent conversation threads, follows thread-only navigation and preserves unread badges', async () => {
   const route = reactive({ params: { channel: 'dm', threadId: 'first' } })
   const user = { id: 'agent', kind: 'agent', displayName: 'Helper' }
+  const directory = ref([{ user, agentStatus: 'active' }, { user: { id: 'paused', kind: 'agent', displayName: 'Sleeping agent' }, agentStatus: 'paused' }])
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   for (const [name, value] of Object.entries({
     computed, useRoute: () => route, useRouter: () => ({ currentRoute: ref(route) }),
@@ -18,7 +19,7 @@ it('lists agent conversation threads, follows thread-only navigation and preserv
       { id: 'first', parentId: 'dm', title: 'First question', unread: false, unreadCount: 0 },
       { id: 'second', parentId: 'dm', title: 'Second question', unread: true, unreadCount: 2 },
     ] }) }),
-    useAgentDirectory: () => ({ agents: ref([{ user }]), members: { isPending: ref(false), error: ref(null) }, messageAgent: vi.fn() }),
+    useAgentDirectory: () => ({ agents: directory, members: { isPending: ref(false), error: ref(null) }, messageAgent: vi.fn() }),
     useMessagePrefetch: () => ({ intent: vi.fn(), cancel: vi.fn(), prefetch: vi.fn() }),
   })) vi.stubGlobal(name, value)
   const view = mount(AgentsNav, { props: { serverId: 'server' }, global: {
@@ -34,6 +35,11 @@ it('lists agent conversation threads, follows thread-only navigation and preserv
     expect(view.findAll('a').map(link => link.attributes('href'))).toEqual(['/agents/dm/threads/first', '/agents/dm/threads/second'])
     expect(view.get('[aria-current="page"]').text()).toBe('First question')
     expect(view.text()).toContain('Second question 2')
+    expect(view.get('button[aria-label="Open the conversation with Sleeping agent"]').attributes('disabled')).toBeDefined()
+    expect(view.text()).toContain('Paused')
+    directory.value[1]!.agentStatus = 'active'
+    await flushPromises()
+    expect(view.get('button[aria-label="Open the conversation with Sleeping agent"]').attributes('disabled')).toBeUndefined()
     route.params.threadId = 'second'
     await flushPromises()
     expect(view.get('[aria-current="page"]').text()).toBe('Second question')

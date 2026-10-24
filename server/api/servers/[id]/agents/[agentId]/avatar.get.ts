@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const db = getDb(env.DB)
   const row = (await db.select({ avatarR2Key: users.avatarR2Key }).from(users)
     .innerJoin(agents, eq(agents.userId, users.id))
-    .where(and(eq(users.id, agentId), eq(users.kind, 'agent')))
+    .where(and(eq(users.id, agentId), eq(users.kind, 'agent'), eq(users.status, 'active')))
     .limit(1))[0]
   if (!row?.avatarR2Key) fail(404, 'not_found', 'Agent avatar not found')
   const object = await requireFiles(env).get(row.avatarR2Key)
