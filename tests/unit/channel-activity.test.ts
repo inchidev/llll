@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient } from '@tanstack/vue-query'
-import { applyServerRealtimeEvent } from '../../app/utils/server-realtime'
+import { applyChannelReadAck, applyServerRealtimeEvent } from '../../app/utils/server-realtime'
 import { channelActivityAudience, signalChannelActivity } from '../../workers/channel-activity'
 import { sendServerEvent } from '../../workers/server-events'
 
@@ -172,9 +172,10 @@ describe('server event delivery', () => {
 })
 
 describe('server unread cache events', () => {
-  it('marks the root channel unread for newer thread activity', () => {
+  it('marks the root channel unread for newer opened-thread activity', () => {
     const cache = new QueryClient()
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }] })
+    cache.setQueryData(['readCursor', 'thread'], '01990000-0000-7000-8000-000000000001')
 
     applyServerRealtimeEvent(cache, {
       t: 'channel.activity',
@@ -184,7 +185,7 @@ describe('server unread cache events', () => {
       notification: { title: 'Alice in #parent', body: 'hello', url: '/channels/parent/threads/thread' },
     })
 
-    expect(cache.getQueryData(['channels', 'main'])).toEqual({ channels: [{ id: 'parent', unread: true, unreadCount: 1 }] })
+    expect(cache.getQueryData(['channels', 'main'])).toEqual({ channels: [{ id: 'parent', unread: true, unreadCount: 1, lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
   })
 
   it('ignores activity at or behind a cursor already read in another delivery order', () => {
@@ -301,5 +302,36 @@ it('refreshes role and member grants after role changes on another client', () =
   applyServerRealtimeEvent(cache, { t: 'members.changed', serverId: 'main' })
   expect(cache.getQueryState(['roles', 'main'])?.isInvalidated).toBe(true)
   expect(cache.getQueryState(['members', 'main'])?.isInvalidated).toBe(true)
+  cache.clear()
+})
+
+it('refreshes the remaining partial count after a local read acknowledgement', () => {
+  const cache = new QueryClient()
+  cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: true, unreadCount: 5 }] })
+  cache.setQueryData(['dms'], { channels: [] })
+  applyChannelReadAck(cache, 'parent', true)
+  expect(cache.getQueryState(['channels', 'main'])?.isInvalidated).toBe(true)
+  expect(cache.getQueryState(['dms'])?.isInvalidated).toBe(true)
+  cache.clear()
+})
+
+it('does not make a never-opened thread unread locally', () => {
+  const cache = new QueryClient()
+  cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }], threads: [{ id: 'thread', opened: false, unread: false, unreadCount: 0 }] })
+  applyServerRealtimeEvent(cache, { t: 'channel.activity', sourceChannelId: 'thread', rootChannelId: 'parent', messageId: '01990000-0000-7000-8000-000000000001', notification: { title: '', body: '', url: '' } })
+  expect(cache.getQueryData(['channels', 'main'])).toMatchObject({ channels: [{ unread: false }], threads: [{ unread: false }] })
+  expect(cache.getQueryState(['channels', 'main'])?.isInvalidated).toBe(true)
+  cache.clear()
+})
+
+it('moves an old channel above a DM on realtime activity without refetching, and never regresses its time', () => {
+  const cache = new QueryClient()
+  const root = { id: 'old', serverId: 'main', unread: true, createdAt: '2020-01-01', lastMessageAt: '2020-01-01' }
+  cache.setQueryData(['channels', 'main'], { channels: [root] })
+  const event = { t: 'channel.activity' as const, sourceChannelId: 'old', rootChannelId: 'old', messageId: '01990000-0000-7000-8000-000000000002', notification: { title: '', body: '', url: '' } }
+  applyServerRealtimeEvent(cache, event)
+  expect(cache.getQueryData(['channels', 'main'])).toMatchObject({ channels: [{ lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
+  applyServerRealtimeEvent(cache, { ...event, messageId: '01980000-0000-7000-8000-000000000001' })
+  expect(cache.getQueryData(['channels', 'main'])).toMatchObject({ channels: [{ lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
   cache.clear()
 })

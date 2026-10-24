@@ -1,20 +1,21 @@
 import type { SidebarThreadDTO } from '../shared/types'
 type D1Reader = Pick<D1Database, 'prepare'>
 
+/** Root messages and replies in threads this member opened; deleted messages never count. */
 export const channelUnreadSql = `
   SELECT EXISTS (
     SELECT 1
     FROM (
       SELECT m.channel_id, MAX(m.id) AS latest_message_id
       FROM messages m
-      WHERE m.channel_id = ?
-         OR m.channel_id IN (SELECT id FROM channels WHERE parent_id = ? AND type = 'thread')
+      WHERE m.deleted_at IS NULL AND (m.channel_id = ?
+         OR m.channel_id IN (SELECT id FROM channels WHERE parent_id = ? AND type = 'thread'))
       GROUP BY m.channel_id
     ) latest
     LEFT JOIN channel_reads cr
       ON cr.channel_id = latest.channel_id AND cr.user_id = ?
-    WHERE cr.last_read_message_id IS NULL
-       OR cr.last_read_message_id < latest.latest_message_id
+    WHERE (latest.channel_id = ? OR cr.last_read_message_id IS NOT NULL)
+      AND (cr.last_read_message_id IS NULL OR cr.last_read_message_id < latest.latest_message_id)
   ) AS unread
 `
 
@@ -25,6 +26,8 @@ export const channelUnreadCountSql = `
     ON cr.channel_id = m.channel_id AND cr.user_id = ?
   WHERE (m.channel_id = ?
      OR m.channel_id IN (SELECT id FROM channels WHERE parent_id = ? AND type = 'thread'))
+    AND m.deleted_at IS NULL
+    AND (m.channel_id = ? OR cr.last_read_message_id IS NOT NULL)
     AND (cr.last_read_message_id IS NULL OR cr.last_read_message_id < m.id)
 `
 
@@ -34,7 +37,8 @@ export function channelUnreadCountsSql(channelCount: number): string {
   return `
     SELECT root.id AS channel_id,
            CAST(SUM(CASE
-             WHEN m.id IS NOT NULL
+             WHEN m.id IS NOT NULL AND m.deleted_at IS NULL
+              AND (scoped.id = root.id OR cr.last_read_message_id IS NOT NULL)
               AND (cr.last_read_message_id IS NULL OR cr.last_read_message_id < m.id)
              THEN 1 ELSE 0
            END) AS INTEGER) AS unread_count
@@ -52,12 +56,12 @@ export function channelUnreadCountsSql(channelCount: number): string {
 }
 
 export async function channelHasUnread(db: D1Reader, userId: string, channelId: string): Promise<boolean> {
-  const row = await db.prepare(channelUnreadSql).bind(channelId, channelId, userId).first<{ unread: number }>()
+  const row = await db.prepare(channelUnreadSql).bind(channelId, channelId, userId, channelId).first<{ unread: number }>()
   return row?.unread === 1
 }
 
 export async function channelUnreadCount(db: D1Reader, userId: string, channelId: string): Promise<number> {
-  const row = await db.prepare(channelUnreadCountSql).bind(userId, channelId, channelId).first<{ unread_count: number }>()
+  const row = await db.prepare(channelUnreadCountSql).bind(userId, channelId, channelId, channelId).first<{ unread_count: number }>()
   return Number(row?.unread_count ?? 0)
 }
 
@@ -77,7 +81,7 @@ export async function channelUnreadCounts(
 /**
  * Threads created or active since `since`, or with messages the member has not
  * read in a thread they have opened before. Threads they never opened do not
- * count as unread here; the parent channel already reports that activity.
+ * count as unread until opened, matching the parent channel aggregation.
  */
 export const recentThreadsSql = `
   SELECT t.id AS id,
@@ -89,7 +93,7 @@ export const recentThreadsSql = `
            WHEN cr.last_read_message_id IS NOT NULL AND cr.last_read_message_id < m.id THEN 1 ELSE 0
          END) AS INTEGER) AS unreadCount
   FROM channels t
-  LEFT JOIN messages m ON m.channel_id = t.id
+  LEFT JOIN messages m ON m.channel_id = t.id AND m.deleted_at IS NULL
   LEFT JOIN channel_reads cr ON cr.channel_id = t.id AND cr.user_id = ?
   WHERE t.type = 'thread' AND t.parent_id IS NOT NULL
   GROUP BY t.id
@@ -125,4 +129,23 @@ export async function sidebarThreads(db: D1Reader, userId: string, parentIds: st
   return [...groups.values()].flatMap(group => group
     .sort((a, b) => Number(b.unread) - Number(a.unread) || b.lastMessageAt.localeCompare(a.lastMessageAt))
     .slice(0, 5))
+}
+
+/** Latest surviving message across each authorized root and its threads. */
+export async function channelLastMessageTimes(db: D1Reader, channelIds: string[]): Promise<Map<string, string | null>> {
+  const ids = [...new Set(channelIds)]
+  const result = new Map<string, string | null>()
+  for (let offset = 0; offset < ids.length; offset += 90) {
+    const batch = ids.slice(offset, offset + 90)
+    const rows = await db.prepare(`
+      SELECT root.id AS channel_id, MAX(m.created_at) AS last_message_at
+      FROM channels root
+      LEFT JOIN channels scoped ON scoped.id = root.id OR (scoped.parent_id = root.id AND scoped.type = 'thread')
+      LEFT JOIN messages m ON m.channel_id = scoped.id AND m.deleted_at IS NULL
+      WHERE root.id IN (${batch.map(() => '?').join(', ')})
+      GROUP BY root.id
+    `).bind(...batch).all<{ channel_id: string, last_message_at: string | null }>()
+    for (const row of rows.results ?? []) result.set(row.channel_id, row.last_message_at)
+  }
+  return result
 }

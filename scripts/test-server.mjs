@@ -9,6 +9,7 @@ import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
 import { testRoleManagement } from './test-role-management.mjs'
 import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
+import { testInbox } from './test-inbox.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -432,6 +433,7 @@ try {
     })
     return { socket, messages, closed }
   }
+  await testInbox({ api, ids, heldSocket })
   async function mustClose(held) {
     let timer
     try {
