@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
+import { isolatedPreviewBindings } from './server-preview-config.mjs'
 import { compareVersions, parseVersion } from './release-policy.mjs'
 import {
   pullRequestCandidate,
@@ -136,6 +137,7 @@ if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
   // Version stays a local fixture override only; the updater reads discovery.
   Object.assign(config.vars, { LLLL_VERSION: installed })
 }
+config.previews = isolatedPreviewBindings(config)
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
   claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
