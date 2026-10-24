@@ -315,8 +315,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const queueExpired = run.status === 'queued' && Date.parse(run.createdAt) + RUN_QUEUE_WAIT_MS <= Date.now()
       const permanent = queueExpired || forbidden || (run.status === 'running' && run.deadline <= nowIso()) || (error instanceof Error && error.message.includes('interrupted'))
       if (!permanent) return
+      const diagnosed = await findAgentRun(this.env, run.id)
       await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=COALESCE(result_message_id,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
-        .bind(forbidden ? 'Authorization revoked' : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
+        .bind(forbidden ? 'Authorization revoked' : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
       const failed = await findAgentRun(this.env, run.id)
       const delivered = failed ? await deliverAgentRun(this.env, failed, () => this.publish(failed)) : true

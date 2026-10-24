@@ -206,3 +206,12 @@ it('expires a queued Run after a separate 24-hour wait with a distinct reason', 
   await coordinator(run.id).alarm()
   expect(db.prepare('SELECT status,last_error,model_calls FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed', last_error: 'Run waited 24 hours for an execution slot. Start a new attempt.', model_calls: 0 })
 })
+
+it('retains an actionable inference denial if the executor subsequently reaches its deadline', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true })))
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='running',result_text=NULL,last_error=?,deadline=? WHERE id=?").run('This agent cannot fit another request within its rolling 24-hour token budget.', '2026-10-22T00:15:00Z', run.id)
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T00:00:00Z'))
+  await coordinator(run.id).alarm()
+  expect(db.prepare('SELECT status,last_error FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed', last_error: expect.stringContaining('rolling 24-hour token budget') })
+})
