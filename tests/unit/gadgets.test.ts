@@ -51,7 +51,9 @@ function actor(overrides: Partial<Membership> = {}): Membership {
       credential: { kind: 'session' },
     },
   }
-  return { ...base, ...overrides }
+  const merged = { ...base, ...overrides }
+  if (!overrides.authorization) merged.authorization = { ...base.authorization, principal: { ...base.authorization.principal, id: merged.user.id, roleId: merged.roleId, roleName: merged.roleName, permissions: merged.perms, isOwner: merged.isOwner } }
+  return merged
 }
 
 function fixture() {
@@ -126,7 +128,7 @@ describe('Gadgets', () => {
           } }
         },
       },
-    } as never, 'Combine companies and leads')
+    } as never, 'Combine companies and leads', actor().authorization)
     expect(generated.bindings.map(binding => binding.source.databaseId)).toEqual(['companies', 'leads'])
     expect(generated.sections.map(section => section.presentation)).toEqual(['list', 'table'])
     expect(JSON.stringify(sent)).not.toContain('Acme deal')
@@ -254,4 +256,50 @@ describe('Gadgets', () => {
     expect(sqlite.prepare("SELECT title FROM database_items WHERE id = 'lead-won'").get()).toEqual({ title: 'Closed deal' })
     sqlite.close()
   })
+})
+
+it('requires source access for draft creation, updates and publication', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const limited = actor({ isOwner: false, authorization: { ...base.authorization, principal: { ...base.authorization.principal, isOwner: false, resourceAccess: { databases: ['leads'] } } } })
+  try {
+    await expect(createGadget(env, limited, { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
+    expect(sqlite.prepare('SELECT count(*) AS count FROM gadgets').get()).toMatchObject({ count: 0 })
+    const allowed = { ...spec, bindings: spec.bindings.slice(0, 1), sections: spec.sections.filter(section => section.bindingId === spec.bindings[0]!.id) }
+    const created = await createGadget(env, limited, { name: 'Allowed', spec: allowed })
+    await expect(publishGadget(env, limited, created.id, created.draftRevision)).resolves.toMatchObject({ publishedVersion: 1 })
+    const privateDraft = await createGadget(env, base, { name: 'Other manager', spec })
+    await expect(updateGadget(env, limited, privateDraft.id, { revision: privateDraft.draftRevision, name: 'Take over' })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(publishGadget(env, limited, privateDraft.id, privateDraft.draftRevision)).rejects.toMatchObject({ statusCode: 403 })
+    expect(sqlite.prepare('SELECT name,published_version FROM gadgets WHERE id=?').get(privateDraft.id)).toMatchObject({ name: 'Other manager', published_version: null })
+  } finally { sqlite.close() }
+})
+
+it('never sends inaccessible source names, views or fields to Jev', async () => {
+  const sqlite = fixture()
+  const base = actor()
+  const auth = { ...base.authorization, principal: { ...base.authorization.principal, isOwner: false, resourceAccess: { databases: ['leads'] } } }
+  let sent = ''
+  try {
+    const generated = await composeGadgetSpec({ DB: d1(sqlite), AI: { run: async (_model: string, input: unknown) => {
+      sent = JSON.stringify(input)
+      return { answers: { include_0: { noul: 1 }, presentation_0: { choice: 'table' }, priority_0: { score: 1 } } }
+    } } } as never, 'Build an app', auth)
+    expect(generated.bindings.map(binding => binding.source.databaseId)).toEqual(['leads'])
+    expect(sent).not.toMatch(/Companies|Tier|Enterprise/)
+    expect(sent).toContain('Leads')
+  } finally { sqlite.close() }
+})
+
+it('applies delegation action ceilings before listing, editing or running Apps', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const created = await createGadget(env, base, { name: 'Published', spec, roleIds: ['member-role'] })
+  await publishGadget(env, base, created.id, created.draftRevision)
+  const delegated = actor({ authorization: { ...base.authorization, delegation: { by: 'delegator', permissions: ALL_PERMISSIONS, isOwner: true, actions: [] } } })
+  try {
+    await expect(listGadgets(env, delegated)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(createGadget(env, delegated, { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(openGadget(env, delegated, created.id)).rejects.toMatchObject({ statusCode: 403 })
+  } finally { sqlite.close() }
 })
