@@ -249,6 +249,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             presence.markTyping(id, parsed.userId, parsed.active)
             break
           case 'agent.state':
+            void queryClient()?.invalidateQueries({ queryKey: ['agent-conversation-runs'] })
             presence.setAgentTurns(id, parsed.agentId, parsed.runs)
             break
           case 'presence':
