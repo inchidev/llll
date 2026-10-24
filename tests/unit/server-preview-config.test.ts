@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { isolatedPreviewBindings } from '../../scripts/server-preview-config.mjs'
+import { isolatedPreviewBindings, nativeServerPreviewOrigin } from '../../scripts/server-preview-config.mjs'
 
 it('replaces template Preview bindings with the resources provisioned by the Git Build', () => {
   const config = {
@@ -14,4 +14,10 @@ it('replaces template Preview bindings with the resources provisioned by the Git
   expect(preview).toEqual({ vars: config.vars, d1_databases: config.d1_databases, r2_buckets: config.r2_buckets, kv_namespaces: config.kv_namespaces, durable_objects: config.durable_objects })
   expect(JSON.stringify(preview)).not.toContain('placeholder')
   expect(preview.r2_buckets[0].bucket_name).not.toBe(preview.r2_buckets[1].bucket_name)
+})
+
+it('uses the assigned custom Preview URL and rejects missing or foreign hosts', () => {
+  expect(nativeServerPreviewOrigin({ urls: ['https://example.workers.dev', 'https://assigned-slug.server-preview.llll.gg'] })).toBe('https://assigned-slug.server-preview.llll.gg')
+  expect(() => nativeServerPreviewOrigin({ urls: [] })).toThrow('shared custom Preview domain')
+  expect(() => nativeServerPreviewOrigin({ urls: ['http://wrong.server-preview.llll.gg', 'https://server-preview.llll.gg.evil.test'] })).toThrow()
 })
