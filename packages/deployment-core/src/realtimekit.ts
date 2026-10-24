@@ -31,6 +31,7 @@ async function cloudflareFetch(apiToken: string, method: string, path: string, b
       'Content-Type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
   })
   const json = await res.json().catch(() => ({})) as { result?: unknown, data?: unknown }
   if (!res.ok) throw new RealtimeKitHttpError(res.status)

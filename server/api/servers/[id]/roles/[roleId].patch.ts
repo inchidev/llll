@@ -8,7 +8,9 @@ import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
-import { assertGrantScope, assertResourceGrantScope, toRoleDto } from '../../../../utils/role-policy'
+import { assertGrantScope, assertResourceGrantScope, assertRoleManageable, toRoleDto } from '../../../../utils/role-policy'
+import { signalMembersChanged } from '../../../../../workers/member-events'
+import { revalidateLiveRooms } from '../../../../utils/live'
 import { parseBody } from '../../../../utils/validate'
 
 const bodySchema = z.object({
@@ -22,11 +24,12 @@ export default defineEventHandler(async (event) => {
   const roleId = getRouterParam(event, 'roleId')!
   const actor = await requireMember(event, serverId, Permission.manageRoles)
   const body = parseBody(bodySchema, await readBody(event))
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const role = (await db.select().from(roles).where(eq(roles.id, roleId)).limit(1))[0]
   if (!role) fail(404, 'not_found', 'Role not found')
   if (role.isSystem) fail(403, 'forbidden', 'System roles cannot be changed')
+  assertRoleManageable(actor, role)
   const permissions = body.permissions ?? role.permissionsBitmask
   assertGrantScope(actor, permissions)
   assertResourceGrantScope(actor, body.resourceAccess ?? parseResourceAccess(role.resourceAccessJson))
@@ -57,5 +60,7 @@ export default defineEventHandler(async (event) => {
     targetId: role.id,
     meta: { name: updated.name, permissions: updated.permissionsBitmask },
   })
+  waitUntil(signalMembersChanged(env, serverId))
+  waitUntil(revalidateLiveRooms(env))
   return { role: toRoleDto(updated, serverId) }
 })

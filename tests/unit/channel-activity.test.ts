@@ -293,3 +293,13 @@ describe('server unread cache events', () => {
     expect(cache.getQueryData<Threads>(['dms'])?.threads[0]).toMatchObject({ unread: false, unreadCount: 0 })
   })
 })
+
+it('refreshes role and member grants after role changes on another client', () => {
+  const cache = new QueryClient()
+  cache.setQueryData(['roles', 'main'], { roles: [] })
+  cache.setQueryData(['members', 'main'], { members: [] })
+  applyServerRealtimeEvent(cache, { t: 'members.changed', serverId: 'main' })
+  expect(cache.getQueryState(['roles', 'main'])?.isInvalidated).toBe(true)
+  expect(cache.getQueryState(['members', 'main'])?.isInvalidated).toBe(true)
+  cache.clear()
+})
