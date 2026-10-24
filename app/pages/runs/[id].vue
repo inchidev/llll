@@ -79,6 +79,7 @@ async function retryRun() {
         <h2 class="text-lg font-medium text-highlighted">Execution</h2>
         <UBadge :label="run.status" color="neutral" variant="subtle" />
       </div>
+      <p v-if="run.status === 'queued'" class="text-sm text-muted">Waiting for a free execution slot. The execution time limit starts when this Run begins.</p>
       <dl class="grid grid-cols-2 gap-3 text-sm">
         <dt class="text-muted">Started</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
         <dt class="text-muted">Model</dt><dd class="break-all">{{ run.model }}</dd>
