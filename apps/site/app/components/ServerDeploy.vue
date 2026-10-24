@@ -5,7 +5,7 @@ import { readDeployedServers, recordDeployedServer, type DeployedServer } from '
 import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 
 const phases = ['Configure your Server', 'Start deployment', 'Wait for Cloudflare verification', 'Ready']
-type Deployment = { origin: string; name: string; accountId: string; version?: string | null; claim?: string; iconUrl?: string | null }
+type Deployment = { origin: string; name: string; accountId: string; version?: string | null; workerName?: string; claim?: string; iconUrl?: string | null }
 const shell = useShell()
 const route = useRoute()
 const router = useRouter()
@@ -105,6 +105,18 @@ function claimFor(origin: string) {
   return session.value.origin === origin && session.value.completed
     ? session.value.claim
     : session.value.deployments?.find(item => item.origin === origin)?.claim
+}
+const recoveringSetup = ref('')
+async function recoverSetup(entry: Deployment) {
+  if (!entry.workerName || recoveringSetup.value) return
+  recoveringSetup.value = entry.origin
+  error.value = ''
+  try {
+    await $fetch('/api/deploy/setup/recover', { method: 'POST', body: { origin: entry.origin, accountId: entry.accountId, workerName: entry.workerName } })
+    await refresh()
+    await checkServer(entry.origin)
+  } catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || (cause instanceof Error ? cause.message : 'Could not recover owner setup. Reconnect Cloudflare and try again.') }
+  finally { recoveringSetup.value = '' }
 }
 function openRoute(origin: string) {
   return deploymentShellUrl(origin, statuses.value[origin] === 'setup' ? claimFor(origin) : undefined)
@@ -330,6 +342,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
             <UButton v-if="statuses[entry.origin] === 'setup' && claimFor(entry.origin)" :to="claimFor(entry.origin)" external target="_blank" rel="noopener noreferrer" label="Finish setup on your Server" size="sm" />
             <UButton v-else :to="openRoute(entry.origin)" label="Open in Shell" size="sm" color="neutral" variant="outline" :disabled="statuses[entry.origin] !== 'ready'" />
             <UButton :to="statuses[entry.origin] === 'setup' && claimFor(entry.origin) || entry.origin" external label="Open directly" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="ghost" />
+            <UButton v-if="connected && 'workerName' in entry && entry.workerName" :label="statuses[entry.origin] === 'setup' && !claimFor(entry.origin) ? 'Finish setup on your Server' : 'Recover setup link'" size="sm" color="neutral" variant="ghost" :loading="recoveringSetup === entry.origin" :disabled="Boolean(recoveringSetup)" @click="recoverSetup(entry)" />
             <UButton :label="copied === entry.origin ? 'Copied' : 'Copy address'" size="sm" color="neutral" variant="ghost" @click="copyAddress(entry.origin)" />
           </div>
         </li>

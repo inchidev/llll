@@ -24,9 +24,8 @@ const { api } = useApi()
 const qc = useQueryClient()
 const toast = useToast()
 const startingRun = ref(false)
-async function runSelectedTask() {
-  const task = selectedTask.value
-  if (startingRun.value || !task?.assigneeId || !task.channelId || taskRunProblem.value) return
+async function runTask(task: TaskDetailDTO) {
+  if (startingRun.value || !task.assigneeId || !task.channelId) return
   startingRun.value = true
   try {
     const result = await api<{ run: { id: string } }>('/api/agent-runs', { method: 'POST', body: {
@@ -36,6 +35,10 @@ async function runSelectedTask() {
     await navigateTo(`/runs/${result.run.id}`)
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { startingRun.value = false }
+}
+
+async function runSelectedTask() {
+  if (selectedTask.value && !taskRunProblem.value) await runTask(selectedTask.value)
 }
 
 const taskRunProblem = computed(() => {
@@ -383,20 +386,25 @@ function openCreateTask() {
   showTaskForm.value = true
 }
 
-async function createTask() {
+async function createTask(runAfter = false) {
   if (!activeBoard.value || !newTask.title.trim()) return
   const boardId = activeBoard.value.id
+  let created: TaskDetailDTO | undefined
   const ok = await mutate(async () => {
     const res = await api<{ task: TaskDetailDTO }>(`/api/boards/${boardId}/tasks`, {
       method: 'POST',
       body: { ...newTask, dueAt: toIso(newTask.dueAt) },
     })
+    created = res.task
     const { checklist: _checklist, attachments: _attachments, ...task } = res.task
     qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', serverId.value, false] }, old => old
       ? { boards: old.boards.map(board => board.id === boardId ? { ...board, tasks: [...board.tasks, task] } : board) }
       : old)
   }, 'Task created')
-  if (ok) showTaskForm.value = false
+  if (ok) {
+    showTaskForm.value = false
+    if (runAfter && created) await runTask(created)
+  }
 }
 
 function openTask(task: TaskDTO) {
@@ -627,10 +635,11 @@ const boardMenu = computed(() => [[
     <UModal v-model:open="showTaskForm" title="Create task" :ui="{ content: 'sm:max-w-2xl' }">
       <template #body>
         <div class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask" /></UFormField>
+          <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
           <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
           <UFormField v-if="can(Permission.useComputer)" label="Repository environment" help="Uses a separate working fork for draft pull requests."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+          <p v-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
           <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
           <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
@@ -650,7 +659,8 @@ const boardMenu = computed(() => [[
       </template>
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
-        <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask" />
+        <UButton v-if="can(Permission.executeTasks) && can(Permission.useAgents) && newTask.channelId && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
       </template>
     </UModal>
 
@@ -766,6 +776,7 @@ const boardMenu = computed(() => [[
 
           <LayoutSaveBar v-if="can(Permission.writeTasks)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
         </fieldset>
+        <p v-if="selectedTask && agents.some(agent => agent.id === selectedTask!.assigneeId)" class="mt-4 text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
         <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mt-6 space-y-2 border-t border-default pt-4">
           <UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem) || !agents.some(agent => agent.id === selectedTask!.assigneeId && agent.status === 'active')" @click="runSelectedTask" />
           <p v-if="taskRunProblem" class="text-xs text-muted">{{ taskRunProblem }}</p>

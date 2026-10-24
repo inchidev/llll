@@ -29,6 +29,7 @@ beforeEach(() => {
     INSERT INTO tasks(id,board_id,title,status,assignee_id,created_by,channel_id,created_at,updated_at)
       VALUES('assigned-task','board-allowed','Research','ready','${agentId}','owner-user','public-chat','2026-10-21','2026-10-21');`)
   env = { DB: d1(db), AUTH_SECRET: 'test-server-secret-with-32-characters', FILES: {}, AI: {}, AGENT_MODEL: '@cf/test',
+    SERVER_DO: { getByName: () => ({ notifyTasksChanged: async () => {} }) },
     AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) },
     AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'fixture',
     CHANNEL_DO: { getByName: () => ({ postAgentMessage: post, fanout: async () => {} }) },
@@ -92,4 +93,13 @@ it('rejects a missing report-channel permission before creating a paid attempt',
   db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.readTasks | Permission.executeTasks, 'agent-role')
   await expect(completed()).rejects.toMatchObject({ statusCode: 403, data: { error: { code: 'report_access' } } })
   expect(db.prepare('SELECT count(*) as count FROM agent_runs').get()?.count).toBe(0)
+})
+
+it('includes task identity and a task link in the conversation report', async () => {
+  const run = await completed()
+  await coordinator(run.id).alarm()
+  const content = JSON.stringify(post.mock.calls)
+  expect(content).toContain('Research')
+  expect(content).toContain('/tasks?task=')
+  expect(content).toContain('Verified result')
 })

@@ -10,6 +10,7 @@ import { findAgentRun, runAuthorization, runCapability } from '../server/utils/a
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
+import { getTask } from '../server/utils/task-service'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
@@ -156,7 +157,16 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   private async publish(run: AgentRun): Promise<void> {
     const text = run.status === 'failed' ? `Run failed: ${run.lastError || 'Execution stopped'}.\n\n[View details and retry](/runs/${run.id})` : run.resultText
     if (!text) return
-    const content = text.length > 1800 ? `${text.slice(0, 1800)}\n\n[Full result](/runs/${run.id})` : text
+    let heading = ''
+    if (run.taskId) {
+      const auth = await runAuthorization(this.env, run)
+      const task = await getTask(this.env, auth, run.taskId)
+      if (task) {
+        const title = task.title.replace(/[\\`*_[\]<>]/g, '\\$&').replace(/[\r\n]/g, ' ')
+        heading = `[Task #${task.number} · ${title}](/tasks?task=${encodeURIComponent(task.id)}&board=${encodeURIComponent(task.boardId)}) → ${task.status.charAt(0).toUpperCase() + task.status.slice(1)}\n\n`
+      }
+    }
+    const content = heading + (text.length > 1800 ? `${text.slice(0, 1800)}\n\n[Full result](/runs/${run.id})` : text)
     await asRpc<{ postAgentMessage: (input: { agentId: string; content: string; sourceRunId: string }) => Promise<unknown> }>(this.env.CHANNEL_DO.getByName(`channel:${run.channelId}`))
       .postAgentMessage({ agentId: run.agentId, content, sourceRunId: run.id })
   }

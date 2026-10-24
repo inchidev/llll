@@ -242,7 +242,7 @@ it('scopes inventory to an authorized account and exposes only public Server met
   const response = await web.fetch(req('/api/deploy/servers?accountId=' + 'a'.repeat(32), cookie), env)
   expect(response.status).toBe(200)
   expect(response.headers.get('cache-control')).toBe('no-store')
-  expect(await response.json()).toEqual({ servers: [{ accountId: 'a'.repeat(32), origin: 'https://community.workers.dev', name: 'Community', version: '0.2.0-alpha.3' }] })
+  expect(await response.json()).toEqual({ servers: [{ accountId: 'a'.repeat(32), origin: 'https://community.workers.dev', name: 'Community', version: '0.2.0-alpha.3', workerName: 'community' }] })
   expect(listL4Servers).toHaveBeenCalledWith('private-access', 'a'.repeat(32), { strict: true })
 })
 

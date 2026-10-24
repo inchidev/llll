@@ -1,3 +1,4 @@
+import { ownerRecoverySchema, recoverOwnerSetup } from './owner-setup'
 import { enableL4Files } from '../../../packages/deployment-core/src/storage'
 import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode, refreshCloudflareGrant } from '../../../shared/cloudflare-oauth'
@@ -192,6 +193,13 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       await env.DB.prepare('UPDATE deployment_sessions SET lease_until=0 WHERE id_hash=? AND lease_until=?').bind(session.id, leaseUntil).run()
     }
   }
+  if (path === '/api/deploy/setup/recover' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    const value = ownerRecoverySchema.parse(await input(request))
+    const result = await recoverOwnerSetup(session.data, value)
+    await session.save()
+    return json(result)
+  }
   if (path === '/api/deploy/servers' && request.method === 'GET') {
     const session = await webSession(request, env)
     const grant = session.data.grant
@@ -202,7 +210,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const servers = await listL4Servers(grant.accessToken, accountId, { strict: true })
     return json({ servers: servers.flatMap(server => {
       try {
-        return [{ origin: publicOrigin(server.origin, env), name: [...(session.data.deployments || []), ...[session.data]].find(item => item.origin === server.origin && item.accountId === accountId)?.name || server.configuration.appName, version: server.version, accountId }]
+        return [{ origin: publicOrigin(server.origin, env), name: [...(session.data.deployments || []), ...[session.data]].find(item => item.origin === server.origin && item.accountId === accountId)?.name || server.configuration.appName, version: server.version, accountId, workerName: server.workerName }]
       } catch { return [] }
     }) })
   }

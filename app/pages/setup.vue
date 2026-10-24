@@ -8,6 +8,7 @@ const session = useSessionStore()
 const { api } = useApi()
 const health = computed(() => session.health)
 const busy = ref(false)
+const signedIn = ref(false)
 const error = ref<string | null>(null)
 const claimToken = useState('owner-claim', () => '')
 const ownerEmail = ref('')
@@ -78,6 +79,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
         password: event.data.password,
       },
     })
+    signedIn.value = true
     try { sessionStorage.removeItem('df:owner-setup-token') } catch { /* Memory fallback. */ }
     claimToken.value = ''
     await session.refresh(api)
@@ -110,6 +112,8 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       class="mt-6"
     />
 
+    <p v-else-if="signedIn" role="status" class="mt-6 text-sm text-muted">Signing you in…</p>
+
     <template v-else-if="health?.ownerSetup">
       <UAlert
         v-if="!claimToken"
@@ -118,6 +122,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
         title="This setup link is missing its private claim. Return to the installer and choose Finish setup on your Server."
         class="mt-6"
       />
+      <UButton v-if="!claimToken" to="https://llll.gg/create?tab=cloudflare" external target="_blank" rel="noopener" label="Return to the installer" class="mt-3" />
       <template v-else>
         <UAlert v-if="error" color="error" variant="subtle" :title="error" class="mt-6" />
         <UForm v-if="ownerEmail" :schema="schema" :state="state" autocomplete="on" class="mt-7 space-y-4" @submit="onSubmit">

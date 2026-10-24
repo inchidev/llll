@@ -174,3 +174,24 @@ it('offers reconnect while connected and lets a failed installation be paused wi
   await pause!.trigger('click'); await flushPromises()
   expect(api).toHaveBeenCalledWith('/api/deploy/pause', expect.objectContaining({ method: 'POST' }))
 })
+
+it('restores the Finish setup action after losing the original tab and installer claim', async () => {
+  const original = api.getMockImplementation()!
+  let recovered = false
+  api.mockImplementation(async (path: string) => {
+    if (path === '/api/deploy/setup/recover') { recovered = true; return { claim: pending + '/setup#claim=' + claim } }
+    const value = await original(path)
+    if (path === '/api/deploy/servers') return { servers: value.servers.map((entry: object) => ({ ...entry, workerName: 'community' })) }
+    if (path === '/api/deploy/session') return { ...value, completed: false, step: undefined, origin: undefined, claim: undefined, deployments: recovered ? value.deployments : [] }
+    return value
+  })
+  const view = await render()
+  let row = view.findAll('li').find(row => row.text().includes('Unclaimed Server'))!
+  const finish = row.findAll('button').find(button => button.text() === 'Finish setup on your Server')!
+  expect(finish.exists()).toBe(true)
+  await finish.trigger('click'); await flushPromises()
+  expect(api).toHaveBeenCalledWith('/api/deploy/setup/recover', expect.objectContaining({ body: { origin: pending, accountId: account, workerName: 'community' } }))
+  row = view.findAll('li').find(row => row.text().includes('Unclaimed Server'))!
+  expect(row.findAll('a').find(a => a.text() === 'Finish setup on your Server')?.attributes('href')).toContain('#claim=')
+  expect(localStorage.getItem('llll.deploy-recall.v1')).not.toContain(claim)
+})

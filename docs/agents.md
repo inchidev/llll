@@ -88,6 +88,8 @@ Connecting a provider adds choices; it never selects the first model as a Server
 
 Task execution requires Read tasks and Execute assigned tasks, plus access and Send messages in the report conversation, for both the Agent and initiator. Admission checks these before inference. Completion can record only that Run’s result on its assigned, unchanged Task; it does not grant general task editing. Results move to Review. Human changes, reassignment and archival are preserved.
 
+Assignment alone does not start execution: Ready means available for an explicit start. Choose **Create and run** when creating an Agent-assigned Task with a report channel, or **Run assigned agent** on a saved Task. Both actions use the same authorization and admission checks. Conversation reports identify the Task number, title and current status, link back to its board and detail, and include the result below.
+
 Computation, Task-result recording and report delivery have independent states on the Run page. Delivery failures retain the computed result. Pending delivery retries are bounded; only the original initiator can explicitly retry blocked delivery, under current permissions and the saved mandate. Retrying delivery does not call the model. Successful delivery is not posted twice.
 
 Every model request includes the current UTC time and Server timezone (UTC by default). The `get_current_time` tool refreshes this reference during longer work. Ambiguous scheduling timezones still require clarification.
