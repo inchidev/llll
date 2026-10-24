@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mergeMailAddresses } from '../../../../../shared/mail'
 import { newId, nowIso } from '../../../../../shared/ids'
 import type { MailMessageDTO } from '../../../../../shared/types'
 import { requireMailboxPermission, requireMailSendLimit } from '../../../../utils/server-mail'
@@ -11,6 +12,7 @@ import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({
+  to: z.array(z.string().trim().email().max(254)).min(1).max(50).optional(),
   replyAll: z.boolean().default(false),
   content: z.string().trim().min(1).max(100_000),
   /** Set by the client for each reply, so retrying one is not emailed twice. */
@@ -38,7 +40,9 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
       replyThreading(env, id),
     ])
     if (!mailbox) fail(404, 'not_found', 'Mailbox not found')
-    const recipients = await replyRecipients(env, id, mailbox.address, body.replyAll ? 'all' : 'reply')
+    const recipients = body.to
+      ? mergeMailAddresses(body.to).filter(address => address !== mailbox.address.toLowerCase())
+      : await replyRecipients(env, id, mailbox.address, body.replyAll ? 'all' : 'reply')
     if (!recipients.length) fail(409, 'no_recipient', 'This conversation has no external recipient')
     const created = nowIso()
     messageId = newId()

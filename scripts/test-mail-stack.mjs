@@ -134,6 +134,8 @@ try {
   assert.equal(captured.at(-1).headers['In-Reply-To'], '<first@example.net>')
   await api(`${detailPath}/reply`, { method: 'POST', body: { content: 'Reply all', replyAll: true, clientId: randomBytes(12).toString('hex') } })
   assert.deepEqual(captured.at(-1).to, ['replies@example.net', 'colleague@example.net', 'copy@example.net'])
+  await api(`${detailPath}/reply`, { method: 'POST', body: { content: 'Edited reply', to: ['chosen@example.net'], clientId: randomBytes(12).toString('hex') } })
+  assert.deepEqual(captured.at(-1).to, ['chosen@example.net'])
   for (const status of ['spam', 'trash']) {
     await api(detailPath, { method: 'PATCH', body: { status } })
     await inbound(`followup-${status}`, 'first')
@@ -152,8 +154,8 @@ try {
   assert.equal(captured.length, count + 1)
   console.log('PASS: Reply-To, explicit Reply all, Spam/Trash persistence, subject sanitization and idempotent sends')
 
-  // Two replies and three compose requests (including the replay) consumed five slots.
-  for (let index = 0; index < 5; index++) await send({ ...body, clientId: randomBytes(12).toString('hex') })
+  // Three replies and three compose requests (including the replay) consumed six slots.
+  for (let index = 0; index < 4; index++) await send({ ...body, clientId: randomBytes(12).toString('hex') })
   const beforeRateLimit = captured.length
   await api(`/api/mail/mailboxes/${mailbox.channelId}/send`, { method: 'POST', body: { ...body, clientId: randomBytes(12).toString('hex') }, expected: 429 })
   assert.equal(captured.length, beforeRateLimit)
@@ -169,6 +171,8 @@ try {
   assert.equal((await (await api('/.well-known/llll')).json()).id, discovery.id)
   assert.equal((await (await api(detailPath)).json()).thread.status, 'trash')
   console.log('PASS: UUID, session and Mail state survive a Docker restart')
+  const beforeDelete = await (await api(`/api/servers/${discovery.id}/mail`)).json()
+  assert.ok(beforeDelete.mail.mailboxes.find(item => item.channelId === mailbox.channelId).conversationCount > 0)
   await api(`/api/servers/${discovery.id}/mailboxes/${mailbox.channelId}`, { method: 'DELETE', expected: 204 })
   await api(`/api/files/${attachment.id}`, { expected: 404 })
   await api(detailPath, { expected: 404 })

@@ -16,7 +16,7 @@ import storageChannelsSql from '../../drizzle/server-migrations/0012_server_stor
 import modelCallsSql from '../../drizzle/server-migrations/0013_agent_model_calls.sql?raw'
 import runDeliverySql from '../../drizzle/server-migrations/0014_agent_run_delivery.sql?raw'
 import mailDeliverySql from '../../drizzle/server-migrations/0015_mail_delivery.sql?raw'
-import mailFileCleanupSql from '../../drizzle/server-migrations/0016_mail_file_cleanup.sql?raw'
+import mailFileCleanupSql from '../../drizzle/server-migrations/0016_file_cleanup.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 

@@ -106,3 +106,21 @@ describe('uncertain mail recovery', () => {
     } finally { previous.close() }
   })
 })
+
+describe('edited reply recipients', () => {
+  it('sends only the edited, deduplicated list and keeps request replay idempotent', async () => {
+    vi.stubGlobal('readBody', async () => ({ content: 'Edited recipients', to: ['Chosen@example.net', 'chosen@example.net', 'support@example.com'], clientId: 'edited-reply-001' }))
+    const reply = (await import('../../server/api/mail/threads/[id]/reply.post')).default
+    const result = await reply({} as never)
+    expect(result.message.email?.to).toEqual(['chosen@example.net'])
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: ['chosen@example.net'] }))
+    await reply({} as never)
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+  it('rejects malformed explicit recipients without sending', async () => {
+    vi.stubGlobal('readBody', async () => ({ content: 'Bad address', to: ['recipient@example.net\r\nBcc: victim@example.net'] }))
+    const reply = (await import('../../server/api/mail/threads/[id]/reply.post')).default
+    await expect(reply({} as never)).rejects.toMatchObject({ statusCode: 400 })
+    expect(send).not.toHaveBeenCalled()
+  })
+})

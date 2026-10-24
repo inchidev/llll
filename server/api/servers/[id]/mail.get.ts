@@ -17,10 +17,11 @@ export default defineEventHandler(async (event): Promise<{ mail: MailSettingsDTO
   ).all<{ id: string; domain: string; appHostname: string }>()
   const mailboxes = await env.DB.prepare(
     `SELECT mb.channel_id as channelId, mb.domain_id as domainId, lower(mb.local_part || '@' || d.domain) as address,
-       mb.display_name as displayName, mb.enabled
+       mb.display_name as displayName, mb.enabled,
+       (SELECT count(*) FROM email_threads t WHERE t.mailbox_channel_id = mb.channel_id) as conversationCount
      FROM email_mailboxes mb JOIN email_domains d ON d.id = mb.domain_id
      ORDER BY mb.display_name, address`,
-  ).all<{ channelId: string; domainId: string; address: string; displayName: string; enabled: number }>()
+  ).all<{ channelId: string; domainId: string; address: string; displayName: string; enabled: number; conversationCount: number }>()
   const access = await env.DB.prepare(
     'SELECT channel_id as channelId, user_id as userId, permission FROM email_mailbox_access',
   ).all<{ channelId: string; userId: string; permission: MailboxPermission }>()

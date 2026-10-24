@@ -173,8 +173,32 @@ async function sendCloudflareEmail(env: L4Env, message: ServerEmailMessage): Pro
   return { messageId }
 }
 
+/** Values that may become MIME header fields must be single-line on every transport. */
+function safeHeaderText(value: string, limit: number): string {
+  return value.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim().slice(0, limit)
+}
+
+function safeAddress(address: ServerEmailAddress): ServerEmailAddress {
+  const email = typeof address === 'string' ? address : address.email
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(email)) throw new Error('Email address contains control characters')
+  return typeof address === 'string' ? address : { email, name: safeHeaderText(address.name, 200) }
+}
+
+function safeMessage(message: ServerEmailMessage): ServerEmailMessage {
+  const addresses = (value: ServerEmailAddress | ServerEmailAddress[]) => Array.isArray(value) ? value.map(safeAddress) : safeAddress(value)
+  return {
+    ...message,
+    subject: safeHeaderText(message.subject, 500),
+    from: safeAddress(message.from),
+    to: addresses(message.to),
+    ...(message.cc ? { cc: addresses(message.cc) } : {}),
+    ...(message.bcc ? { bcc: addresses(message.bcc) } : {}),
+    ...(message.replyTo ? { replyTo: safeAddress(message.replyTo) } : {}),
+  }
+}
+
 export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string | null }> {
-  message = { ...message, subject: message.subject.replace(/[\r\n]+/gu, ' ').trim().slice(0, 500) }
+  message = safeMessage(message)
   if (env.MAIL_EMAIL) return env.MAIL_EMAIL.send(message)
   if (cloudflareRestConfigured(env)) return sendCloudflareEmail(env, message)
   const fetcher = mailGatewayFetcher(env)
@@ -205,6 +229,6 @@ export async function sendServerEmail(env: L4Env, message: ServerEmailMessage): 
 }
 
 export async function sendAuthEmail(env: L4Env, message: ServerEmailMessage): Promise<{ messageId: string | null }> {
-  if (env.EMAIL) return env.EMAIL.send(message)
+  if (env.EMAIL) return env.EMAIL.send(safeMessage(message))
   return sendServerEmail(env, message)
 }

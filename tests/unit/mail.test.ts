@@ -53,3 +53,13 @@ describe('server mail model', () => {
   })
 
 })
+
+describe('reply editor defaults', () => {
+  it('uses Reply-To for Reply and includes To/Cc only for Reply all', async () => {
+    const { mailReplyRecipients } = await import('../../shared/mail')
+    const inbound = { fromAddress: 'sender@example.net', replyTo: ['reply@example.net'], to: ['support@example.com', 'other@example.net'], cc: ['Other@example.net', 'copy@example.net'] }
+    expect(mailReplyRecipients(inbound, [], 'support@example.com')).toEqual(['reply@example.net'])
+    expect(mailReplyRecipients(inbound, [], 'support@example.com', true)).toEqual(['reply@example.net', 'other@example.net', 'copy@example.net'])
+    expect(mailReplyRecipients(null, ['support@example.com', 'customer@example.net'], 'support@example.com')).toEqual(['customer@example.net'])
+  })
+})

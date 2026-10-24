@@ -59,3 +59,11 @@ export function mailDeliveryUncertain(row: { deliveryStatus: string; deliveryAtt
   return row.deliveryStatus === 'pending' && row.deliveryAttempts > 0
     && Date.parse(row.deliveryStartedAt || row.createdAt) <= now - MAIL_DELIVERY_LEASE_MS
 }
+
+/** Defaults shared by the reply editor and the server; explicit edits are validated by the API. */
+export function mailReplyRecipients(inbound: { fromAddress: string; replyTo?: string[]; to: string[]; cc: string[] } | null, participants: string[], mailboxAddress: string, replyAll = false): string[] {
+  const candidates = inbound
+    ? mergeMailAddresses(inbound.replyTo?.length ? inbound.replyTo : [inbound.fromAddress], ...(replyAll ? [inbound.to, inbound.cc] : []))
+    : mergeMailAddresses(participants)
+  return candidates.filter(address => address !== mailboxAddress.toLowerCase())
+}

@@ -7,7 +7,6 @@ const toast = useToast()
 const qc = useQueryClient()
 const { api } = useApi()
 const tab = ref<'mailboxes' | 'domains'>('mailboxes')
-/** The Domains panel; its owner-only Add domain action shows in this page's header. */
 const createOpen = ref(false)
 const deleteOpen = ref(false)
 const accessQuery = ref('')
@@ -325,7 +324,7 @@ async function saveMailbox() {
 
     <UModal v-model:open="deleteOpen" title="Delete this mailbox?">
       <template #body>
-        <p class="text-sm text-muted">{{ selected?.address }} and its conversations will be removed. This cannot be undone.</p>
+        <p class="text-sm text-muted">{{ selected?.address }} and {{ selected?.conversationCount ?? 0 }} {{ selected?.conversationCount === 1 ? 'conversation' : 'conversations' }} will be removed. This cannot be undone.</p>
       </template>
       <template #footer>
         <UButton color="neutral" variant="outline" label="Cancel" @click="deleteOpen = false" />

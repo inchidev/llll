@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { attachments } from '../../../drizzle/schema'
+import { attachments, messages } from '../../../drizzle/schema'
 import { fileResponseHeaders } from '../../../shared/file-response'
 import { parseByteRange } from '../../../shared/http-range'
 import { requireChannelMember } from '../../utils/guards'
@@ -13,6 +13,10 @@ export default defineEventHandler(async (event) => {
   const row = (await db.select().from(attachments).where(eq(attachments.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'File not found')
   await requireChannelMember(event, row.channelId)
+  if (row.messageId) {
+    const parent = (await db.select({ deletedAt: messages.deletedAt }).from(messages).where(eq(messages.id, row.messageId)).limit(1))[0]
+    if (!parent || parent.deletedAt) fail(404, 'not_found', 'File not found')
+  }
 
   const rangeHeader = getHeader(event, 'range')
   let obj: import('../../../shared/file-storage').FileBody | null

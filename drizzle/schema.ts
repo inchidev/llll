@@ -732,11 +732,11 @@ export const emailMessages = sqliteTable('email_messages', {
 ])
 
 /** Pending live-file deletion keys survive removal of their mailbox. */
-export const mailFileDeletions = sqliteTable('mail_file_deletions', {
+export const fileDeletions = sqliteTable('file_deletions', {
   key: text('key').primaryKey(),
-  mailboxId: text('mailbox_id').notNull(),
+  scopeId: text('scope_id').notNull(),
   createdAt: text('created_at').notNull(),
-}, table => [index('mail_file_deletions_mailbox_idx').on(table.mailboxId)])
+}, table => [index('file_deletions_scope_idx').on(table.scopeId)])
 
 export const auditLog = sqliteTable('audit_log', {
   id: text('id').primaryKey(),
@@ -1097,7 +1097,7 @@ export const taskAttachments = sqliteTable('task_attachments', {
 ])
 
 export const schema = {
-  mailFileDeletions,
+  fileDeletions,
   serverSchema,
   serverUpdateControl,
   serverIdentity,

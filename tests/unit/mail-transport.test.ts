@@ -37,6 +37,18 @@ describe('server mail transport', () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Hello Bcc: victim@example.net' }))
   })
 
+  it.each(['mail', 'auth'])('cleans all display names and control characters before the %s binding', async kind => {
+    const send = vi.fn(async () => ({ messageId: 'ok' }))
+    const address = { email: 'person@example.net', name: 'Person\r\nBcc: someone\u0000\u007f' }
+    await (kind === 'auth' ? sendAuthEmail : sendServerEmail)({ EMAIL: { send }, MAIL_EMAIL: { send } } as never, {
+      ...message, from: address, to: [address], cc: address, bcc: [address], replyTo: address, subject: 'Subject\t\u0000\u007fNext',
+    })
+    const cleaned = { email: address.email, name: 'Person Bcc: someone' }
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ from: cleaned, to: [cleaned], cc: cleaned, bcc: [cleaned], replyTo: cleaned, subject: 'Subject Next' }))
+    await expect(sendServerEmail({ MAIL_EMAIL: { send } } as never, { ...message, to: 'victim@example.net\r\nBcc: other@example.net' })).rejects.toThrow('control characters')
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
   it('does not advertise mailbox sending when only the auth binding exists', () => {
     const env = { EMAIL: { send: vi.fn() } } as never
     expect(authEmailAvailable(env)).toBe(true)

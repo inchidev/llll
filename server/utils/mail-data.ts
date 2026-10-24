@@ -31,6 +31,7 @@ export async function hydrateMailMessages(env: L4Env, rows: Array<typeof message
             to: mailAddressList(email.toJson),
             cc: mailAddressList(email.ccJson),
             bcc: mailAddressList(email.bccJson),
+            replyTo: mailAddressList(email.replyToJson),
             deliveryStatus: email.deliveryStatus,
             deliveryError: email.deliveryError,
             deliveryUncertain: mailDeliveryUncertain(email),

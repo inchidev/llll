@@ -49,17 +49,17 @@ describe('mailbox file deletion', () => {
   it('retains cleanup keys on a storage failure and permits retry after the mailbox row is gone', async () => {
     remove.mockRejectedValueOnce(new Error('Storage unavailable'))
     await expect(deleteMailbox()).rejects.toMatchObject({ statusCode: 503, data: { error: { code: 'mail_cleanup_pending' } } })
-    expect(sqlite.prepare('SELECT count(*) as n FROM mail_file_deletions').get()).toEqual({ n: 3 })
+    expect(sqlite.prepare('SELECT count(*) as n FROM file_deletions').get()).toEqual({ n: 3 })
     expect(sqlite.prepare("SELECT channel_id FROM email_mailboxes WHERE channel_id = 'support'").get()).toBeUndefined()
     await deleteMailbox()
     expect(objects).toEqual(new Set(['other/file.txt', 'backup/snapshot']))
-    expect(sqlite.prepare('SELECT count(*) as n FROM mail_file_deletions').get()).toEqual({ n: 0 })
+    expect(sqlite.prepare('SELECT count(*) as n FROM file_deletions').get()).toEqual({ n: 0 })
   })
   it('rolls back the cleanup queue if the mailbox cannot be removed', async () => {
     sqlite.exec("CREATE TRIGGER fail_delete BEFORE DELETE ON channels WHEN OLD.id = 'support' BEGIN SELECT RAISE(ABORT, 'cannot delete'); END")
     await expect(deleteMailbox()).rejects.toThrow('cannot delete')
     expect(remove).not.toHaveBeenCalled()
-    expect(sqlite.prepare('SELECT count(*) as n FROM mail_file_deletions').get()).toEqual({ n: 0 })
+    expect(sqlite.prepare('SELECT count(*) as n FROM file_deletions').get()).toEqual({ n: 0 })
     expect(sqlite.prepare("SELECT id FROM channels WHERE id = 'support'").get()).toEqual({ id: 'support' })
   })
   it('resumes pending cleanup on a later Mail refresh', async () => {
@@ -68,7 +68,7 @@ describe('mailbox file deletion', () => {
     const { retryMailFileCleanup } = await import('../../server/utils/mail-cleanup')
     await retryMailFileCleanup(state.env!)
     expect(objects).toEqual(new Set(['other/file.txt', 'backup/snapshot']))
-    expect(sqlite.prepare('SELECT count(*) as n FROM mail_file_deletions').get()).toEqual({ n: 0 })
+    expect(sqlite.prepare('SELECT count(*) as n FROM file_deletions').get()).toEqual({ n: 0 })
   })
 
 })

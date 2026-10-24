@@ -1,3 +1,4 @@
+import { removeMessageData, retryDeletedFiles } from '../shared/file-cleanup'
 import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-access'
 import { getServerId } from '../shared/server-id'
 import { DurableObject } from 'cloudflare:workers'
@@ -667,10 +668,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
     const deletedAt = nowIso()
     const pin = await this.env.DB.prepare('SELECT message_id FROM message_pins WHERE message_id = ?').bind(id).first()
-    await this.env.DB.batch([
-      this.env.DB.prepare('UPDATE messages SET deleted_at = ?, content = ? WHERE id = ?').bind(deletedAt, '', id),
-      this.env.DB.prepare('DELETE FROM message_pins WHERE message_id = ?').bind(id),
-    ])
+    await removeMessageData(this.env, id, deletedAt)
+    this.ctx.waitUntil(retryDeletedFiles(this.env))
     await this.broadcast({ t: 'message.delete', id })
     if (pin) await this.broadcast({ t: 'pin', messageId: id, pin: null })
   }
@@ -1086,7 +1085,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       content: row.deleted_at ? '' : row.content,
       replyTo: null,
       mentions: (mentionRows.results ?? []).map((r) => r.user_id),
-      attachments: (attRows.results ?? []).map((a) => ({
+      attachments: (row.deleted_at ? [] : attRows.results ?? []).map((a) => ({
         id: a.id,
         filename: a.filename,
         contentType: a.content_type,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
+import { mailReplyRecipients, mergeMailAddresses } from '~~/shared/mail'
 import { formatDateTime } from '~~/shared/format'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
 import { withMailboxUnread, withMessage, withoutMessage, withoutThread, withThreadActivity, withThreadFirst, withThreadRead, type MailThreadDetail, type MailThreadPages } from '~/utils/mail-cache'
@@ -27,6 +28,9 @@ const activeThreadId = computed(() => String(route.query.thread || '') || null)
 
 const composerMode = ref<'reply' | 'note'>('reply')
 const replyAll = ref(false)
+const replyTo = ref('')
+const replyToEdited = ref(false)
+const replyAddresses = computed(() => mergeMailAddresses(replyTo.value.split(/[;,\s]+/u).filter(Boolean)))
 const uncertainRetry = ref<MailMessageDTO | null>(null)
 const draft = ref('')
 const sending = ref(false)
@@ -81,6 +85,12 @@ const threadQ = useQuery({
 })
 const thread = computed(() => threadQ.data.value?.thread ?? null)
 const messages = computed(() => threadQ.data.value?.messages ?? [])
+const defaultRecipients = computed(() => mailReplyRecipients(
+  [...messages.value].reverse().find(message => message.email?.direction === 'inbound')?.email ?? null,
+  thread.value?.participants ?? [], activeMailbox.value?.address ?? '', replyAll.value,
+).join(', '))
+watch(defaultRecipients, (value) => { if (!replyToEdited.value) replyTo.value = value }, { immediate: true })
+watch(replyAll, () => { replyToEdited.value = false; replyTo.value = defaultRecipients.value })
 const loadingMessages = computed(() => Boolean(activeThreadId.value) && (threadQ.isPending.value || threadQ.isPlaceholderData.value))
 
 /** Hovering a conversation loads it, so opening it is immediate. Loading does not mark it read. */
@@ -105,7 +115,9 @@ watch(() => threadQ.data.value?.thread.status, (status) => {
 })
 
 watch(activeThreadId, () => {
+  replyToEdited.value = false
   replyAll.value = false
+  replyTo.value = defaultRecipients.value
   uncertainRetry.value = null
   draft.value = ''
   composerMode.value = 'reply'
@@ -148,7 +160,7 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
           direction: 'outbound',
           fromAddress: activeMailbox.value?.address ?? '',
           fromName: activeMailbox.value?.displayName ?? null,
-          to: thread.value?.participants ?? [],
+          to: replyAddresses.value,
           cc: [],
           bcc: [],
           deliveryStatus: 'pending',
@@ -179,7 +191,7 @@ async function send() {
   try {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
-      body: mode === 'reply' ? { content, clientId: key, replyAll: replyAll.value } : { content },
+      body: mode === 'reply' ? { content, clientId: key, to: replyAddresses.value } : { content },
     })
     replyKey.value = newRequestKey()
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message, pending.id))
@@ -407,9 +419,12 @@ const deliveryBadge = {
               <UButton v-if="composerMode === 'reply'" :label="replyAll ? 'Reply all' : 'Reply to sender'" size="xs" color="neutral" variant="ghost" @click="replyAll = !replyAll" />
               <UButton label="Internal note" size="xs" color="warning" :variant="composerMode === 'note' ? 'soft' : 'ghost'" @click="composerMode = 'note'" />
             </div>
+            <UFormField v-if="composerMode === 'reply'" label="To" hint="Separate addresses with commas" class="mb-2">
+              <UInput v-model="replyTo" class="w-full" @update:model-value="replyToEdited = true" />
+            </UFormField>
             <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
             <div class="mt-2 flex justify-end">
-              <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim()" />
+              <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim() || (composerMode === 'reply' && !replyAddresses.length)" />
             </div>
           </form>
           <div v-else class="border-t border-default p-4 text-sm text-muted">Read only</div>

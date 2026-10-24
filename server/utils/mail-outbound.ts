@@ -1,6 +1,6 @@
 import type { L4Env } from '../../workers/env'
 import { sendServerEmail } from '../../workers/mail-transport'
-import { mailAddressList, mergeMailAddresses, mailDeliveryUncertain } from '../../shared/mail'
+import { mailAddressList, mailReplyRecipients, mailDeliveryUncertain } from '../../shared/mail'
 
 type OutboundRow = {
   messageId: string
@@ -112,10 +112,12 @@ export async function replyRecipients(env: L4Env, threadId: string, mailboxAddre
     env.DB.prepare('SELECT participants_json as participantsJson FROM email_threads WHERE channel_id = ?')
       .bind(threadId).first<{ participantsJson: string }>(),
   ])
-  const candidates = inbound
-    ? mergeMailAddresses(mailAddressList(inbound.replyToJson).length ? mailAddressList(inbound.replyToJson) : [inbound.fromAddress], ...(mode === 'all' ? [mailAddressList(inbound.toJson), mailAddressList(inbound.ccJson)] : []))
-    : mailAddressList(thread?.participantsJson)
-  return candidates.filter(address => address !== mailboxAddress.toLowerCase())
+  return mailReplyRecipients(inbound ? {
+    fromAddress: inbound.fromAddress,
+    replyTo: mailAddressList(inbound.replyToJson),
+    to: mailAddressList(inbound.toJson),
+    cc: mailAddressList(inbound.ccJson),
+  } : null, mailAddressList(thread?.participantsJson), mailboxAddress, mode === 'all')
 }
 
 /** The Message-ID a reply answers and the References chain it continues. */

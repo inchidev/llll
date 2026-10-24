@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
      FROM email_mailboxes mb JOIN email_domains d ON d.id = mb.domain_id
      WHERE mb.channel_id = ?`,
   ).bind(channelId).first<{ address: string }>()
-  const pending = !mailbox && await env.DB.prepare('SELECT key FROM mail_file_deletions WHERE mailbox_id = ? LIMIT 1').bind(channelId).first()
+  const pending = !mailbox && await env.DB.prepare('SELECT key FROM file_deletions WHERE scope_id = ? LIMIT 1').bind(channelId).first()
   if (!mailbox && !pending) fail(404, 'not_found', 'Mailbox not found')
   if (mailbox) await removeMailboxData(env, channelId)
   if (mailbox) await writeAudit(env, {

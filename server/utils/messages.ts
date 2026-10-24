@@ -76,7 +76,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
       id: r.id,
       authorId: r.authorId,
       content: (r.deletedAt ? '' : r.content).slice(0, 180),
-      attachmentCount: atts.get(r.id)?.length ?? 0,
+      attachmentCount: r.deletedAt ? 0 : atts.get(r.id)?.length ?? 0,
       deleted: Boolean(r.deletedAt),
     })
   }
@@ -109,7 +109,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     content: row.deletedAt ? '' : row.content,
     replyTo: row.replyToId ? replies.get(row.replyToId) ?? null : null,
     mentions: mentions.get(row.id) ?? [],
-    attachments: atts.get(row.id) ?? [],
+    attachments: row.deletedAt ? [] : atts.get(row.id) ?? [],
     reactions: reactionMap.get(row.id) ?? [],
     pin: pins.get(row.id) ?? null,
     threadId: threads.get(row.id) ?? null,
