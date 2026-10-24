@@ -11,6 +11,8 @@ const ownOrigin = ref('')
 const error = shell.error
 const path = computed(() => normalizeRoutePath(route.path))
 const queryOrigin = computed(() => {
+  // Installer handoffs use server as a target, not a request to open its Client.
+  if (route.query.update || route.query.storage || route.query.resume === 'update' || route.query.tab === 'cloudflare') return ''
   const value = route.query.server
   return typeof value === 'string' ? value : ''
 })

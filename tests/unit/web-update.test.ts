@@ -251,6 +251,29 @@ describe('update preparation', () => {
     expect(update.installedVersion).toBe('0.2.5')
   })
 
+  it('resumes a verified downloaded backup from D1 across fresh installer sessions without R2', async () => {
+    recordValue = record()
+    recordValue.job.stage = 'queued'
+    const backup = { destination: 'download' as const, key: 'llll-backup.tar', bucket: '', sizeBytes: 173056, sha256: 'e'.repeat(64), createdAt: now, verified: true }
+    recordValue.job.backup = backup
+    revisionValue = 0
+    vi.mocked(readL4Server).mockResolvedValue({ ...server, resources: { databaseId: 'db-id', bucketName: '', backupBucketName: '' } })
+    prepareFetch('0.2.4')
+    const state: DeploymentState = {}
+    const prepared = await prepareUpdate(state, { origin: 'https://server.test', accountId, workerName: 'l4-server', jobId }, 'api-token')
+    expect(prepared.phase).toBe('deploy')
+    expect(prepared.backup).toEqual(backup)
+    // A stale browser may still be at backup; the persisted receipt is authoritative.
+    state.update!.phase = 'backup'
+    await advanceUpdate(state, 'api-token', async () => {})
+    expect(state.update!.phase).toBe('deploy')
+    expect(state.update!.backup).toEqual(backup)
+    expect(recordValue.job.backup).toEqual(backup)
+    recordValue.job.backup = { ...backup, verified: false }
+    state.update!.phase = 'backup'
+    await expect(advanceUpdate(state, 'api-token', async () => {})).rejects.toThrow('Download the pre-update backup')
+  })
+
   it('restarts a failed pre-deployment request from release verification', async () => {
     const state: DeploymentState = {}
     const value = record()
