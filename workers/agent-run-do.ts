@@ -176,7 +176,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     if (!id) return
     const run = await findAgentRun(this.env, id)
     if (!run || !['queued', 'running'].includes(run.status)) return
-    await this.env.DB.prepare("UPDATE agent_runs SET status='cancelled',updated_at=? WHERE id=? AND status IN ('queued','running')").bind(nowIso(), id).run()
+    const changed = await this.env.DB.prepare("UPDATE agent_runs SET status='cancelled',updated_at=? WHERE id=? AND status IN ('queued','running') RETURNING id").bind(nowIso(), id).first()
+    if (!changed) return
     try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Revocation already makes the gateway deny every new operation. */ }
     await this.release(run)
     await this.ctx.storage.deleteAlarm()
