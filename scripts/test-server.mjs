@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
 import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
+import { testRoleManagement } from './test-role-management.mjs'
 import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
@@ -317,6 +318,7 @@ try {
     method: 'POST',
     body: {},
   })
+  await testRoleManagement({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
   await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
