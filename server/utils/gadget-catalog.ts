@@ -70,6 +70,7 @@ export async function getGadgetDetail(env: L4Env, actor: Membership, id: string)
   let draftSpec: GadgetSpec
   try { draftSpec = parseGadgetSpec(JSON.parse(row.draftSpecJson)) }
   catch { fail(409, 'gadget_draft_invalid', 'The App draft is invalid') }
+  await validateGadgetSpec(env, draftSpec, { authorization: actor.authorization })
   return { ...summary(row), draftSpec, roleIds: (access.results ?? []).map(item => item.roleId) }
 }
 

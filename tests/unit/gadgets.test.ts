@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { GadgetSpec } from '../../shared/gadgets'
 import { INIT_SQL } from '../../server/utils/db'
-import { createGadget, listGadgets, publishGadget, updateGadget } from '../../server/utils/gadget-catalog'
+import { createGadget, getGadgetDetail, listGadgets, publishGadget, updateGadget } from '../../server/utils/gadget-catalog'
 import { composeGadgetSpec } from '../../server/utils/gadget-composer'
 import { invokeGadget, openGadget } from '../../server/utils/gadget-runtime'
 import { parseGadgetSpec, validateGadgetSpec } from '../../server/utils/gadget-spec'
@@ -301,5 +301,22 @@ it('applies delegation action ceilings before listing, editing or running Apps',
     await expect(listGadgets(env, delegated)).rejects.toMatchObject({ statusCode: 403 })
     await expect(createGadget(env, delegated, { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
     await expect(openGadget(env, delegated, created.id)).rejects.toMatchObject({ statusCode: 403 })
+  } finally { sqlite.close() }
+})
+
+
+it('does not turn manager status into private source access, but honors an explicit published Role grant', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const limited = actor({ roleId: 'reviewer-role', isOwner: false, authorization: { ...base.authorization, principal: { ...base.authorization.principal, roleId: 'reviewer-role', isOwner: false, resourceAccess: { databases: ['leads'] } } } })
+  try {
+    const created = await createGadget(env, base, { name: 'Private published source', spec })
+    await publishGadget(env, base, created.id, created.draftRevision)
+    await expect(getGadgetDetail(env, limited, created.id)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(openGadget(env, limited, created.id)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(invokeGadget(env, limited, created.id, { bindingId: 'leads', operation: 'create', title: 'Denied', values: {} })).rejects.toMatchObject({ statusCode: 403 })
+    const granted = await updateGadget(env, base, created.id, { revision: created.draftRevision, roleIds: ['reviewer-role'] })
+    await publishGadget(env, base, created.id, granted.draftRevision)
+    await expect(openGadget(env, limited, created.id)).resolves.toBeTruthy()
   } finally { sqlite.close() }
 })
