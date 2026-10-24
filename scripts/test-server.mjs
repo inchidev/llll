@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
 import { testRoleManagement } from './test-role-management.mjs'
+import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -318,6 +319,7 @@ try {
     body: {},
   })
   await testRoleManagement({ api, runtimes, ids, memberId })
+  await testGadgetAuthorization({ api, runtimes, ids, memberId })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
   await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
   const recoveryDb = await runtimes.alpha.getD1Database('DB')

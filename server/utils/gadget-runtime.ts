@@ -1,3 +1,4 @@
+import type { AuthorizationContext } from '../../shared/authorization'
 import type { GadgetBinding, GadgetRuntimeDTO, GadgetSpec } from '../../shared/gadgets'
 import { newId, nowIso } from '../../shared/ids'
 import type { DatabaseValue } from '../../shared/database'
@@ -11,24 +12,22 @@ import { validateGadgetSpec } from './gadget-spec'
 import type { Membership } from './guards'
 import { writeAudit } from './messages'
 
-async function requireRuntimeAccess(env: L4Env, actor: Membership, gadgetId: string): Promise<GadgetRow> {
+async function requireRuntimeAccess(env: L4Env, actor: Membership, gadgetId: string): Promise<{ gadget: GadgetRow, authorization?: AuthorizationContext }> {
   if (!canUseGadgets(actor)) fail(403, 'forbidden', 'Missing permission')
   const gadget = await requireGadget(env, gadgetId)
   if (!gadget.publishedVersion) fail(404, 'not_found', 'App not found')
-  if (!canManageGadgets(actor)) {
-    const access = await env.DB.prepare(
-      `SELECT 1 FROM gadget_versions versions
-       JOIN gadget_version_role_access access ON access.gadget_version_id = versions.id
-       WHERE versions.gadget_id = ? AND versions.version = ? AND access.role_id = ?`,
-    ).bind(gadgetId, gadget.publishedVersion, actor.roleId).first()
-    if (!access) fail(404, 'not_found', 'App not found')
-  }
-  return gadget
+  const access = await env.DB.prepare(
+    `SELECT 1 FROM gadget_versions versions
+     JOIN gadget_version_role_access access ON access.gadget_version_id = versions.id
+     WHERE versions.gadget_id = ? AND versions.version = ? AND access.role_id = ?`,
+  ).bind(gadgetId, gadget.publishedVersion, actor.roleId).first()
+  if (!access && !canManageGadgets(actor)) fail(404, 'not_found', 'App not found')
+  return { gadget, authorization: access ? undefined : actor.authorization }
 }
 
 type PublishedGadget = { name: string, description: string, spec: GadgetSpec }
 
-async function loadPublishedGadget(env: L4Env, gadget: GadgetRow): Promise<PublishedGadget> {
+async function loadPublishedGadget(env: L4Env, gadget: GadgetRow, authorization?: AuthorizationContext): Promise<PublishedGadget> {
   const row = await env.DB.prepare(
     'SELECT name, description, spec_json as specJson FROM gadget_versions WHERE gadget_id = ? AND version = ?',
   ).bind(gadget.id, gadget.publishedVersion).first<{ name: string, description: string, specJson: string }>()
@@ -36,7 +35,7 @@ async function loadPublishedGadget(env: L4Env, gadget: GadgetRow): Promise<Publi
   let value: unknown
   try { value = JSON.parse(row.specJson) }
   catch { fail(409, 'gadget_version_invalid', 'The published App Version is invalid') }
-  return { name: row.name, description: row.description, spec: await validateGadgetSpec(env, value, { publish: true }) }
+  return { name: row.name, description: row.description, spec: await validateGadgetSpec(env, value, { publish: true, authorization }) }
 }
 
 function projectItem(item: DatabaseItemDTO, binding: GadgetBinding): DatabaseItemDTO {
@@ -46,8 +45,8 @@ function projectItem(item: DatabaseItemDTO, binding: GadgetBinding): DatabaseIte
 
 /** Open is the only read interface the UI needs; all source resolution stays behind this seam. */
 export async function openGadget(env: L4Env, actor: Membership, gadgetId: string): Promise<GadgetRuntimeDTO> {
-  const gadget = await requireRuntimeAccess(env, actor, gadgetId)
-  const published = await loadPublishedGadget(env, gadget)
+  const { gadget, authorization } = await requireRuntimeAccess(env, actor, gadgetId)
+  const published = await loadPublishedGadget(env, gadget, authorization)
   const spec = published.spec
   const datasets = await Promise.all(spec.bindings.map(async (binding) => {
     const page = await loadDatabasePage(env, binding.source.databaseId, {
@@ -170,8 +169,8 @@ async function updateRecord(
 
 /** Invoke enforces published capabilities before dispatching a domain mutation. */
 export async function invokeGadget(env: L4Env, actor: Membership, gadgetId: string, input: GadgetInvocation): Promise<DatabaseItemDTO> {
-  const gadget = await requireRuntimeAccess(env, actor, gadgetId)
-  const { spec } = await loadPublishedGadget(env, gadget)
+  const { gadget, authorization } = await requireRuntimeAccess(env, actor, gadgetId)
+  const { spec } = await loadPublishedGadget(env, gadget, authorization)
   const binding = spec.bindings.find(candidate => candidate.id === input.bindingId)
   if (!binding || !binding.operations.includes(input.operation)) fail(403, 'gadget_operation_denied', 'This App does not allow that operation')
   if (input.operation === 'create') return createRecord(env, actor, gadgetId, binding, input)

@@ -197,3 +197,12 @@ it('rejects an edit racing with the tool read without advancing the Run cursor',
     .toMatchObject({ title: 'Concurrent human edit', description: '' })
   expect(db.prepare('SELECT task_edit_at FROM agent_runs WHERE id=?').get(run.id)?.task_edit_at).toBeNull()
 })
+
+
+it('expires a queued Run after a separate 24-hour wait with a distinct reason', async () => {
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='queued',result_text=NULL,created_at=?,deadline=? WHERE id=?").run('2026-10-22T00:00:00Z', '2026-10-22T00:15:00Z', run.id)
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T00:00:00Z'))
+  await coordinator(run.id).alarm()
+  expect(db.prepare('SELECT status,last_error,model_calls FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed', last_error: 'Run waited 24 hours for an execution slot. Start a new attempt.', model_calls: 0 })
+})

@@ -13,6 +13,8 @@ export const runRequestSchema = z.object({
   idempotencyKey: z.string().min(8).max(200),
 })
 export type RunRequest = z.infer<typeof runRequestSchema>
+export const RUN_EXECUTION_MS = 15 * 60_000
+export const RUN_QUEUE_WAIT_MS = 24 * 60 * 60_000
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type RunMandate = {
   depth?: number
