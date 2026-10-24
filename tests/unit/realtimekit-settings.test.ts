@@ -274,3 +274,17 @@ describe('connecting Live with one token', () => {
     })
   })
 })
+
+it('bounds RealtimeKit REST operations and forwards cancellation to the transport', async () => {
+  const controller = new AbortController()
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal)
+  const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => new Promise<Response>((_resolve, reject) => {
+    options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true })
+  }))
+  const request = endMeeting(managedConfig, 'meeting')
+  const settled = expect(request).rejects.toThrow('timed out')
+  expect(timeout).toHaveBeenCalledWith(10000)
+  expect(transport.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+  controller.abort(new Error('timed out'))
+  await settled
+})
