@@ -1,3 +1,4 @@
+import { listAuthorizedTables } from './table-catalog'
 import { agentTimeContext } from './agent-time'
 import { agentBrowserConfigured } from '../../workers/env'
 import { searchWeb, searchRunWeb } from './agent-search'
@@ -32,6 +33,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       { title, description, environmentId, priority: 'normal', dueAt: null, assigneeId: authorization.principal.id, channelId: null, labelIds: [], dependencyIds: [] }, schedule) }))
   add('update_task', ServerAction.writeTasks, z.object({ taskId: z.string().min(1), title: z.string().min(1).max(160).optional(), description: z.string().max(12000).optional(), status: z.enum(['backlog', 'ready', 'review', 'done', 'failed']).optional() }),
     'Update an authorized task.', async ({ taskId, ...patch }) => ({ task: await updateTask(env, authorization, taskId, patch, schedule) }))
+  add('list_tables', ServerAction.readRecords, z.object({}), 'Discover authorized table IDs, fields and saved views without reading records.', async () => ({ tables: await listAuthorizedTables(env, authorization) }))
   add('list_data', ServerAction.readDocuments, z.object({}), 'Discover authorized tables and documents.', async () => listAuthorizedDataResources(env, authorization))
   add('create_table', ServerAction.manageData, createTableSchema, 'Create a table with typed fields when the role permits new tables. Include source URL fields for research evidence.', input => createTable(env, authorization, input))
   if (run) add('execute_task', ServerAction.executeTasks, z.object({ taskId: z.string().min(1) }),

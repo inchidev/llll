@@ -1,3 +1,4 @@
+import { listAuthorizedTables } from './table-catalog'
 import { McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
@@ -26,6 +27,12 @@ const taskReferenceSchema = z.union([z.string().trim().min(1), z.number().int().
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
+  server.registerTool('list_tables', {
+    description: 'Discover authorized table IDs, names, fields and views before reading records. Requires data:read.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => result({ tables: await listAuthorizedTables(env, principal.authorization) }))
+
   server.registerTool('create_table', {
     description: 'Create a table and typed fields. Requires the data:manage scope, role permission and unrestricted table creation.',
     inputSchema: createTableSchema.shape,
