@@ -1,3 +1,4 @@
+import { filterLiveRecipients } from './live-audience'
 import { getServerId } from '../shared/server-id'
 import { channelPath } from '../shared/paths'
 import { liveNotificationTitle } from '../shared/live'
@@ -10,15 +11,20 @@ type LiveChannel = {
   name: string
   type: string
   visibility: string
+  parent_id: string | null
 }
 
 /** Everyone who can open the conversation sees its Live room. Agents never join one. */
 async function audience(env: L4Env, channelId: string) {
   const channel = await env.DB.prepare(
-    'SELECT id, name, type, visibility FROM channels WHERE id = ?',
+    'SELECT id, name, type, visibility, parent_id FROM channels WHERE id = ?',
   ).bind(channelId).first<LiveChannel>()
   if (!channel) return null
-  const restricted = channel.type === 'dm' || channel.visibility === 'private'
+  const root = channel.type === 'thread'
+    ? await env.DB.prepare('SELECT id, name, type, visibility, parent_id FROM channels WHERE id = ?').bind(channel.parent_id).first<LiveChannel>()
+    : channel
+  if (!root) return null
+  const restricted = root.type === 'dm' || root.visibility === 'private'
   const rows = restricted
     ? await env.DB.prepare(
         `SELECT u.id
@@ -26,11 +32,11 @@ async function audience(env: L4Env, channelId: string) {
          JOIN users u ON u.id = cm.user_id
          WHERE cm.channel_id = ? AND u.status = 'active' AND u.kind = 'human'
          ORDER BY u.id`,
-      ).bind(channel.id).all<{ id: string }>()
+      ).bind(root.id).all<{ id: string }>()
     : await env.DB.prepare(
         `SELECT id FROM users WHERE status = 'active' AND kind = 'human' ORDER BY id`,
       ).all<{ id: string }>()
-  return { channel, recipientIds: (rows.results ?? []).map(row => row.id) }
+  return { channel, recipientIds: await filterLiveRecipients(env, channelId, (rows.results ?? []).map(row => row.id)) }
 }
 
 /**
