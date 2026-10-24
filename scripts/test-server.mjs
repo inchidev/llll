@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
 import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
+import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -316,6 +317,7 @@ try {
     method: 'POST',
     body: {},
   })
+  await testGadgetAuthorization({ api, runtimes, ids, memberId })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
   await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
   const recoveryDb = await runtimes.alpha.getD1Database('DB')
