@@ -24,7 +24,7 @@ it('uses real embedded Pi, lazy discovery and the Server broker for an attribute
     let turn = 0
     const brokerCalls: string[] = []
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
-      if (String(url).startsWith('https://docs.mcp.cloudflare.com')) return remote.network(url, init)
+      if (new URL(String(url)).href === 'https://docs.mcp.cloudflare.com/mcp') return remote.network(url, init)
       const body = JSON.parse(String(init?.body))
       if (String(url).endsWith('/tools')) {
         brokerCalls.push(body.name)
