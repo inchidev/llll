@@ -43,7 +43,7 @@ async function createDocument() {
   nav.documentCreating.value = true
   try {
     if (documentGuard?.value && !await documentGuard.value()) return
-    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title: 'Untitled' } })
+    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: {} })
     qc.setQueryData(['document', result.document.id], result)
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     await navigateTo(documentPath(result.document.id))

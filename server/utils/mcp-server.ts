@@ -1,3 +1,4 @@
+import { listAuthorizedTables } from './table-catalog'
 import { McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
@@ -6,7 +7,7 @@ import { createDocument, getDocument, listAuthorizedDataResources, updateDocumen
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from './message-service'
-import { createRecord, createRecordSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
+import { createRecord, createRecordSchema, readRecordsSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
 import { createTable, createTableSchema } from './table-service'
 
 type McpServerContext = {
@@ -26,6 +27,12 @@ const taskReferenceSchema = z.union([z.string().trim().min(1), z.number().int().
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
+  server.registerTool('list_tables', {
+    description: 'Discover authorized table IDs, names, fields and views before reading records. Requires data:read.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => result({ tables: await listAuthorizedTables(env, principal.authorization) }))
+
   server.registerTool('create_table', {
     description: 'Create a table and typed fields. Requires the data:manage scope, role permission and unrestricted table creation.',
     inputSchema: createTableSchema.shape,
@@ -33,10 +40,10 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
   }, async input => result({ database: await createTable(env, principal.authorization, input) }))
 
   server.registerTool('read_records', {
-    description: 'Read fields and a page of records from an authorized table.',
-    inputSchema: { databaseId: z.string().min(1), page: z.number().int().positive().default(1) },
+    description: 'Read fields and records without saved view filters by default. Supply viewId to apply a saved view; search/pageSize and nextPage support paging.',
+    inputSchema: readRecordsSchema.shape,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async ({ databaseId, page }) => result(await readRecords(env, principal.authorization, databaseId, page)))
+  }, async ({ databaseId, page, ...options }) => result(await readRecords(env, principal.authorization, databaseId, page, options)))
   server.registerTool('create_record', {
     description: 'Create a record in an authorized table. Requires data:write scope and role permission.',
     inputSchema: { databaseId: z.string().min(1), ...createRecordSchema.shape },

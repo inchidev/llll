@@ -1,3 +1,4 @@
+import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 import { z } from 'zod'
 import { GadgetBindingOperations, GadgetPresentationKinds, type GadgetSpec } from '../../shared/gadgets'
 import type { L4Env } from '../../workers/env'
@@ -55,7 +56,7 @@ export function parseGadgetSpec(value: unknown): GadgetSpec {
 export async function validateGadgetSpec(
   env: L4Env,
   value: unknown,
-  options: { publish?: boolean } = {},
+  options: { publish?: boolean, authorization?: AuthorizationContext } = {},
 ): Promise<GadgetSpec> {
   const spec = parseGadgetSpec(value)
   if (options.publish && (!spec.bindings.length || !spec.sections.length)) {
@@ -68,6 +69,7 @@ export async function validateGadgetSpec(
     }
   }
   for (const binding of spec.bindings) {
+    if (options.authorization) authorizeResource(options.authorization, 'databases', binding.source.databaseId)
     const database = await requireDatabase(env, binding.source.databaseId)
     if (database.archivedAt) fail(409, 'gadget_binding_invalid', `${binding.label} uses an archived Database`)
     const fields = await databaseFieldsFor(env, database.id)

@@ -783,6 +783,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (!live.active || !live.meetingId) return live
     const seats = await this.liveSeats()
     const seat = seats[userId]
+    if (!seat && !live.participantIds.includes(userId)) return live
     // Hanging up ends a Call for both people.
     if (live.kind === 'call' && seat) return this.endLiveNow({})
     const { [userId]: _seat, ...remainingSeats } = seats

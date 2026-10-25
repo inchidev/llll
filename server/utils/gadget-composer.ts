@@ -4,6 +4,7 @@ import { fail } from './cf'
 import { databaseFieldsFor } from './database-data'
 import { loadDatabaseViews } from './database-views'
 import { loadDataResources } from './data-resources'
+import { authorize, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 
 type JevAnswer = { type?: string; noul?: number; choice?: string; score?: number }
 type JevResponse = { answers?: Record<string, JevAnswer> }
@@ -12,10 +13,12 @@ type JevRunner = {
 }
 
 /** Jev selects only prepared sources and layouts; it never writes a spec or receives Record values. */
-export async function composeGadgetSpec(env: L4Env, prompt: string): Promise<GadgetSpec> {
+export async function composeGadgetSpec(env: L4Env, prompt: string, authorization: AuthorizationContext): Promise<GadgetSpec> {
+  authorize(authorization, ServerAction.manageGadgets)
+  authorize(authorization, ServerAction.manageData)
   const resources = await loadDataResources(env)
   const sourceRefs = resources.databases
-    .filter(database => !database.archivedAt)
+    .filter(database => !database.archivedAt && resourceAllowed(authorization, 'databases', database.id))
     .flatMap(database => database.views.map(view => ({ database, view })))
     .slice(0, 12)
   const candidates = (await Promise.all(sourceRefs.map(async ({ database, view }) => {

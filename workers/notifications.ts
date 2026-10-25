@@ -1,3 +1,4 @@
+import { filterLiveRecipients } from './live-audience'
 import type { LiveKind, PublicUser } from '../shared/types'
 import { liveNotificationTitle } from '../shared/live'
 import { channelPath } from '../shared/paths'
@@ -90,7 +91,7 @@ async function liveRecipients(env: L4Env, channel: ChannelRow, actorId: string):
     : await env.DB.prepare(
         `SELECT id FROM users WHERE status = 'active' AND kind = 'human' AND id <> ?`,
       ).bind(actorId).all<{ id: string }>()
-  return (rows.results ?? []).map(row => row.id)
+  return filterLiveRecipients(env, channel.id, (rows.results ?? []).map(row => row.id))
 }
 
 function outboxStatement(env: L4Env, spec: NotificationSpec): D1PreparedStatement | null {

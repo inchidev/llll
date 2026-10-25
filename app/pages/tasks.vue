@@ -25,11 +25,18 @@ const qc = useQueryClient()
 const toast = useToast()
 const startingRun = ref(false)
 async function runTask(task: TaskDetailDTO) {
-  if (startingRun.value || !task.assigneeId || !task.channelId) return
+  if (startingRun.value || !task.assigneeId) return
   startingRun.value = true
   try {
+    let channelId = task.channelId || task.discussionChannelId
+    if (!channelId) {
+      const discussion = await api<{ channelId: string }>(`/api/tasks/${task.id}/discussion`, { method: 'POST' })
+      channelId = discussion.channelId
+      if (!channelId) throw new Error('The task discussion is not ready. Refresh the task before starting the agent.')
+      void qc.invalidateQueries({ queryKey: ['task'] })
+    }
     const result = await api<{ run: { id: string } }>('/api/agent-runs', { method: 'POST', body: {
-      agentId: task.assigneeId, taskId: task.id, channelId: task.channelId,
+      agentId: task.assigneeId, taskId: task.id, channelId,
       prompt: `${task.title}\n\n${task.description}`, idempotencyKey: crypto.randomUUID(),
     } })
     await navigateTo(`/runs/${result.run.id}`)
@@ -43,7 +50,13 @@ async function runSelectedTask() {
 
 const taskRunProblem = computed(() => {
   const task = selectedTask.value
-  if (!task?.channelId) return 'Choose and save a report channel before starting the task.'
+  if (!task) return 'Choose a task to run.'
+  if (task.archivedAt) return 'Restore this task before starting its agent.'
+  if (taskDirty.value) return 'Save your task changes before starting the agent.'
+  if (!task.channelId && !task.discussionChannelId && !can(Permission.writeTasks)) return 'Ask a task manager to open its discussion before starting the agent.'
+  const agent = agents.value.find(item => item.id === task.assigneeId)
+  if (agent?.status === 'paused') return 'Resume the assigned agent in Agents before starting this task.'
+  if (!agent || agent.status !== 'active') return 'Assign an active agent to this task.'
   const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
   if (!member || member.user.kind !== 'agent') return 'Assign an active agent to this task.'
   for (const [permission, label] of [[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages']] as const) {
@@ -175,7 +188,7 @@ const assigneeOptions = computed(() => {
   ]
 })
 const channelOptions = computed(() => [
-  { label: 'No report channel', value: null },
+  { label: 'Task discussion (default)', value: null },
   ...channels.value.map(channel => ({ label: `# ${channel.name}`, value: channel.id })),
 ])
 const boardOptions = computed(() => allBoards.value.filter(board => !board.archivedAt).map(board => ({ label: board.name, value: board.id })))
@@ -659,7 +672,7 @@ const boardMenu = computed(() => [[
       </template>
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
-        <UButton v-if="can(Permission.executeTasks) && can(Permission.useAgents) && newTask.channelId && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton v-if="can(Permission.executeTasks) && can(Permission.useAgents) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
         <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
       </template>
     </UModal>
@@ -685,6 +698,12 @@ const boardMenu = computed(() => [[
 
     <USlideover :open="Boolean(selectedTaskId)" :title="selectedTask ? taskLabel(selectedTask) : 'Task'" :ui="{ content: 'w-full max-w-2xl' }" @update:open="value => { if (!value) selectedTaskId = null }">
       <template #body>
+        <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
+          <span :title="taskRunProblem || undefined"><UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem)" :aria-describedby="taskRunProblem ? 'task-run-problem' : undefined" @click="runSelectedTask" /></span>
+          <p v-if="taskRunProblem" id="task-run-problem" class="text-sm text-muted" role="status">{{ taskRunProblem }}</p>
+          <p v-else class="text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
+          <p v-if="!selectedTask.channelId" class="text-xs text-muted">The agent posts its report in this task’s discussion. A separate report channel is optional.</p>
+        </section>
         <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
         <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
         <fieldset v-else-if="selectedTask" :disabled="!can(Permission.writeTasks)" class="space-y-8 min-w-0">
@@ -697,7 +716,7 @@ const boardMenu = computed(() => [[
             <UFormField label="Priority"><USelect v-model="editTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
             <UFormField label="Due"><UInput v-model="editTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
             <UFormField label="Board"><USelect :model-value="editTask.boardId" :items="boardOptions" class="w-full" @update:model-value="changeEditBoard" /></UFormField>
-            <UFormField label="Report channel" help="Where updates about this task are posted."><USelect v-model="editTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
+            <UFormField label="Report channel" help="Optional. Without a separate channel, the agent reports in this task’s discussion."><USelect v-model="editTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           </section>
 
           <section v-if="allBoards.find(board => board.id === editTask.boardId)?.labels.length">
@@ -776,11 +795,7 @@ const boardMenu = computed(() => [[
 
           <LayoutSaveBar v-if="can(Permission.writeTasks)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
         </fieldset>
-        <p v-if="selectedTask && agents.some(agent => agent.id === selectedTask!.assigneeId)" class="mt-4 text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
-        <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mt-6 space-y-2 border-t border-default pt-4">
-          <UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem) || !agents.some(agent => agent.id === selectedTask!.assigneeId && agent.status === 'active')" @click="runSelectedTask" />
-          <p v-if="taskRunProblem" class="text-xs text-muted">{{ taskRunProblem }}</p>
-        </section>
+
       </template>
     </USlideover>
 

@@ -1,3 +1,4 @@
+import { inferenceFailure } from '../server/utils/agent-inference-errors'
 /** Embedded Pi runs in the Run's SQLite Durable Object; provider secrets stay at the gateway. */
 import { Harness, createRegistry, watchEvents, type AssistantEntry, type ToolRegistration } from '@earendil-works/pi-durable'
 import { readLimitedStream } from './inbound-email-signature'
@@ -43,6 +44,19 @@ function assistantText(items: ReadonlyArray<{ kind?: string, model?: unknown }> 
     }
   }
   return parts.join('\n\n')
+}
+
+/** Never copy provider details: they can contain credentials, prompts or tool output. */
+export function embeddedPiFailure(record: { reason?: string; detail?: unknown }): string {
+  if (record.reason === 'model_error') {
+    const detail = typeof record.detail === 'string' ? record.detail : ''
+    const status = /^(?:Error: )?(400|401|403|404|409|422|429|5\d\d)\b/u.exec(detail)?.[1]
+    return inferenceFailure(detail ? { message: detail, ...(status ? { status: Number(status) } : {}) } : record.detail)
+  }
+  if (record.reason === 'no_model') return 'The selected model is unavailable to Pi. Check the provider and model configuration before retrying.'
+  if (record.reason === 'aborted') return 'Embedded Pi execution was interrupted. Review completed tool calls before starting another attempt.'
+  if (record.reason === 'reset' || record.reason === 'stale') return 'The conversation changed before Pi could answer. Review its latest messages before starting another attempt.'
+  return 'Embedded Pi could not finish this submission. Review completed tool calls before starting another attempt.'
 }
 
 export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: DurableObjectStorage, host: {
@@ -162,9 +176,11 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       if (new TextEncoder().encode(nextTranscript).length > 1_900_000) throw new Error('Embedded Pi session archive exceeds its limit')
       return { events, result: event, transcript: nextTranscript }
     }
-    return { events, result: { type: 'error', message: `Embedded Pi submission ended with status ${record.status}` }, transcript: input.transcript ?? '' }
+    return { events, result: { type: 'error', message: embeddedPiFailure(record) }, transcript: input.transcript ?? '' }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Embedded Pi failed'
+    const known = error instanceof Error ? error.message : ''
+    const message = ['Embedded Pi session archive exceeds its limit', 'Tool output exceeds its limit', 'Tool gateway unavailable'].includes(known)
+      ? known : inferenceFailure(error)
     return { events, result: { type: 'error', message: message.slice(0, 500) }, transcript: input.transcript ?? '' }
   } finally {
     if (cancel) host.signal?.removeEventListener('abort', cancel)

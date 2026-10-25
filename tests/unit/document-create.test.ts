@@ -45,7 +45,7 @@ it('saves the draft before one untitled creation, including repeated clicks whil
   finish(true)
   await flushPromises()
   expect(save).toHaveBeenCalledTimes(1)
-  expect(api).toHaveBeenCalledExactlyOnceWith('/api/servers/server/documents', { method: 'POST', body: { title: 'Untitled' } })
+  expect(api).toHaveBeenCalledExactlyOnceWith('/api/servers/server/documents', { method: 'POST', body: {} })
   expect(navigate).toHaveBeenCalledExactlyOnceWith('/documents?document=new')
   expect(nav.documentCreating.value).toBe(false)
   v.unmount()

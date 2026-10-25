@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { roles, users } from '../../../../drizzle/schema'
+import { agents, roles, users } from '../../../../drizzle/schema'
 import { hasPermission, Permission } from '../../../../shared/permissions'
 import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
@@ -32,13 +32,16 @@ export default defineEventHandler(async (event) => {
     user: users,
     role: roles,
     nickname: users.nickname,
+    agentStatus: agents.status,
   }).from(users)
     .innerJoin(roles, eq(roles.id, users.roleId))
+    .leftJoin(agents, eq(agents.userId, users.id))
     .where(eq(users.status, 'active'))
 
   return {
     members: rows.filter(r => canViewAgents || r.user.kind !== 'agent').map((r) => ({
       user: toPublicUser(r.user),
+      ...(r.user.kind === 'agent' ? { agentStatus: r.agentStatus ?? 'paused' } : {}),
       role: {
         id: r.role.id,
         serverId: id,

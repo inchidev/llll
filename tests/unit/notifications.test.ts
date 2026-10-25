@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   isBase64UrlKey,
   isSafePushEndpoint,
@@ -174,3 +174,6 @@ describe('notification recipients', () => {
     expect(JSON.parse(String(statement.args[3]))).toMatchObject({ title: 'Alice is calling', body: 'Tap to answer' })
   })
 })
+
+// Audience authorization is exercised against real SQLite in live-audience.test.ts.
+vi.mock('../../workers/live-audience', () => ({ filterLiveRecipients: async (_env: unknown, _id: string, ids: string[]) => ids }))

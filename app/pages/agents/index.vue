@@ -24,13 +24,15 @@ const editorOpen = ref(false)
         <UInput v-model="search" type="search" icon="i-ph-magnifying-glass" placeholder="Find an agent" aria-label="Find an agent" autocomplete="off" class="mt-5 w-full" />
         <LayoutSkeleton v-if="members.isPending.value" variant="nav" :rows="3" class="mt-6" />
         <LayoutLoadError v-else-if="members.error.value" message="Agents did not load." :retry="members.refetch" />
-        <LayoutEmptyState v-else-if="!visible.length" icon="i-ph-robot" :title="agents.length ? 'No matching agents' : 'No agents yet'" description="Agents shared with this Server will appear here." />
+        <LayoutEmptyState v-else-if="!visible.length" icon="i-ph-robot" :title="agents.length ? 'No matching agents' : 'No agents yet'" :description="agents.length ? 'Try a different name.' : can(Permission.manageAgents) ? 'Create an agent to start working together.' : 'Ask a server administrator to add an agent.'">
+          <UButton v-if="!agents.length && can(Permission.manageAgents)" label="Create agent" icon="i-ph-plus" @click="nav.createAgentOpen.value = true" />
+        </LayoutEmptyState>
         <ul v-else class="mt-6 divide-y divide-default">
           <li v-for="agent in visible" :key="agent.user.id" class="flex flex-wrap items-center gap-3 py-5">
             <UserAvatar :user="agent.user" size="lg" />
-            <div class="min-w-0 flex-1"><h3 class="truncate font-semibold text-highlighted">{{ agent.user.displayName }}</h3><p class="text-sm text-muted">{{ agent.role.name }} · Agent</p></div>
+            <div class="min-w-0 flex-1"><h3 class="truncate font-semibold text-highlighted">{{ agent.user.displayName }}</h3><p class="text-sm text-muted">{{ agent.role.name }} · Agent</p><UBadge v-if="agent.agentStatus === 'paused'" label="Paused" color="neutral" variant="subtle" size="sm" /></div>
             <UButton v-if="can(Permission.manageAgents) && profiles.data.value?.agents.some(item => item.id === agent.user.id)" icon="i-ph-pencil-simple" color="neutral" variant="ghost" :aria-label="`Edit ${agent.user.displayName}`" @click="editing = profiles.data.value?.agents.find(item => item.id === agent.user.id) || null; editorOpen = true" />
-            <UButton v-if="can(Permission.useAgents)" icon="i-ph-chat-circle" label="Message" :loading="opening === agent.user.id" :disabled="Boolean(opening)" :aria-label="`Message ${agent.user.displayName}`" @click="messageAgent(agent.user.id)" />
+            <UButton v-if="can(Permission.useAgents)" icon="i-ph-chat-circle" label="Message" :loading="opening === agent.user.id" :disabled="Boolean(opening) || agent.agentStatus === 'paused'" :title="agent.agentStatus === 'paused' ? 'This agent is paused. Ask a server administrator to resume it.' : undefined" :aria-label="`Message ${agent.user.displayName}`" @click="messageAgent(agent.user.id)" />
           </li>
         </ul>
       </div>

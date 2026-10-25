@@ -89,3 +89,6 @@ describe('server Live events', () => {
     expect(recipients).toEqual(['callee', 'caller'])
   })
 })
+
+// Audience authorization is exercised against real SQLite in live-audience.test.ts.
+vi.mock('../../workers/live-audience', () => ({ filterLiveRecipients: async (_env: unknown, _id: string, ids: string[]) => ids }))

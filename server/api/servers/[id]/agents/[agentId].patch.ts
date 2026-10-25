@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { agents, users } from '../../../../../drizzle/schema'
 import { nowIso } from '../../../../../shared/ids'
@@ -28,7 +28,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   const db = getDb(env.DB)
   const current = (await db.select({ profile: agents, user: users }).from(agents)
     .innerJoin(users, eq(users.id, agents.userId))
-    .where(eq(agents.userId, agentId))
+    .where(and(eq(agents.userId, agentId), eq(users.status, 'active'), eq(users.kind, 'agent')))
     .limit(1))[0]
   if (!current) fail(404, 'not_found', 'Agent not found')
 

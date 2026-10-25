@@ -183,10 +183,11 @@ function viewQuery(
       values.push(`%${escapeLike(String(filter.value ?? '').toLocaleLowerCase())}%`)
     }
     else {
+      const booleanComparison = fieldType(fields, filter.fieldId) === 'boolean' && typeof filter.value === 'boolean'
       const operator = filter.operator === 'equals' ? '='
         : filter.operator === 'not_equals' ? '<>'
           : filter.operator === 'greater_than' || filter.operator === 'after' ? '>' : '<'
-      clauses.push(filter.operator === 'not_equals' ? `(${column} IS NULL OR ${column} ${operator} ?)` : `${column} ${operator} ?`)
+      clauses.push(booleanComparison ? `COALESCE(${column}, 0) ${operator} ?` : filter.operator === 'not_equals' ? `(${column} IS NULL OR ${column} ${operator} ?)` : `${column} ${operator} ?`)
       values.push(sqlValue(filter.value))
     }
   }
@@ -230,14 +231,15 @@ export async function databaseItemMatchesView(
 export async function loadDatabasePage(
   env: L4Env,
   databaseId: string,
-  options: { viewId?: string, page: number, pageSize: number, search?: string, dateFrom?: string, dateTo?: string },
+  options: { viewId?: string | null, page: number, pageSize: number, search?: string, dateFrom?: string, dateTo?: string },
 ): Promise<DatabasePageDTO> {
   const definition = await requireDatabase(env, databaseId)
   const fields = await databaseFieldsFor(env, databaseId)
   const views = await loadDatabaseViews(env, databaseId, fields)
   const requestedView = options.viewId ? views.find(candidate => candidate.id === options.viewId) : null
   if (options.viewId && !requestedView) fail(404, 'not_found', 'Database view not found')
-  const view = requestedView ?? views[0]
+  const storedView = requestedView ?? views[0]
+  const view = storedView && options.viewId === null ? { ...storedView, layout: 'table' as const, config: defaultDatabaseViewConfig() } : storedView
   if (!view) fail(500, 'missing_database_view', 'This database has no view')
   const dateRange = view.layout === 'calendar' && options.dateFrom && options.dateTo
     ? { from: options.dateFrom, to: options.dateTo }
