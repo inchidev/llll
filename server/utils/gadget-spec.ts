@@ -1,10 +1,10 @@
+import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 import { z } from 'zod'
 import { GadgetBindingOperations, GadgetPresentationKinds, type GadgetSpec } from '../../shared/gadgets'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { databaseFieldsFor, requireDatabase } from './database-data'
 import { loadDatabaseViews } from './database-views'
-import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 
 const identifier = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/u)
 const bindingSchema = z.object({

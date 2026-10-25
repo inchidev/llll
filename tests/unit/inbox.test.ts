@@ -26,9 +26,9 @@ describe('conversation navigation and Inbox', () => {
   })
 
   it('sorts latest conversations first, including unread Agent messages', () => {
-    const older = conversation('older')
+    const older = conversation('older', { createdAt: '2020-01-01', lastMessageAt: '2026-10-22T12:00:00Z' })
     const latest = conversation('latest', { type: 'dm', participants: [agent], lastMessageAt: '2026-10-21T12:00:00Z' })
-    expect(unreadConversations([older, latest], 'server').map(channel => channel.id)).toEqual(['latest', 'older'])
+    expect(unreadConversations([older, latest], 'server').map(channel => channel.id)).toEqual(['older', 'latest'])
   })
 
   it('partitions unread conversations by URL filter without mixing human and Agent chats', () => {

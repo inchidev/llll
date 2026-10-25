@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { channelCategories, channelMembers, channels } from '../../../../drizzle/schema'
-import { channelUnreadCounts, sidebarThreads } from '../../../../workers/unread'
+import { channelLastMessageTimes, channelUnreadCounts, sidebarThreads } from '../../../../workers/unread'
 import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -21,9 +21,10 @@ export default defineEventHandler(async (event) => {
   const hiddenIds = new Set([...mailboxIds, ...(discussionRows.results ?? []).map(row => row.channelId)])
   const list = (await db.select().from(channels).orderBy(channels.position))
     .filter((ch) => !hiddenIds.has(ch.id) && ch.type !== 'dm' && ch.type !== 'thread' && (ch.visibility === 'server' || privateIds.has(ch.id)))
-  const [unread, threads] = await Promise.all([
+  const [unread, threads, lastMessages] = await Promise.all([
     channelUnreadCounts(env.DB, member.user.id, list.map(channel => channel.id)),
     sidebarThreads(env.DB, member.user.id, list.map(channel => channel.id)),
+    channelLastMessageTimes(env.DB, list.map(channel => channel.id)),
   ])
   const liveRooms = new Map<string, LiveState>()
   await Promise.all(list.filter(channel => channel.liveMeetingId).map(async (channel) => {
@@ -56,6 +57,7 @@ export default defineEventHandler(async (event) => {
         unreadCount: unread.get(ch.id) ?? 0,
         live: liveRooms.get(ch.id) ?? null,
         createdAt: ch.createdAt,
+        lastMessageAt: lastMessages.get(ch.id) ?? null,
       }
     }),
     threads,

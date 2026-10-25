@@ -5,7 +5,8 @@ import { conversationTitle, isAgentChat, inboxFilter, matchesInboxFilter } from 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
 const { serverId } = useServer()
 const session = useSessionStore()
-const { unreadConversations, pending, error, refresh } = useInbox(() => serverId.value || '')
+const { unreadConversations, pending, error, channelError, dmError, retryFailed, refresh } = useInbox(() => serverId.value || '')
+const loadError = computed(() => channelError.value && dmError.value ? 'Channels and direct messages did not load. Retry to see your full inbox.' : channelError.value ? 'Channels did not load. Your loaded direct messages are shown below.' : 'Direct messages did not load. Your loaded channels are shown below.')
 const route = useRoute()
 const filter = computed(() => inboxFilter(route.query.filter))
 const filterLabel = computed(() => ({ all: 'Unread conversations', channels: 'Unread channels', direct: 'Unread direct messages', agents: 'Unread agent chats' })[filter.value])
@@ -28,13 +29,13 @@ const groups = computed(() => [
       <div class="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
         <h2 class="text-xl font-semibold text-highlighted">{{ filterLabel }}</h2>
         <p class="mt-1 text-sm text-muted">Catch up on channels, replies and messages in this Server.</p>
-        <LayoutSkeleton v-if="pending" variant="nav" class="mt-6" :rows="5" />
-        <LayoutLoadError v-else-if="error" class="mt-6" message="Some conversations did not load. Refresh to see your full inbox." :retry="refresh" />
-        <LayoutEmptyState v-else-if="!unreadConversations.length" icon="i-ph-check-circle" title="You're all caught up" description="New unread conversations will appear here.">
+        <LayoutLoadError v-if="error" inline class="mt-6" :message="loadError" :retry="retryFailed" />
+        <LayoutSkeleton v-if="pending && !unreadConversations.length" variant="nav" class="mt-6" :rows="5" />
+        <LayoutEmptyState v-else-if="!pending && !error && !unreadConversations.length" icon="i-ph-check-circle" title="You're all caught up" description="New unread conversations will appear here.">
           <UButton to="/channels" color="neutral" variant="outline" label="Browse channels" />
         </LayoutEmptyState>
-        <LayoutEmptyState v-else-if="!filtered.length" icon="i-ph-tray" title="No unread conversations here" description="Other kinds of unread conversations may still be in your inbox."><UButton to="/inbox" color="neutral" variant="outline" label="All unread" /></LayoutEmptyState>
-        <div v-else class="mt-8 space-y-8">
+        <LayoutEmptyState v-else-if="!pending && !error && !filtered.length" icon="i-ph-tray" title="No unread conversations here" description="Other kinds of unread conversations may still be in your inbox."><UButton to="/inbox" color="neutral" variant="outline" label="All unread" /></LayoutEmptyState>
+        <div v-else-if="filtered.length" class="mt-8 space-y-8">
           <section v-for="group in groups" :key="group.label">
             <h3 class="mb-2 text-xs font-medium text-muted">{{ group.label }}</h3>
             <ul class="divide-y divide-default">

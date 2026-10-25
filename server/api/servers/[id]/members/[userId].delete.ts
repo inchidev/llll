@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { agents, users } from '../../../../../drizzle/schema'
+import { and, eq } from 'drizzle-orm'
+import { agents, roles, users } from '../../../../../drizzle/schema'
 import { nowIso } from '../../../../../shared/ids'
 import { Permission } from '../../../../../shared/permissions'
 import { requireMember } from '../../../../utils/guards'
@@ -8,6 +8,7 @@ import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
 import { signalMembersChanged } from '../../../../../workers/member-events'
 import { revalidateLiveRooms } from '../../../../utils/live'
+import { assertRoleManageable } from '../../../../utils/role-policy'
 
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
@@ -17,6 +18,10 @@ export default defineEventHandler(async (event) => {
   if (userId === actor.user.id) fail(400, 'bad_request', 'Leave is not implemented; ask an admin')
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
+  const target = (await db.select({ role: roles }).from(users).innerJoin(roles, eq(roles.id, users.roleId))
+    .where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1))[0]
+  if (!target) fail(404, 'not_found', 'Member not found')
+  assertRoleManageable(actor, target.role)
   const now = nowIso()
   await db.batch([
     db.update(users).set({

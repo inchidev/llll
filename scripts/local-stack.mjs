@@ -128,7 +128,12 @@ async function waitFor(check, description, timeout = 180000) {
 async function shutdown() {
   if (closing) return
   closing = true
-  const groups = [...children].map(child => child.pid).filter(Boolean)
+  const jobs = [...children].filter(child => child.pid)
+  // Listen before signalling: even SIGKILL must be reaped before this parent exits.
+  const reaped = jobs.map(child => child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise(resolve => child.once('exit', resolve)))
+  const groups = jobs.map(child => child.pid)
   for (const pid of groups) {
     try { process.kill(-pid, 'SIGTERM') } catch { /* Already exited. */ }
   }
@@ -142,6 +147,7 @@ async function shutdown() {
     // not leave an orphan compiler writing into the next session's output.
     try { process.kill(-pid, 'SIGKILL') } catch { /* Already exited. */ }
   }))
+  await Promise.all(reaped)
   const unlock = () => { if (ownsLock) { unlinkSync(lockFile); ownsLock = false } }
   if (!managesContainers) { unlock(); return }
   // Stop only services started by this invocation. A second dev command that

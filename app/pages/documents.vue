@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from '#imports'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Permission } from '~~/shared/permissions'
 import { documentPath } from '~~/shared/paths'

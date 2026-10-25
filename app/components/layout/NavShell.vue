@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { navigateTo } from '#imports'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { ChannelCategoryDTO as Category, ChannelDTO as Ch, MailboxDTO, ServerDTO as W, MemberDTO as M } from '~~/shared/types'

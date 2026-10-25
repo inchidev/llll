@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { GadgetSpec } from '../../shared/gadgets'
 import { INIT_SQL } from '../../server/utils/db'
-import { createGadget, listGadgets, publishGadget, updateGadget } from '../../server/utils/gadget-catalog'
+import { createGadget, getGadgetDetail, listGadgets, publishGadget, updateGadget } from '../../server/utils/gadget-catalog'
 import { composeGadgetSpec } from '../../server/utils/gadget-composer'
 import { inferAiFunction } from '../../server/utils/ai-functions'
 import { invokeGadget, openGadget } from '../../server/utils/gadget-runtime'
@@ -54,7 +54,9 @@ function actor(overrides: Partial<Membership> = {}): Membership {
       credential: { kind: 'session' },
     },
   }
-  return { ...base, ...overrides }
+  const merged = { ...base, ...overrides }
+  if (!overrides.authorization) merged.authorization = { ...base.authorization, principal: { ...base.authorization.principal, id: merged.user.id, roleId: merged.roleId, roleName: merged.roleName, permissions: merged.perms, isOwner: merged.isOwner } }
+  return merged
 }
 
 function fixture() {
@@ -292,4 +294,52 @@ it('rejects manually supplied restricted bindings on create, edit and publish', 
   await expect(publishGadget(env, manager, created.id, created.draftRevision)).rejects.toMatchObject({ statusCode: 403 })
   expect(sqlite.prepare('SELECT published_version FROM gadgets WHERE id=?').get(created.id)).toMatchObject({ published_version: null })
   sqlite.close()
+})
+
+it('requires source access for draft creation, updates and publication', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const limited = actor({ isOwner: false, authorization: { ...base.authorization, principal: { ...base.authorization.principal, isOwner: false, resourceAccess: { databases: ['leads'] } } } })
+  try {
+    await expect(createGadget(env, limited, { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
+    expect(sqlite.prepare('SELECT count(*) AS count FROM gadgets').get()).toMatchObject({ count: 0 })
+    const allowed = { ...spec, bindings: spec.bindings.slice(0, 1), sections: spec.sections.filter(section => section.bindingId === spec.bindings[0]!.id) }
+    const created = await createGadget(env, limited, { name: 'Allowed', spec: allowed })
+    await expect(publishGadget(env, limited, created.id, created.draftRevision)).resolves.toMatchObject({ publishedVersion: 1 })
+    const privateDraft = await createGadget(env, base, { name: 'Other manager', spec })
+    await expect(updateGadget(env, limited, privateDraft.id, { revision: privateDraft.draftRevision, name: 'Take over' })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(publishGadget(env, limited, privateDraft.id, privateDraft.draftRevision)).rejects.toMatchObject({ statusCode: 403 })
+    expect(sqlite.prepare('SELECT name,published_version FROM gadgets WHERE id=?').get(privateDraft.id)).toMatchObject({ name: 'Other manager', published_version: null })
+  } finally { sqlite.close() }
+})
+
+
+it('applies delegation action ceilings before listing, editing or running Apps', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const created = await createGadget(env, base, { name: 'Published', spec, roleIds: ['member-role'] })
+  await publishGadget(env, base, created.id, created.draftRevision)
+  const delegated = actor({ authorization: { ...base.authorization, delegation: { by: 'delegator', permissions: ALL_PERMISSIONS, isOwner: true, actions: [] } } })
+  try {
+    await expect(listGadgets(env, delegated)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(createGadget(env, delegated, { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(openGadget(env, delegated, created.id)).rejects.toMatchObject({ statusCode: 403 })
+  } finally { sqlite.close() }
+})
+
+
+it('does not turn manager status into private source access, but honors an explicit published Role grant', async () => {
+  const sqlite = fixture(), env = { DB: d1(sqlite) } as never
+  const base = actor()
+  const limited = actor({ roleId: 'reviewer-role', isOwner: false, authorization: { ...base.authorization, principal: { ...base.authorization.principal, roleId: 'reviewer-role', isOwner: false, resourceAccess: { databases: ['leads'] } } } })
+  try {
+    const created = await createGadget(env, base, { name: 'Private published source', spec })
+    await publishGadget(env, base, created.id, created.draftRevision)
+    await expect(getGadgetDetail(env, limited, created.id)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(openGadget(env, limited, created.id)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(invokeGadget(env, limited, created.id, { bindingId: 'leads', operation: 'create', title: 'Denied', values: {} })).rejects.toMatchObject({ statusCode: 403 })
+    const granted = await updateGadget(env, base, created.id, { revision: created.draftRevision, roleIds: ['reviewer-role'] })
+    await publishGadget(env, base, created.id, granted.draftRevision)
+    await expect(openGadget(env, limited, created.id)).resolves.toBeTruthy()
+  } finally { sqlite.close() }
 })

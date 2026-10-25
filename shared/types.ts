@@ -20,6 +20,8 @@ export type PrivateChannelMemberDTO = {
 }
 
 export type AgentDTO = {
+  /** Older Server responses may omit this field. */
+  roleId?: string | null
   harness?: 'think' | 'pi'
   id: string
   displayName: string
@@ -589,6 +591,7 @@ export type RoleDTO = {
 
 export type MemberDTO = {
   user: PublicUser
+  agentStatus?: AgentDTO['status']
   role: RoleDTO
   nickname: string | null
   status: PresenceStatus

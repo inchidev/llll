@@ -1,11 +1,11 @@
+import { applyChannelReadAck } from '~/utils/server-realtime'
 import type { InfiniteData, QueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
-import type { ChannelDTO, ClientMsg, MessageDTO, ServerMsg } from '~~/shared/types'
+import type { ClientMsg, MessageDTO, ServerMsg } from '~~/shared/types'
 import { applyReactionChange } from '../utils/message-reactions'
 import { mergeLatestPage } from '../utils/message-cache'
 
 type Page = { messages: MessageDTO[]; nextCursor: string | null; rootMessage?: MessageDTO | null }
-type ChannelList = { channels: ChannelDTO[] }
 export type RealtimeConnection = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 
 const DELIVERY_TIMEOUT_MS = 15_000
@@ -148,23 +148,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   function applyReadAck(channelId: string, unread: boolean) {
     const qc = queryClient()
     if (!qc) return
-    let directChannel = false
-    const update = (old: ChannelList | undefined) => {
-      if (!old?.channels.some(channel => channel.id === channelId)) return old
-      directChannel = true
-      return {
-        ...old,
-        channels: old.channels.map(channel => channel.id === channelId
-          ? { ...channel, unread, unreadCount: unread ? channel.unreadCount : 0 }
-          : channel),
-      }
-    }
-    qc.setQueriesData<ChannelList>({ queryKey: ['channels'] }, update)
-    qc.setQueriesData<ChannelList>({ queryKey: ['dms'] }, update)
-    if (!directChannel) {
-      void qc.invalidateQueries({ queryKey: ['channels'] })
-      void qc.invalidateQueries({ queryKey: ['dms'] })
-    }
+    applyChannelReadAck(qc, channelId, unread)
   }
 
   async function connect(gen = generation) {
@@ -244,6 +228,8 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
               }
             })
             void qc?.invalidateQueries({ queryKey: ['pins', id] })
+            void qc?.invalidateQueries({ queryKey: ['channels'] })
+            void qc?.invalidateQueries({ queryKey: ['dms'] })
             void qc?.invalidateQueries({ queryKey: ['files'] })
             break
           }
@@ -256,6 +242,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             presence.markTyping(id, parsed.userId, parsed.active)
             break
           case 'agent.state':
+            void queryClient()?.invalidateQueries({ queryKey: ['agent-conversation-runs'] })
             presence.setAgentTurns(id, parsed.agentId, parsed.runs)
             break
           case 'presence':

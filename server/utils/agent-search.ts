@@ -1,6 +1,7 @@
+import { reserveRunInference } from './agent-inference-budget'
 import { resolveSavedAgentModel } from './agent-providers'
 import { resolveAiFunction } from './ai-functions'
-import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import type { AgentRun } from '../../shared/agent-execution'
 import { z } from 'zod'
 import type { L4Env } from '../../workers/env'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
@@ -28,13 +29,9 @@ export async function searchRunWeb(env: L4Env, run: AgentRun, query: string, sig
   const reference = await resolveAiFunction(env, 'web.search', run.initiatedBy)
   const saved = await resolveSavedAgentModel(env, reference, run.initiatedBy)
   if (!saved) fail(409, 'search_unavailable', 'Web search provider is unavailable')
-  const mandate = JSON.parse(run.mandateJson) as RunMandate
   const reservation = 12000
-  const admitted = await env.DB.prepare(`UPDATE agent_runs SET model_calls=model_calls+1,total_tokens=total_tokens+? WHERE id=? AND status='running'
-    AND model_calls<? AND total_tokens+?<=?
-    AND (SELECT COALESCE(SUM(total_tokens),0) FROM agent_runs WHERE agent_id=? AND created_at>=?)+?<=250000 RETURNING id`)
-    .bind(reservation, run.id, mandate.maxModelCalls, reservation, mandate.maxTokens, run.agentId, new Date(Date.now() - 86400000).toISOString(), reservation).first()
-  if (!admitted) fail(429, 'search_budget', 'Run inference budget exhausted')
+  const admitted = await reserveRunInference(env, run, reservation)
+  if (!admitted.ok) fail(admitted.status, admitted.code, admitted.message)
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST',
     headers: { Authorization: `Bearer ${saved.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: saved.model.id, max_tokens: 2000, messages: [

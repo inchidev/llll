@@ -1,4 +1,4 @@
-import { hasPermission, Permission } from '../../shared/permissions'
+import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { emptyGadgetSpec, type GadgetDetailDTO, type GadgetListDTO, type GadgetSpec, type GadgetSummaryDTO } from '../../shared/gadgets'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -10,13 +10,18 @@ import { writeAudit } from './messages'
 export type GadgetRow = GadgetSummaryDTO & { draftSpecJson: string }
 
 export function canManageGadgets(actor: Membership): boolean {
-  return actor.isOwner || (hasPermission(actor.perms, Permission.manageGadgets) && hasPermission(actor.perms, Permission.manageDatabases))
+  return allowed(actor, ServerAction.manageGadgets) && allowed(actor, ServerAction.manageData)
+}
+
+function allowed(actor: Membership, action: ServerAction): boolean {
+  try { authorize(actor.authorization, action); return true }
+  catch (error) { if (error instanceof AuthorizationError) return false; throw error }
 }
 
 export function canUseGadgets(actor: Membership): boolean {
   return canManageGadgets(actor)
-    || hasPermission(actor.perms, Permission.useGadgets)
-    || hasPermission(actor.perms, Permission.manageGadgets)
+    || allowed(actor, ServerAction.useGadgets)
+    || allowed(actor, ServerAction.manageGadgets)
 }
 
 function summary(row: GadgetRow): GadgetSummaryDTO {
@@ -65,6 +70,7 @@ export async function getGadgetDetail(env: L4Env, actor: Membership, id: string)
   let draftSpec: GadgetSpec
   try { draftSpec = parseGadgetSpec(JSON.parse(row.draftSpecJson)) }
   catch { fail(409, 'gadget_draft_invalid', 'The App draft is invalid') }
+  await validateGadgetSpec(env, draftSpec, { authorization: actor.authorization })
   return { ...summary(row), draftSpec, roleIds: (access.results ?? []).map(item => item.roleId) }
 }
 

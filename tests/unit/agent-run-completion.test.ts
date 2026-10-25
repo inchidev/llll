@@ -6,6 +6,8 @@ import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { createAgentRun } from '../../server/utils/agent-run-service'
 import { AgentRunDurableObject } from '../../workers/agent-run-do'
 import { Permission } from '../../shared/permissions'
+import { updateTask } from '../../server/utils/task-service'
+import { createError } from 'h3'
 import type { L4Env } from '../../workers/env'
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {
   constructor(protected ctx: unknown, protected env: unknown) {}
@@ -15,6 +17,7 @@ let db: DatabaseSync, env: L4Env
 const post = vi.fn(async () => ({ id: 'result', channelId: 'public-chat' }))
 const agentId = '00000000-0000-4000-8000-000000000002'
 beforeEach(() => {
+  vi.stubGlobal('createError', createError)
   post.mockClear()
   db = new DatabaseSync(':memory:'); db.exec(INIT_SQL)
   db.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'00000000-0000-4000-8000-000000000001');
@@ -31,11 +34,12 @@ beforeEach(() => {
   env = { DB: d1(db), AUTH_SECRET: 'test-server-secret-with-32-characters', FILES: {}, AI: {}, AGENT_MODEL: '@cf/test',
     SERVER_DO: { getByName: () => ({ notifyTasksChanged: async () => {} }) },
     AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) },
+    SERVER_DO: { getByName: () => ({ notifyTasksChanged: async () => {} }) },
     AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'fixture',
     CHANNEL_DO: { getByName: () => ({ postAgentMessage: post, fanout: async () => {} }) },
   } as unknown as L4Env
 })
-afterEach(() => db.close())
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); db.close() })
 async function completed() {
   const actor = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
   const run = await createAgentRun(env, actor, { agentId, channelId: 'public-chat', taskId: 'assigned-task', prompt: 'Research', idempotencyKey: 'fixture-request' })
@@ -102,4 +106,112 @@ it('includes task identity and a task link in the conversation report', async ()
   expect(content).toContain('Research')
   expect(content).toContain('/tasks?task=')
   expect(content).toContain('Verified result')
+})
+
+async function editableRun() {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-24T12:00:00Z'))
+  db.prepare('UPDATE roles SET permissions_bitmask=permissions_bitmask|? WHERE id=?').run(Permission.writeTasks, 'agent-role')
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  return run
+}
+async function editFromRun(id: string, patch: Parameters<typeof updateTask>[3]) {
+  const auth = (await loadAuthorizationContext(env, { principalId: agentId, credential: { kind: 'agent_runtime', id }, delegatedBy: 'owner-user' }))!
+  await updateTask(env, auth, 'assigned-task', patch, () => {})
+}
+async function finishRun(id: string) {
+  db.prepare("UPDATE agent_runs SET status='completed' WHERE id=?").run(id)
+  await coordinator(id).alarm()
+}
+it('finalizes a task after multiple edits made by its own Run', async () => {
+  const run = await editableRun()
+  vi.setSystemTime(new Date('2026-10-24T12:00:01Z'))
+  await editFromRun(run.id, { description: 'Agent research' })
+  vi.setSystemTime(new Date('2026-10-24T12:00:02Z'))
+  await editFromRun(run.id, { title: 'Agent findings' })
+  await finishRun(run.id)
+  expect(db.prepare("SELECT title,description,status,result_summary FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ title: 'Agent findings', description: 'Agent research', status: 'review', result_summary: 'Verified result' })
+})
+it.each(['before', 'between', 'after'])('preserves a human edit %s the Run edits', async position => {
+  const run = await editableRun()
+  let tick = 0
+  const advance = () => vi.setSystemTime(new Date(Date.parse('2026-10-24T12:00:00Z') + ++tick * 1000))
+  const human = async () => {
+    advance()
+    const auth = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+    await updateTask(env, auth, 'assigned-task', { title: 'Human decision' }, () => {})
+  }
+  if (position === 'before') await human()
+  advance()
+  await editFromRun(run.id, { description: 'Agent research' })
+  if (position === 'between') { await human(); advance(); await editFromRun(run.id, { description: 'More research' }) }
+  if (position === 'after') await human()
+  await finishRun(run.id)
+  expect(db.prepare("SELECT title,status,result_summary FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ title: 'Human decision', status: 'ready', result_summary: null })
+})
+it.each(['done', 'review'])('preserves an explicit %s decision from the Run itself', async status => {
+  const run = await editableRun()
+  vi.setSystemTime(new Date('2026-10-24T12:00:01Z'))
+  await editFromRun(run.id, { status: status as 'done' | 'review' })
+  await finishRun(run.id)
+  expect(db.prepare("SELECT status,result_summary FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ status, result_summary: null })
+})
+it('does not treat another Run from the same agent as its own edit', async () => {
+  const run = await editableRun()
+  const actor = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+  const other = await createAgentRun(env, actor, { agentId, channelId: 'public-chat', taskId: 'assigned-task', prompt: 'Other work', idempotencyKey: 'other-request' })
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(other.id)
+  vi.setSystemTime(new Date('2026-10-24T12:00:01Z'))
+  await editFromRun(other.id, { description: 'Another attempt' })
+  vi.setSystemTime(new Date('2026-10-24T12:00:02Z'))
+  await editFromRun(run.id, { title: 'Original attempt' })
+  await finishRun(run.id)
+  expect(db.prepare("SELECT status,result_summary FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ status: 'ready', result_summary: null })
+})
+it.each(['archive', 'reassign'])('preserves a task %s after its own edit', async change => {
+  const run = await editableRun()
+  vi.setSystemTime(new Date('2026-10-24T12:00:01Z'))
+  await editFromRun(run.id, { description: 'Agent research' })
+  db.exec(change === 'archive'
+    ? "UPDATE tasks SET archived_at='2026-10-24T12:00:02Z' WHERE id='assigned-task'"
+    : "UPDATE tasks SET assignee_id='owner-user' WHERE id='assigned-task'")
+  await finishRun(run.id)
+  expect(db.prepare("SELECT status,result_summary FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ status: 'ready', result_summary: null })
+})
+it('rejects an edit racing with the tool read without advancing the Run cursor', async () => {
+  const run = await editableRun()
+  vi.setSystemTime(new Date('2026-10-24T12:00:01Z'))
+  const prepare = env.DB.prepare.bind(env.DB)
+  vi.spyOn(env.DB, 'prepare').mockImplementation(query => {
+    if (query.startsWith('update "tasks"')) db.exec("UPDATE tasks SET title='Concurrent human edit',updated_at='2026-10-24T12:00:02Z' WHERE id='assigned-task'")
+    return prepare(query)
+  })
+  await expect(editFromRun(run.id, { description: 'Outdated write' })).rejects.toMatchObject({ statusCode: 409 })
+  expect(db.prepare("SELECT title,description FROM tasks WHERE id='assigned-task'").get())
+    .toMatchObject({ title: 'Concurrent human edit', description: '' })
+  expect(db.prepare('SELECT task_edit_at FROM agent_runs WHERE id=?').get(run.id)?.task_edit_at).toBeNull()
+})
+
+
+it('expires a queued Run after a separate 24-hour wait with a distinct reason', async () => {
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='queued',result_text=NULL,created_at=?,deadline=? WHERE id=?").run('2026-10-22T00:00:00Z', '2026-10-22T00:15:00Z', run.id)
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T00:00:00Z'))
+  await coordinator(run.id).alarm()
+  expect(db.prepare('SELECT status,last_error,model_calls FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed', last_error: 'Run waited 24 hours for an execution slot. Start a new attempt.', model_calls: 0 })
+})
+
+it('retains an actionable inference denial if the executor subsequently reaches its deadline', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true })))
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='running',result_text=NULL,last_error=?,deadline=? WHERE id=?").run('This agent cannot fit another request within its rolling 24-hour token budget.', '2026-10-22T00:15:00Z', run.id)
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T00:00:00Z'))
+  await coordinator(run.id).alarm()
+  expect(db.prepare('SELECT status,last_error FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed', last_error: expect.stringContaining('rolling 24-hour token budget') })
 })

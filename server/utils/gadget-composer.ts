@@ -15,6 +15,7 @@ const selectionSchema = z.object({ sources: z.array(z.object({
 
 /** The model selects indexes and layouts; semantic IDs and read-only Bindings stay Server-owned. */
 export async function composeGadgetSpec(env: L4Env, authorization: AuthorizationContext, prompt: string): Promise<GadgetSpec> {
+  authorize(authorization, ServerAction.manageGadgets)
   authorize(authorization, ServerAction.manageData)
   const resources = await loadDataResources(env)
   const sourceRefs = resources.databases

@@ -5,7 +5,7 @@ import { deleteAgentTurn, patchAgentTurn, fanoutAgentTurns } from './agent-turns
 import { DurableObject } from 'cloudflare:workers'
 import type { L4Env } from './env'
 import { asRpc } from './env'
-import type { AgentRun, RunMandate, RuntimeEvent } from '../shared/agent-execution'
+import { RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RuntimeEvent } from '../shared/agent-execution'
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { agentTools } from '../server/utils/agent-tools'
@@ -176,7 +176,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     if (!id) return
     const run = await findAgentRun(this.env, id)
     if (!run || !['queued', 'running'].includes(run.status)) return
-    await this.env.DB.prepare("UPDATE agent_runs SET status='cancelled',updated_at=? WHERE id=? AND status IN ('queued','running')").bind(nowIso(), id).run()
+    const changed = await this.env.DB.prepare("UPDATE agent_runs SET status='cancelled',updated_at=? WHERE id=? AND status IN ('queued','running') RETURNING id").bind(nowIso(), id).first()
+    if (!changed) return
     try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Revocation already makes the gateway deny every new operation. */ }
     await this.release(run)
     await this.ctx.storage.deleteAlarm()
@@ -185,8 +186,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   override async alarm(): Promise<void> {
     const id = await this.ctx.storage.get<string>('runId')
     if (!id) return
-    const run = await findAgentRun(this.env, id)
-    if (!run) return
+    const initialRun = await findAgentRun(this.env, id)
+    if (!initialRun) return
+    let run = initialRun
     if (!['queued', 'running'].includes(run.status)) {
       const delivered = await deliverAgentRun(this.env, run, () => this.publish(run))
       await this.release(run)
@@ -198,12 +200,16 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     await this.ctx.storage.setAlarm(Date.now() + 5000)
     let phase = 'authorization'
     try {
-      if (run.deadline <= nowIso()) throw new Error('Run deadline reached')
+      if (run.status === 'queued' && Date.parse(run.createdAt) + RUN_QUEUE_WAIT_MS <= Date.now()) throw new Error('Run queue wait limit reached')
+      if (run.status === 'running' && run.deadline <= nowIso()) throw new Error('Run deadline reached')
       const authorization = await runAuthorization(this.env, run)
       if (run.status === 'queued') {
         if (!await admitQueuedAgentRun(this.env, run)) return
       }
       if (run.status === 'queued') {
+        const started = await findAgentRun(this.env, id)
+        if (!started || started.status !== 'running') return
+        run = started
         await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })
         await fanoutAgentTurns(this.env, run.channelId, run.agentId)
       }
@@ -291,7 +297,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         }
       }
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
-      const failure = terminal.type === 'error' ? (await findAgentRun(this.env, run.id))?.lastError || terminal.message : null
+      const current = terminal.type === 'error' ? await findAgentRun(this.env, run.id) : null
+      const failure = terminal.type === 'error' ? current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')
+        ? 'No model request reached the Server. Ask the operator to check AGENT_CALLBACK_ORIGIN, runtime connectivity and trusted CA certificates, then retry.'
+        : terminal.message) : null
       const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
         .bind(terminal.type === 'result' ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, newId(),
           failure, nowIso(), run.id).first<{ id: string }>()
@@ -303,10 +312,12 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     } catch (error) {
       console.warn('agent.run.transport', { runId: run.id, phase, errorType: error instanceof Error ? error.name : 'Unknown' })
       const forbidden = error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403
-      const permanent = forbidden || run.deadline <= nowIso() || (error instanceof Error && error.message.includes('interrupted'))
+      const queueExpired = run.status === 'queued' && Date.parse(run.createdAt) + RUN_QUEUE_WAIT_MS <= Date.now()
+      const permanent = queueExpired || forbidden || (run.status === 'running' && run.deadline <= nowIso()) || (error instanceof Error && error.message.includes('interrupted'))
       if (!permanent) return
+      const diagnosed = await findAgentRun(this.env, run.id)
       await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=COALESCE(result_message_id,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
-        .bind(forbidden ? 'Authorization revoked' : 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
+        .bind(forbidden ? 'Authorization revoked' : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
       const failed = await findAgentRun(this.env, run.id)
       const delivered = failed ? await deliverAgentRun(this.env, failed, () => this.publish(failed)) : true
