@@ -39,6 +39,37 @@ function streamAnswer(delta: Record<string, unknown>, finish = 'stop') {
   return new Response(frame(delta, null) + frame({}, finish) + 'data: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
 }
 
+it('loads one deferred schema after Server discovery, then executes it through the same gateway', async () => {
+  let turn = 0
+  const events: unknown[] = []
+  const called: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body))
+    if (url.endsWith('/tools')) {
+      called.push(body.name)
+      return Response.json(body.name === 'get_tool_details' ? { tool: { name: 'list_tasks' }, purpose: 'Find accessible work' } : { boards: [{ name: 'Allowed board' }] })
+    }
+    const names = (body.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name)
+    if (++turn === 1) {
+      expect(names).toEqual(['get_tool_details'])
+      expect(JSON.stringify(body)).not.toContain('privateSchemaMarker')
+      return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'load-one', type: 'function', function: { name: 'get_tool_details', arguments: '{"name":"list_tasks","purpose":"Find accessible work"}' } }] }, 'tool_calls')
+    }
+    expect(names).toContain('list_tasks')
+    expect(names).not.toContain('unselected_tool')
+    if (turn === 2) return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'read-one', type: 'function', function: { name: 'list_tasks', arguments: '{}' } }] }, 'tool_calls')
+    return streamAnswer({ role: 'assistant', content: 'Found accessible work.' })
+  }))
+  const outcome = await runEmbeddedPi({ ...input, runId: 'discovery-run', toolEndpoint: 'https://fixture.invalid/tools', tools: [
+    { name: 'get_tool_details', description: 'Load one tool', parameters: { type: 'object', properties: { name: { type: 'string' }, purpose: { type: 'string' } }, required: ['name', 'purpose'] } },
+    { name: 'list_tasks', description: 'Read permitted tasks', parameters: { type: 'object', properties: {} }, deferred: true },
+    { name: 'unselected_tool', description: 'Unused', parameters: { type: 'object', properties: { privateSchemaMarker: { type: 'string' } } }, deferred: true },
+  ] }, {} as DurableObjectStorage, { event: async event => { events.push(event) } })
+  expect(outcome.result).toMatchObject({ type: 'result', text: 'Found accessible work.' })
+  expect(called).toEqual(['get_tool_details', 'list_tasks'])
+  expect(events).toContainEqual({ type: 'tool', name: 'list_tasks', purpose: 'Find accessible work' })
+})
+
 it('executes a model-requested L4 tool with its stable call ID and capability, then continues', async () => {
   const calls: unknown[] = []
   let modelCalls = 0

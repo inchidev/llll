@@ -32,15 +32,28 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     reload: async () => {},
   }
   const customTools = input.tools.map(tool => ({
+    executionMode: 'sequential',
+    ...(tool.deferred ? { exposure: 'deferred' } : {}),
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.name === 'publish_code_changes' ? { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' } }, required: ['title', 'body'], additionalProperties: false } : tool.parameters,
     execute: async (id, args, toolSignal) => {
       if (tool.name === 'publish_code_changes') args = { ...args, files: await proposalFiles(cwd) }
-      const value = await callTool({ callId: id, name: tool.name, arguments: args }, toolSignal)
+      let value = await callTool({ callId: id, name: tool.name, arguments: args }, toolSignal)
+      if (tool.name === 'get_tool_details' && input.tools.some(candidate => candidate.deferred && candidate.name === value?.tool?.name)) {
+        session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), value.tool.name])])
+        emit({ type: 'tool', name: value.tool.name, purpose: typeof value.purpose === 'string' ? value.purpose.slice(0, 240) : undefined })
+        // Container publishing derives files from its isolated workspace; show
+        // the runtime's adapted arguments rather than asking the model for files.
+        const selected = customTools.find(candidate => candidate.name === value.tool.name)
+        if (selected) value = { ...value, tool: { ...value.tool, parameters: selected.parameters } }
+      }
       return { content: [{ type: 'text', text: JSON.stringify(value) }], details: {} }
     },
   }))
   // The container is the filesystem boundary. No host paths, credentials or Docker socket are mounted.
-  const tools = [...customTools.map(tool => tool.name), ...(input.computer ? ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'] : [])]
+  const computerTools = input.computer ? ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'] : []
+  // The SDK allowlist controls registration as well as exposure. Keep deferred
+  // definitions registered, then narrow the model's initial loadout explicitly.
+  const tools = [...input.tools.map(tool => tool.name), ...computerTools]
   let sessionManager
   try {
     const file = (await readFile(join(directory, 'session-path'), 'utf8')).trim()
@@ -56,6 +69,7 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     settingsManager: SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } }),
     thinkingLevel: 'off',
   })
+  session.setActiveToolsByName([...input.tools.filter(tool => !tool.deferred).map(tool => tool.name), ...computerTools])
   const stop = () => { void session.abort() }
   signal?.addEventListener('abort', stop, { once: true })
   let steps = 0

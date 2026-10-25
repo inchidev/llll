@@ -6,6 +6,44 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openPi } from '../src/pi.mjs'
 
+test('real container Pi keeps deferred schemas out of requests until Server selection', async () => {
+  const requests = [], calls = [], events = []
+  const model = createServer(async (request, response) => {
+    const chunks = []; for await (const chunk of request) chunks.push(chunk)
+    const body = JSON.parse(Buffer.concat(chunks).toString()); requests.push(body)
+    const turn = requests.length
+    const name = turn === 1 ? 'get_tool_details' : 'list_tasks'
+    const args = turn === 1 ? { name: 'list_tasks', purpose: 'Find accessible work' } : {}
+    const delta = turn < 3 ? { role: 'assistant', tool_calls: [{ index: 0, id: `tool-${turn}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } : { role: 'assistant', content: 'Found accessible work.' }
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    for (const choice of [{ delta, finish_reason: null }, { delta: {}, finish_reason: turn < 3 ? 'tool_calls' : 'stop' }]) response.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, ...choice }] })}\n\n`)
+    response.end('data: [DONE]\n\n')
+  })
+  await new Promise(resolve => model.listen(0, '127.0.0.1', resolve))
+  const directory = await mkdtemp(join(tmpdir(), 'llll-pi-discovery-'))
+  try {
+    const pi = await openPi({ modelGateway: { url: `http://127.0.0.1:${model.address().port}/v1`, model: 'fixture', token: 'fixture-token' },
+      instructions: 'Discover a permitted tool and use it.', computer: false, maxSteps: 5, tools: [
+        { name: 'get_tool_details', description: 'Load one tool', parameters: { type: 'object', properties: { name: { type: 'string' }, purpose: { type: 'string' } }, required: ['name', 'purpose'] } },
+        { name: 'list_tasks', description: 'Read tasks', parameters: { type: 'object', properties: {} }, deferred: true },
+        { name: 'unselected_tool', description: 'Unused', parameters: { type: 'object', properties: { privateSchemaMarker: { type: 'string' } } }, deferred: true },
+      ] }, { directory, emit: event => events.push(event), callTool: async call => {
+      calls.push(call.name)
+      return call.name === 'get_tool_details' ? { tool: { name: 'list_tasks' }, purpose: 'Find accessible work' } : { boards: ['Allowed'] }
+    } })
+    assert.equal((await pi.run('Find accessible work')).text, 'Found accessible work.')
+    assert.deepEqual((requests[0].tools ?? []).map(tool => tool.function.name), ['get_tool_details'])
+    assert.ok(!JSON.stringify(requests[0]).includes('privateSchemaMarker'))
+    for (const request of requests.slice(1)) {
+      const names = (request.tools ?? []).map(tool => tool.function.name)
+      assert.ok(names.includes('list_tasks'), JSON.stringify(names))
+      assert.ok(!names.includes('unselected_tool'))
+    }
+    assert.deepEqual(calls, ['get_tool_details', 'list_tasks'])
+    assert.ok(events.some(event => event.type === 'tool' && event.name === 'list_tasks' && event.purpose === 'Find accessible work'))
+  } finally { model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); await rm(directory, { recursive: true, force: true }) }
+})
+
 test('real Pi SDK uses only explicit tools and restores its conversation after restart', async () => {
   const requests = []
   const gateways = []

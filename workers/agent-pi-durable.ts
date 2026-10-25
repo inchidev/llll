@@ -95,6 +95,7 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
   const storageImplementation = await openDurableObjectSqliteStorage(storage as never)
   const tools: ToolRegistration[] = (input.tools ?? []).map(definition => ({
     name: definition.name, description: definition.description, parameters: definition.parameters as ToolRegistration['parameters'],
+    ...(definition.deferred ? { deferred: true as const } : {}),
     // The gateway persists each call's result by stable ID and refuses uncertain writes.
     replay: 'safe', executionMode: 'sequential',
     async execute(args, api, context) {
@@ -108,6 +109,15 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       if (!body.ok) throw new Error('Tool output exceeds its limit')
       const output = new TextDecoder().decode(body.bytes)
       if (!response.ok) throw new Error(`Tool gateway rejected the operation (${response.status})`)
+      if (definition.name === 'get_tool_details') {
+        const result = JSON.parse(output) as { tool?: { name?: string }; purpose?: string }
+        const selected = tools.find(tool => tool.name === result.tool?.name && tool.deferred)
+        if (selected) {
+          const event: RuntimeEvent = { type: 'tool', name: selected.name, purpose: typeof result.purpose === 'string' ? result.purpose.slice(0, 240) : undefined }
+          if (events.length < 2000) { events.push(event); await host.event?.(event) }
+          return { output: [{ type: 'text', text: output }], control: { addTools: [selected.name] } }
+        }
+      }
       return { output: [{ type: 'text', text: output }] }
     },
   }))

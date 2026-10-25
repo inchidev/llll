@@ -13,6 +13,7 @@ import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 import { testInbox } from './test-inbox.mjs'
 import { testInboundMail } from './test-inbound-mail.mjs'
 import { testAgentBudget } from './test-agent-budget.mjs'
+import { testAgentToolDiscovery } from './test-agent-tool-discovery.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -325,6 +326,7 @@ try {
   })
   await testInboundMail({ runtimes, origins, signingSecret: ('alpha-inbound-secret-').repeat(4) })
   await testAgentBudget({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
+  await testAgentToolDiscovery({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   await testRoleManagement({ api, runtimes, ids, memberId })
   await testAgentRoles({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })

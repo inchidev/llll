@@ -5,7 +5,9 @@ import { INIT_SQL } from '../../server/utils/db'
 import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { createAgentRun, findAgentRun, runAuthorization, runCapability, verifyRunCapability } from '../../server/utils/agent-run-service'
 import { agentGateway } from '../../server/utils/agent-gateway'
-import { agentTools } from '../../server/utils/agent-tools'
+import { agentTools, executeRunTool } from '../../server/utils/agent-tools'
+import { saveAgentProvider } from '../../server/utils/agent-providers'
+import { writeServerSetting } from '../../shared/server-settings'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 
@@ -90,6 +92,66 @@ describe('Pi run authorization', () => {
     expect((await call('call-3', 'list_tasks')).status).toBe(403)
     expect((await call('call-1', 'list_tasks')).status).toBe(403)
     expect((await findAgentRun(env, run.id))?.status).toBe('running')
+  })
+
+  it('discovers bounded permitted metadata, loads one schema and observes revocation on the next call', async () => {
+    const run = await createAgentRun(env, (await start())!, input())
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const token = await runCapability(env, run.id)
+    const call = (callId: string, name: string, args: unknown) => agentGateway(new Request('http://server/tools', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ callId, name, arguments: args }),
+    }), env, run.id, 'tools', () => {})
+    const search = await call('search-1', 'search_tools', { query: 'tasks' })
+    expect(search.status).toBe(200)
+    const found = await search.json() as { tools: Array<{ name: string }> }
+    expect(found.tools.map(tool => tool.name)).toContain('list_tasks')
+    expect(JSON.stringify(found)).not.toMatch(/board-private|parameters|create_task/)
+    const details = await call('details-1', 'get_tool_details', { name: 'list_tasks', purpose: 'Find accessible work' })
+    expect(details.status).toBe(200)
+    expect(await details.json()).toMatchObject({ tool: { name: 'list_tasks', parameters: { type: 'object' }, guidance: { effect: 'read' } }, purpose: 'Find accessible work' })
+    expect((await call('details-forged', 'get_tool_details', { name: 'create_task', purpose: 'Try a write' })).status).toBe(403)
+    db.exec(`UPDATE roles SET permissions_bitmask=${Permission.sendMessages} WHERE id='agent-role'`)
+    const revoked = await call('search-2', 'search_tools', { query: 'tasks' })
+    // Reducing a Role revokes the entire admitted Run, including discovery.
+    expect(revoked.status).toBe(403)
+    expect(await revoked.json()).toMatchObject({ error: { message: 'Current permissions do not allow this operation' } })
+    expect((await call('details-2', 'get_tool_details', { name: 'list_tasks', purpose: 'Retry' })).status).toBe(403)
+    expect((await call('forged-direct', 'list_tasks', {})).status).toBe(403)
+  })
+
+  it('changes discovery on connection configuration and revocation without exposing provider credentials', async () => {
+    db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.browseWeb} WHERE id='agent-role'`)
+    const run = await createAgentRun(env, (await start())!, input())
+    const discover = async () => agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_tools', { query: 'research' })
+    expect(await discover()).toMatchObject({ tools: [] })
+    const connection = { kind: 'openrouter' as const, enabled: true, webSearch: true, apiKey: 'synthetic-provider-secret', models: [{ id: 'model', api: 'chat' as const }] }
+    await saveAgentProvider(env, 'research', connection)
+    await writeServerSetting(env.DB, 'ai.function.web.search', '{"model":"l4:research:model"}')
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const authorization = await runAuthorization(env, run)
+    const replayCall = { callId: 'discovery-replay', name: 'search_tools', arguments: { query: 'research' } }
+    await executeRunTool(env, run.id, authorization, replayCall, () => {})
+    const available = await discover()
+    expect(available).toMatchObject({ tools: [{ name: 'search_web' }] })
+    expect(JSON.stringify(available)).not.toContain(connection.apiKey)
+    await saveAgentProvider(env, 'research', { ...connection, enabled: false })
+    await expect(executeRunTool(env, run.id, authorization, replayCall, () => {})).rejects.toMatchObject({ statusCode: 409 })
+    expect(await discover()).toMatchObject({ tools: [] })
+    const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
+    await expect(tools.call('get_tool_details', { name: 'search_web', purpose: 'Research' })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(tools.call('search_web', { query: 'Research' })).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it('bounds cumulative selected schemas through the existing Run ledger', async () => {
+    const run = await createAgentRun(env, (await start())!, input())
+    const insert = db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'get_tool_details','{}','{}','completed',?,'2026-10-21')")
+    for (let i = 0; i < 8; i++) insert.run(run.id, `loaded-${i}`, JSON.stringify({ tool: { name: `prior_${i}`, parameters: {} } }))
+    const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
+    await expect(tools.call('get_tool_details', { name: 'list_tasks', purpose: 'One more tool' })).rejects.toMatchObject({ statusCode: 413 })
+    // A prior large schema also prevents unbounded description/context growth.
+    db.prepare("DELETE FROM agent_run_tools WHERE run_id=?").run(run.id)
+    insert.run(run.id, 'large', JSON.stringify({ tool: { name: 'prior_large', description: 'x'.repeat(32000), parameters: {} } }))
+    await expect(tools.call('get_tool_details', { name: 'list_tasks', purpose: 'One more tool' })).rejects.toMatchObject({ statusCode: 413 })
   })
 
   it('does not replay a tool whose outcome is uncertain', async () => {

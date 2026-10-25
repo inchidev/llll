@@ -38,6 +38,6 @@ export type AgentRun = {
   resultText: string | null; lastError: string | null; modelCalls: number; totalTokens: number
   eventCursor: number; deadline: string; createdAt: string; updatedAt: string
 }
-export type RuntimeEvent = { type: 'text'; text: string } | { type: 'tool'; name: string }
+export type RuntimeEvent = { type: 'text'; text: string } | { type: 'tool'; name: string; purpose?: string }
   | { type: 'result'; text: string; steps: number } | { type: 'error'; message: string }
-export type RuntimeTool = { name: string; description: string; parameters: Record<string, unknown> }
+export type RuntimeTool = { name: string; description: string; parameters: Record<string, unknown>; deferred?: boolean }

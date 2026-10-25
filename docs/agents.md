@@ -96,6 +96,14 @@ Computation, Task-result recording and report delivery have independent states o
 
 Every model request includes the current UTC time and Server timezone (UTC by default). The `get_current_time` tool refreshes this reference during longer work. Ambiguous scheduling timezones still require clarification.
 
+## Tool discovery
+
+Both embedded and container Pi start with `search_tools`, `get_tool_details` and the current-time tool. Other Server tool schemas are deferred. Search ranks only the Run's currently permitted capabilities and returns at most eight short summaries without schemas or resource names. Load an exact identity with `get_tool_details(name, purpose)` to expose its schema on the next model request. The purpose is a short public description of the requested work, not private model reasoning; it appears in Run activity. Details include effects, prerequisite action, output/evidence, cost hints and trust boundaries. Search metadata does not grant permission.
+
+Each Run may select at most eight tools, with at most 16 KB per descriptor and 32 KB total. Discovery and selection use the existing tool-call ledger and budget. Unselected schemas do not enter model requests. Missing matches and unavailable details explain that a capability is missing. Search disappears when its assigned provider is disabled or unavailable, unless Exa is explicitly configured; page reading requires Browser access. Repository tools require the existing repository/computer mandate. Connection changes are checked on the next discovery and invocation; reduced Role/resource authority revokes the admitted Run. Even a forged direct call must pass the current Server authorization path.
+
+This increment covers existing L4 tools. Generic outbound MCP connections and their Settings UI are subsequent work in #306 and #308. New external mutating tools remain disabled until #307; discovery creates no new approval or write authority. Future connection adapters must supply unique, connection-qualified tool identities and must never treat remote descriptions or instructions as Server policy.
+
 ## Internal AI functions
 
 Settings → Agents → Providers → AI functions assigns a named connection and model independently for `apps.assist`, `thread.title` and `web.search`. These are bounded Server functions, not Agent Members: they have no Role, tools, computer, schedules or autonomous actions. They do not inherit an Agent/conversation model or the Server default. All start disabled, and unavailable selections never switch to another model. An Exa deployment key remains the explicit search path when configured. After upgrading from automatic OpenRouter search, assign a search model before using that path again.
