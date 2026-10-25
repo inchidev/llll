@@ -17,7 +17,7 @@ async function editor(editing = true, existingTaskRole = true) {
   const api = vi.fn(async (path: string, opts?: { method?: string; body?: Record<string, unknown> }) => {
     if (path.endsWith('/roles')) {
       if (opts?.method === 'POST') { savedRoles.push(taskRole); return { role: taskRole } }
-      return { roles: savedRoles }
+      return { roles: [...savedRoles] }
     }
     if (opts?.method === 'PATCH' || opts?.method === 'POST') return { agent: { ...agent, roleId: taskRole.id, ...opts.body } }
     return { models: [{ value: 'fixture-model', label: 'Fixture', provider: 'OpenRouter' }], defaultModel: 'fixture-model' }
