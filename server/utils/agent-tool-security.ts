@@ -19,12 +19,13 @@ export type ToolSecurityStatus = { untrustedContext: boolean; outboundReviewAvai
 
 /** Context belongs to the Session, including restored transcripts, failed reads, retries and other Runs. */
 export async function untrustedContext(env: L4Env, run: AgentRun): Promise<boolean> {
-  await env.DB.prepare(`UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=? AND
-    ((transcript_key IS NOT NULL AND transcript_key<>?) OR EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
-    OR EXISTS(SELECT 1 FROM messages WHERE id=? AND author_id<>?))`)
-    .bind(new Date().toISOString(), run.sessionId, `agent-sessions/${run.sessionId}/${run.id}.jsonl`, run.sessionId, run.sourceMessageId, run.initiatedBy).run()
-  const session = await env.DB.prepare('SELECT untrusted_at AS untrustedAt FROM agent_sessions WHERE id=?').bind(run.sessionId).first<{ untrustedAt: string | null }>()
-  return !session || Boolean(session.untrustedAt)
+  const session = await env.DB.prepare(`SELECT CASE WHEN untrusted_at IS NOT NULL
+    OR (transcript_key IS NOT NULL AND transcript_key<>?)
+    OR EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
+    OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE r.session_id=? AND t.name NOT IN ('get_current_time','search_tools','get_tool_details'))
+    OR EXISTS(SELECT 1 FROM messages WHERE id=? AND author_id<>?) THEN 1 ELSE 0 END AS untrusted FROM agent_sessions WHERE id=?`)
+    .bind(`agent-sessions/${run.sessionId}/${run.id}.jsonl`, run.sessionId, run.sessionId, run.sourceMessageId, run.initiatedBy, run.sessionId).first<{ untrusted: number }>()
+  return !session || Boolean(session.untrusted)
 }
 export async function markUntrustedContext(env: L4Env, run: AgentRun) {
   await env.DB.prepare('UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=?').bind(new Date().toISOString(), run.sessionId).run()

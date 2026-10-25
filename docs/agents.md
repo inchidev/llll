@@ -160,3 +160,15 @@ On a completed private Run, the initiating human with **Approve Agent actions** 
 The Server rechecks current Run, Task, repository, Member and Agent authority and the unchanged proposal before claiming a decision, then again inside the conversation actor before message persistence. A single claimed publication uses a dedicated message identity, separate from the automatic safe Run notice. Completed approval requests are idempotent; executing/uncertain outcomes cannot be retried or replaced. Rejected/expired requests remain in the private audit history, with at most five review attempts per Run. A restart cannot turn a recorded decision into another publication. The review state records who decided and when without copying private content into general audit logs.
 
 This is human approval of a completed result, not approval of model-selected tool calls or automatic Task result publication. Server writes, outbound MCP/web/GitHub arguments, paid/computer effects and general durable tool-wait/resume remain blocked pending subsequent #307 slices. No new tool execution privilege is granted.
+
+## Owner oversight and private Run content (#322)
+
+The Server Owner and Agent managers can inspect Agent audit metadata: initiator, Agent, final status, model, model/tool call counts and tokens used or reserved. These are usage indicators, not a provider billing statement. Ownership or profile administration does not grant another human’s Run prompt, model output, events, transcript or working files. This is the intentional privacy policy for this version. No Owner content-inspection exception is implemented, so there is no unaudited Owner bypass. The audit links only your own Run details; other Runs are marked as private content. Current conversation/Task/repository permissions still govern access to your own artifacts.
+
+Incident investigation uses attributable metadata and voluntary exact-result sharing through the publication review. A future privileged content-inspection workflow would require an explicit product decision, a separate permission and an auditable read-only action. It must never permit steering, continuation, delegation reuse or automatic import of someone else’s private context.
+
+## Historical context and immutable migrations (#321)
+
+Context checks derive trust from the current Session transcript, historical Tasks/tool ledger and source-message author without rewriting Session rows during inspection. Actual tool reads still persist a monotonic untrusted marker before the read begins. Missing Sessions fail closed. Thus historical content remains untrusted even when its stored marker is absent.
+
+Migration 0019 was already merged and includes a one-time backfill. It remains unchanged under the repository rule that merged SQL is immutable. Removing a historical statement requires an explicit schema-history policy change; the forward security check does not depend on that backfill.

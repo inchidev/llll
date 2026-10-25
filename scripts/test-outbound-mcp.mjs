@@ -92,7 +92,10 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
       assert.ok(queue.active.some(row => row.id === runId && row.prompt === 'Private Run'))
     } finally { await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(originalRole, memberId).run() }
     await db.prepare('UPDATE agent_runs SET initiated_by=? WHERE id=?').bind(memberId, runId).run()
-    try { await api('alpha', `/api/agent-runs/${runId}`, { expected: 403 }) }
+    try {
+      await api('alpha', `/api/agent-runs/${runId}`, { actor: 'alpha-member' })
+      for (const suffix of ['', '/transcript', '/files']) await api('alpha', `/api/agent-runs/${runId}${suffix}`, { expected: 403 })
+    }
     finally { await db.prepare('UPDATE agent_runs SET initiated_by=? WHERE id=?').bind(owner, runId).run() }
 
     await api('alpha', endpoint, { method: 'POST', headers: { Authorization: `Bearer ${capability}` }, actor: 'anonymous', body: value, expected: 401 })

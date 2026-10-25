@@ -140,3 +140,14 @@ it('requires exact review for a first model write even before any untrusted tool
   expect(f.db.prepare('SELECT count(*) AS n FROM tasks').get()!.n).toBe(before)
   expect(JSON.stringify(await runToolSecurity(f.env, run))).not.toContain('PRIVATE_HUMAN_INPUT')
 })
+
+it('derives historical trust without rewriting missing markers during inspection', async () => {
+  const { run, authorization } = await f.run()
+  await executeRunTool(f.env, run.id, authorization, { callId: 'historical-read', name: 'get_task', arguments: { taskId: 'secure-task' } }, () => {})
+  f.db.prepare('UPDATE agent_sessions SET untrusted_at=NULL WHERE id=?').run(run.sessionId)
+  expect(await untrustedContext(f.env, run)).toBe(true)
+  expect(f.db.prepare('SELECT untrusted_at AS marker FROM agent_sessions WHERE id=?').get(run.sessionId)!.marker).toBeNull()
+  const next = await f.run()
+  expect(await untrustedContext(f.env, next.run)).toBe(true)
+  expect(f.db.prepare('SELECT untrusted_at AS marker FROM agent_sessions WHERE id=?').get(run.sessionId)!.marker).toBeNull()
+})
