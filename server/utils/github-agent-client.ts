@@ -24,9 +24,12 @@ export function githubPkcs8(pem: string): string {
 }
 
 async function decode(response: Response) {
+  if (!response.ok) {
+    await response.body?.cancel()
+    fail(response.status === 404 ? 404 : response.status === 422 ? 409 : 502, 'github_failed', `GitHub operation failed (${response.status})`)
+  }
   const body = await readLimitedStream(response.body, 2_000_000)
   if (!body.ok) fail(502, 'github_response', 'GitHub response exceeds the execution limit')
-  if (!response.ok) fail(response.status === 404 ? 404 : response.status === 422 ? 409 : 502, 'github_failed', `GitHub operation failed (${response.status})`)
   return JSON.parse(new TextDecoder().decode(body.bytes))
 }
 
@@ -37,7 +40,7 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
   await ensure()
   const jwt = await appJwt(env)
   const tokenResult = await decode(await transport(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
-    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
+    method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
     body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: input.access === 'work' ? 'write' : 'read',
       ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}) } }),
@@ -67,13 +70,13 @@ async function appJwt(env: L4Env) {
 
 export type AgentRepository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
 /** Metadata-only discovery for Server administration. Execution still mints single-repository tokens. */
-export async function agentRepositories(env: L4Env): Promise<AgentRepository[]> {
+export async function agentRepositories(env: L4Env, transport: typeof fetch = fetch): Promise<AgentRepository[]> {
   if (!githubAgentConfigured(env)) return []
   const jwt = await appJwt(env)
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker' })
-  const request = (path: string, token: string, body?: unknown) => fetch(`https://api.github.com${path}`, {
+  const request = (path: string, token: string, body?: unknown) => transport(`https://api.github.com${path}`, {
     headers: { ...headers(token), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined, redirect: 'error', signal: AbortSignal.timeout(20000),
+    method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined, redirect: 'manual', signal: AbortSignal.timeout(20000),
   })
   const result: AgentRepository[] = []
   for (let page = 1; page <= 10; page++) {
@@ -87,7 +90,10 @@ export async function agentRepositories(env: L4Env): Promise<AgentRepository[]> 
           result.push(...repos.repositories.filter(repo => !repo.archived).map(repo => ({ id: repo.id, name: repo.full_name, installationId: grant.id, fork: repo.fork, defaultBranch: repo.default_branch })))
           if (repos.repositories.length < 100) break
         }
-      } finally { await fetch('https://api.github.com/installation/token', { method: 'DELETE', headers: headers(capability.token), signal: AbortSignal.timeout(10000) }) }
+      } finally {
+        const revoked = await transport('https://api.github.com/installation/token', { method: 'DELETE', redirect: 'manual', headers: headers(capability.token), signal: AbortSignal.timeout(10000) })
+        if (!revoked.ok) { await revoked.body?.cancel(); fail(502, 'github_failed', 'GitHub discovery capability could not be revoked') }
+      }
     }
     if (grants.length < 100) break
   }

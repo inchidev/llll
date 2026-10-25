@@ -17,17 +17,30 @@ export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<
   const { environment: item } = await codeRun(env, runId)
   const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
   const cached = await fileStorage(env).get(key)
-  if (cached && cached.size <= 20000000) return new Response(cached.body, { headers: { 'Content-Type': 'application/gzip' } })
+  if (cached && cached.size <= 20000000) {
+    await codeRun(env, runId)
+    return new Response(cached.body, { headers: { 'Content-Type': 'application/gzip' } })
+  }
   const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const redirected = await client.raw(`/repos/${item.sourceRepo}/tarball/${item.baseSha}`)
-  if (redirected.status !== 302) fail(502, 'code_archive', 'GitHub repository archive is unavailable')
-  const location = new URL(redirected.headers.get('Location') || 'https://invalid')
-  if (location.origin !== 'https://codeload.github.com' || !location.pathname.toLowerCase().startsWith(`/${item.sourceRepo.toLowerCase()}/`)) fail(502, 'code_archive', 'GitHub returned an unexpected archive location')
+  if (![302, 303].includes(redirected.status)) fail(502, 'code_archive', 'GitHub repository archive is unavailable')
+  let location: URL
+  try { location = new URL(redirected.headers.get('Location') || '') }
+  catch { fail(502, 'code_archive', 'GitHub returned an unexpected archive location') }
+  if (location.origin !== 'https://codeload.github.com' || location.username || location.password || location.hash
+    || location.pathname.toLowerCase() !== `/${item.sourceRepo.toLowerCase()}/legacy.tar.gz/${item.baseSha}`) fail(502, 'code_archive', 'GitHub returned an unexpected archive location')
   // Signed redirect only. Never forward the App credential to another host.
-  const downloaded = await fetch(location, { redirect: 'error', signal: AbortSignal.timeout(30000) })
+  await codeRun(env, runId)
+  const downloaded = await fetch(location, { redirect: 'manual', credentials: 'omit', signal: AbortSignal.timeout(30000) })
+  if (!downloaded.ok) {
+    await downloaded.body?.cancel()
+    fail(502, 'code_archive', 'GitHub repository archive is unavailable')
+  }
   const body = await readLimitedStream(downloaded.body, 20000000)
-  if (!downloaded.ok || !body.ok) fail(413, 'code_archive', 'Repository archive exceeds the execution limit or is unavailable')
+  if (!body.ok) fail(413, 'code_archive', 'Repository archive exceeds the execution limit or is unavailable')
+  await codeRun(env, runId)
   await fileStorage(env).put(key, body.bytes, { httpMetadata: { contentType: 'application/gzip' } })
+  await codeRun(env, runId)
   return new Response(new Uint8Array(body.bytes), { headers: { 'Content-Type': 'application/gzip' } })
 }
 

@@ -10,7 +10,7 @@ import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { createAgentRun, findAgentRun, runAuthorization  } from '../../server/utils/agent-run-service'
 import { previousRunFiles, requireRunFiles } from '../../server/utils/agent-files'
 import { createSchedule } from '../../server/utils/schedule-service'
-import { publishCodeProposal, codeProposalChecks } from '../../server/utils/agent-code-service'
+import { publishCodeProposal, codeProposalChecks, codeRepositoryArchive } from '../../server/utils/agent-code-service'
 import type { AgentRun } from '../../shared/agent-execution'
 import type { CodeProposalInput } from '../../shared/code-environments'
 
@@ -31,6 +31,11 @@ let tokens: Map<string, { repository_ids: number[]; permissions: Record<string, 
 let sequence: number
 let dropPrResponse: boolean
 let lintSuccess: boolean
+let archiveLocation: string
+let archiveStatus: number
+let archiveRedirectStatus: number
+let archiveHook: (() => void) | undefined
+let storedArchives: Map<string, Uint8Array>
 
 const configuration = { name: 'Project', sourceRepo: 'source/project', sourceRepoId: 11, sourceInstallationId: 101,
   workRepo: 'worker/project', workRepoId: 22, workInstallationId: 202, baseBranch: 'main', requiredChecks: ['lint', 'build'], previewHosts: ['dev.llll.gg'] }
@@ -39,6 +44,8 @@ const count = (suffix: string, method = 'POST') => calls.filter(call => call.pat
 const currentPr = () => ({ ...pr, head: { ref: `l4-agent/${run.id}`, sha: head, repo: { id: 22 } }, base: { ref: 'main', repo: { id: 11 } } })
 
 beforeEach(async () => {
+  archiveLocation = `https://codeload.github.com/source/project/legacy.tar.gz/${baseSha}`
+  archiveStatus = 200; archiveRedirectStatus = 302; archiveHook = undefined; storedArchives = new Map()
   head = null; pr = null; calls = []; minted = []; tokens = new Map(); sequence = 1; dropPrResponse = false; lintSuccess = false
   db = new DatabaseSync(':memory:')
   db.exec(INIT_SQL)
@@ -52,11 +59,20 @@ beforeEach(async () => {
     INSERT INTO task_boards(id,name,created_by) VALUES('code-board','Code','owner-user');`)
   db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)').run('code-env', JSON.stringify(configuration), 'owner-user', '2026-10-21', '2026-10-21')
   db.exec("INSERT INTO tasks(id,board_id,title,description,status,priority,position,assignee_id,environment_id,created_by,created_at,updated_at) VALUES('code-task','code-board','Fix behavior','','ready','normal',1,'agent-user','code-env','owner-user','2026-10-21','2026-10-21')")
-  env = { DB: d1(db), AUTH_SECRET: 'test-only-server-secret-with-32-characters', FILES: {}, AI: {},
+  env = { DB: d1(db), AUTH_SECRET: 'test-only-server-secret-with-32-characters', FILES: { get: vi.fn(async (key: string) => { const bytes = storedArchives.get(key); return bytes ? { size: bytes.length, body: new Blob([new Uint8Array(bytes)]).stream() } : null }), put: vi.fn(async (key: string, bytes: Uint8Array) => { storedArchives.set(key, bytes) }) }, AI: {},
     GITHUB_AGENT_APP_ID: '4242', GITHUB_AGENT_APP_PRIVATE_KEY: privateKey,
     AGENT_RUNNER_URL: 'http://runner', AGENT_RUNNER_TOKEN: 'runner-secret', AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) } } as unknown as L4Env
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL, options: RequestInit = {}) => {
     const uri = new URL(String(url))
+    // Workers supports manual/follow, but rejects redirect:'error'. Every credentialed hop is manual.
+    expect(options.redirect).toBe('manual')
+    if (uri.origin === 'https://codeload.github.com') {
+      expect(new Headers(options.headers).has('Authorization')).toBe(false)
+      expect(new Headers(options.headers).has('Cookie')).toBe(false)
+      expect(options.credentials).toBe('omit')
+      archiveHook?.()
+      return new Response(archiveStatus === 200 ? 'archive-bytes' : null, { status: archiveStatus, headers: { Location: 'http://169.254.169.254/' } })
+    }
     expect(uri.origin).toBe('https://api.github.com')
     const method = options.method ?? 'GET'
     const body = options.body ? JSON.parse(String(options.body)) : {}
@@ -77,6 +93,7 @@ beforeEach(async () => {
       if (source) { expect(uri.pathname).toMatch(/\/pulls(?:\/\d+)?$/u); expect(capability.permissions.pull_requests).toBe('write'); expect(capability.permissions.contents).toBe('read') }
       else expect(capability.permissions.contents).toBe('write')
     }
+    if (uri.pathname.endsWith(`/tarball/${baseSha}`)) return new Response(null, { status: archiveRedirectStatus, headers: { Location: archiveLocation } })
     if (uri.pathname.endsWith('/commits/main')) return Response.json({ sha: baseSha, commit: { tree: { sha: baseTree } } })
     if (uri.pathname.endsWith('/git/trees')) return Response.json({ sha: (++sequence).toString(16).padStart(40, '0') })
     if (uri.pathname.endsWith('/git/commits')) return Response.json({ sha: (++sequence).toString(16).padStart(40, '0') })
@@ -186,4 +203,43 @@ describe('GitHub capability broker', () => {
     await expect(createAgentRun(env, owner, { agentId: 'agent-user', channelId: 'code-channel', taskId: 'code-task', prompt: 'Scheduled work', idempotencyKey: 'scheduled-attempt' }, mandate)).rejects.toMatchObject({ statusCode: 403 })
   })
 
+})
+
+
+describe('Workers repository archive transport', () => {
+  it.each([302, 303])('downloads exact-SHA archives on a %s redirect without forwarding App credentials', async status => {
+    archiveRedirectStatus = status
+    expect(await (await codeRepositoryArchive(env, run.id)).text()).toBe('archive-bytes')
+    const networkCalls = vi.mocked(fetch).mock.calls.length
+    expect(await (await codeRepositoryArchive(env, run.id)).text()).toBe('archive-bytes')
+    expect(vi.mocked(fetch).mock.calls.length).toBe(networkCalls)
+    expect(storedArchives.size).toBe(1)
+    db.prepare("UPDATE agent_environments SET enabled=0 WHERE id='code-env'").run()
+    await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 403 })
+  })
+  it.each([
+    'https://codeload.github.com/other/project/legacy.tar.gz/' + baseSha,
+    'https://codeload.github.com/source/project/legacy.tar.gz/main',
+    'https://codeload.github.com/source/project/legacy.tar.gz/' + 'f'.repeat(40),
+    'https://user:secret@codeload.github.com/source/project/legacy.tar.gz/' + baseSha,
+    'https://codeload.github.com.attacker.example/source/project/legacy.tar.gz/' + baseSha,
+    'http://169.254.169.254/archive',
+    'invalid-location',
+  ])('rejects an archive destination outside the authorized identity: %s', async location => {
+    archiveLocation = location
+    await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 502 })
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith('https://codeload.github.com/'))).toBe(false)
+    expect(storedArchives.size).toBe(0)
+  })
+  it('rejects a second redirect without following it or caching its response', async () => {
+    archiveStatus = 302
+    await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 502 })
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('169.254.169.254'))).toBe(false)
+    expect(storedArchives.size).toBe(0)
+  })
+  it('rechecks current scope after download before caching or delivering private code', async () => {
+    archiveHook = () => { db.prepare("UPDATE agent_environments SET enabled=0 WHERE id='code-env'").run() }
+    await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 403 })
+    expect(storedArchives.size).toBe(0)
+  })
 })

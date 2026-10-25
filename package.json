@@ -52,7 +52,7 @@
     "site:typecheck": "nuxt typecheck apps/site && tsc -p apps/site/tsconfig.worker.json --noEmit",
     "web:preview": "node scripts/web-deploy.mjs preview",
     "web:deploy": "node scripts/web-deploy.mjs production",
-    "test:server": "node scripts/test-server.mjs && node scripts/test-server.mjs --basic",
+    "test:server": "node scripts/test-github-agent.mjs && node scripts/test-server.mjs && node scripts/test-server.mjs --basic",
     "test:stack": "node scripts/test-local-stack.mjs",
     "model:check": "node scripts/check-server-model.mjs"
   },
