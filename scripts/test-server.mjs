@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
 import { testMcpOAuth } from './test-mcp-oauth.mjs'
 import { testMcpMessages } from './test-mcp-messages.mjs'
+import { testAgentRoles } from './test-agent-roles.mjs'
 import { testRoleManagement } from './test-role-management.mjs'
 import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 import { testInbox } from './test-inbox.mjs'
@@ -325,6 +326,7 @@ try {
   await testInboundMail({ runtimes, origins, signingSecret: ('alpha-inbound-secret-').repeat(4) })
   await testAgentBudget({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   await testRoleManagement({ api, runtimes, ids, memberId })
+  await testAgentRoles({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
   await testMcpOAuth({ api, runtimes, origins, ids, cookies, memberId })
   await testMcpMessages({ api, runtimes, origins, ids, cookies, memberId })
