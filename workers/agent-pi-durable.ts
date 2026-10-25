@@ -92,6 +92,7 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
     api: openAICompletionsApi(),
   }))
 
+  const events: RuntimeEvent[] = []
   const storageImplementation = await openDurableObjectSqliteStorage(storage as never)
   const tools: ToolRegistration[] = (input.tools ?? []).map(definition => ({
     name: definition.name, description: definition.description, parameters: definition.parameters as ToolRegistration['parameters'],
@@ -127,7 +128,6 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
   const transcriptLines: string[] = String(input.transcript ?? '').split('\n').filter(Boolean)
   let cancel: (() => void) | undefined
   let stream: Awaited<ReturnType<typeof watchEvents>> | undefined
-  const events: RuntimeEvent[] = []
   try {
     const conversation = await harness.root(BACKGROUND_CONTEXT, {
       agent: { model: { provider: 'l4', modelId: input.modelGateway.model }, instructions: input.instructions, tools },
