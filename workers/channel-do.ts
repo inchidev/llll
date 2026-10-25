@@ -1,3 +1,4 @@
+import { authorizedPublicationMessage } from '../server/utils/run-publication'
 import { removeMessageData, retryDeletedFiles } from '../shared/file-cleanup'
 import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-access'
 import { getServerId } from '../shared/server-id'
@@ -63,6 +64,7 @@ const updateSchema = z.object({
 
 const agentPostSchema = z.object({
   sourceRunId: z.string().uuid().optional(),
+  sourcePublicationId: z.string().uuid().optional(),
   agentId: z.string().min(8),
   content: z.string().trim().min(1).max(2000),
 })
@@ -216,7 +218,13 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       throw new Error('Agent cannot send in this mailbox')
     }
 
+    if (body.sourceRunId && body.sourcePublicationId) throw new Error('Ambiguous publication identity')
     let id = newId()
+    if (body.sourcePublicationId) {
+      id = await authorizedPublicationMessage(this.env, channel.id, { ...body, sourcePublicationId: body.sourcePublicationId })
+      const previous = await this.env.DB.prepare('SELECT id FROM messages WHERE id=? AND channel_id=? AND author_id=?').bind(id, channel.id, agent.id).first()
+      if (previous) return { id, channelId: channel.id }
+    }
     if (body.sourceRunId) {
       const run = await this.env.DB.prepare("SELECT result_message_id as messageId FROM agent_runs WHERE id=? AND agent_id=? AND channel_id=? AND status IN ('completed','failed')")
         .bind(body.sourceRunId, body.agentId, channel.id).first<{ messageId: string }>()

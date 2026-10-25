@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { RunPublication } from '~~/shared/run-publication'
 import type { ToolSecurityStatus } from '~~/server/utils/agent-tool-security'
 import { useQuery } from '@tanstack/vue-query'
 import type { RunDelivery } from '~~/server/utils/agent-run-delivery'
@@ -37,7 +38,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -66,6 +67,23 @@ async function retryRun() {
     await navigateTo(`/runs/${result.run.id}`)
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { retrying.value = false }
+}
+const reviewingPublication = ref(false)
+const publicationBusy = ref(false)
+const publicationConfirmed = ref(false)
+async function publicationAction(decision?: 'approve' | 'reject') {
+  if (publicationBusy.value) return
+  publicationBusy.value = true
+  try {
+    const publication = runQ.data.value?.publication
+    await api(`/api/agent-runs/${route.params.id}/publication`, { method: 'POST', body: decision && publication
+      ? { action: 'decide', id: publication.id, digest: publication.digest, decision }
+      : { action: 'prepare' } })
+    reviewingPublication.value = !decision
+    publicationConfirmed.value = false
+    await runQ.refetch()
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }); await runQ.refetch() }
+  finally { publicationBusy.value = false }
 }
 </script>
 
@@ -109,6 +127,36 @@ async function retryRun() {
       <section v-if="runQ.data.value?.modelCalls?.length" class="space-y-2"><h2 class="text-sm font-medium">Model requests</h2><ol class="space-y-2"><li v-for="call in runQ.data.value.modelCalls" :key="call.callNumber" class="rounded border border-default p-3 text-sm"><p class="break-all">#{{ call.callNumber }} · {{ call.model }} · {{ call.status }}</p><p class="text-xs text-muted">{{ new Date(call.startedAt).toLocaleString() }} · {{ call.totalTokens ?? 'reserved' }} tokens</p><p v-if="call.error" class="text-error">{{ call.error }}</p></li></ol></section>
       <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><ChatMarkdownView :content="run.resultText" class="text-sm text-default" /></section>
+      <section v-if="run.status === 'completed' && run.resultText?.trim() && can(Permission.approveAgentActions)" class="space-y-3 rounded-lg border border-default p-4">
+        <h2 class="text-sm font-medium">Share result</h2>
+        <p class="text-xs text-muted">The result above is private. Sharing posts the exact reviewed text as this Agent in the original conversation. Tool writes and outbound calls remain unavailable.</p>
+        <p v-if="run.resultText.trim().length > 2000" class="text-sm text-muted">Results over 2000 characters cannot be shared through this review.</p>
+        <template v-else-if="runQ.data.value?.publication && ['completed', 'executing', 'uncertain'].includes(runQ.data.value.publication.status)">
+          <p class="text-sm">Publication: {{ runQ.data.value.publication.status }}</p>
+          <p v-if="runQ.data.value.publication.status !== 'completed'" class="text-xs text-warning">Inspect the conversation before taking any further action. This publication will not be retried.</p>
+        </template>
+        <template v-else>
+          <UButton label="Review sharing" color="neutral" variant="outline" :loading="publicationBusy" @click="publicationAction()" />
+          <div v-if="reviewingPublication && runQ.data.value?.publication?.status === 'pending'" class="space-y-3">
+            <p class="break-words text-sm">Conversation: {{ runQ.data.value.publication.channelName }}</p>
+            <p class="break-all text-xs text-muted">{{ runQ.data.value.publication.channelId }}</p>
+            <p class="text-sm text-warning">{{ runQ.data.value.publication.audience }}</p>
+            <p class="text-xs text-muted">Approval expires {{ new Date(runQ.data.value.publication.expiresAt).toLocaleString() }}. It applies only to this text and conversation.</p>
+            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-default p-3 text-sm">{{ runQ.data.value.publication.content }}</pre>
+            <UCheckbox v-model="publicationConfirmed" label="I reviewed this exact text and its audience and approve sharing it." />
+            <div class="flex flex-wrap gap-2">
+              <UButton label="Approve and publish" :disabled="!publicationConfirmed" :loading="publicationBusy" @click="publicationAction('approve')" />
+              <UButton label="Reject" color="neutral" variant="outline" :loading="publicationBusy" @click="publicationAction('reject')" />
+            </div>
+          </div>
+        </template>
+      </section>
+      <section v-if="runQ.data.value?.publicationHistory?.length" class="space-y-2">
+        <h2 class="text-sm font-medium">Publication review history</h2>
+        <ol class="space-y-1 text-xs text-muted">
+          <li v-for="entry in runQ.data.value.publicationHistory" :key="entry.id" class="break-all">{{ entry.status }}<span v-if="entry.decidedAt"> · {{ new Date(entry.decidedAt).toLocaleString() }} · {{ entry.decidedBy }}</span></li>
+        </ol>
+      </section>
       <section v-if="runQ.data.value?.events?.length" class="space-y-2">
         <h2 class="text-sm font-medium">Activity</h2>
         <ol class="space-y-2"><li v-for="entry in runQ.data.value.events" :key="entry.sequence" class="rounded border border-default p-3 text-sm">
