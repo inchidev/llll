@@ -47,17 +47,19 @@ it('loads one deferred schema after Server discovery, then executes it through t
     const body = JSON.parse(String(init.body))
     if (url.endsWith('/tools')) {
       called.push(body.name)
+      if (body.arguments?.name === 'unselected_tool') return Response.json({ error: 'Unavailable' }, { status: 403 })
       return Response.json(body.name === 'get_tool_details' ? { tool: { name: 'list_tasks' }, purpose: 'Find accessible work' } : { boards: [{ name: 'Allowed board' }] })
     }
     const names = (body.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name)
-    if (++turn === 1) {
+    if (++turn <= 2) {
       expect(names).toEqual(['get_tool_details'])
       expect(JSON.stringify(body)).not.toContain('privateSchemaMarker')
-      return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'load-one', type: 'function', function: { name: 'get_tool_details', arguments: '{"name":"list_tasks","purpose":"Find accessible work"}' } }] }, 'tool_calls')
+      if (turn === 2) expect(JSON.stringify(body.messages)).toContain('403')
+      return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: `load-${turn}`, type: 'function', function: { name: 'get_tool_details', arguments: JSON.stringify({ name: turn === 1 ? 'unselected_tool' : 'list_tasks', purpose: 'Find accessible work' }) } }] }, 'tool_calls')
     }
     expect(names).toContain('list_tasks')
     expect(names).not.toContain('unselected_tool')
-    if (turn === 2) return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'read-one', type: 'function', function: { name: 'list_tasks', arguments: '{}' } }] }, 'tool_calls')
+    if (turn === 3) return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'read-one', type: 'function', function: { name: 'list_tasks', arguments: '{}' } }] }, 'tool_calls')
     return streamAnswer({ role: 'assistant', content: 'Found accessible work.' })
   }))
   const outcome = await runEmbeddedPi({ ...input, runId: 'discovery-run', toolEndpoint: 'https://fixture.invalid/tools', tools: [
@@ -66,7 +68,7 @@ it('loads one deferred schema after Server discovery, then executes it through t
     { name: 'unselected_tool', description: 'Unused', parameters: { type: 'object', properties: { privateSchemaMarker: { type: 'string' } } }, deferred: true },
   ] }, {} as DurableObjectStorage, { event: async event => { events.push(event) } })
   expect(outcome.result).toMatchObject({ type: 'result', text: 'Found accessible work.' })
-  expect(called).toEqual(['get_tool_details', 'list_tasks'])
+  expect(called).toEqual(['get_tool_details', 'get_tool_details', 'list_tasks'])
   expect(events).toContainEqual({ type: 'tool', name: 'list_tasks', purpose: 'Find accessible work' })
 })
 
