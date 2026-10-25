@@ -1,3 +1,5 @@
+import { readGithubRepository, readGithubIssue, readGithubPullRequest } from '../../server/utils/agent-github-context'
+import { agentTools } from '../../server/utils/agent-tools'
 import { DatabaseSync } from 'node:sqlite'
 import { generateKeyPairSync } from 'node:crypto'
 import { importSPKI, jwtVerify } from 'jose'
@@ -35,6 +37,9 @@ let archiveLocation: string
 let archiveStatus: number
 let archiveRedirectStatus: number
 let archiveHook: (() => void) | undefined
+let installationRevoked: boolean
+let contextChanged: boolean
+let contextHook: (() => void) | undefined
 let storedArchives: Map<string, Uint8Array>
 
 const configuration = { name: 'Project', sourceRepo: 'source/project', sourceRepoId: 11, sourceInstallationId: 101,
@@ -44,6 +49,7 @@ const count = (suffix: string, method = 'POST') => calls.filter(call => call.pat
 const currentPr = () => ({ ...pr, head: { ref: `l4-agent/${run.id}`, sha: head, repo: { id: 22 } }, base: { ref: 'main', repo: { id: 11 } } })
 
 beforeEach(async () => {
+  installationRevoked = false; contextChanged = false; contextHook = undefined
   archiveLocation = `https://codeload.github.com/source/project/legacy.tar.gz/${baseSha}`
   archiveStatus = 200; archiveRedirectStatus = 302; archiveHook = undefined; storedArchives = new Map()
   head = null; pr = null; calls = []; minted = []; tokens = new Map(); sequence = 1; dropPrResponse = false; lintSuccess = false
@@ -78,6 +84,7 @@ beforeEach(async () => {
     const body = options.body ? JSON.parse(String(options.body)) : {}
     const authorization = new Headers(options.headers).get('Authorization')!
     if (uri.pathname.includes('/access_tokens')) {
+      if (installationRevoked) return Response.json({}, { status: 404 })
       await jwtVerify(authorization.slice(7), publicKey, { issuer: '4242', algorithms: ['RS256'] })
       minted.push(body)
       const token = `installation-capability-${minted.length}`
@@ -92,6 +99,19 @@ beforeEach(async () => {
     if (method !== 'GET') {
       if (source) { expect(uri.pathname).toMatch(/\/pulls(?:\/\d+)?$/u); expect(capability.permissions.pull_requests).toBe('write'); expect(capability.permissions.contents).toBe('read') }
       else expect(capability.permissions.contents).toBe('write')
+    }
+    if (uri.pathname === '/repos/source/project') return Response.json({ id: 11, full_name: 'source/project', description: 'Source metadata', private: true, archived: false, default_branch: 'main', secret: 'not-returned' })
+    if (uri.pathname.includes('/issues/42')) {
+      expect(capability.permissions).toEqual({ contents: 'read', issues: 'read' })
+      contextHook?.()
+      if (uri.pathname.endsWith('/comments')) return Response.json(Array.from({ length: 20 }, (_, id) => ({ id: id + 1, body: '😀'.repeat(2000), user: { login: 'reviewer', token: 'not-returned' }, created_at: '2026-10-25', secret: 'not-returned' })))
+      return Response.json({ number: 42, title: 'Fix behavior', body: 'Untrusted issue context', state: 'open', comments: 20, user: { login: 'author' }, secret: 'not-returned' })
+    }
+    if (uri.pathname.includes('/pulls/77')) {
+      expect(capability.permissions).toEqual({ contents: 'read', pull_requests: 'read' })
+      if (uri.pathname.endsWith('/files')) { if (contextChanged) contextChanged = false; return Response.json([{ filename: 'src/index.ts', status: 'modified', patch: 'diff'.repeat(1000), secret: 'not-returned' }]) }
+      if (uri.pathname.endsWith('/reviews') || uri.pathname.endsWith('/comments')) return Response.json([{ id: 90, body: 'Feedback', user: { login: 'reviewer' }, state: 'CHANGES_REQUESTED', commit_id: baseSha, path: 'src/index.ts', line: 3, secret: 'not-returned' }])
+      return Response.json({ number: 77, title: 'Proposal', body: 'Untrusted PR context', state: 'open', draft: true, merged: false, head: { sha: contextChanged ? baseSha : 'f'.repeat(40) }, base: { sha: baseSha, repo: { id: 11 } }, secret: 'not-returned' })
     }
     if (uri.pathname.endsWith(`/tarball/${baseSha}`)) return new Response(null, { status: archiveRedirectStatus, headers: { Location: archiveLocation } })
     if (uri.pathname.endsWith('/commits/main')) return Response.json({ sha: baseSha, commit: { tree: { sha: baseTree } } })
@@ -212,7 +232,7 @@ describe('Workers repository archive transport', () => {
     expect(await (await codeRepositoryArchive(env, run.id)).text()).toBe('archive-bytes')
     const networkCalls = vi.mocked(fetch).mock.calls.length
     expect(await (await codeRepositoryArchive(env, run.id)).text()).toBe('archive-bytes')
-    expect(vi.mocked(fetch).mock.calls.length).toBe(networkCalls)
+    expect(vi.mocked(fetch).mock.calls.length).toBe(networkCalls + 1) // Fresh App capability, no second archive download.
     expect(storedArchives.size).toBe(1)
     db.prepare("UPDATE agent_environments SET enabled=0 WHERE id='code-env'").run()
     await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 403 })
@@ -237,9 +257,66 @@ describe('Workers repository archive transport', () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('169.254.169.254'))).toBe(false)
     expect(storedArchives.size).toBe(0)
   })
+  it('denies cached private code after its App installation is revoked', async () => {
+    await codeRepositoryArchive(env, run.id)
+    installationRevoked = true
+    await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 404 })
+  })
   it('rechecks current scope after download before caching or delivering private code', async () => {
     archiveHook = () => { db.prepare("UPDATE agent_environments SET enabled=0 WHERE id='code-env'").run() }
     await expect(codeRepositoryArchive(env, run.id)).rejects.toMatchObject({ statusCode: 403 })
     expect(storedArchives.size).toBe(0)
+  })
+})
+
+
+describe('Task-scoped GitHub context reads', () => {
+  it('returns authorized repository identity and frozen commit without raw provider fields', async () => {
+    const result = await readGithubRepository(env, run.id)
+    expect(result).toMatchObject({ repository: 'source/project', admittedCommit: baseSha, private: true })
+    expect(JSON.stringify(result)).not.toContain('not-returned')
+  })
+  it('mints only source-repository read permissions for issue context and bounded comments', async () => {
+    expect(await readGithubIssue(env, run.id, { number: 42 })).toMatchObject({ repository: 'source/project', number: 42, kind: 'issue', body: { text: 'Untrusted issue context', truncated: false } })
+    const result = await readGithubIssue(env, run.id, { number: 42, section: 'comments', page: 2 })
+    expect(result).toMatchObject({ page: 2, nextPage: 3 })
+    expect(new TextEncoder().encode(JSON.stringify(result)).length).toBeLessThan(24000)
+    expect(JSON.stringify(result)).not.toContain('not-returned')
+    expect(minted.at(-1)).toEqual({ repository_ids: [11], permissions: { contents: 'read', issues: 'read' } })
+  })
+  it('reports bounded patches and review feedback with exact PR head identity', async () => {
+    const summary = await readGithubPullRequest(env, run.id, { number: 77 })
+    expect(summary).toMatchObject({ headSha: 'f'.repeat(40), baseSha, draft: true })
+    const files = await readGithubPullRequest(env, run.id, { number: 77, section: 'files' })
+    expect(files).toMatchObject({ files: [{ path: { text: 'src/index.ts' }, patch: { truncated: true }, patchAvailable: true }] })
+    expect(await readGithubPullRequest(env, run.id, { number: 77, section: 'reviews' })).toMatchObject({ comments: [{ author: 'reviewer', state: 'CHANGES_REQUESTED', commitSha: baseSha }] })
+    expect(JSON.stringify(files)).not.toContain('not-returned')
+    expect(minted.at(-1)).toEqual({ repository_ids: [11], permissions: { contents: 'read', pull_requests: 'read' } })
+  })
+  it('refuses evidence mixed across a changing PR head', async () => {
+    contextChanged = true
+    await expect(readGithubPullRequest(env, run.id, { number: 77, section: 'files' })).rejects.toMatchObject({ statusCode: 409 })
+  })
+  it('rejects model-selected repositories, URLs and unbounded pagination before minting capabilities', async () => {
+    const before = minted.length
+    await expect(readGithubIssue(env, run.id, { number: 42, repository: 'other/private' } as never)).rejects.toThrow()
+    await expect(readGithubPullRequest(env, run.id, { number: 77, page: 11 })).rejects.toThrow()
+    await expect(readGithubIssue(env, run.id, { number: -1 })).rejects.toThrow()
+    expect(minted.length).toBe(before)
+  })
+  it('rechecks authorization after a remote response instead of returning revoked context', async () => {
+    contextHook = () => { db.prepare("UPDATE agent_environments SET enabled=0 WHERE id='code-env'").run() }
+    await expect(readGithubIssue(env, run.id, { number: 42 })).rejects.toMatchObject({ statusCode: 403 })
+  })
+  it('revokes the Run and rejects calls through cached tool definitions after permission reduction', async () => {
+    const current = await runAuthorization(env, run)
+    const tools = agentTools(env, current, () => {}, run)
+    expect((await tools.call('search_tools', { query: 'github issue comments' }) as { tools: Array<{ name: string }> }).tools.some(tool => tool.name === 'read_github_issue')).toBe(true)
+    db.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='agent-role'").run(permissions & ~Permission.useComputer)
+    const before = minted.length
+    await expect(readGithubIssue(env, run.id, { number: 42 })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(runAuthorization(env, run)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(tools.call('read_github_issue', { number: 42 })).rejects.toMatchObject({ statusCode: 403 })
+    expect(minted.length).toBe(before)
   })
 })

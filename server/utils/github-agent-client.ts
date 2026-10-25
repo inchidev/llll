@@ -34,7 +34,7 @@ async function decode(response: Response) {
 }
 
 /** A token is limited to one repository and one operation class; it never crosses the gateway. */
-export async function githubAgentClient(env: L4Env, input: { installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' },
+export async function githubAgentClient(env: L4Env, input: { installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' },
   ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
   if (!githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Configure a dedicated GitHub App for agent repositories')
   await ensure()
@@ -43,7 +43,7 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
     body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: input.access === 'work' ? 'write' : 'read',
-      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}) } }),
+      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'pull_request_read' ? { pull_requests: 'read' } : {}), ...(input.access === 'issues' ? { issues: 'read' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}) } }),
   })) as { token?: string }
   const token = tokenResult.token
   if (!token) fail(502, 'github_response', 'GitHub did not issue a repository capability')

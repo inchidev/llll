@@ -16,12 +16,13 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<Response> {
   const { environment: item } = await codeRun(env, runId)
   const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
+  // Revalidate the dedicated App installation even when private code is already cached.
+  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const cached = await fileStorage(env).get(key)
   if (cached && cached.size <= 20000000) {
     await codeRun(env, runId)
     return new Response(cached.body, { headers: { 'Content-Type': 'application/gzip' } })
   }
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const redirected = await client.raw(`/repos/${item.sourceRepo}/tarball/${item.baseSha}`)
   if (![302, 303].includes(redirected.status)) fail(502, 'code_archive', 'GitHub repository archive is unavailable')
   let location: URL
@@ -54,7 +55,7 @@ const safePath = z.string().min(1).max(500).refine(value => !value.startsWith('/
   && value.split('/').every(part => part && part !== '.' && part !== '..' && part !== '.git'), 'Invalid repository path')
 export const readCodeSchema = z.object({ path: safePath })
 
-async function codeRun(env: L4Env, id: string, write = false) {
+export async function codeRun(env: L4Env, id: string, write = false) {
   const run = await findAgentRun(env, id)
   if (!run || run.status !== 'running' || run.deadline <= nowIso() || !run.taskId || !run.environmentJson || !(JSON.parse(run.mandateJson) as RunMandate).computer) fail(403, 'code_denied', 'Code access needs an active task-backed computer mandate')
   const auth = await runAuthorization(env, run)
