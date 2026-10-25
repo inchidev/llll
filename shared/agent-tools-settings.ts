@@ -7,5 +7,5 @@ export type ToolsSettingsDTO = {
   capabilities: Array<{ name: string; available: boolean; detail: string }>
   preview?: { agentId: string; tools: DiscoverableTool[]; diagnostics: string[] }
 }
-export type ToolAuditEntry = { id: string; createdAt: string; action: string; actorName: string; connectionId: string; runId: string | null; taskId: string | null; discussionId: string | null; tool: string | null; status: string | null; schemaHash: string | null }
+export type ToolAuditEntry = { id: string; createdAt: string; action: string; actorName: string; connectionId: string; connectionName: string | null; runId: string | null; taskId: string | null; discussionId: string | null; tool: string | null; status: string | null; schemaHash: string | null }
 export type ToolAuditPage = { entries: ToolAuditEntry[]; total: number }
