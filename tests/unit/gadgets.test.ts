@@ -343,3 +343,15 @@ it('does not turn manager status into private source access, but honors an expli
     await expect(openGadget(env, limited, created.id)).resolves.toBeTruthy()
   } finally { sqlite.close() }
 })
+
+
+it('denies model composition before inference when the delegated Apps action is missing', async () => {
+  const sqlite = fixture()
+  const base = actor().authorization
+  const delegated = { ...base, delegation: { by: 'delegator', permissions: ALL_PERMISSIONS, isOwner: true, actions: [] } }
+  const calls = vi.mocked(inferAiFunction).mock.calls.length
+  try {
+    await expect(composeGadgetSpec({ DB: d1(sqlite) } as never, delegated, 'Compose an app')).rejects.toMatchObject({ statusCode: 403 })
+    expect(vi.mocked(inferAiFunction).mock.calls).toHaveLength(calls)
+  } finally { sqlite.close() }
+})
