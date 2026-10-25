@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSessionStore } from '#imports'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { CodeEnvironment } from '~~/shared/code-environments'
 import { hasPermission, Permission } from '~~/shared/permissions'
