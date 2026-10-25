@@ -6,6 +6,7 @@ export async function testInboundMail({ runtimes, origins, signingSecret }) {
   const db = await runtimes.alpha.getD1Database('DB')
   const mailbox = crypto.randomUUID(), domain = crypto.randomUUID()
   await db.batch([
+    db.prepare("INSERT OR IGNORE INTO users(id,display_name,status,role_id,joined_at) VALUES('mail-external','Email','removed',NULL,NULL)"),
     db.prepare("INSERT INTO channels(id,name,type,visibility) VALUES(?,'QA inbound mail','text','private')").bind(mailbox),
     db.prepare("INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES(?,'fixture','inbound.example.test','localhost')").bind(domain),
     db.prepare("INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES(?,?,'support','QA inbound')").bind(mailbox, domain),
@@ -29,6 +30,7 @@ export async function testInboundMail({ runtimes, origins, signingSecret }) {
   const stored = await db.prepare('SELECT subject FROM email_threads WHERE mailbox_channel_id=?').bind(mailbox).all()
   assert.equal(stored.results.length, 1); assert.equal(stored.results[0].subject, 'Quality 😀')
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM email_messages WHERE mailbox_channel_id=?').bind(mailbox).first()).n, 1)
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM attachments a JOIN email_messages em ON em.message_id=a.message_id WHERE em.mailbox_channel_id=?').bind(mailbox).first()).n, 1)
   const oversized = 'From: sender@example.test\r\nTo: support@inbound.example.test\r\nSubject: ' + 'a'.repeat(2 * 1024 * 1024 + 1) + '\r\n\r\nBody'
   const refusal = await deliver(oversized)
   assert.equal(refusal.status, 422)
