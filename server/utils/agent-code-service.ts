@@ -16,7 +16,7 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<Response> {
   const { environment: item } = await codeRun(env, runId)
   const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
-  // Revalidate the dedicated App installation even when private code is already cached.
+  // Revalidate the dedicated App grant even when private code is already cached.
   const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const cached = await fileStorage(env).get(key)
   if (cached && cached.size <= 20000000) {
