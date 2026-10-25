@@ -79,6 +79,21 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
     assert.ok(security.decisions.some(decision => decision.effect === 'external' && decision.decision === 'blocked'))
     assert.ok(security.decisions.some(decision => decision.tool === 'create_task' && decision.decision === 'blocked'))
     assert.equal(JSON.stringify(security).includes('private-exfiltration-sentinel'), false)
+    await api('alpha', `/api/agent-runs/${runId}`, { actor: 'alpha-member', expected: 403 })
+    await api('alpha', `/api/agent-runs/${runId}/transcript`, { actor: 'alpha-member', expected: 403 })
+    await api('alpha', `/api/agent-runs/${runId}/files`, { actor: 'alpha-member', expected: 403 })
+    const queueRole = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Private Run queue fixture', permissions: Permission.sendMessages | Permission.useAgents } })).payload.role
+    await db.prepare('UPDATE agent_runs SET prompt=? WHERE id=?').bind('private-queue-prompt-sentinel', runId).run()
+    await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(queueRole.id, memberId).run()
+    try {
+      const queue = (await api('alpha', `/api/channels/${channelId}/agent-runs`, { actor: 'alpha-member' })).payload
+      assert.equal(JSON.stringify(queue).includes('private-queue-prompt-sentinel'), false)
+      assert.ok(queue.active.some(row => row.id === runId && row.prompt === 'Private Run'))
+    } finally { await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(originalRole, memberId).run() }
+    await db.prepare('UPDATE agent_runs SET initiated_by=? WHERE id=?').bind(memberId, runId).run()
+    try { await api('alpha', `/api/agent-runs/${runId}`, { expected: 403 }) }
+    finally { await db.prepare('UPDATE agent_runs SET initiated_by=? WHERE id=?').bind(owner, runId).run() }
+
     await api('alpha', endpoint, { method: 'POST', headers: { Authorization: `Bearer ${capability}` }, actor: 'anonymous', body: value, expected: 401 })
     await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: false } })
     await call(schema.name, { query: 'Durable Objects' }, 403, 'read-docs-once')

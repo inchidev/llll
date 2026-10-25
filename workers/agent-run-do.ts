@@ -1,3 +1,4 @@
+import { runReport, safeRunProgress } from '../server/utils/agent-tool-security'
 import { fileStorage } from '../shared/file-storage'
 import { admitQueuedAgentRun } from './agent-run-admission'
 import { getRunBlob, putRunBlob, deleteRunBlob } from './agent-run-storage'
@@ -155,10 +156,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   }
 
   private async publish(run: AgentRun): Promise<void> {
-    const text = run.status === 'failed' ? `Run failed: ${run.lastError || 'Execution stopped'}.\n\n[View details and retry](/runs/${run.id})` : run.resultText
+    const { text, restricted } = await runReport(this.env, run)
     if (!text) return
     let heading = ''
-    if (run.taskId) {
+    if (run.taskId && !restricted) {
       const auth = await runAuthorization(this.env, run)
       const task = await getTask(this.env, auth, run.taskId)
       if (task) {
@@ -265,7 +266,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const toolEvent = [...poll.events].reverse().find(event => event.type === 'tool')
       const partial = poll.events.filter((event): event is Extract<RuntimeEvent, { type: 'text' }> => event.type === 'text').map(event => event.text).join('')
       if (toolEvent?.type === 'tool' || partial) {
-        await patchAgentTurn(this.env, run.id, { status: toolEvent?.type === 'tool' ? 'tool' : 'thinking', detail: toolEvent?.type === 'tool' ? toolEvent.name : partial.slice(-240) })
+        await patchAgentTurn(this.env, run.id, { status: toolEvent?.type === 'tool' ? 'tool' : 'thinking', detail: safeRunProgress(toolEvent?.type === 'tool' ? 'tool' : 'thinking') })
         await fanoutAgentTurns(this.env, run.channelId, run.agentId)
       }
       const terminal: RuntimeEvent | undefined | null = poll.result || [...poll.events].reverse().find(event => event.type === 'result' || event.type === 'error')

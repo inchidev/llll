@@ -54,3 +54,17 @@ export async function runToolSecurity(env: L4Env, run: AgentRun): Promise<ToolSe
     .bind(run.id).all<Omit<ToolSecurityStatus['decisions'][number], 'untrustedContext'> & { untrustedContext: number }>()
   return { untrustedContext: untrusted, outboundReviewAvailable: false, decisions: decisions.results.map(decision => ({ ...decision, untrustedContext: Boolean(decision.untrustedContext) })) }
 }
+
+/** Run payloads and archives are private to the delegating human, even if another Member manages Agents. */
+export function requireRunReader(run: Pick<AgentRun, 'initiatedBy'>, memberId: string) {
+  if (run.initiatedBy !== memberId) fail(403, 'private_run', 'Run content is private to the initiating Member')
+}
+export function safeRunProgress(status: string): string {
+  return status === 'queued' ? 'Queued' : status === 'tool' ? 'Using a tool' : status === 'waiting_approval' ? 'Review required' : 'Working'
+}
+export const PRIVATE_RUN_SUMMARY = 'Private result available to the initiating Member.'
+export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: string | null; restricted: boolean }> {
+  const restricted = await untrustedContext(env, run)
+  if (restricted) return { restricted, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
+  return { restricted, text: run.status === 'failed' ? `Run failed. [View private details](/runs/${run.id})` : run.resultText }
+}

@@ -1,9 +1,10 @@
+import { agentAuditPage } from '../../server/utils/agent-audit'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mcpFixture, ids, remoteMcp } from '../helpers/outbound-mcp'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { executeRunTool, toolsForRun } from '../../server/utils/agent-tools'
-import { markUntrustedContext, runToolSecurity, untrustedContext } from '../../server/utils/agent-tool-security'
+import { markUntrustedContext, runToolSecurity, untrustedContext, requireRunReader, runReport } from '../../server/utils/agent-tool-security'
 import { d1ExecSql } from '../../server/utils/db'
 
 let f: ReturnType<typeof mcpFixture>
@@ -97,4 +98,23 @@ describe('untrusted context and egress boundary', () => {
     expect(tools.descriptors.some(tool => tool.name === 'get_task')).toBe(true)
     await expect(executeRunTool(f.env, run.id, authorization, { callId: 'unknown', name: 'new_unsafe_action', arguments: {} }, () => {})).rejects.toMatchObject({ statusCode: 403 })
   })
+})
+
+it('keeps untrusted final output private instead of copying it into a shared report', async () => {
+  const { run } = await f.run()
+  await markUntrustedContext(f.env, run)
+  const report = await runReport(f.env, { ...run, status: 'completed', resultText: 'PRIVATE_RECORD_CONTENT' })
+  expect(report.restricted).toBe(true)
+  expect(report.text).toContain('Open private Run')
+  expect(report.text).not.toContain('PRIVATE_RECORD_CONTENT')
+  expect(() => requireRunReader(run, ids.member)).toThrow()
+  expect(() => requireRunReader(run, run.initiatedBy)).not.toThrow()
+})
+
+it('keeps model/runtime errors out of broad Agent audit metadata', async () => {
+  const { run } = await f.run()
+  f.db.prepare('UPDATE agent_runs SET last_error=? WHERE id=?').run('PRIVATE_RUNTIME_ERROR', run.id)
+  const audit = await agentAuditPage(f.env, 'runs', '', 1)
+  expect(JSON.stringify(audit)).not.toContain('PRIVATE_RUNTIME_ERROR')
+  expect(JSON.stringify(audit)).toContain('Private Run details')
 })

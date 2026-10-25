@@ -53,8 +53,13 @@ function coordinator(id: string) {
 it('records the assigned task result without granting general task-write permission', async () => {
   const run = await completed()
   await coordinator(run.id).alarm()
-  expect(db.prepare("SELECT status,result_summary FROM tasks WHERE id='assigned-task'").get()).toMatchObject({ status: 'review', result_summary: 'Verified result' })
+  expect(db.prepare("SELECT status,result_summary FROM tasks WHERE id='assigned-task'").get()).toMatchObject({ status: 'review', result_summary: 'Private result available to the initiating Member.' })
   expect(post).toHaveBeenCalledTimes(1)
+  expect(JSON.stringify(post.mock.calls)).not.toContain('Verified result')
+  expect(JSON.stringify(post.mock.calls)).toContain('Open private Run')
+  const taskResult = db.prepare("SELECT result_summary,result_details,last_error FROM tasks WHERE id='assigned-task'").get()
+  expect(JSON.stringify(taskResult)).not.toContain('Verified result')
+  expect(JSON.stringify(taskResult)).toContain('Open private Run')
 })
 it('preserves the completed computation when reporting is denied and makes the failure visible', async () => {
   const run = await completed()
@@ -99,13 +104,14 @@ it('rejects a missing report-channel permission before creating a paid attempt',
   expect(db.prepare('SELECT count(*) as count FROM agent_runs').get()?.count).toBe(0)
 })
 
-it('includes task identity and a task link in the conversation report', async () => {
+it('keeps Task identity and model output out of a shared conversation report', async () => {
   const run = await completed()
   await coordinator(run.id).alarm()
   const content = JSON.stringify(post.mock.calls)
-  expect(content).toContain('Research')
-  expect(content).toContain('/tasks?task=')
-  expect(content).toContain('Verified result')
+  expect(content).not.toContain('Research')
+  expect(content).not.toContain('/tasks?task=')
+  expect(content).not.toContain('Verified result')
+  expect(content).toContain('/runs/'+run.id)
 })
 
 async function editableRun() {
@@ -132,7 +138,7 @@ it('finalizes a task after multiple edits made by its own Run', async () => {
   await editFromRun(run.id, { title: 'Agent findings' })
   await finishRun(run.id)
   expect(db.prepare("SELECT title,description,status,result_summary FROM tasks WHERE id='assigned-task'").get())
-    .toMatchObject({ title: 'Agent findings', description: 'Agent research', status: 'review', result_summary: 'Verified result' })
+    .toMatchObject({ title: 'Agent findings', description: 'Agent research', status: 'review', result_summary: 'Private result available to the initiating Member.' })
 })
 it.each(['before', 'between', 'after'])('preserves a human edit %s the Run edits', async position => {
   const run = await editableRun()

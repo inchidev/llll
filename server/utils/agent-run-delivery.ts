@@ -1,3 +1,4 @@
+import { PRIVATE_RUN_SUMMARY, untrustedContext } from './agent-tool-security'
 import type { AgentRun } from '../../shared/agent-execution'
 import { authorize, ServerAction } from '../../shared/authorization'
 import { nowIso } from '../../shared/ids'
@@ -22,6 +23,7 @@ export async function deliverAgentRun(env: L4Env, run: AgentRun, publish: () => 
     .bind(run.id, run.taskId ? 'pending' : 'skipped', nowIso()).run()
   const delivery = (await runDelivery(env, run.id))!
   const attempts = delivery.attempts + 1
+  const restricted = await untrustedContext(env, run)
   if (delivery.taskStatus === 'pending') {
     try {
       const auth = await runAuthorization(env, run)
@@ -32,8 +34,8 @@ export async function deliverAgentRun(env: L4Env, run: AgentRun, publish: () => 
         WHERE id=? AND assignee_id=? AND archived_at IS NULL
         AND (updated_at<=? OR updated_at=(SELECT task_edit_at FROM agent_runs WHERE id=?))
         AND status NOT IN ('done','review')`)
-        .bind(run.status === 'completed' ? 'review' : 'failed', run.resultText?.slice(0, 500) ?? null,
-          run.resultText, run.lastError, nowIso(), run.taskId, run.agentId, run.createdAt, run.id).run() : null
+        .bind(run.status === 'completed' ? 'review' : 'failed', restricted ? PRIVATE_RUN_SUMMARY : run.resultText?.slice(0, 500) ?? null,
+          restricted ? `[Open private Run](/runs/${run.id})` : run.resultText, restricted ? (run.status === 'failed' ? 'Run failed; private details require review.' : null) : run.lastError, nowIso(), run.taskId, run.agentId, run.createdAt, run.id).run() : null
       const changed = Boolean(result?.meta.changes)
       await env.DB.prepare('UPDATE agent_run_deliveries SET task_status=?,task_error=?,updated_at=? WHERE run_id=?')
         .bind(changed ? 'complete' : 'skipped', changed ? null : 'The task changed after this Run started; its current state was preserved.', nowIso(), run.id).run()

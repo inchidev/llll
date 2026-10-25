@@ -1,4 +1,4 @@
-import { runToolSecurity } from '../../utils/agent-tool-security'
+import { runToolSecurity, requireRunReader } from '../../utils/agent-tool-security'
 import { runDelivery } from '../../utils/agent-run-delivery'
 import { requireRunFiles } from '../../utils/agent-files'
 import { Permission, hasPermission } from '../../../shared/permissions'
@@ -8,10 +8,12 @@ import { requireChannelAccess } from '../../utils/guards'
 import { cf, fail } from '../../utils/cf'
 
 export default defineEventHandler(async (event) => {
+  setHeader(event, 'Cache-Control', 'private, no-store')
   const { env } = cf(event)
   const run = await findAgentRun(env, getRouterParam(event, 'id')!)
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
+  requireRunReader(run, actor.user.id)
   if (run.taskId) await getTask(env, actor.authorization, run.taskId)
   if (run.environmentJson) await requireRunFiles(env, actor.authorization, run)
   const { instructions: _instructions, mandateJson: _mandate, environmentJson: _environment, filesKey: _files, ...visible } = run

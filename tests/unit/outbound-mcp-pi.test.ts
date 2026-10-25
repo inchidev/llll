@@ -59,7 +59,7 @@ it('uses real embedded Pi to read a malicious Task while refusing injected exter
     f.db.prepare("UPDATE agent_runs SET status='completed',result_text=? WHERE id=?").run(outcome.result.text, run.id)
     const publish = vi.fn(async () => {})
     await deliverAgentRun(f.env, (await findAgentRun(f.env, run.id))!, publish)
-    expect(f.db.prepare('SELECT status,result_summary FROM tasks WHERE id=?').get(taskId)).toMatchObject({ status: 'review', result_summary: outcome.result.text })
+    expect(f.db.prepare('SELECT status,result_summary FROM tasks WHERE id=?').get(taskId)).toMatchObject({ status: 'review', result_summary: 'Private result available to the initiating Member.' })
     expect(publish).toHaveBeenCalledOnce()
   } finally { f.db.close() }
 })

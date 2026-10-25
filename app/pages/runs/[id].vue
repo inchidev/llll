@@ -91,7 +91,7 @@ async function retryRun() {
       <section v-if="runQ.data.value?.security" class="space-y-3">
         <h2 class="text-sm font-medium">Tool security</h2>
         <UAlert color="neutral" title="Sensitive actions require review" :description="runQ.data.value.security.untrustedContext ? 'This conversation contains untrusted content. Tool writes are blocked, including across retries. Model-selected outbound calls are unavailable until exact human approvals are implemented.' : 'Model-selected outbound calls require exact human review and are currently unavailable. Reading Task, Data, repository or other tool content blocks subsequent writes in this conversation.'" />
-        <p class="text-xs text-muted">These are context-policy decisions; an allowed decision does not mean the operation completed.</p>
+        <p class="text-xs text-muted">Run content is private to you. Shared chat and Task views receive only a safe notice. These are context-policy decisions; an allowed decision does not mean the operation completed.</p>
         <ul v-if="runQ.data.value.security.decisions.length" class="space-y-1 text-xs text-muted">
           <li v-for="(decision, index) in runQ.data.value.security.decisions.slice(-20)" :key="index" class="break-all">{{ decision.tool }} · {{ decision.effect }} · {{ decision.decision }}<span v-if="decision.untrustedContext"> · Untrusted context</span><span v-if="decision.decision === 'blocked'"> · Human review required</span></li>
         </ul>

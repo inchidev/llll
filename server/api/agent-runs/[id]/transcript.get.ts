@@ -1,3 +1,4 @@
+import { requireRunReader } from '../../../utils/agent-tool-security'
 import { fileStorage } from '../../../../shared/file-storage'
 import { requireRunFiles } from '../../../utils/agent-files'
 import { getTask } from '../../../utils/task-service'
@@ -10,6 +11,7 @@ export default defineEventHandler(async event => {
   const run = await findAgentRun(env, getRouterParam(event, 'id')!)
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
+  requireRunReader(run, actor.user.id)
   if (run.taskId) await getTask(env, actor.authorization, run.taskId)
   if (run.environmentJson) await requireRunFiles(env, actor.authorization, run)
   const object = await fileStorage(env).get(`agent-sessions/${run.sessionId}/${run.id}.jsonl`)

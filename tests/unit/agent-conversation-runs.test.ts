@@ -8,7 +8,7 @@ vi.mock('../../server/utils/cf', () => ({ cf: () => ({ env: mocks.env }) }))
 let db: DatabaseSync
 beforeEach(() => {
   vi.stubGlobal('defineEventHandler', (fn: unknown) => fn); vi.stubGlobal('getRouterParam', () => 'root'); vi.stubGlobal('setHeader', vi.fn())
-  mocks.member.mockReset().mockResolvedValue({}); mocks.channel.mockReset().mockResolvedValue({})
+  mocks.member.mockReset().mockResolvedValue({ user: { id: 'me' } }); mocks.channel.mockReset().mockResolvedValue({})
   db = new DatabaseSync(':memory:'); mocks.env.DB = d1(db)
   db.exec(`CREATE TABLE server_identity(singleton INTEGER PRIMARY KEY,id TEXT); INSERT INTO server_identity VALUES(1,'server');
     CREATE TABLE channels(id TEXT,parent_id TEXT);
@@ -32,4 +32,12 @@ it('returns current root/thread controls without a model catalog dependency or f
 it.each(['member', 'channel'] as const)('does not return queue data when %s authorization fails', async guard => {
   mocks[guard].mockRejectedValue(Error('Forbidden'))
   await expect((await import('../../server/api/channels/[id]/agent-runs.get')).default({} as never)).rejects.toThrow('Forbidden')
+})
+
+it('redacts another member’s queued prompt while preserving the initiator’s controls', async () => {
+  db.prepare("UPDATE agent_runs SET initiated_by='other',prompt='PRIVATE_QUEUE_PROMPT' WHERE id='queued'").run()
+  const result = await (await import('../../server/api/channels/[id]/agent-runs.get')).default({} as never)
+  expect(result.active.find(run => run.id === 'active')?.prompt).toBe('Working')
+  expect(result.active.find(run => run.id === 'queued')?.prompt).toBe('Private Run')
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_QUEUE_PROMPT')
 })

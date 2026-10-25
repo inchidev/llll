@@ -1,8 +1,10 @@
+import { safeRunProgress } from '../server/utils/agent-tool-security'
 import type { AgentApprovalDTO, AgentTurnDTO } from '../shared/types'
 import { nowIso } from '../shared/ids'
 import type { L4Env } from './env'
 
 type AgentTurnRow = {
+  governedRun: number
   submissionId: string
   agentId: string
   channelId: string
@@ -27,17 +29,18 @@ function parseApproval(value: string | null): AgentApprovalDTO | null {
 }
 
 function dto(row: AgentTurnRow): AgentTurnDTO {
-  return { ...row, approval: parseApproval(row.approvalJson) }
+  const { governedRun, approvalJson, ...visible } = row
+  return governedRun ? { ...visible, detail: safeRunProgress(row.status), approval: null } : { ...visible, approval: parseApproval(approvalJson) }
 }
 
 export async function listAgentTurns(env: L4Env, channelId: string, agentId?: string): Promise<AgentTurnDTO[]> {
   const query = agentId
-    ? `SELECT submission_id as submissionId, agent_id as agentId, channel_id as channelId,
+    ? `SELECT EXISTS(SELECT 1 FROM agent_runs WHERE id=submission_id) AS governedRun, submission_id as submissionId, agent_id as agentId, channel_id as channelId,
               source_message_id as sourceMessageId, initiated_by as initiatedBy, status, detail,
               draft_message_id as draftMessageId, approval_json as approvalJson,
               created_at as createdAt, updated_at as updatedAt
        FROM agent_turns WHERE channel_id = ? AND agent_id = ? ORDER BY created_at, submission_id`
-    : `SELECT submission_id as submissionId, agent_id as agentId, channel_id as channelId,
+    : `SELECT EXISTS(SELECT 1 FROM agent_runs WHERE id=submission_id) AS governedRun, submission_id as submissionId, agent_id as agentId, channel_id as channelId,
               source_message_id as sourceMessageId, initiated_by as initiatedBy, status, detail,
               draft_message_id as draftMessageId, approval_json as approvalJson,
               created_at as createdAt, updated_at as updatedAt

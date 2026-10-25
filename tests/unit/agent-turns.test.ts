@@ -30,6 +30,7 @@ function d1(database: DatabaseSync): D1Database {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(`
+    CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
     CREATE TABLE agent_turns (
       submission_id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -87,4 +88,14 @@ describe('agent turn state', () => {
     await deleteAgentTurn(env as never, 'submission-1')
     expect(await listAgentTurns(env as never, 'channel-1')).toEqual([])
   })
+})
+
+it('does not fan out historical model text or approval payloads from a governed Run', async () => {
+  sqlite.exec("INSERT INTO agent_runs(id) VALUES('run-1')")
+  const env = { DB: db }
+  await putAgentTurn(env as never, { submissionId: 'run-1', agentId: 'agent', channelId: 'chat', sourceMessageId: 'message', initiatedBy: 'initiator', status: 'thinking', detail: 'PRIVATE_MODEL_TEXT', approval: { executionId: 'private-action', action: 'mail_reply', summary: 'PRIVATE_APPROVAL_DATA', input: { body: 'PRIVATE_APPROVAL_DATA' }, risk: 'high' } })
+  const turns = await listAgentTurns(env as never, 'chat')
+  expect(turns[0]?.detail).toBe('Working')
+  expect(JSON.stringify(turns)).not.toContain('PRIVATE_MODEL_TEXT')
+  expect(JSON.stringify(turns)).not.toContain('PRIVATE_APPROVAL_DATA')
 })

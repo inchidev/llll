@@ -1,3 +1,4 @@
+import { requireRunReader } from '../../../utils/agent-tool-security'
 import { fileStorage } from '../../../../shared/file-storage'
 import { findAgentRun } from '../../../utils/agent-run-service'
 import { requireRunFiles } from '../../../utils/agent-files'
@@ -9,6 +10,7 @@ export default defineEventHandler(async (event) => {
   const run = await findAgentRun(env, getRouterParam(event, 'id')!)
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
+  requireRunReader(run, actor.user.id)
   await requireRunFiles(env, actor.authorization, run)
   const object = run.filesKey ? await fileStorage(env).get(run.filesKey) : null
   if (!object || object.size > 2000000) fail(404, 'not_found', 'Working files are unavailable')
