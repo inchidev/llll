@@ -248,7 +248,7 @@
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "^2.5.0",
     "drizzle-kit": "^0.31.10",
-    "esbuild": "0.25.9",
+    "esbuild": "0.28.1",
     "eslint": "^10.9.1",
     "happy-dom": "^21.0.4",
     "miniflare": "5.20260926.0-alpha",
