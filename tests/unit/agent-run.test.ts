@@ -154,6 +154,20 @@ describe('Pi run authorization', () => {
     await expect(tools.call('get_tool_details', { name: 'list_tasks', purpose: 'One more tool' })).rejects.toMatchObject({ statusCode: 413 })
   })
 
+  it('does not discover or call resource tools when Agent and delegator scopes have no intersection', async () => {
+    db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.readData | Permission.writeData} WHERE id='agent-role'`)
+    const run = await createAgentRun(env, (await start())!, input())
+    const authorization = await runAuthorization(env, run)
+    authorization.principal.resourceAccess = { boards: ['agent-board'], databases: [], documents: [], canvases: [] }
+    authorization.delegation!.resourceAccess = { boards: ['other-board'], databases: [], documents: [], canvases: [] }
+    const tools = agentTools(env, authorization, () => {}, run)
+    expect(await tools.call('search_tools', { query: 'tasks records data documents' })).toMatchObject({ tools: [] })
+    for (const name of ['list_tasks', 'list_tables', 'list_data', 'get_document', 'create_document']) {
+      await expect(tools.call('get_tool_details', { name, purpose: 'Read resources' })).rejects.toMatchObject({ statusCode: 403 })
+      await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
+    }
+  })
+
   it('does not replay a tool whose outcome is uncertain', async () => {
     const run = await createAgentRun(env, (await start())!, input())
     db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)

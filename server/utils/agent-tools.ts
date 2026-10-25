@@ -10,7 +10,8 @@ import { createAgentRun, findAgentRun } from './agent-run-service'
 import { loadAuthorizationContext } from './authorization'
 import type { AgentRun, RunMandate, RuntimeTool } from '../../shared/agent-execution'
 import { z } from 'zod'
-import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import type { ResourceKind } from '../../shared/resource-access'
 import type { L4Env } from '../../workers/env'
 import { newId } from '../../shared/ids'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
@@ -79,8 +80,26 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     add('publish_code_changes', ServerAction.proposeCode, codeProposalSchema, 'Publish text-file changes to this Run’s working fork branch and open or update a draft PR. Workflow files, merges and releases are unavailable.', async input => publishCodeProposal(env, run.id, input))
     add('check_code_proposal', ServerAction.useComputer, z.object({}), 'Read independent GitHub checks for the exact proposed commit and approved Preview links. Agent reports do not count as CI evidence.', async () => codeProposalChecks(env, run.id))
   }
-  const allowed = Object.entries(definitions).filter(([, definition]) => {
-    try { if (definition.action) authorize(authorization, definition.action); return true } catch { return false }
+  const resourceKinds: Record<string, ResourceKind> = {
+    list_tasks: 'boards', get_task: 'boards', create_task: 'boards', update_task: 'boards', execute_task: 'boards',
+    list_tables: 'databases', read_records: 'databases', create_record: 'databases', update_record: 'databases',
+    get_document: 'documents', update_document: 'documents',
+    read_code_tree: 'repositories', read_code_file: 'repositories', publish_code_changes: 'repositories', check_code_proposal: 'repositories',
+  }
+  const hasResources = (kind: ResourceKind) => {
+    const own = authorization.principal.isOwner ? undefined : authorization.principal.resourceAccess?.[kind]
+    const candidates = own ?? authorization.delegation?.resourceAccess?.[kind] ?? ['*']
+    return candidates.some(id => resourceAllowed(authorization, kind, id))
+  }
+  const allowed = Object.entries(definitions).filter(([name, definition]) => {
+    try {
+      if (definition.action) authorize(authorization, definition.action)
+      if (resourceKinds[name] && !hasResources(resourceKinds[name])) return false
+      if (name === 'create_table' && !resourceAllowed(authorization, 'databases', '*')) return false
+      if (name === 'create_document' && !resourceAllowed(authorization, 'documents', '*')) return false
+      if (name === 'list_data' && !(['databases', 'documents', 'canvases'] as const).some(hasResources)) return false
+      return true
+    } catch { return false }
   })
   const catalog: DiscoverableTool[] = allowed.map(([name, definition]) => {
     const effect = /^(create|update|publish|execute|cancel)_/u.test(name) ? 'write' : 'read'
