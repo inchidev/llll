@@ -53,7 +53,7 @@ async function remove(){const c=removeTarget.value;if(!c)return;await action(c.i
 <template>
   <div class="min-w-0 space-y-5">
     <div><h1 class="text-xl font-semibold text-highlighted">Tools</h1><p class="mt-2 text-sm text-muted">Connect read-only sources, inspect Agent capabilities and review tool activity.</p></div>
-    <UAlert color="neutral" title="Sensitive tool calls require review" description="Outbound Agent calls and writes after untrusted content are blocked until exact human approvals are available. Connection setup and health checks remain available." />
+    <UAlert color="neutral" title="Sensitive tool calls require review" description="Model-selected outbound calls and Server writes are blocked until exact human approvals are available. Connection setup and health checks remain available." />
     <nav class="flex flex-wrap gap-2" aria-label="Tools sections"><UButton v-for="item in tabs" :key="item.value" :label="item.label" :aria-pressed="tab===item.value" :variant="tab===item.value?'solid':'outline'" color="neutral" @click="tab=item.value" /></nav>
     <LayoutSkeleton v-if="settingsQ.isPending.value" variant="form" />
     <LayoutLoadError v-else-if="settingsQ.error.value" message="Tools could not be loaded." :retry="settingsQ.refetch" />

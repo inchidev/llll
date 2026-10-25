@@ -122,7 +122,21 @@ it('keeps model/runtime errors out of broad Agent audit metadata', async () => {
 it('distinguishes a fresh Run’s own archive from restored prior conversation input', async () => {
   const first = await f.run()
   f.db.prepare('UPDATE agent_sessions SET transcript_key=? WHERE id=?').run(`agent-sessions/${first.run.sessionId}/${first.run.id}.jsonl`, first.run.sessionId)
-  expect((await runReport(f.env, { ...first.run, status: 'completed', resultText: 'Clean direct reply' })).restricted).toBe(false)
+  expect(await untrustedContext(f.env, first.run)).toBe(false)
+  const report = await runReport(f.env, { ...first.run, status: 'completed', resultText: 'PRIVATE_HUMAN_INPUT' })
+  expect(report.restricted).toBe(true)
+  expect(report.text).not.toContain('PRIVATE_HUMAN_INPUT')
   const next = await f.run()
   expect(await untrustedContext(f.env, next.run)).toBe(true)
+})
+
+it('requires exact review for a first model write even before any untrusted tool result', async () => {
+  const { run, authorization } = await f.run()
+  expect(await untrustedContext(f.env, run)).toBe(false)
+  const before = f.db.prepare('SELECT count(*) AS n FROM tasks').get()!.n
+  const tools = await toolsForRun(f.env, authorization, () => {}, run)
+  expect(tools.descriptors.some(tool => tool.name === 'create_task')).toBe(false)
+  await expect(executeRunTool(f.env, run.id, authorization, { callId: 'first-write', name: 'create_task', arguments: { boardId: 'secure-board', title: 'PRIVATE_HUMAN_INPUT' } }, () => {})).rejects.toMatchObject({ statusCode: 403 })
+  expect(f.db.prepare('SELECT count(*) AS n FROM tasks').get()!.n).toBe(before)
+  expect(JSON.stringify(await runToolSecurity(f.env, run))).not.toContain('PRIVATE_HUMAN_INPUT')
 })

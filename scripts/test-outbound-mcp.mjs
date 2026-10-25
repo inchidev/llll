@@ -72,6 +72,7 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
     assert.equal(JSON.stringify(search).includes(token), false)
     await call('get_tool_details', { name: schema.name, purpose: 'Cite public documentation' }, 403)
     await call(schema.name, { query: 'private-exfiltration-sentinel' }, 403, 'read-docs-once')
+    await call('create_task', { boardId: 'forged-board', title: 'Unreviewed first write' }, 403)
     await call('list_tasks', {})
     await call('create_task', { boardId: 'forged-board', title: 'Injected write' }, 403)
     const security = (await api('alpha', `/api/agent-runs/${runId}`)).payload.security

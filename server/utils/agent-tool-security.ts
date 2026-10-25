@@ -33,7 +33,7 @@ export function toolSecurityReason(name: string, untrusted: boolean): string | n
   const effect = toolEffect(name)
   if (effect === 'unknown') return 'unclassified_tool'
   if (effect === 'external') return 'exact_outbound_review_unavailable'
-  if (effect === 'write' && untrusted) return 'untrusted_context_requires_review'
+  if (effect === 'write') return untrusted ? 'untrusted_context_requires_review' : 'exact_write_review_unavailable'
   return null
 }
 export async function guardRunTool(env: L4Env, run: AgentRun, name: string, callId?: string) {
@@ -63,8 +63,7 @@ export function safeRunProgress(status: string): string {
   return status === 'queued' ? 'Queued' : status === 'tool' ? 'Using a tool' : status === 'waiting_approval' ? 'Review required' : 'Working'
 }
 export const PRIVATE_RUN_SUMMARY = 'Private result available to the initiating Member.'
-export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: string | null; restricted: boolean }> {
-  const restricted = await untrustedContext(env, run)
-  if (restricted) return { restricted, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
-  return { restricted, text: run.status === 'failed' ? `Run failed. [View private details](/runs/${run.id})` : run.resultText }
+export function runReport(_env: L4Env, run: AgentRun): Promise<{ text: string; restricted: boolean }> {
+  // Model output is not an exact human-approved publication, including on an otherwise clean first Run.
+  return Promise.resolve({ restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` })
 }

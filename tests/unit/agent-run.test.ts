@@ -180,13 +180,14 @@ describe('Pi run authorization', () => {
     expect(retry.status).toBe(403)
   })
 
-  it('keeps an autonomous subtask inside the original resource and computer ceiling', async () => {
+  it('keeps manual child admission bounded while model spawning requires review', async () => {
     db.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='agent-role'").run(Permission.sendMessages | Permission.readTasks | Permission.executeTasks | Permission.useComputer)
     db.prepare("INSERT INTO tasks(id,board_id,title,description,status,priority,position,assignee_id,created_by,created_at,updated_at) VALUES('child-task','board-allowed','Research one source','','ready','normal',1,?,'owner-user','2026-10-21','2026-10-21')").run(agentId)
     const parent = await createAgentRun(env, (await start())!, input())
     const tools = agentTools(env, await runAuthorization(env, parent), () => {}, parent)
-    const result = await tools.call('execute_task', { taskId: 'child-task' }) as { runId: string }
-    const child = (await findAgentRun(env, result.runId))!
+    await expect(tools.call('execute_task', { taskId: 'child-task' })).rejects.toMatchObject({ statusCode: 403 })
+    // The underlying admission contract remains scoped; model invocation additionally requires human review.
+    const child = await createAgentRun(env, (await start())!, { ...input(), taskId: 'child-task', idempotencyKey: 'manual-admission-fixture' }, { ...JSON.parse(parent.mandateJson), depth: 1 })
     expect(JSON.parse(child.mandateJson)).toMatchObject({ depth: 1, computer: false, agentResourceAccess: { boards: ['board-allowed'] } })
     const exhausted = { ...child, mandateJson: JSON.stringify({ ...JSON.parse(child.mandateJson), depth: 2 }) }
     await expect(agentTools(env, await runAuthorization(env, exhausted), () => {}, exhausted).call('execute_task', { taskId: 'child-task' })).rejects.toMatchObject({ statusCode: 403 })
