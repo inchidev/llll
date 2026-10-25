@@ -106,7 +106,12 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   if ((message.rawSize ?? 0) > MAIL_LIMITS.rawBytes) return { accepted: false, reason: 'Message is too large' }
   const raw = await readRaw(message.raw, MAIL_LIMITS.rawBytes)
   if (!raw) return { accepted: false, reason: 'Message is too large' }
-  const parsed = await PostalMime.parse(raw)
+  let parsed: Awaited<ReturnType<typeof PostalMime.parse>>
+  try { parsed = await PostalMime.parse(raw) }
+  catch {
+    // Parser limits and malformed MIME are permanent input failures, not retryable delivery errors.
+    return { accepted: false, reason: 'Message could not be parsed or exceeds email parser limits' }
+  }
   const rawHash = parsed.messageId ? null : await rawSha256(raw)
   if (parsed.messageId) {
     const duplicate = await env.DB.prepare('SELECT message_id FROM email_messages WHERE mailbox_channel_id = ? AND rfc_message_id = ?')
