@@ -62,7 +62,7 @@ export async function toolAudit(env: L4Env, actor: AuthorizationContext, search:
   const rows = await env.DB.prepare(`SELECT l.id,l.created_at AS createdAt,l.action,u.display_name AS actorName,l.target_id AS connectionId,c.name AS connectionName,r.id AS runId,r.task_id AS taskId,t.discussion_channel_id AS discussionId,json_extract(l.meta_json,'$.tool') AS tool,json_extract(l.meta_json,'$.status') AS status,json_extract(l.meta_json,'$.schemaHash') AS schemaHash ${from} ORDER BY l.id DESC LIMIT 20 OFFSET ?`).bind(actor.principal.id,actor.principal.id,search.toLowerCase(),(page-1)*20).all<ToolAuditEntry>()
   // Links retain normal destination authorization; omit Task links outside current board access.
   const entries = await Promise.all(rows.results.map(async row => {
-    if (row.taskId) { const task = await env.DB.prepare('SELECT board_id AS boardId FROM tasks WHERE id=?').bind(row.taskId).first<{boardId:string}>(); if (!task || !resourceAccessAllows(actor.principal.resourceAccess,'boards',task.boardId)) return {...row, taskId:null, discussionId:null} }
+    if (row.taskId) { const task = await env.DB.prepare('SELECT board_id AS boardId FROM tasks WHERE id=?').bind(row.taskId).first<{boardId:string}>(); if (!granted(actor,Permission.readTasks) || !task || !resourceAccessAllows(actor.principal.resourceAccess,'boards',task.boardId)) return {...row, taskId:null, discussionId:null} }
     return row
   }))
   return { entries, total: total?.total ?? 0 }
