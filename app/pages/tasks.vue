@@ -777,8 +777,8 @@ const boardMenu = computed(() => [[
           <section v-if="selectedTask.resultSummary || selectedTask.resultDetails">
             <div class="mb-2 text-sm font-medium">Result</div>
             <div class="space-y-2 rounded-lg border border-default p-3 text-sm">
-              <div v-if="selectedTask.resultSummary">{{ selectedTask.resultSummary }}</div>
-              <pre v-if="selectedTask.resultDetails" class="whitespace-pre-wrap font-sans text-xs text-muted">{{ selectedTask.resultDetails }}</pre>
+              <ChatMarkdownView v-if="selectedTask.resultSummary && !selectedTask.resultDetails" :content="selectedTask.resultSummary" />
+              <ChatMarkdownView v-if="selectedTask.resultDetails" :content="selectedTask.resultDetails" class="text-xs text-muted" />
             </div>
           </section>
 
