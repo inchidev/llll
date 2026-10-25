@@ -132,6 +132,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       parameters: z.toJSONSchema(z.object({ name: z.string().min(1).max(64), purpose: z.string().trim().min(1).max(240) }).strict()) },
   ]
   return {
+    catalog: availableCatalog,
     descriptors: [...discovery, ...catalog.map(({ guidance: _guidance, ...tool }) => tool)],
     async call(name: string, input: unknown) {
       if (name === 'search_tools') {

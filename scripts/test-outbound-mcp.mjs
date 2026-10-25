@@ -34,6 +34,25 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
   assert.equal(JSON.stringify(created).includes(token), false)
   const refreshed = (await api('alpha', item + '/refresh', { method: 'POST', body: {} })).payload.connection
   const connection = (await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: true } })).payload.connection
+  const metadata = (await api('alpha', root + '/tools?agentId=' + agent.id)).payload
+  assert.ok(metadata.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
+  await api('alpha', root + '/tools', { actor: 'alpha-member', expected: 403 })
+  await api('alpha', root + '/tools', { actor: 'anonymous', expected: 401 })
+  await api('beta', root + '/tools', { expected: 404 })
+  const originalRole = (await db.prepare('SELECT role_id FROM users WHERE id=?').bind(memberId).first()).role_id
+  const personalRole = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Personal tools fixture', permissions: Permission.useExternalTools | Permission.sendMessages } })).payload.role
+  await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(personalRole.id,memberId).run()
+  try {
+    const personal = (await api('alpha', endpoint, { actor: 'alpha-member', method: 'POST', body: { ...value, name: 'Private connection fixture', ownership: 'member', grants: { agentIds: [agent.id], memberIds: [], roleIds: [] } } })).payload.connection
+    await api('alpha', endpoint + '/' + personal.id + '/refresh', { actor: 'alpha-member', method: 'POST', body: {} })
+    const privateAudit = (await api('alpha', root + '/tool-audit', { actor: 'alpha-member' })).payload
+    assert.ok(privateAudit.entries.some(entry => entry.connectionId === personal.id))
+    assert.ok(!(await api('alpha', root + '/tool-audit')).payload.entries.some(entry => entry.connectionId === personal.id))
+    assert.ok(!(await api('alpha', root + '/audit')).payload.entries.some(entry => entry.action.startsWith('tool.connection.')))
+    assert.ok(!(await api('alpha', root + '/agent-audit?view=changes&search=' + personal.id)).payload.entries.length)
+    await api('alpha', endpoint + '/' + personal.id, { actor: 'alpha-member', method: 'DELETE' })
+    assert.ok(!(await api('alpha', root + '/tool-audit')).payload.entries.some(entry => entry.connectionId === personal.id))
+  } finally { await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(originalRole,memberId).run() }
   const schema = refreshed.tools[0]
   assert.equal(schema.remoteName, 'search_cloudflare_documentation')
   const saved = await db.prepare('SELECT credential_json FROM mcp_outbound_connections WHERE id=?').bind(created.id).first()
@@ -60,6 +79,7 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
     await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: false } })
     await call(schema.name, { query: 'Durable Objects' }, 403, 'read-docs-once')
     await call(schema.name, { query: 'Durable Objects' }, 403)
+    assert.ok(!(await api('alpha', root + '/tools?agentId=' + agent.id)).payload.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
     assert.equal((await db.prepare("SELECT count(*) AS n FROM audit_log WHERE action='tool.connection.call' AND target_id=?").bind(created.id).first()).n, 1)
     console.log('PASS: outbound MCP HTTP CRUD, real SDK/SSE, encrypted credentials, lazy discovery, broker read/ledger and revocation')
   } finally {

@@ -125,6 +125,8 @@ const serverIconUrl = computed(() => {
   return serverUrl(`${publicIconPath}?v=${encodeURIComponent(server.updatedAt)}`)
 })
 const canOpenServerSettings = computed(() => [
+  Permission.useAgents,
+  Permission.useExternalTools,
   Permission.manageServer,
   Permission.manageAgents,
   Permission.manageChannels,

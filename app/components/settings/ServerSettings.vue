@@ -85,6 +85,7 @@ const serverNav = computed(() => [
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
 ])
 const featureNav = computed(() => [
+  ...(can(Permission.useAgents) || can(Permission.manageAgents) || can(Permission.useExternalTools) ? [{ id: 'tools' as const, label: 'Tools', icon: 'i-ph-wrench', keywords: ['mcp', 'connections', 'capabilities', 'permissions', 'approvals'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
   ...(isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-hard-drives', keywords: ['files', 'kv', 'r2', 'quota'] }] : []),
@@ -610,6 +611,10 @@ function roleLabel(name: string) {
           <UButton label="Save" :loading="permissionSaving" @click="saveChannelPermissions" />
         </div>
       </div></template></UModal>
+    </template>
+
+    <template v-else-if="section === 'tools'">
+      <SettingsToolsSettings :server-id="serverId" @roles="section = 'roles'" />
     </template>
 
     <template v-else-if="section === 'roles'">

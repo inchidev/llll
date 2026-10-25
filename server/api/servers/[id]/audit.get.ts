@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { auditLog, users } from '../../../../drizzle/schema'
 import { Permission } from '../../../../shared/permissions'
 import { requireMember } from '../../../utils/guards'
@@ -13,7 +13,8 @@ export default defineEventHandler(async (event) => {
   const rows = await db.select({
     log: auditLog,
     actorName: users.displayName,
-  }).from(auditLog).innerJoin(users, eq(users.id, auditLog.actorId)).orderBy(desc(auditLog.createdAt)).limit(100)
+  }).from(auditLog).innerJoin(users, eq(users.id, auditLog.actorId))
+    .where(sql`${auditLog.action} NOT GLOB 'tool.connection.*'`).orderBy(desc(auditLog.createdAt)).limit(100)
 
   return {
     entries: rows.map((r) => ({
