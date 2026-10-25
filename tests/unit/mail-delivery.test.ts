@@ -226,6 +226,19 @@ describe('inbound email', () => {
     expect(files.size).toBe(0)
   })
 
+  it('decodes many joined RFC2047 words while keeping the stored subject bounded', async () => {
+    const subject = '=?UTF-8?B?YQ==?= '.repeat(4000).trim()
+    expect(await receive(email({ id: '<encoded-words@example.net>', to: 'support@example.com', subject }), 'support@example.com')).toEqual({ accepted: true })
+    expect(sqlite.prepare('SELECT subject FROM email_threads').get()).toMatchObject({ subject: 'a'.repeat(500) })
+  })
+
+  it('rejects oversized parser headers permanently without storing any mail or files', async () => {
+    const raw = email({ id: '<header-limit@example.net>', to: 'support@example.com', subject: 'a'.repeat(2 * 1024 * 1024 + 1) })
+    expect(await receive(raw, 'support@example.com')).toEqual({ accepted: false, reason: 'Message could not be parsed or exceeds email parser limits' })
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM email_messages').get()).toMatchObject({ n: 0 })
+    expect(files.size).toBe(0)
+  })
+
   it('leaves out attachments over the limits and says so in the message', async () => {
     const attachments = [
       { name: 'huge.bin', bytes: MAIL_LIMITS.attachmentBytes + 1 },

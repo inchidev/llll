@@ -10,6 +10,7 @@ import { testMcpMessages } from './test-mcp-messages.mjs'
 import { testRoleManagement } from './test-role-management.mjs'
 import { testGadgetAuthorization } from './test-gadget-authorization.mjs'
 import { testInbox } from './test-inbox.mjs'
+import { testInboundMail } from './test-inbound-mail.mjs'
 import { testAgentBudget } from './test-agent-budget.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
@@ -159,6 +160,7 @@ try {
               LLLL_VERSION: '0.2.0-alpha.8',
               ...(basicStorage ? {} : { BACKUP_BUCKET_NAME: name + '-backups' }),
               AUTH_SECRET: (name + '-server-secret-').repeat(4),
+              INBOUND_EMAIL_SECRET: (name + '-inbound-secret-').repeat(4),
               APP_NAME: name,
               ADMIN_EMAIL: 'owner@example.com',
               SETUP_TOKEN: setup,
@@ -320,6 +322,7 @@ try {
     method: 'POST',
     body: {},
   })
+  await testInboundMail({ runtimes, origins, signingSecret: ('alpha-inbound-secret-').repeat(4) })
   await testAgentBudget({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   await testRoleManagement({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
