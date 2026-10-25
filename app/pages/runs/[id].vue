@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ToolSecurityStatus } from '~~/server/utils/agent-tool-security'
 import { useQuery } from '@tanstack/vue-query'
 import type { RunDelivery } from '~~/server/utils/agent-run-delivery'
 import { Permission } from '~~/shared/permissions'
@@ -36,7 +37,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -87,6 +88,14 @@ async function retryRun() {
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <section v-if="runQ.data.value?.security" class="space-y-3">
+        <h2 class="text-sm font-medium">Tool security</h2>
+        <UAlert color="neutral" title="Sensitive actions require review" :description="runQ.data.value.security.untrustedContext ? 'This conversation contains untrusted content. Tool writes are blocked, including across retries. Model-selected outbound calls are unavailable until exact human approvals are implemented.' : 'Model-selected outbound calls require exact human review and are currently unavailable. Reading Task, Data, repository or other tool content blocks subsequent writes in this conversation.'" />
+        <p class="text-xs text-muted">These are context-policy decisions; an allowed decision does not mean the operation completed.</p>
+        <ul v-if="runQ.data.value.security.decisions.length" class="space-y-1 text-xs text-muted">
+          <li v-for="(decision, index) in runQ.data.value.security.decisions.slice(-20)" :key="index" class="break-all">{{ decision.tool }} · {{ decision.effect }} · {{ decision.decision }}<span v-if="decision.untrustedContext"> · Untrusted context</span><span v-if="decision.decision === 'blocked'"> · Human review required</span></li>
+        </ul>
+      </section>
       <section v-if="runQ.data.value?.delivery" class="space-y-2">
         <h2 class="text-sm font-medium">Result delivery</h2>
         <p v-if="run.taskId" class="text-sm">Task result: {{ runQ.data.value.delivery.taskStatus }}</p>

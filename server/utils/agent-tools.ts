@@ -1,3 +1,4 @@
+import { guardRunTool, toolSecurityReason, untrustedContext } from './agent-tool-security'
 import { githubIssueSchema, githubPullSchema, readGithubRepository, readGithubIssue, readGithubPullRequest } from './agent-github-context'
 import { mcpRunTools, type ExternalToolAdapter } from './outbound-mcp'
 import { listAuthorizedTables } from './table-catalog'
@@ -123,12 +124,13 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   })
   validateToolCatalog(catalog)
   async function availableCatalog() {
+    const untrusted = run ? await untrustedContext(env, run) : true
     let searchAvailable = Boolean(env.EXA_API_KEY)
     if (!searchAvailable && run && catalog.some(tool => tool.name === 'search_web')) {
       try { await resolveAiFunction(env, 'web.search', run.initiatedBy); searchAvailable = true }
       catch { /* An unconfigured or revoked connection is not discoverable. */ }
     }
-    return catalog.filter(tool => tool.name !== 'search_web' || searchAvailable)
+    return catalog.filter(tool => !toolSecurityReason(tool.name, untrusted) && (tool.name !== 'search_web' || searchAvailable))
   }
   const discovery: RuntimeTool[] = [
     { name: 'search_tools', description: 'Find a small ranked set of currently permitted tools for your goal. Start here for research, Tasks, Data, documents or repository work. Results are metadata, not permission. If no suitable tool exists, report the missing capability; do not invent access.',
@@ -143,7 +145,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       if (name === 'search_tools') {
         const request = z.object({ query: z.string().trim().min(1).max(240), limit: z.number().int().min(1).max(8).default(5) }).strict().parse(input)
         const tools = searchToolCatalog(await availableCatalog(), request.query, request.limit)
-        return { tools, diagnostic: tools.length ? 'Load an exact tool with get_tool_details. Discovery does not grant access.' : 'No matching available tool. Report the missing capability or permission; do not invent a result.' }
+        return { tools, diagnostic: tools.length ? 'Load an exact tool with get_tool_details. Discovery does not grant access.' : 'No matching available tool. Sensitive writes and outbound calls require human review, which is currently unavailable. Report the missing capability; do not invent a result.' }
       }
       if (name === 'get_tool_details') {
         const request = z.object({ name: z.string().min(1).max(64), purpose: z.string().trim().min(1).max(240) }).strict().parse(input)
@@ -169,6 +171,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       const definition = definitions[name]
       if (!definition || !allowed.some(([key]) => key === name)) fail(403, 'tool_denied', 'Tool is not granted')
       if (definition.action) authorize(authorization, definition.action)
+      if (run) await guardRunTool(env, run, name)
       return definition.execute(input)
     },
   }
@@ -180,10 +183,15 @@ export async function toolsForRun(env: L4Env, authorization: AuthorizationContex
     if (!run) fail(403, 'run_unavailable', 'An active Run is required')
     return runAuthorization(env, run)
   })
-  return agentTools(env, authorization, schedule, run, signal, external)
+  const tools = agentTools(env, authorization, schedule, run, signal, external)
+  const visible = new Set((await tools.catalog()).map(tool => tool.name))
+  return { ...tools, descriptors: tools.descriptors.filter(tool => ['search_tools', 'get_tool_details'].includes(tool.name) || visible.has(tool.name)) }
 }
 
 export async function executeRunTool(env: L4Env, runId: string, authorization: AuthorizationContext, input: { callId: string; name: string; arguments: unknown }, schedule: (promise: Promise<unknown>) => void, signal?: AbortSignal) {
+  const currentRun = await findAgentRun(env, runId)
+  if (!currentRun || currentRun.status !== 'running') fail(403, 'run_revoked', 'Run is no longer active')
+  await runAuthorization(env, currentRun)
   const encoded = JSON.stringify(input.arguments)
   const policy = JSON.stringify({ principal: authorization.principal, delegation: authorization.delegation })
   const existing = await env.DB.prepare('SELECT name,arguments_json as argumentsJson,policy_json as policyJson,status,result_json as resultJson FROM agent_run_tools WHERE run_id=? AND call_id=?')
@@ -203,8 +211,10 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
       const tools = await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)
       if (!tools.descriptors.some(tool => tool.name === input.name)) fail(403, 'mcp_revoked', 'MCP result access was revoked')
     }
+    if (!/^(create|update|publish|execute|cancel)_/u.test(input.name)) await guardRunTool(env, currentRun, input.name, input.callId)
     return JSON.parse(existing.resultJson!)
   }
+  await guardRunTool(env, currentRun, input.name, input.callId)
   const admitted = await env.DB.prepare(`INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,created_at)
     SELECT ?,?,?,?,?,'pending',? WHERE (SELECT count(*) FROM agent_run_tools WHERE run_id=?) < 100
     AND EXISTS(SELECT 1 FROM agent_runs WHERE id=? AND status='running') RETURNING call_id`)

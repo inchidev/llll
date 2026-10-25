@@ -1,0 +1,56 @@
+import type { AgentRun } from '../../shared/agent-execution'
+import type { L4Env } from '../../workers/env'
+import { fail } from './cf'
+
+export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
+const controls = new Set(['get_current_time', 'search_tools', 'get_tool_details'])
+const reads = new Set(['list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
+const writes = new Set(['create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'create_document', 'update_document', 'create_reminder', 'cancel_schedule', 'publish_code_changes'])
+const external = new Set(['read_url', 'search_web', 'read_code_file', 'read_github_issue', 'read_github_pull_request'])
+/** Server-owned classification. Remote hints/descriptions and tool-name prefixes never grant authority. */
+export function toolEffect(name: string): ToolEffect {
+  if (controls.has(name)) return 'control'
+  if (reads.has(name)) return 'read'
+  if (writes.has(name)) return 'write'
+  if (external.has(name) || name.startsWith('mcp_')) return 'external'
+  return 'unknown'
+}
+export type ToolSecurityStatus = { untrustedContext: boolean; outboundReviewAvailable: false; decisions: Array<{ tool: string; effect: ToolEffect; untrustedContext: boolean; decision: 'allowed' | 'blocked'; reason: string; createdAt: string }> }
+
+/** Context belongs to the Session, including restored transcripts, failed reads, retries and other Runs. */
+export async function untrustedContext(env: L4Env, run: AgentRun): Promise<boolean> {
+  await env.DB.prepare(`UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=? AND
+    (transcript_key IS NOT NULL OR EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
+    OR EXISTS(SELECT 1 FROM messages WHERE id=? AND author_id<>?))`)
+    .bind(new Date().toISOString(), run.sessionId, run.sessionId, run.sourceMessageId, run.initiatedBy).run()
+  const session = await env.DB.prepare('SELECT untrusted_at AS untrustedAt FROM agent_sessions WHERE id=?').bind(run.sessionId).first<{ untrustedAt: string | null }>()
+  return !session || Boolean(session.untrustedAt)
+}
+export async function markUntrustedContext(env: L4Env, run: AgentRun) {
+  await env.DB.prepare('UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=?').bind(new Date().toISOString(), run.sessionId).run()
+}
+export function toolSecurityReason(name: string, untrusted: boolean): string | null {
+  const effect = toolEffect(name)
+  if (effect === 'unknown') return 'unclassified_tool'
+  if (effect === 'external') return 'exact_outbound_review_unavailable'
+  if (effect === 'write' && untrusted) return 'untrusted_context_requires_review'
+  return null
+}
+export async function guardRunTool(env: L4Env, run: AgentRun, name: string, callId?: string) {
+  const effect = toolEffect(name)
+  const untrusted = await untrustedContext(env, run)
+  const reason = toolSecurityReason(name, untrusted)
+  // Mark before starting any read: concurrent calls, failed reads and process death cannot clear taint.
+  if (!reason && effect === 'read') await markUntrustedContext(env, run)
+  if (callId) await env.DB.prepare(`INSERT INTO agent_tool_decisions(run_id,call_id,tool,effect,untrusted_context,decision,reason,created_at)
+    SELECT ?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_tool_decisions WHERE run_id=?)<100
+    ON CONFLICT(run_id,call_id) DO NOTHING`)
+    .bind(run.id, callId, effect === 'external' ? 'external_tool' : effect === 'unknown' ? 'unknown_tool' : name, effect, untrusted ? 1 : 0, reason ? 'blocked' : 'allowed', reason ?? 'context_guard_passed', new Date().toISOString(), run.id).run()
+  if (reason) fail(403, 'tool_review_required', 'This operation requires exact human review. Sensitive-action approvals are unavailable; no effect was executed.')
+}
+export async function runToolSecurity(env: L4Env, run: AgentRun): Promise<ToolSecurityStatus> {
+  const untrusted = await untrustedContext(env, run)
+  const decisions = await env.DB.prepare('SELECT tool,effect,untrusted_context AS untrustedContext,decision,reason,created_at AS createdAt FROM agent_tool_decisions WHERE run_id=? ORDER BY created_at LIMIT 100')
+    .bind(run.id).all<Omit<ToolSecurityStatus['decisions'][number], 'untrustedContext'> & { untrustedContext: number }>()
+  return { untrustedContext: untrusted, outboundReviewAvailable: false, decisions: decisions.results.map(decision => ({ ...decision, untrustedContext: Boolean(decision.untrustedContext) })) }
+}

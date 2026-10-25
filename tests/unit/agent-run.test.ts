@@ -119,7 +119,7 @@ describe('Pi run authorization', () => {
     expect((await call('forged-direct', 'list_tasks', {})).status).toBe(403)
   })
 
-  it('changes discovery on connection configuration and revocation without exposing provider credentials', async () => {
+  it('keeps outbound discovery blocked across connection changes without exposing credentials', async () => {
     db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.browseWeb} WHERE id='agent-role'`)
     const run = await createAgentRun(env, (await start())!, input())
     const discover = async () => agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_tools', { query: 'research' })
@@ -132,14 +132,14 @@ describe('Pi run authorization', () => {
     const replayCall = { callId: 'discovery-replay', name: 'search_tools', arguments: { query: 'research' } }
     await executeRunTool(env, run.id, authorization, replayCall, () => {})
     const available = await discover()
-    expect(available).toMatchObject({ tools: [{ name: 'search_web' }] })
+    expect(available).toMatchObject({ tools: [] })
     expect(JSON.stringify(available)).not.toContain(connection.apiKey)
     await saveAgentProvider(env, 'research', { ...connection, enabled: false })
-    await expect(executeRunTool(env, run.id, authorization, replayCall, () => {})).rejects.toMatchObject({ statusCode: 409 })
+    await expect(executeRunTool(env, run.id, authorization, replayCall, () => {})).resolves.toMatchObject({ tools: [] })
     expect(await discover()).toMatchObject({ tools: [] })
     const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
     await expect(tools.call('get_tool_details', { name: 'search_web', purpose: 'Research' })).rejects.toMatchObject({ statusCode: 403 })
-    await expect(tools.call('search_web', { query: 'Research' })).rejects.toMatchObject({ statusCode: 409 })
+    await expect(tools.call('search_web', { query: 'Research' })).rejects.toMatchObject({ statusCode: 403 })
   })
 
   it('bounds cumulative selected schemas through the existing Run ledger', async () => {
@@ -189,7 +189,7 @@ describe('Pi run authorization', () => {
     const child = (await findAgentRun(env, result.runId))!
     expect(JSON.parse(child.mandateJson)).toMatchObject({ depth: 1, computer: false, agentResourceAccess: { boards: ['board-allowed'] } })
     const exhausted = { ...child, mandateJson: JSON.stringify({ ...JSON.parse(child.mandateJson), depth: 2 }) }
-    await expect(agentTools(env, await runAuthorization(env, exhausted), () => {}, exhausted).call('execute_task', { taskId: 'child-task' })).rejects.toMatchObject({ statusCode: 409 })
+    await expect(agentTools(env, await runAuthorization(env, exhausted), () => {}, exhausted).call('execute_task', { taskId: 'child-task' })).rejects.toMatchObject({ statusCode: 403 })
   })
   it('routes system instructions and tool results through the real AI SDK adapter', async () => {
     const requests: Array<{ messages: Array<{ role: string; content: string }> }> = []
@@ -249,7 +249,7 @@ it('streams provider text before generation completes instead of buffering the r
   } finally { vi.unstubAllGlobals() }
 })
 
-it('keeps web search role-gated and accounts its bounded OpenRouter call in the Run budget', async () => {
+it('blocks model-selected search while retaining the bounded provider adapter', async () => {
   const { saveAgentProvider } = await import('../../server/utils/agent-providers')
   await saveAgentProvider(env, 'openrouter', { enabled: true, webSearch: true, apiKey: 'search-key', models: [{ id: 'not-selected', api: 'chat' }, { id: 'fixture', api: 'chat' }] })
   const { writeServerSetting } = await import('../../shared/server-settings')
@@ -265,11 +265,14 @@ it('keeps web search role-gated and accounts its bounded OpenRouter call in the 
   })
   vi.stubGlobal('fetch', network)
   try {
-    const result = await agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'Official documentation' })
+    await expect(agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'Official documentation' })).rejects.toMatchObject({ statusCode: 403 })
+    expect(network).not.toHaveBeenCalled()
+    const { searchRunWeb } = await import('../../server/utils/agent-search')
+    const result = await searchRunWeb(env, run, 'Official documentation')
     expect(result).toMatchObject({ sources: [{ url: 'https://example.com/source' }] })
     expect((await findAgentRun(env, run.id))?.totalTokens).toBe(42)
     db.prepare('UPDATE agent_runs SET model_calls=20 WHERE id=?').run(run.id)
-    await expect(agentTools(env, await runAuthorization(env, run), () => {}, run).call('search_web', { query: 'One more' })).rejects.toMatchObject({ statusCode: 400 })
+    await expect(searchRunWeb(env, (await findAgentRun(env, run.id))!, 'One more')).rejects.toMatchObject({ statusCode: 400 })
     expect(network).toHaveBeenCalledTimes(1)
   } finally { vi.unstubAllGlobals() }
 })

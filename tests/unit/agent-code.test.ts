@@ -311,7 +311,7 @@ describe('Task-scoped GitHub context reads', () => {
   it('revokes the Run and rejects calls through cached tool definitions after permission reduction', async () => {
     const current = await runAuthorization(env, run)
     const tools = agentTools(env, current, () => {}, run)
-    expect((await tools.call('search_tools', { query: 'github issue comments' }) as { tools: Array<{ name: string }> }).tools.some(tool => tool.name === 'read_github_issue')).toBe(true)
+    expect((await tools.call('search_tools', { query: 'github repository' }) as { tools: Array<{ name: string }> }).tools.some(tool => tool.name === 'read_github_repository')).toBe(true)
     db.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='agent-role'").run(permissions & ~Permission.useComputer)
     const before = minted.length
     await expect(readGithubIssue(env, run.id, { number: 42 })).rejects.toMatchObject({ statusCode: 403 })

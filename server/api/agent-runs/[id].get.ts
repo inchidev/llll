@@ -1,3 +1,4 @@
+import { runToolSecurity } from '../../utils/agent-tool-security'
 import { runDelivery } from '../../utils/agent-run-delivery'
 import { requireRunFiles } from '../../utils/agent-files'
 import { Permission, hasPermission } from '../../../shared/permissions'
@@ -16,5 +17,5 @@ export default defineEventHandler(async (event) => {
   const { instructions: _instructions, mandateJson: _mandate, environmentJson: _environment, filesKey: _files, ...visible } = run
   const events = await env.DB.prepare('SELECT sequence,event_json as event,created_at as createdAt FROM agent_run_events WHERE run_id=? ORDER BY sequence LIMIT 200').bind(run.id).all<{ sequence: number; event: string; createdAt: string }>()
   const modelCalls = await env.DB.prepare('SELECT call_number AS callNumber,model,status,started_at AS startedAt,completed_at AS completedAt,total_tokens AS totalTokens,error FROM agent_model_calls WHERE run_id=? ORDER BY call_number LIMIT 100').bind(run.id).all()
-  return { delivery: await runDelivery(env, run.id), canRetry: actor.user.id === run.initiatedBy, modelCalls: modelCalls.results, events: events.results.map(row => ({ ...row, event: JSON.parse(row.event) })), run: { ...visible, hasFiles: Boolean(run.filesKey) }, canCancel: actor.user.id === run.initiatedBy || actor.isOwner || hasPermission(actor.perms, Permission.manageAgents) }
+  return { security: await runToolSecurity(env, run), delivery: await runDelivery(env, run.id), canRetry: actor.user.id === run.initiatedBy, modelCalls: modelCalls.results, events: events.results.map(row => ({ ...row, event: JSON.parse(row.event) })), run: { ...visible, hasFiles: Boolean(run.filesKey) }, canCancel: actor.user.id === run.initiatedBy || actor.isOwner || hasPermission(actor.perms, Permission.manageAgents) }
 })

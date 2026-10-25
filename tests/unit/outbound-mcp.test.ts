@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ids, mcpFixture, remoteMcp, grant } from '../helpers/outbound-mcp'
-import { mcpConnections, saveMcpConnection, refreshMcpConnection, admitMcpConnections } from '../../server/utils/outbound-mcp'
+import { mcpConnections, saveMcpConnection, refreshMcpConnection, admitMcpConnections, mcpRunTools } from '../../server/utils/outbound-mcp'
 import { toolsForRun, executeRunTool } from '../../server/utils/agent-tools'
+import { runAuthorization } from '../../server/utils/agent-run-service'
 import { Permission, rolePermissions } from '../../shared/permissions'
 
 let f: ReturnType<typeof mcpFixture>, remote: ReturnType<typeof remoteMcp>
@@ -9,8 +10,10 @@ beforeEach(() => { f = mcpFixture(); remote = remoteMcp() })
 afterEach(() => { f.db.close(); vi.unstubAllGlobals() })
 const toolCall = async (connection?: string) => {
   const context = await f.run(ids.owner, connection ? [connection] : undefined)
-  const tools = await toolsForRun(f.env, context.authorization, () => {}, context.run)
-  const tool = tools.descriptors.find(tool => tool.name.startsWith('mcp_'))!
+  // Exercise the transport adapter independently; production invocation must pass the separate context/egress guard.
+  const adapters = await mcpRunTools(f.env, context.authorization, context.run, undefined, async () => runAuthorization(f.env, context.run))
+  const tools = { descriptors: adapters.map(adapter => adapter.tool), async call(name: string, args: unknown) { return adapters.find(adapter => adapter.tool.name === name)!.execute(args) } }
+  const tool = tools.descriptors[0]!
   return { ...context, tools, tool }
 }
 
@@ -28,17 +31,15 @@ it('encrypts credentials with Server/connection scope and excludes them from DTO
   expect(JSON.stringify(c.tools.descriptors)).not.toMatch(/synthetic-secret|ciphertext|Ignore all policies/)
   expect(c.tool.name.length).toBeLessThanOrEqual(64)
 })
-it('discovers and invokes a scoped non-GitHub read through the existing Run ledger and safe audit', async () => {
+it('keeps the scoped read adapter tested while production discovery and execution require review', async () => {
   const connection = await f.connect()
   const c = await toolCall(connection.id)
-  const found = await c.tools.call('search_tools', { query: 'Cloudflare documentation' }) as { tools: Array<{ name: string }> }
-  expect(found.tools.some(tool => tool.name === c.tool.name)).toBe(true)
-  const details = await c.tools.call('get_tool_details', { name: c.tool.name, purpose: 'Read documentation' }) as { tool: { provenance: { connectionId: string } } }
-  expect(details.tool.provenance.connectionId).toBe(connection.id)
+  expect(c.tool.provenance?.connectionId).toBe(connection.id)
   const call = { callId: 'read-once', name: c.tool.name, arguments: { query: 'Workers' } }
-  const result = await executeRunTool(f.env, c.run.id, c.authorization, call, () => {})
+  await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).rejects.toMatchObject({ statusCode: 403 })
+  expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(0)
+  const result = await c.tools.call(c.tool.name, call.arguments)
   expect(result).toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation', content: [{ type: 'text', text: expect.stringContaining('Verified source') }] })
-  await executeRunTool(f.env, c.run.id, c.authorization, call, () => {})
   expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(1)
   expect(JSON.stringify(f.db.prepare("SELECT meta_json FROM audit_log WHERE action='tool.connection.call'").all())).toContain(c.run.id)
 })
@@ -79,7 +80,8 @@ it('requires the dedicated Role grant and refuses forged external calls', async 
 it('blocks disabled connections, cached result replay and later re-enabling within an old Run', async () => {
   const connection = await f.connect(), c = await toolCall()
   const call = { callId: 'cached', name: c.tool.name, arguments: { query: 'Workers' } }
-  await executeRunTool(f.env, c.run.id, c.authorization, call, () => {})
+  const result = await c.tools.call(c.tool.name, call.arguments)
+  f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,?,?,?,'completed',?,?)").run(c.run.id, call.callId, call.name, JSON.stringify(call.arguments), JSON.stringify({ principal: c.authorization.principal, delegation: c.authorization.delegation }), JSON.stringify(result), new Date().toISOString())
   await saveMcpConnection(f.env, await f.actor(), f.input({ enabled: false }), connection.id)
   await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).rejects.toMatchObject({ statusCode: 403 })
   await saveMcpConnection(f.env, await f.actor(), f.input({ enabled: true }), connection.id)
@@ -133,10 +135,10 @@ it('disables credentials rejected by the remote server without following OAuth m
 })
 it('isolates two connections with identical remote JSON-RPC IDs and tool names', async () => {
   const a = await f.connect(f.input({ name: 'First', credential: 'synthetic-first-token' })), b = await f.connect(f.input({ name: 'Second', credential: 'synthetic-second-token' }))
-  const c = await f.run(), tools = await toolsForRun(f.env, c.authorization, () => {}, c.run)
-  const external = tools.descriptors.filter(tool => tool.name.startsWith('mcp_'))
+  const c = await f.run(), adapters = await mcpRunTools(f.env, c.authorization, c.run, undefined, async () => runAuthorization(f.env, c.run))
+  const external = adapters.map(adapter => adapter.tool)
   expect(new Set(external.map(t => t.name)).size).toBe(2)
-  const results = await Promise.all(external.map(t => tools.call(t.name, { query: 'Workers' })))
+  const results = await Promise.all(external.map(t => adapters.find(adapter => adapter.tool.name === t.name)!.execute({ query: 'Workers' })))
   expect(results.map(result => (result as { connection: { id: string } }).connection.id).sort()).toEqual([a.id, b.id].sort())
   const calls = remote.calls.filter(c => c.method === 'tools/call')
   expect(calls).toHaveLength(2)
@@ -175,14 +177,15 @@ it('cannot reuse another Server identity to list or modify a connection', async 
 it('supports explicit Role grants for both sides of a delegated Run', async () => {
   await f.connect(f.input({ grants: { agentIds: [], memberIds: [], roleIds: [ids.agentRole, ids.memberRole] } }))
   const member = await f.run(ids.member)
-  expect((await toolsForRun(f.env, member.authorization, () => {}, member.run)).descriptors.some(t => t.name.startsWith('mcp_'))).toBe(true)
+  expect(await mcpRunTools(f.env, member.authorization, member.run)).toHaveLength(1)
+  expect((await toolsForRun(f.env, member.authorization, () => {}, member.run)).descriptors.some(t => t.name.startsWith('mcp_'))).toBe(false)
 })
 it('completes an attributed read when the provider duplicates large text in structured content', async () => {
   const connection = await f.connect()
   const c = await toolCall(connection.id)
   const text = 'Verified source: https://developers.cloudflare.com/workers/\n' + 'e'.repeat(34000)
   remote.state.resultText = text; remote.state.structuredContent = { answer: text }
-  const result = await executeRunTool(f.env, c.run.id, c.authorization, { callId: 'large-docs', name: c.tool.name, arguments: { query: 'SQLite' } }, () => {})
+  const result = await c.tools.call(c.tool.name, { query: 'SQLite' })
   expect(result).toMatchObject({ connection: { id: connection.id }, content: [{ text }], truncated: true, structuredContentOmitted: true })
   expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(64000)
   expect(JSON.stringify(f.db.prepare("SELECT meta_json FROM audit_log WHERE action='tool.connection.call'").all())).toContain('completed')

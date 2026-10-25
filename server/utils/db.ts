@@ -19,6 +19,7 @@ import mailDeliverySql from '../../drizzle/server-migrations/0015_mail_delivery.
 import mailFileCleanupSql from '../../drizzle/server-migrations/0016_file_cleanup.sql?raw'
 import agentTaskEditsSql from '../../drizzle/server-migrations/0017_agent_task_edits.sql?raw'
 import outboundMcpSql from '../../drizzle/server-migrations/0018_outbound_mcp.sql?raw'
+import agentToolSecuritySql from '../../drizzle/server-migrations/0019_agent_tool_security.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -61,6 +62,7 @@ export const INIT_SQL = d1ExecSql([
   mailFileCleanupSql,
   agentTaskEditsSql,
   outboundMcpSql,
+  agentToolSecuritySql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

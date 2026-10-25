@@ -696,6 +696,8 @@ try {
   )
   assert.deepEqual(restored.prepare('PRAGMA foreign_key_check').all(), [])
   assert.equal(restored.prepare('SELECT credential_json FROM mcp_outbound_connections WHERE id=?').get(outboundMcp.connectionId).credential_json, outboundMcp.credentialJson)
+  assert.ok(restored.prepare('SELECT s.untrusted_at FROM agent_sessions s JOIN agent_runs r ON r.session_id=s.id WHERE r.id=?').get(outboundMcp.runId).untrusted_at)
+  assert.ok(restored.prepare('SELECT count(*) AS n FROM agent_tool_decisions WHERE run_id=?').get(outboundMcp.runId).n > 0)
   restored.close()
   console.log(
     'PASS: independent UUIDs, owner/member/invite/message, session isolation, HTTP denial, WebSocket isolation/revocation, PKCE replay denial, separate files and UUID-preserving backup restore',

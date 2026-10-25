@@ -18,7 +18,7 @@ export async function outboundMcpFixture(request) {
 export async function testOutboundMcp({ api, runtimes, ids, signingSecret, channelId, memberId }) {
   const root = `/api/servers/${ids.alpha}`, endpoint = root + '/tool-connections'
   const db = await runtimes.alpha.getD1Database('DB')
-  const permissions = Permission.sendMessages | Permission.useExternalTools
+  const permissions = Permission.sendMessages | Permission.useExternalTools | Permission.readTasks | Permission.writeTasks
   const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'External docs fixture', permissions } })).payload.role
   const agent = (await api('alpha', root + '/agents', { method: 'POST', body: { displayName: 'External docs fixture', roleId: role.id } })).payload.agent
   const owner = (await db.prepare('SELECT owner_id FROM server').first()).owner_id
@@ -35,7 +35,8 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
   const refreshed = (await api('alpha', item + '/refresh', { method: 'POST', body: {} })).payload.connection
   const connection = (await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: true } })).payload.connection
   const metadata = (await api('alpha', root + '/tools?agentId=' + agent.id)).payload
-  assert.ok(metadata.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
+  assert.ok(!metadata.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
+  assert.equal(metadata.capabilities.find(capability => capability.name === 'Read-only MCP').available, false)
   await api('alpha', root + '/tools', { actor: 'alpha-member', expected: 403 })
   await api('alpha', root + '/tools', { actor: 'anonymous', expected: 401 })
   await api('beta', root + '/tools', { expected: 404 })
@@ -67,25 +68,28 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
   const call = (name, args, expected = 200, callId = `external-${++count}`) => api('alpha', `/api/agent-runs/${runId}/gateway/tools`, { actor: 'anonymous', method: 'POST', headers: { Authorization: `Bearer ${capability}` }, body: { callId, name, arguments: args }, expected })
   try {
     const search = (await call('search_tools', { query: 'documentation' })).payload
-    assert.ok(search.tools.some(tool => tool.name === schema.name))
+    assert.ok(!search.tools.some(tool => tool.name === schema.name))
     assert.equal(JSON.stringify(search).includes(token), false)
-    const detail = (await call('get_tool_details', { name: schema.name, purpose: 'Cite public documentation' })).payload
-    assert.equal(detail.tool.provenance.connectionId, created.id)
-    const result = (await call(schema.name, { query: 'Durable Objects' }, 200, 'read-docs-once')).payload
-    assert.ok(JSON.stringify(result).includes('Documentation evidence'))
-    assert.equal(JSON.stringify(result).includes(token), false)
-    assert.deepEqual((await call(schema.name, { query: 'Durable Objects' }, 200, 'read-docs-once')).payload, result)
+    await call('get_tool_details', { name: schema.name, purpose: 'Cite public documentation' }, 403)
+    await call(schema.name, { query: 'private-exfiltration-sentinel' }, 403, 'read-docs-once')
+    await call('list_tasks', {})
+    await call('create_task', { boardId: 'forged-board', title: 'Injected write' }, 403)
+    const security = (await api('alpha', `/api/agent-runs/${runId}`)).payload.security
+    assert.equal(security.untrustedContext, true)
+    assert.ok(security.decisions.some(decision => decision.effect === 'external' && decision.decision === 'blocked'))
+    assert.ok(security.decisions.some(decision => decision.tool === 'create_task' && decision.decision === 'blocked'))
+    assert.equal(JSON.stringify(security).includes('private-exfiltration-sentinel'), false)
     await api('alpha', endpoint, { method: 'POST', headers: { Authorization: `Bearer ${capability}` }, actor: 'anonymous', body: value, expected: 401 })
     await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: false } })
     await call(schema.name, { query: 'Durable Objects' }, 403, 'read-docs-once')
     await call(schema.name, { query: 'Durable Objects' }, 403)
     assert.ok(!(await api('alpha', root + '/tools?agentId=' + agent.id)).payload.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
-    assert.equal((await db.prepare("SELECT count(*) AS n FROM audit_log WHERE action='tool.connection.call' AND target_id=?").bind(created.id).first()).n, 1)
-    console.log('PASS: outbound MCP HTTP CRUD, real SDK/SSE, encrypted credentials, lazy discovery, broker read/ledger and revocation')
+    assert.equal((await db.prepare("SELECT count(*) AS n FROM audit_log WHERE action='tool.connection.call' AND target_id=?").bind(created.id).first()).n, 0)
+    console.log('PASS: outbound MCP HTTP CRUD, real SDK/SSE health, encrypted credentials, blocked model egress, tainted-context write denial, scoped audit and revocation')
   } finally {
     await db.prepare("UPDATE agent_runs SET status='failed' WHERE id=?").bind(runId).run()
     await db.prepare("UPDATE agents SET status='paused' WHERE user_id=?").bind(agent.id).run()
   }
   // Leave one disabled connection for the full backup/restore assertion.
-  return { connectionId: created.id, credentialJson: saved.credential_json, memberId }
+  return { runId, connectionId: created.id, credentialJson: saved.credential_json, memberId }
 }

@@ -1,9 +1,10 @@
+import { toolSecurityReason } from './agent-tool-security'
 import { getServerId } from '../../shared/server-id'
 import { hasPermission, Permission } from '../../shared/permissions'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { ToolsSettingsDTO, ToolAuditPage, ToolAuditEntry } from '../../shared/agent-tools-settings'
 import { resourceAccessAllows } from '../../shared/resource-access'
-import { agentBrowserConfigured, type L4Env } from '../../workers/env'
+import { type L4Env } from '../../workers/env'
 import { agentTools } from './agent-tools'
 import { loadAuthorizationContext } from './authorization'
 import { mcpToolExposure } from './outbound-mcp'
@@ -22,10 +23,10 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
   const result: ToolsSettingsDTO = { agents: agents.results, members, roles, mayConnect: granted(actor, Permission.useExternalTools), mayManageServer: actor.principal.isOwner, mayPreview: granted(actor, Permission.useAgents), mayAudit: granted(actor, Permission.useExternalTools),
     capabilities: [
       { name: 'Built-in Server tools', available: true, detail: 'Tasks, Data, documents and time. Current Agent and initiating Member Roles/resources govern every call.' },
-      { name: 'Read-only MCP', available: granted(actor, Permission.useExternalTools), detail: 'Reviewed public providers only. Both parties need Use external tools and an explicit connection grant. New Runs snapshot connection revisions.' },
-      { name: 'Public page reading', available: agentBrowserConfigured(env), detail: 'Requires configured Browser access and Browse web for both parties. Search additionally needs a configured search source; Run admission checks its current availability.' },
+      { name: 'Read-only MCP', available: false, detail: 'Connections can be configured, but Agent calls require exact outbound review. Calls are unavailable until sensitive-action approvals are implemented.' },
+      { name: 'Public page reading', available: false, detail: 'Model-selected URLs and search queries require exact outbound review. Calls are unavailable until sensitive-action approvals are implemented.' },
       { name: 'Computer execution', available: Boolean(env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)), detail: 'Requires a Task and Use computer for both parties. Repository access and Run limits apply.' },
-      { name: 'Repository proposals', available: Boolean(env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY), detail: 'Requires a configured repository environment, dedicated GitHub App, Use computer and Propose code changes. Draft PRs only.' },
+      { name: 'Repository proposals', available: false, detail: 'Repository content is untrusted. Publishing after reading it requires human review; approvals are currently unavailable.' },
       { name: 'External writes and approvals', available: false, detail: 'Unavailable until the approval policy is implemented. No approval or external write authority is granted here.' },
     ] }
   if (agentId) {
@@ -36,9 +37,9 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
     if (!auth) fail(404, 'not_found', 'Agent not found')
     const builtins = await agentTools(env, auth, () => {}).catalog()
     const external = await mcpToolExposure(env, auth)
-    result.preview = { agentId, tools: [...builtins, ...external], diagnostics: [
+    result.preview = { agentId, tools: [...builtins, ...external].filter(tool => !toolSecurityReason(tool.name, true)), diagnostics: [
       'Preview uses current Agent and your Role/resource grants. A Task, conversation, Run mandate and current connection revision can narrow access further.',
-      'Only shared, enabled, unexpired MCP connections are shown. Missing grants or unavailable connections do not disclose their identities.',
+      'Outbound calls and writes after untrusted input are hidden until exact human review is available. Missing grants do not disclose restricted connection identities.',
       'Task execution, schedules and repository/computer tools additionally require a suitable active Run.',
       ...[{flag:Permission.readTasks,label:'Read tasks'},{flag:Permission.writeTasks,label:'Write tasks'},{flag:Permission.readData,label:'Read Data'},{flag:Permission.browseWeb,label:'Browse web'},{flag:Permission.useComputer,label:'Use computer'}].flatMap(({flag,label}) => {
         const missing = [!hasPermission(auth.principal.permissions,flag) ? 'Agent Role' : '', !granted(actor,flag) ? 'your Role' : ''].filter(Boolean)
