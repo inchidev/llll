@@ -55,6 +55,15 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   assert.ok(discovery.some(x => x.id === chat.id && x.canSend === false))
   assert.ok(!discovery.some(x => x.id === hidden.id))
   assert.ok(!(await tool(token, 'list_members')).value.members.some(x => x.kind === 'agent'))
+  // Same JSON-RPC request ID on concurrent clients must never mix principals or responses.
+  const simultaneous = await Promise.all(Array.from({ length: 6 }, async () => {
+    const [memberView, ownerView] = await Promise.all([tool(token, 'list_channels'), tool(ownerToken, 'list_channels')])
+    assert.ok(!memberView.value.channels.some(channel => channel.id === hidden.id))
+    assert.ok(ownerView.value.channels.some(channel => channel.id === hidden.id))
+    return true
+  }))
+  assert.equal(simultaneous.length, 6)
+
   assert.ok((await tool(ownerToken, 'list_members', { kind: 'agent' })).value.members.some(x => x.id === agentId && x.mentionToken === `<@${agentId}>`))
   for (const name of ['list_messages', 'send_message']) {
     assert.equal((await tool(token, name, { channelId: hidden.id, content: 'Denied' })).error, true)
@@ -109,5 +118,5 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   await api('alpha', root + '/roles/' + role.id, { method: 'PATCH', body: { permissions: 16 } })
   assert.equal((await tool(token, 'list_messages', { channelId: chat.id })).status, 401)
   await api('alpha', root + '/members/' + memberId, { method: 'PATCH', body: { roleId: originalRole.role_id } })
-  console.log('PASS: MCP chat-only OAuth, interface permission parity, private discovery/history, channel overrides, DM/thread access, mentions, persisted user authorship/audit, scope separation and live grant removal')
+  console.log('PASS: concurrent MCP client isolation (same JSON-RPC IDs), MCP chat-only OAuth, interface permission parity, private discovery/history, channel overrides, DM/thread access, mentions, persisted user authorship/audit, scope separation and live grant removal')
 }
