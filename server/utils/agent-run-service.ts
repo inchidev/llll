@@ -1,3 +1,4 @@
+import { admitMcpConnections } from './outbound-mcp'
 import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
 import { agentConversationModel } from './agent-conversation-model'
 import { newId, nowIso } from '../../shared/ids'
@@ -77,6 +78,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   const pairDm = await env.DB.prepare("SELECT id FROM channels WHERE id=? AND type='dm' AND (SELECT count(*) FROM channel_members WHERE channel_id=channels.id)=2").bind(input.channelId).first()
   if (pairDm) fail(400, 'thread_required', 'Send a message to the agent to start a reply thread')
   const sameRequest = (run: AgentRun) => {
+    if (input.toolConnectionIds && JSON.stringify([...input.toolConnectionIds].sort()) !== JSON.stringify(((JSON.parse(run.mandateJson) as RunMandate).toolConnections ?? []).map(cap => cap.id).sort())) fail(409, 'call_conflict', 'Run connection selection changed')
     if (run.channelId !== input.channelId || run.prompt !== input.prompt || run.taskId !== (input.taskId ?? null)
       || run.sourceMessageId !== (input.sourceMessageId ?? null)
       || (input.environmentId && JSON.parse(run.environmentJson ?? '{}').id !== input.environmentId)) fail(409, 'run_conflict', 'Request key was already used for different work')
@@ -161,6 +163,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   // Admission checks source conversation access before creating an executable record.
   const pending = { id, agentId: input.agentId, channelId: input.channelId, initiatedBy: actor.principal.id, mandateJson: JSON.stringify(mandate) }
   const execution = await runAuthorization(env, pending)
+  mandate.toolConnections = await admitMcpConnections(env, execution, input.toolConnectionIds, ceiling ? ceiling.toolConnections ?? [] : undefined)
   let environment: RunEnvironment | null = null
   if (ceiling && environmentId !== (ceiling.environmentId ?? null)) fail(403, 'code_denied', 'Subtasks and scheduled work cannot change repository environments')
   if (environmentId) {

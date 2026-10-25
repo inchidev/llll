@@ -14,6 +14,7 @@ import { testInbox } from './test-inbox.mjs'
 import { testInboundMail } from './test-inbound-mail.mjs'
 import { testAgentBudget } from './test-agent-budget.mjs'
 import { testAgentToolDiscovery } from './test-agent-tool-discovery.mjs'
+import { outboundMcpFixture, testOutboundMcp } from './test-outbound-mcp.mjs'
 const root = resolve(import.meta.dirname, '..')
 const port = Number(process.env.LLLL_TEST_PORT || 18984)
 const basicStorage = process.argv.includes('--basic')
@@ -147,6 +148,8 @@ try {
             ),
             serviceBindings: { ASSETS: assets },
             outboundService: async request => {
+              const mcp = await outboundMcpFixture(request)
+              if (mcp) return mcp
               const url = new URL(request.url)
               if (url.hostname === 'api.github.com' && url.pathname === '/repos/inchidev/llll/releases') return Response.json([{
                 tag_name: 'v0.3.0', published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.3.0',
@@ -327,6 +330,7 @@ try {
   await testInboundMail({ runtimes, origins, signingSecret: ('alpha-inbound-secret-').repeat(4) })
   await testAgentBudget({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   await testAgentToolDiscovery({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
+  const outboundMcp = await testOutboundMcp({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id, memberId })
   await testRoleManagement({ api, runtimes, ids, memberId })
   await testAgentRoles({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
@@ -691,6 +695,7 @@ try {
     ids.alpha,
   )
   assert.deepEqual(restored.prepare('PRAGMA foreign_key_check').all(), [])
+  assert.equal(restored.prepare('SELECT credential_json FROM mcp_outbound_connections WHERE id=?').get(outboundMcp.connectionId).credential_json, outboundMcp.credentialJson)
   restored.close()
   console.log(
     'PASS: independent UUIDs, owner/member/invite/message, session isolation, HTTP denial, WebSocket isolation/revocation, PKCE replay denial, separate files and UUID-preserving backup restore',

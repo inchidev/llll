@@ -9,7 +9,7 @@ export type ToolGuidance = {
   cost: 'local' | 'network' | 'inference'
   trust: string
 }
-export type DiscoverableTool = RuntimeTool & { guidance: ToolGuidance }
+export type DiscoverableTool = RuntimeTool & { guidance: ToolGuidance; provenance?: { connectionId: string; connectionName: string; providerId: string; remoteName: string; schemaHash: string; revision: number } }
 
 /** Search only a caller-filtered catalog. Descriptions are data, never policy. */
 export function searchToolCatalog(catalog: DiscoverableTool[], query: string, limit = 5) {

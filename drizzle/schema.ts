@@ -1096,7 +1096,20 @@ export const taskAttachments = sqliteTable('task_attachments', {
   check('task_attachments_size_check', sql`${table.sizeBytes} > 0`),
 ])
 
+export const mcpOutboundConnections = sqliteTable('mcp_outbound_connections', {
+  id: text('id').primaryKey(),
+  serverId: text('server_id').notNull().references(() => server.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), providerId: text('provider_id').notNull(),
+  enabled: integer('enabled').notNull().default(0), revision: integer('revision').notNull().default(1),
+  grantsJson: text('grants_json').notNull(), toolNamesJson: text('tool_names_json').notNull(), toolsJson: text('tools_json').notNull().default('[]'),
+  credentialJson: text('credential_json'), credentialExpiresAt: text('credential_expires_at'),
+  checkedAt: text('checked_at'), lastError: text('last_error'), ...isoTimestamps(),
+}, table => [index('mcp_outbound_server_owner').on(table.serverId, table.ownerId), check('mcp_outbound_enabled', sql`${table.enabled} IN (0,1)`)])
+
 export const schema = {
+  mcpOutboundConnections,
   fileDeletions,
   serverSchema,
   serverUpdateControl,

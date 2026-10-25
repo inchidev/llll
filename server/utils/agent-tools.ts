@@ -1,3 +1,4 @@
+import { mcpRunTools, type ExternalToolAdapter } from './outbound-mcp'
 import { listAuthorizedTables } from './table-catalog'
 import { agentTimeContext } from './agent-time'
 import { agentBrowserConfigured } from '../../workers/env'
@@ -6,7 +7,7 @@ import { createTable, createTableSchema } from './table-service'
 import { readCodeFile, readCodeSchema, readCodeTree, publishCodeProposal, codeProposalChecks } from './agent-code-service'
 import { codeProposalSchema } from '../../shared/code-environments'
 import { createSchedule, listSchedules, cancelSchedule } from './schedule-service'
-import { createAgentRun, findAgentRun } from './agent-run-service'
+import { createAgentRun, findAgentRun, runAuthorization } from './agent-run-service'
 import { loadAuthorizationContext } from './authorization'
 import type { AgentRun, RunMandate, RuntimeTool } from '../../shared/agent-execution'
 import { z } from 'zod'
@@ -22,8 +23,8 @@ import { fail } from './cf'
 import { resolveAiFunction } from './ai-functions'
 import { searchToolCatalog, validateToolCatalog, type DiscoverableTool, type ToolGuidance } from '../../shared/tool-discovery'
 
-type Definition = { action?: ServerAction; schema: z.ZodType; description: string; execute: (value: unknown) => Promise<unknown> }
-export function agentTools(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal) {
+type Definition = { action?: ServerAction; schema: z.ZodType; parameters?: Record<string, unknown>; guidance?: ToolGuidance; provenance?: DiscoverableTool['provenance']; description: string; execute: (value: unknown) => Promise<unknown> }
+export function agentTools(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal, external: ExternalToolAdapter[] = []) {
   const definitions: Record<string, Definition> = {}
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
     if (Object.hasOwn(definitions, name)) throw new Error('Tool identities must be unique; qualify tools by connection')
@@ -80,6 +81,10 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     add('publish_code_changes', ServerAction.proposeCode, codeProposalSchema, 'Publish text-file changes to this Run’s working fork branch and open or update a draft PR. Workflow files, merges and releases are unavailable.', async input => publishCodeProposal(env, run.id, input))
     add('check_code_proposal', ServerAction.useComputer, z.object({}), 'Read independent GitHub checks for the exact proposed commit and approved Preview links. Agent reports do not count as CI evidence.', async () => codeProposalChecks(env, run.id))
   }
+  for (const adapter of external) {
+    add(adapter.tool.name, ServerAction.useExternalTools, z.unknown(), adapter.tool.description, adapter.execute)
+    Object.assign(definitions[adapter.tool.name]!, { parameters: adapter.tool.parameters, guidance: adapter.tool.guidance, provenance: adapter.tool.provenance })
+  }
   const resourceKinds: Record<string, ResourceKind> = {
     list_tasks: 'boards', get_task: 'boards', create_task: 'boards', update_task: 'boards', execute_task: 'boards',
     list_tables: 'databases', read_records: 'databases', create_record: 'databases', update_record: 'databases',
@@ -104,8 +109,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   const catalog: DiscoverableTool[] = allowed.map(([name, definition]) => {
     const effect = /^(create|update|publish|execute|cancel)_/u.test(name) ? 'write' : 'read'
     const cost: ToolGuidance['cost'] = name === 'search_web' ? (env.EXA_API_KEY ? 'network' : 'inference') : name === 'read_url' || name.includes('code') ? 'network' : 'local'
-    return { name, description: definition.description, parameters: z.toJSONSchema(definition.schema), deferred: name !== 'get_current_time',
-      guidance: { effect, cost, useWhen: definition.description,
+    return { name, description: definition.description, parameters: definition.parameters ?? z.toJSONSchema(definition.schema), ...(definition.provenance ? { provenance: definition.provenance } : {}), deferred: name !== 'get_current_time',
+      guidance: definition.guidance ?? { effect, cost, useWhen: definition.description,
         avoidWhen: effect === 'write' ? 'Do not use for a read-only request or to expand the Task mandate.' : 'Do not infer permission for other resources from a successful read.',
         evidence: name === 'search_web' || name === 'read_url' ? 'Source URLs and untrusted source content.' : 'Structured Server result with semantic resource identifiers.',
         prerequisite: definition.action ?? 'Active authorized Run',
@@ -163,6 +168,15 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   }
 }
 
+/** Only metadata crosses into Pi/DOs; external credentials are read inside the HTTP broker. */
+export async function toolsForRun(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal) {
+  const external = await mcpRunTools(env, authorization, run, signal, async () => {
+    if (!run) fail(403, 'run_unavailable', 'An active Run is required')
+    return runAuthorization(env, run)
+  })
+  return agentTools(env, authorization, schedule, run, signal, external)
+}
+
 export async function executeRunTool(env: L4Env, runId: string, authorization: AuthorizationContext, input: { callId: string; name: string; arguments: unknown }, schedule: (promise: Promise<unknown>) => void, signal?: AbortSignal) {
   const encoded = JSON.stringify(input.arguments)
   const policy = JSON.stringify({ principal: authorization.principal, delegation: authorization.delegation })
@@ -176,8 +190,12 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
     }
     if (existing.policyJson !== policy) fail(403, 'call_revoked', 'The call authorization changed')
     if (input.name === 'search_tools' || input.name === 'get_tool_details') {
-      const current = await agentTools(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal).call(input.name, input.arguments)
+      const current = await (await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)).call(input.name, input.arguments)
       if (JSON.stringify(current) !== existing.resultJson) fail(409, 'discovery_changed', 'Tool availability changed. Discover again using a new call identity.')
+    }
+    if (input.name.startsWith('mcp_')) {
+      const tools = await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)
+      if (!tools.descriptors.some(tool => tool.name === input.name)) fail(403, 'mcp_revoked', 'MCP result access was revoked')
     }
     return JSON.parse(existing.resultJson!)
   }
@@ -187,7 +205,7 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
     .bind(runId, input.callId || newId(), input.name, encoded, policy, new Date().toISOString(), runId, runId).first()
   if (!admitted) fail(429, 'tool_budget', 'Run tool budget exhausted')
   try {
-    const value = await agentTools(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal).call(input.name, input.arguments)
+    const value = await (await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)).call(input.name, input.arguments)
     const result = JSON.stringify(value)
     if (new TextEncoder().encode(result).byteLength > 500000) fail(413, 'tool_output_large', 'Tool output exceeds the run limit')
     await env.DB.prepare("UPDATE agent_run_tools SET status='completed',result_json=? WHERE run_id=? AND call_id=?").bind(result, runId, input.callId).run()

@@ -6,14 +6,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openPi } from '../src/pi.mjs'
 
-test('real container Pi keeps deferred schemas out of requests until Server selection', async () => {
+for (const external of [false, true]) test(`real container Pi loads ${external ? 'connection-qualified external MCP' : 'local'} tools only after Server selection`, async () => {
+  const selectedName = external ? 'mcp_00000000000040008000000000000001_12345678_search_docs' : 'list_tasks'
   const requests = [], calls = [], events = []
   const model = createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) chunks.push(chunk)
     const body = JSON.parse(Buffer.concat(chunks).toString()); requests.push(body)
     const turn = requests.length
-    const name = turn === 1 ? 'get_tool_details' : 'list_tasks'
-    const args = turn === 1 ? { name: 'list_tasks', purpose: 'Find accessible work' } : {}
+    const name = turn === 1 ? 'get_tool_details' : selectedName
+    const args = turn === 1 ? { name: selectedName, purpose: 'Find accessible work' } : external ? { query: 'Workers' } : {}
     const delta = turn < 3 ? { role: 'assistant', tool_calls: [{ index: 0, id: `tool-${turn}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } : { role: 'assistant', content: 'Found accessible work.' }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' })
     for (const choice of [{ delta, finish_reason: null }, { delta: {}, finish_reason: turn < 3 ? 'tool_calls' : 'stop' }]) response.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, ...choice }] })}\n\n`)
@@ -25,22 +26,23 @@ test('real container Pi keeps deferred schemas out of requests until Server sele
     const pi = await openPi({ modelGateway: { url: `http://127.0.0.1:${model.address().port}/v1`, model: 'fixture', token: 'fixture-token' },
       instructions: 'Discover a permitted tool and use it.', computer: false, maxSteps: 5, tools: [
         { name: 'get_tool_details', description: 'Load one tool', parameters: { type: 'object', properties: { name: { type: 'string' }, purpose: { type: 'string' } }, required: ['name', 'purpose'] } },
-        { name: 'list_tasks', description: 'Read tasks', parameters: { type: 'object', properties: {} }, deferred: true },
+        { name: selectedName, description: external ? 'Read public documentation through the Server' : 'Read tasks', parameters: { type: 'object', properties: external ? { query: { type: 'string' } } : {} }, deferred: true },
         { name: 'unselected_tool', description: 'Unused', parameters: { type: 'object', properties: { privateSchemaMarker: { type: 'string' } } }, deferred: true },
       ] }, { directory, emit: event => events.push(event), callTool: async call => {
       calls.push(call.name)
-      return call.name === 'get_tool_details' ? { tool: { name: 'list_tasks' }, purpose: 'Find accessible work' } : { boards: ['Allowed'] }
+      return call.name === 'get_tool_details' ? { tool: { name: selectedName }, purpose: 'Find accessible work' } : external ? { connection: { id: '00000000-0000-4000-8000-000000000001', providerId: 'cloudflare-docs' }, tool: 'search_cloudflare_documentation', schemaHash: '12345678', content: [{ type: 'text', text: 'Verified documentation source' }] } : { boards: ['Allowed'] }
     } })
     assert.equal((await pi.run('Find accessible work')).text, 'Found accessible work.')
     assert.deepEqual((requests[0].tools ?? []).map(tool => tool.function.name), ['get_tool_details'])
     assert.ok(!JSON.stringify(requests[0]).includes('privateSchemaMarker'))
     for (const request of requests.slice(1)) {
       const names = (request.tools ?? []).map(tool => tool.function.name)
-      assert.ok(names.includes('list_tasks'), JSON.stringify(names))
+      assert.ok(names.includes(selectedName), JSON.stringify(names))
       assert.ok(!names.includes('unselected_tool'))
     }
-    assert.deepEqual(calls, ['get_tool_details', 'list_tasks'])
-    assert.ok(events.some(event => event.type === 'tool' && event.name === 'list_tasks' && event.purpose === 'Find accessible work'))
+    if (external) assert.ok(JSON.stringify(requests[2].messages).includes('Verified documentation source'))
+    assert.deepEqual(calls, ['get_tool_details', selectedName])
+    assert.ok(events.some(event => event.type === 'tool' && event.name === selectedName && event.purpose === 'Find accessible work'))
   } finally { model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); await rm(directory, { recursive: true, force: true }) }
 })
 

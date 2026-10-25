@@ -1,4 +1,5 @@
 export const Permission = {
+  useExternalTools: 1 << 25,
   proposeCode: 1 << 24,
   manageServer: 1 << 0,
   manageChannels: 1 << 1,
@@ -29,7 +30,7 @@ export const Permission = {
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
 
 export const ALL_PERMISSIONS =
-  Permission.proposeCode | Permission.manageServer
+  Permission.useExternalTools | Permission.proposeCode | Permission.manageServer
   | Permission.manageChannels
   | Permission.manageRoles
   | Permission.invite
@@ -50,6 +51,7 @@ export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
 
 export const PermissionGrants = [
+  { key: 'useExternalTools', flag: Permission.useExternalTools, label: 'Use external tools', description: 'Use explicitly delegated read-only MCP connections. Does not grant access to unshared connections or external writes.' },
   { key: 'proposeCode', flag: Permission.proposeCode, label: 'Propose code changes', description: 'Publish changes to an authorized working fork and open draft pull requests. Does not permit merges or production releases.' },
   { key: 'manageServer', flag: Permission.manageServer, label: 'Manage server', description: 'Change server name and settings.' },
   { key: 'manageChannels', flag: Permission.manageChannels, label: 'Manage channels', description: 'Create, edit, and remove channels and categories.' },
@@ -106,6 +108,6 @@ export function directMessagePermissions(rolePermissions: number, isOwner: boole
 
 export function rolePermissions(name: string): number {
   if (name === 'owner') return ALL_PERMISSIONS
-  if (name === 'admin') return ALL_PERMISSIONS & ~(Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode)
+  if (name === 'admin') return ALL_PERMISSIONS & ~(Permission.useExternalTools | Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode)
   return MemberPermissions
 }

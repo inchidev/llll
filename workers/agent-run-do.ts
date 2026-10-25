@@ -8,7 +8,7 @@ import { asRpc } from './env'
 import { RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RuntimeEvent } from '../shared/agent-execution'
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
-import { agentTools } from '../server/utils/agent-tools'
+import { toolsForRun } from '../server/utils/agent-tools'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { getTask } from '../server/utils/task-service'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
@@ -244,7 +244,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           toolEndpoint: `${origin}/api/agent-runs/${run.id}/gateway/tools`,
           repository: run.environmentJson ? { archiveUrl: `${origin}/api/agent-runs/${run.id}/gateway/repository/archive` } : undefined,
           filesUrl: mandate.computer && await previousRunFiles(this.env, run) ? `${origin}/api/agent-runs/${run.id}/gateway/files` : undefined,
-          tools: agentTools(this.env, authorization, promise => this.ctx.waitUntil(promise), run).descriptors,
+          tools: (await toolsForRun(this.env, authorization, promise => this.ctx.waitUntil(promise), run)).descriptors,
           computer: mandate.computer, maxSteps: mandate.maxSteps, transcript,
           timeoutMs: Math.min(900000, Math.max(1000, Date.parse(run.deadline) - Date.now())),
         })

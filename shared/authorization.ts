@@ -4,6 +4,7 @@ import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
 
 export const ServerAction = {
+  useExternalTools: 'tools:read',
   useComputer: 'computer:use',
   proposeCode: 'code:propose',
   manageData: 'data:manage',
@@ -54,6 +55,7 @@ export type AuthorizationContext = {
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
 const ACTION_RULES: Record<ServerAction, ActionRule> = {
+  [ServerAction.useExternalTools]: { permission: Permission.useExternalTools },
   [ServerAction.useComputer]: { permission: Permission.useComputer },
   [ServerAction.proposeCode]: { permission: Permission.proposeCode },
   [ServerAction.manageData]: { permission: Permission.manageDatabases, scope: 'data:manage' },

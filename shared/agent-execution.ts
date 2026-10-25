@@ -7,6 +7,7 @@ export function intersectResources(current: ResourceAccess | undefined, cap: Res
 }
 
 export const runRequestSchema = z.object({
+  toolConnectionIds: z.array(z.string().uuid()).max(4).optional(),
   agentId: z.string().min(8), channelId: z.string().min(8), prompt: z.string().trim().min(1).max(48000),
   environmentId: z.string().min(8).optional(),
   taskId: z.string().min(8).optional(), sourceMessageId: z.string().min(8).optional(),
@@ -17,6 +18,7 @@ export const RUN_EXECUTION_MS = 15 * 60_000
 export const RUN_QUEUE_WAIT_MS = 24 * 60 * 60_000
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type RunMandate = {
+  toolConnections?: Array<{ id: string; revision: number }>
   depth?: number
   environmentId?: string | null
   environmentVersion?: number
