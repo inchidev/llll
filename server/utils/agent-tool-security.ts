@@ -20,9 +20,9 @@ export type ToolSecurityStatus = { untrustedContext: boolean; outboundReviewAvai
 /** Context belongs to the Session, including restored transcripts, failed reads, retries and other Runs. */
 export async function untrustedContext(env: L4Env, run: AgentRun): Promise<boolean> {
   await env.DB.prepare(`UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=? AND
-    (transcript_key IS NOT NULL OR EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
+    ((transcript_key IS NOT NULL AND transcript_key<>?) OR EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
     OR EXISTS(SELECT 1 FROM messages WHERE id=? AND author_id<>?))`)
-    .bind(new Date().toISOString(), run.sessionId, run.sessionId, run.sourceMessageId, run.initiatedBy).run()
+    .bind(new Date().toISOString(), run.sessionId, `agent-sessions/${run.sessionId}/${run.id}.jsonl`, run.sessionId, run.sourceMessageId, run.initiatedBy).run()
   const session = await env.DB.prepare('SELECT untrusted_at AS untrustedAt FROM agent_sessions WHERE id=?').bind(run.sessionId).first<{ untrustedAt: string | null }>()
   return !session || Boolean(session.untrustedAt)
 }

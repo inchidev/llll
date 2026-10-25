@@ -118,3 +118,11 @@ it('keeps model/runtime errors out of broad Agent audit metadata', async () => {
   expect(JSON.stringify(audit)).not.toContain('PRIVATE_RUNTIME_ERROR')
   expect(JSON.stringify(audit)).toContain('Private Run details')
 })
+
+it('distinguishes a fresh Run’s own archive from restored prior conversation input', async () => {
+  const first = await f.run()
+  f.db.prepare('UPDATE agent_sessions SET transcript_key=? WHERE id=?').run(`agent-sessions/${first.run.sessionId}/${first.run.id}.jsonl`, first.run.sessionId)
+  expect((await runReport(f.env, { ...first.run, status: 'completed', resultText: 'Clean direct reply' })).restricted).toBe(false)
+  const next = await f.run()
+  expect(await untrustedContext(f.env, next.run)).toBe(true)
+})
