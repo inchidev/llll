@@ -141,6 +141,10 @@ Calls retain provider credentials on the Server and enforce a per-Member limit o
 Pi model capabilities and compaction remain separate from these functions: embedded Pi currently accepts text only, uses a conservative 24,000-token context and 4,096-token output limit, and compacts through the Run’s selected model. A provider’s vision/reasoning capabilities do not imply that this gateway implements them.
 
 
+### Private continuation
+
+A conversation Session coordinates execution; it does not grant its Members access to each other’s private context. Transcript and working-file restoration requires unchanged initiator, Task, exact permission/resource/connection mandate, repository snapshot, model and instructions throughout that Session’s history. Any mixed or changed history starts clean, including when an earlier compatible Run would otherwise be available. Transcript pointers must identify a completed canonical Run archive; there is no arbitrary-key fallback. Within-Run durable recovery remains supported. Existing archives remain private; useful continuation in a mixed conversation requires future explicit context isolation/sharing policy. A clean start does not clear the persistent untrusted-context flag.
+
 ### Tools settings and visibility
 
 Server Settings → Tools is available to Roles that use/manage Agents or use external tools. Installed shows configured capability providers and connections you manage; Discover / Connect offers only reviewed read-only MCP sources. Save disables a connection, Refresh tools validates the contract, and Enable prepares its reviewed contract for new Runs; invocation still requires the sensitive-action review gate. Edit the reviewed tool selection and Agent/Member/Role grants to restrict a connection. Disabling or revoking it immediately stops subsequent calls in active Runs. Personal connections remain private to their owner. Credentials are password inputs, never read back, and cleared after submission or closing the editor.
