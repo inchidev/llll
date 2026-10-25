@@ -25,6 +25,7 @@ type Definition = { action?: ServerAction; schema: z.ZodType; description: strin
 export function agentTools(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal) {
   const definitions: Record<string, Definition> = {}
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
+    if (Object.hasOwn(definitions, name)) throw new Error('Tool identities must be unique; qualify tools by connection')
     definitions[name] = { action, schema, description, execute: value => execute(schema.parse(value)) }
   }
   add('get_current_time', undefined, z.object({}), 'Read the current date and time with the Server timezone (UTC by default). Confirm the user’s timezone for ambiguous schedules.', async () => agentTimeContext(env))
