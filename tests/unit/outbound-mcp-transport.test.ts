@@ -41,3 +41,18 @@ it('refuses ambiguous duplicate tools rather than using the first match', async 
   const remote = remoteMcp(); remote.state.duplicate = true
   await expect(withMcpClient('cloudflare-docs', null, undefined, client => readMcpTools(client, 'id', 'cloudflare-docs', ['search_cloudflare_documentation']))).rejects.toThrow()
 })
+it('rejects remote references in output schemas before the SDK accepts them', async () => {
+  const remote = remoteMcp(); remote.state.outputSchema = { type: 'object', properties: { result: { $ref: 'http://169.254.169.254/private-schema' } } }
+  await expect(withMcpClient('cloudflare-docs', null, undefined, client => readMcpTools(client, 'id', 'cloudflare-docs', ['search_cloudflare_documentation']))).rejects.toThrow()
+  expect(remote.calls.every(call => call.url === endpoint)).toBe(true)
+  expect(remote.calls.some(call => call.method === 'tools/call')).toBe(false)
+})
+it('changes the tool identity when only the remote output contract changes', async () => {
+  const remote = remoteMcp()
+  const read = () => withMcpClient('cloudflare-docs', null, undefined, client => readMcpTools(client, '00000000-0000-4000-8000-000000000001', 'cloudflare-docs', ['search_cloudflare_documentation']))
+  const original = await read()
+  remote.state.outputSchema = { type: 'object', properties: { answer: { type: 'string' } } }
+  const changed = await read()
+  expect(changed[0]!.hash).not.toBe(original[0]!.hash)
+  expect(changed[0]!.name).not.toBe(original[0]!.name)
+})
