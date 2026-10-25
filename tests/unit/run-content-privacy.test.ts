@@ -43,7 +43,7 @@ it('denies Owner access to another initiator’s body, final text, transcript an
 })
 it('denies a different Member even with broad permissions; identity is not a Role grant', async () => {
   const other = '00000000-0000-4000-8000-000000000099'
-  f.db.prepare("INSERT INTO users(id,kind,display_name,status,role_id) VALUES(?,'human','Other Member','active',?)").run(other, ids.memberRole)
+  f.db.prepare("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES(?,'human','Other Member','active',?,'2026-10-25')").run(other, ids.memberRole)
   await as(other)
   for (const handler of await handlers()) await expect(handler({} as never)).rejects.toMatchObject({ statusCode: 403 })
   expect(read).not.toHaveBeenCalled()
