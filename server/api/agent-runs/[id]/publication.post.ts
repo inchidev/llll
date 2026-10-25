@@ -17,7 +17,9 @@ export default defineEventHandler(async event => {
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId, Permission.sendMessages)
   requireRunReader(run, actor.user.id)
-  const input = requestSchema.parse(await readBody(event))
+  const parsed = requestSchema.safeParse(await readBody(event))
+  if (!parsed.success) fail(400, 'invalid_publication', 'Invalid publication review request')
+  const input = parsed.data
   if (input.action === 'prepare') return { publication: await prepareRunPublication(env, run.id, actor.user.id) }
   if (!env.CHANNEL_DO) fail(503, 'unavailable', 'Conversation service unavailable')
   return { publication: await decideRunPublication(env, run.id, actor.user.id, input, value =>
