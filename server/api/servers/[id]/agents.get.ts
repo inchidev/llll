@@ -25,6 +25,7 @@ export default defineEventHandler(async (event): Promise<{ agents: AgentDTO[]; t
   return {
     agents: rows.map(({ profile, user }) => ({
       id: user.id,
+      roleId: user.roleId,
       displayName: user.displayName,
       avatarR2Key: user.avatarR2Key,
       model: profile.model,

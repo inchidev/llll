@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
-import { Permission } from '~~/shared/permissions'
+import { Permission, PermissionGrants, MemberPermissions } from '~~/shared/permissions'
+import { agentRoleSummary, TaskAgentGrants, TaskAgentPermissions } from '~~/shared/agent-roles'
+import { resourceAccessWithin } from '~~/shared/resource-access'
 import type { AgentDTO, RoleDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
@@ -17,10 +19,42 @@ function defaultModel() {
   // The Server resolves an empty model to its default provider profile.
   return ''
 }
-const { can } = useRoleGrants()
+const { can, mine } = useRoleGrants()
 const roleId = ref('member')
 const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: computed(() => open.value && can(Permission.manageRoles)) })
+const creatingRole = ref(false)
+const canUseTaskRole = computed(() => can(Permission.manageRoles) && TaskAgentGrants.every(grant => can(grant.flag)))
+const selectedRole = computed(() => roles.data.value?.roles.find(role => role.id === roleId.value || (roleId.value === 'member' && role.key === 'member')))
+const selectedPermissions = computed(() => selectedRole.value?.permissions ?? (roleId.value === 'member' ? MemberPermissions : null))
+const selectedSummary = computed(() => selectedPermissions.value === null ? '' : agentRoleSummary({ permissions: selectedPermissions.value }))
+const selectedGrants = computed(() => PermissionGrants.filter(grant => selectedPermissions.value !== null && ((selectedPermissions.value & grant.flag) === grant.flag)).map(grant => grant.label).join(', '))
+const memberRoleId = computed(() => roles.data.value?.roles.find(role => role.key === 'member')?.id ?? 'member')
+const roleSelection = computed({
+  get: () => roleId.value === 'member' ? memberRoleId.value : roleId.value,
+  set: (value: string) => { roleId.value = value },
+})
+const roleItems = computed(() => [
+  { value: memberRoleId.value, label: 'Member' },
+  ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name, description: agentRoleSummary(role) })),
+])
+async function useTaskRole() {
+  if (!canUseTaskRole.value || busy.value) return
+  const existing = roles.data.value?.roles.find(role => role.name === 'Task agent' && role.permissions === TaskAgentPermissions && resourceAccessWithin(role.resourceAccess ?? {}, mine?.value?.role.resourceAccess))
+  if (existing) { roleId.value = existing.id; return }
+  creatingRole.value = true
+  try {
+    const result = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
+      method: 'POST',
+      body: { name: 'Task agent', permissions: TaskAgentPermissions, resourceAccess: mine?.value?.role.resourceAccess ?? {} },
+    })
+    await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
+    roleId.value = result.role.id
+  } catch (error) {
+    toast.add({ title: errorMessage(error), color: 'error' })
+  } finally { creatingRole.value = false }
+}
 const saving = ref(false)
+const busy = computed(() => saving.value || creatingRole.value)
 const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
 
@@ -65,6 +99,7 @@ const formAvatarUser = computed(() => ({
 }))
 
 function selectAgent(agent: AgentDTO) {
+  roleId.value = agent.roleId ?? ''
   selectedAgent.value = agent
   avatarFile.value = null
   removeCurrentAvatar.value = false
@@ -96,7 +131,7 @@ watch([open, () => props.agent], ([visible, agent]) => {
 }, { immediate: true })
 
 async function saveAgent(event: FormSubmitEvent<AgentForm>) {
-  if (saving.value) return
+  if (busy.value) return
   if (isNew.value && (providers.isPending.value || modelRequired.value)) {
     toast.add({ title: 'Choose a model or set a Server default before creating an agent', color: 'error' })
     return
@@ -113,7 +148,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
     if (selectedAgent.value) {
       result = await api<{ agent: AgentDTO }>(`/api/servers/${props.serverId}/agents/${selectedAgent.value.id}`, {
         method: 'PATCH',
-        body: event.data,
+        body: { ...event.data, ...(can(Permission.manageRoles) && roleId.value && roleId.value !== selectedAgent.value.roleId ? { roleId: roleId.value } : {}) },
       })
     }
     else {
@@ -148,6 +183,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
       qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['roles', props.serverId] }),
     ])
     selectAgent(result.agent)
     toast.add({ title: creating ? 'Agent created' : 'Agent updated', color: 'success' })
@@ -157,6 +193,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
         qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['roles', props.serverId] }),
       ])
       selectAgent(persistedAgent)
       toast.add({
@@ -176,9 +213,9 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="isNew ? 'Create agent' : `Edit ${selectedAgent?.displayName || 'agent'}`" :dismissible="!saving" :close="!saving" :ui="{ content: 'max-w-xl' }">
+  <UModal v-model:open="open" :title="isNew ? 'Create agent' : `Edit ${selectedAgent?.displayName || 'agent'}`" :dismissible="!busy" :close="!busy" :ui="{ content: 'max-w-xl' }">
     <template #body>
-    <UForm :schema="schema" :state="form" :disabled="saving" class="min-w-0 space-y-5" :data-update-blocked="saving" @submit="saveAgent">
+    <UForm :schema="schema" :state="form" :disabled="busy" class="min-w-0 space-y-5" :data-update-blocked="busy" @submit="saveAgent">
       <UAlert
         v-if="agentsUnavailable"
         color="neutral"
@@ -218,9 +255,17 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <LayoutLoadError v-if="providers.error.value" message="Model choices did not load." :retry="providers.refetch" inline />
       </UFormField>
 
-      <UFormField v-if="isNew && can(Permission.manageRoles)" label="Role" description="Tasks need Read tasks and Execute assigned tasks; reporting also needs Send messages in the chosen channel.">
-        <USelect v-model="roleId" :loading="roles.isPending.value" :disabled="roles.isPending.value" :items="[{ value: 'member', label: 'Member' }, ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name }))]" class="w-full" />
+      <UFormField v-if="can(Permission.manageRoles)" label="Role" description="The role limits this agent's work. Channel and resource access still apply.">
+        <USelect v-model="roleSelection" aria-label="Agent role" :loading="roles.isPending.value" :disabled="roles.isPending.value || roles.isError.value || busy" :items="roleItems" placeholder="Choose a role" class="w-full" />
+        <LayoutLoadError v-if="roles.error.value" message="Roles did not load." :retry="roles.refetch" inline />
+        <p v-if="selectedSummary" class="mt-2 text-sm text-muted">{{ selectedSummary }}</p>
+        <p v-if="selectedGrants" class="mt-1 text-xs text-muted">Permissions: {{ selectedGrants }}.</p>
+        <template v-if="canUseTaskRole">
+          <UButton class="mt-2" label="Use task agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole" />
+          <p class="mt-1 text-xs text-muted">Creates or selects a role with Read tasks, Create and update tasks, Execute assigned tasks and Send messages. New roles inherit your resource limits and grant no administration or computer tools. Save the agent to apply the selection.</p>
+        </template>
       </UFormField>
+      <p v-else-if="isNew" class="text-sm text-muted">New agents start with the Member role. Ask someone with Manage roles to grant task execution and reporting permissions.</p>
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />
       </UFormField>
@@ -231,8 +276,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 
 
 
-      <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="ghost" :disabled="saving" @click="open = false" />
-      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && (providers.isPending.value || modelRequired)" />
+      <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="open = false" />
+      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="creatingRole || (isNew && (providers.isPending.value || modelRequired))" />
       </div>
     </UForm>
     </template>

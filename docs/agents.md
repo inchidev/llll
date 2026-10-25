@@ -1,6 +1,6 @@
 # Governed agents
 
-An Agent is a non-human Member with one assigned Role. Its profile contains its name, instructions and model. Creators with Manage roles can choose its Role in the creation dialog. Assign or change its Role in Settings → Roles → Members; Agents appear in that list alongside people. The Owner role cannot be assigned.
+An Agent is a non-human Member with one assigned Role. Its profile contains its name, instructions and model. Creators with Manage roles can choose or change its Role in the Create/Edit agent dialog. Roles can also be changed in Settings → Roles → Members; Agents appear in that list alongside people. The Owner role cannot be assigned.
 
 ## Role permissions
 
@@ -10,6 +10,8 @@ An Agent is a non-human Member with one assigned Role. Its profile contains its 
 - Tasks: `readTasks` reads; `writeTasks` creates/updates; `manageTasks` additionally administers boards and destructive operations.
 - Data: `readData` reads; `writeData` edits records and Documents; `manageDatabases` additionally changes structure and deletes resources.
 - Autonomy: `executeTasks`, `useComputer`, and `manageSchedules` are separate opt-in permissions, never inferred from an administrator role.
+
+Create/Edit agent shows the selected Role's permissions and any missing task-execution or reporting grants. The built-in Member and Admin roles do not allow autonomous task execution. A role manager who holds the necessary grants can explicitly choose **Use task agent role** to create or select a custom role with Read tasks, Create and update tasks, Execute assigned tasks and Send messages. A new role inherits the creator's resource limits and grants no administrative or computer permissions. Save the Agent to apply the selection; existing roles and Agents are never upgraded automatically.
 
 The Role editor selects all or specific Boards, Tables, Documents and Canvases. Selecting no resources permits none of that kind. Grants govern operations; selecting a resource does not grant an operation. Restricted collections cannot create new top-level resources. Role administrators cannot grant permissions or resources they lack.
 

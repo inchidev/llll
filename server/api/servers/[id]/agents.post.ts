@@ -81,6 +81,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   return {
     agent: {
       id,
+      roleId: selectedRole.id,
       harness,
       displayName: body.displayName,
       avatarR2Key: null,
