@@ -47,6 +47,7 @@ export function mcpFixture() {
 export function remoteMcp() {
   const state = { schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } as Record<string, unknown>, description: 'Search public documentation',
     outputSchema: undefined as Record<string, unknown> | undefined,
+    resultText: undefined as string | undefined, structuredContent: undefined as Record<string, unknown> | undefined,
     sse: false, duplicate: false, writeTool: false, echoMetadata: false, echoResult: false, unauthorized: false, oversized: false, redirect: false,
     hook: undefined as (() => void | Promise<void>) | undefined }
   const calls: Array<{ method: string; id?: unknown; authorization: string | null; url: string }> = []
@@ -64,7 +65,7 @@ export function remoteMcp() {
       result = { tools: [tool, ...(state.duplicate ? [tool] : []), ...(state.writeTool ? [{ ...tool, name: 'destroy_everything' }] : [])] }
       await state.hook?.()
     } else if (request.method === 'tools/call') {
-      result = { content: [{ type: 'text', text: state.echoResult ? `echo ${authorization?.slice(7)}` : `Verified source: https://developers.cloudflare.com/workers/ ${request.params.arguments.query}` }] }
+      result = { content: [{ type: 'text', text: state.resultText ?? (state.echoResult ? `echo ${authorization?.slice(7)}` : `Verified source: https://developers.cloudflare.com/workers/ ${request.params.arguments.query}`) }], structuredContent: state.structuredContent }
       await state.hook?.()
     } else throw new Error('Unexpected remote method ' + request.method)
     const message = { jsonrpc: '2.0', id: request.id, result }

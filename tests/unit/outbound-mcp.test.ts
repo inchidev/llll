@@ -177,3 +177,13 @@ it('supports explicit Role grants for both sides of a delegated Run', async () =
   const member = await f.run(ids.member)
   expect((await toolsForRun(f.env, member.authorization, () => {}, member.run)).descriptors.some(t => t.name.startsWith('mcp_'))).toBe(true)
 })
+it('completes an attributed read when the provider duplicates large text in structured content', async () => {
+  const connection = await f.connect()
+  const c = await toolCall(connection.id)
+  const text = 'Verified source: https://developers.cloudflare.com/workers/\n' + 'e'.repeat(34000)
+  remote.state.resultText = text; remote.state.structuredContent = { answer: text }
+  const result = await executeRunTool(f.env, c.run.id, c.authorization, { callId: 'large-docs', name: c.tool.name, arguments: { query: 'SQLite' } }, () => {})
+  expect(result).toMatchObject({ connection: { id: connection.id }, content: [{ text }], truncated: true, structuredContentOmitted: true })
+  expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(64000)
+  expect(JSON.stringify(f.db.prepare("SELECT meta_json FROM audit_log WHERE action='tool.connection.call'").all())).toContain('completed')
+})
