@@ -15,7 +15,7 @@ export function useAgentDirectory(serverId: () => string) {
   })
   const agents = computed(() => (members.data.value?.members ?? []).filter(member => member.user.kind === 'agent'))
   async function messageAgent(userId: string) {
-    if (opening.value) return
+    if (opening.value || agents.value.find(agent => agent.user.id === userId)?.agentStatus === 'paused') return
     opening.value = userId
     try {
       const result = await api<{ channel: ChannelDTO }>('/api/dms', { method: 'POST', body: { userId, serverId: serverId() } })

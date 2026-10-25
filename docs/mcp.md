@@ -40,3 +40,15 @@ OAuth requires a client-reachable Server origin. An external network perimeter m
 ## Verification
 
 `tests/unit/mcp-oauth.test.ts` exercises the installed provider against real SQLite storage: registration, discovery, PKCE, consent/denial, code replay, refresh/replay, Human/Agent selection, current permissions, resource isolation and revocation. `pnpm test:server` additionally exercises the compiled Worker HTTP routes, independent D1 databases, consent CSRF/signature checks, MCP task authorship and audit attribution. External Codex, Claude and Grokbot client acceptance is separate from these protocol checks.
+
+
+## Tables and records
+
+Approve `data:read` to discover and read tables; `documents:read` is a separate scope and does not grant table access.
+
+1. Call `list_tables` to discover authorized table IDs, fields and saved views. Use the returned table ID as `databaseId`, and semantic field IDs when reading or editing values.
+2. Call `read_records` with `databaseId`. It returns records without applying a saved view by default. Supply `viewId` to apply a saved view, `search` to narrow results, and `pageSize` (1–100) with `page` to paginate. The response includes `total` and `nextPage`.
+3. Approve `data:write` for `create_record` and `update_record`. Updates require the record's current `version`.
+4. Approve `data:manage` for `create_table`, which creates a table and typed fields. The Role must also permit Data management and creation within its resource scope.
+
+Scopes never expand the acting Member's current Role or resource permissions. Table discovery returns schemas, not record contents. Internal Agents expose the same `list_tables` discovery tool; `list_data` remains available for broader Data navigation.

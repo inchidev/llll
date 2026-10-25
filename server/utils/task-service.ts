@@ -2,7 +2,7 @@ import { authorizeResource as requireResource } from '../../shared/authorization
 import { findCodeEnvironment } from './code-environment-service'
 import { fail } from './cf'
 import { getServerId } from '../../shared/server-id'
-import { eq, or } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { taskDependencies, taskLabelLinks, tasks } from '../../drizzle/schema'
 import { newId, nowIso } from '../../shared/ids'
 import type { TaskBoardDTO, TaskDetailDTO, TaskPriority, TaskStatus } from '../../shared/types'
@@ -170,7 +170,26 @@ export async function updateTask(
     updatedAt,
   }
 
-  await db.update(tasks).set(patch).where(eq(tasks.id, id))
+  // Compare the version read above so a concurrent edit cannot be overwritten.
+  const update = db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.updatedAt, task.updatedAt))).toSQL()
+  const statement = env.DB.prepare(update.sql).bind(...update.params)
+  let changed: number | undefined
+  if (authorization.credential.kind === 'agent_runtime' && authorization.credential.id) {
+    // Advance only this Run's assigned-task cursor, and only across its own
+    // uninterrupted edits. A human/other Run edit breaks the version chain.
+    const result = await env.DB.batch([
+      statement,
+      env.DB.prepare(`UPDATE agent_runs SET task_edit_at=?
+        WHERE id=? AND agent_id=? AND task_id=? AND status='running'
+        AND (task_edit_at=? OR (task_edit_at IS NULL AND created_at>=?))
+        AND EXISTS (SELECT 1 FROM tasks WHERE id=? AND updated_at=?)`)
+        .bind(updatedAt, authorization.credential.id, actorId, id, task.updatedAt, task.updatedAt, id, updatedAt),
+    ])
+    changed = result[0]?.meta.changes
+  } else {
+    changed = (await statement.run()).meta.changes
+  }
+  if (!changed) fail(409, 'stale_task', 'This task changed elsewhere. Reload and try again.')
   if (input.boardId && input.boardId !== task.boardId) {
     await db.batch([
       db.delete(taskLabelLinks).where(eq(taskLabelLinks.taskId, id)),

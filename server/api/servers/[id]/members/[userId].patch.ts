@@ -7,7 +7,8 @@ import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
-import { assertRoleAssignable } from '../../../../utils/role-policy'
+import { assertRoleAssignable, assertRoleManageable } from '../../../../utils/role-policy'
+import { revalidateLiveRooms } from '../../../../utils/live'
 import { parseBody } from '../../../../utils/validate'
 import { signalMembersChanged } from '../../../../../workers/member-events'
 
@@ -22,11 +23,12 @@ export default defineEventHandler(async (event) => {
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const [target, role] = await Promise.all([
-    db.select({ id: users.id }).from(users).where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1),
+    db.select({ id: users.id, role: roles }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1),
     db.select().from(roles).where(eq(roles.id, body.roleId)).limit(1),
   ])
   if (!target[0]) fail(404, 'not_found', 'Member not found')
   if (!role[0]) fail(404, 'not_found', 'Role not found')
+  assertRoleManageable(actor, target[0].role)
   assertRoleAssignable(actor, role[0])
   await db.update(users).set({ roleId: role[0].id, updatedAt: nowIso() }).where(eq(users.id, userId))
   await writeAudit(env, {
@@ -38,5 +40,6 @@ export default defineEventHandler(async (event) => {
     meta: { roleId: role[0].id, roleName: role[0].name },
   })
   waitUntil(signalMembersChanged(env, serverId))
+  waitUntil(revalidateLiveRooms(env))
   return { ok: true }
 })

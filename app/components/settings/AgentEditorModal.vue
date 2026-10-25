@@ -47,7 +47,13 @@ const form = reactive<AgentForm>({
 const modelSearch = ref('')
 const providers = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value, form.model]), queryFn: () => api<AgentProviderCatalog>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value, selected: form.model } }), enabled: open })
 const savedModels = computed(() => providers.data.value?.models ?? [])
-const agentsUnavailable = computed(() => !providers.isPending.value && !form.model && !providers.data.value?.defaultModel)
+const modelRequired = computed(() => !form.model && !providers.data.value?.defaultModel)
+const agentsUnavailable = computed(() => providers.isSuccess.value && !modelSearch.value && modelRequired.value && !savedModels.value.length)
+const modelItems = computed(() => [
+  ...(providers.data.value?.defaultModel ? [{ value: '', label: 'Server default' }] : []),
+  ...savedModels.value.map(model => ({ value: model.value, label: agentModelLabel(model) })),
+  ...(form.model && !providers.isFetching.value && !savedModels.value.some(model => model.value === form.model) ? [{ value: form.model, label: form.model + ' (unavailable)' }] : []),
+])
 
 const selectedAgent = shallowRef<AgentDTO | null>(null)
 const isNew = computed(() => !selectedAgent.value)
@@ -91,6 +97,10 @@ watch([open, () => props.agent], ([visible, agent]) => {
 
 async function saveAgent(event: FormSubmitEvent<AgentForm>) {
   if (saving.value) return
+  if (isNew.value && (providers.isPending.value || modelRequired.value)) {
+    toast.add({ title: 'Choose a model or set a Server default before creating an agent', color: 'error' })
+    return
+  }
   if (avatarFile.value && avatarFile.value.size > 2 * 1024 * 1024) {
     toast.add({ title: 'Avatar exceeds 2 MB', color: 'error' })
     return
@@ -203,8 +213,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <UInput v-model="form.displayName" autofocus class="w-full" />
       </UFormField>
 
-      <UFormField name="model" label="Model (optional)" description="Empty uses the Server default. The conversation can override this model.">
-        <USelectMenu v-model:search-term="modelSearch" v-model="form.model" :loading="providers.isFetching.value" :disabled="providers.isPending.value" ignore-filter value-key="value" virtualize :items="[{ value: '', label: 'Server default' }, ...savedModels.map(model => ({ value: model.value, label: agentModelLabel(model) })), ...(form.model && !providers.isFetching.value && !savedModels.some(model => model.value === form.model) ? [{ value: form.model, label: form.model + ' (unavailable)' }] : [])]" placeholder="Server default" class="w-full" />
+      <UFormField name="model" :label="providers.data.value?.defaultModel ? 'Model (optional)' : 'Model'" description="Choose a model, or leave empty to use an available Server default. The conversation can override this model.">
+        <USelectMenu v-model:search-term="modelSearch" v-model="form.model" :loading="providers.isFetching.value" :disabled="providers.isPending.value" ignore-filter value-key="value" :items="modelItems" :placeholder="providers.data.value?.defaultModel ? 'Server default' : 'Choose a model'" class="w-full" />
         <LayoutLoadError v-if="providers.error.value" message="Model choices did not load." :retry="providers.refetch" inline />
       </UFormField>
 
@@ -222,7 +232,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 
 
       <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="ghost" :disabled="saving" @click="open = false" />
-      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && agentsUnavailable" />
+      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && (providers.isPending.value || modelRequired)" />
       </div>
     </UForm>
     </template>

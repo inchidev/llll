@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runEmbeddedPi } from '../../workers/agent-pi-durable'
+import { embeddedPiFailure, runEmbeddedPi } from '../../workers/agent-pi-durable'
 
 // Exercise the real Pi harness and provider adapter; only DO storage is replaced.
 vi.mock('@earendil-works/pi-durable/storage/sqlite/cloudflare', async () => {
@@ -107,3 +107,58 @@ it('places steering instructions at the tool boundary and deduplicates a deliver
   release()
   expect((await generation).result).toMatchObject({ type: 'result', text: 'Steered answer' })
 })
+
+it('settles a local budget refusal after one provider attempt without transient-rate-limit retries', async () => {
+  const network = vi.fn(async () => Response.json({ error: { code: 'agent_daily_token_budget', message: 'The rolling 24-hour token budget cannot fit the reserved request.' } }, { status: 400 }))
+  vi.stubGlobal('fetch', network)
+  const outcome = await runEmbeddedPi(input, {} as DurableObjectStorage)
+  expect(outcome.result.type).toBe('error')
+  expect(network).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  ['aborted', undefined, 'interrupted'],
+  ['stale', 'secret-token private prompt', 'conversation changed'],
+  ['reset', undefined, 'conversation changed'],
+  ['no_model', undefined, 'selected model'],
+  ['faulted', 'secret-token private prompt', 'could not finish'],
+  ['model_error', '429 secret-token private prompt', 'rate limit'],
+  ['model_error', '401 secret-token private prompt', 'rejected access'],
+  ['model_error', 'unknown failure secret-token private prompt', 'provider connection'],
+] as const)('classifies %s without exposing raw details', (reason, detail, expected) => {
+  const message = embeddedPiFailure({ reason, detail })
+  expect(message).toContain(expected)
+  expect(message).not.toMatch(/secret-token|private prompt|unanswered/)
+})
+
+it('finishes alarm-driven steering at a held tool boundary after a transient provider failure', async () => {
+  let release!: () => void, reached!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const toolStarted = new Promise<void>(resolve => { reached = resolve })
+  let steer!: (id: string, content: string) => Promise<void>
+  let resume: (() => void) | undefined
+  let requests = 0, toolCalls = 0
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/tools')) { toolCalls++; reached(); await held; return Response.json({ text: 'untrusted source evidence '.repeat(500) }) }
+    const body = JSON.parse(String(init.body))
+    requests++
+    if (requests === 1) return streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'held-search', type: 'function', function: { name: 'search_web', arguments: '{}' } }] }, 'tool_calls')
+    if (requests === 2) return Response.json({ error: { message: 'Temporary rate limit' } }, { status: 429 })
+    expect(body.messages.filter((m: { role: string; content: string }) => m.role === 'user' && m.content.includes('Stop searching and answer STEER_RETRY_OK'))).toHaveLength(1)
+    return streamAnswer({ role: 'assistant', content: 'STEER_RETRY_OK' })
+  }))
+  const timer = setInterval(() => resume?.(), 25)
+  try {
+    const generation = runEmbeddedPi({ ...input, runId: 'alarm-steer-retry', toolEndpoint: 'https://fixture.invalid/tools', tools: [{ name: 'search_web', description: 'Read external sources', parameters: { type: 'object', properties: {} } }] }, {} as DurableObjectStorage, {
+      alarmDriven: true, signal: AbortSignal.timeout(8000), ready: async (control, wake) => { steer = control; resume = wake },
+    })
+    await toolStarted
+    await steer('steer-once', 'Stop searching and answer STEER_RETRY_OK')
+    await steer('steer-once', 'Stop searching and answer STEER_RETRY_OK')
+    release()
+    const outcome = await generation
+    expect(outcome.result).toMatchObject({ type: 'result', text: 'STEER_RETRY_OK' })
+    expect(requests).toBe(3)
+    expect(toolCalls).toBe(1)
+  } finally { release(); clearInterval(timer) }
+}, 10000)

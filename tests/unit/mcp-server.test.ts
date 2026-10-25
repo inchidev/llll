@@ -106,7 +106,7 @@ describe('L4 MCP server', () => {
 
     expect(response.status).toBe(200)
     expect(payload.result.tools?.map(tool => tool.name)).toEqual([
-      'create_table', 'read_records', 'create_record', 'update_record',
+      'list_tables', 'create_table', 'read_records', 'create_record', 'update_record',
       'list_task_boards',
       'get_task',
       'create_task',
@@ -183,4 +183,25 @@ describe('L4 MCP server', () => {
     })
     expect(JSON.parse(audit.metaJson)).toMatchObject({ delegatedBy: 'owner', credentialKind: 'mcp' })
   })
+})
+
+
+it('discovers only authorized table schemas over MCP with the data:read scope', async () => {
+  sqlite.exec(`INSERT INTO database_definitions(id,name,created_by) VALUES('allowed','Visible table','owner'),('private','Private canary table','owner');
+    INSERT INTO database_fields(id,database_id,name,type,slot,created_by) VALUES('field-allowed','allowed','Name','text','text_1','owner'),('field-private','private','Private canary field','text','text_1','owner');`)
+  const principal = ownerPrincipal()
+  principal.authorization.principal.isOwner = false
+  principal.authorization.principal.resourceAccess = { databases: ['allowed'] }
+  principal.authorization.credential.scopes = ['data:read']
+  principal.scopes = ['data:read']
+  const { payload } = await call(createHandler(principal), { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'list_tables', arguments: {} } })
+  expect(payload.result.isError).not.toBe(true)
+  const body = JSON.parse(payload.result.content![0]!.text)
+  expect(body.tables.map((table: { id: string }) => table.id)).toEqual(['allowed'])
+  expect(body.tables[0].fields[0]).toMatchObject({ id: 'field-allowed', name: 'Name', type: 'text' })
+  expect(body.tables[0].views).toHaveLength(1)
+  expect(JSON.stringify(payload)).not.toContain('Private canary')
+  principal.authorization.credential.scopes = ['documents:read']
+  const denied = await call(createHandler(principal), { jsonrpc: '2.0', id: 100, method: 'tools/call', params: { name: 'list_tables', arguments: {} } })
+  expect(denied.payload.result.isError).toBe(true)
 })
