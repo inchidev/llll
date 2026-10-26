@@ -343,3 +343,13 @@ it('restores bounded private operation evidence without write bodies or broad cr
   f.db.prepare('UPDATE agent_runs SET channel_id=? WHERE id=?').run('other-progress-chat', run.id)
   await expect(factoryStatus(f.env, run.id)).rejects.toMatchObject({ statusCode: 409 })
 })
+
+it('refuses a remote pairing that impersonates the managed Cloudflare provider without consuming its pairing code', async () => {
+  const auth = await runAuthorization(f.env, run)
+  const owner = { ...auth, principal: { ...auth.principal, id: ids.owner, kind: 'human' as const, isOwner: true }, credential: { kind: 'session' as const }, delegation: undefined }
+  const code = await prepareComputePairing(f.env, owner, 'Remote Docker')
+  const forged = { provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm', image, maxParallel: 1, protocol: 1, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
+  await expect(pairComputeNode(f.env, code.token, forged as never)).rejects.toThrow()
+  expect(f.db.prepare('SELECT count(*) AS total FROM compute_pairings').get()).toMatchObject({ total: 1 })
+  expect(await pairComputeNode(f.env, code.token, capabilities)).toHaveProperty('nodeId')
+})

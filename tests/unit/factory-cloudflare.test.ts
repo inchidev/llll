@@ -123,6 +123,7 @@ function executor(seed: Record<string, unknown>, matches = true) {
     get: async (key: string) => values.get(key),
     put: async (key: string | Record<string, unknown>, value?: unknown) => { if (typeof key === 'string') values.set(key, value); else Object.entries(key).forEach(([name, entry]) => values.set(name, entry)) },
     delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key) },
+    transaction: async (operation: (transaction: { get: (key: string) => Promise<unknown>; delete: (key: string) => Promise<boolean> }) => Promise<unknown>) => operation({ get: async key => values.get(key), delete: async key => values.delete(key) }),
     setAlarm: vi.fn(async () => {}),
   } }
   f.env.FACTORY_COMPUTE = { idFromName: () => ({}) } as unknown as L4Env['FACTORY_COMPUTE']
@@ -319,6 +320,7 @@ async function cloudAlarmFixture() {
       else Object.entries(key).forEach(([name, entry]) => values.set(name, entry))
     },
     delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key) },
+    transaction: async (operation: (transaction: { get: (key: string) => Promise<unknown>; delete: (key: string) => Promise<boolean> }) => Promise<unknown>) => operation({ get: async key => values.get(key), delete: async key => values.delete(key) }),
     setAlarm: vi.fn(async () => {}),
   }
   const ctx = { id: { equals: (id: unknown) => id === `workspace:${workspaceId}` }, storage, container,
@@ -391,4 +393,17 @@ it('keeps a failed checkpoint uncertain without acknowledging or replaying the c
   const commands = fixture.inputs.filter(input => input.script.endsWith('/operate.mjs')).length
   await fixture.instance.alarm()
   expect(fixture.inputs.filter(input => input.script.endsWith('/operate.mjs'))).toHaveLength(commands)
+})
+
+it.each(['expired', 'revoked'] as const)('clears %s queued work without losing acknowledged source or starting a container', async reason => {
+  f.db.prepare("UPDATE factory_actions SET status='approved' WHERE id=?").run(actionId)
+  if (reason === 'expired') f.db.prepare("UPDATE factory_actions SET expires_at='2000-01-01' WHERE id=?").run(actionId)
+  else f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
+  const checkpoint = { sha: 'a'.repeat(40), repository: 'retained-task-code', image }
+  const fixture = executor({ action: actionId, checkpoint })
+  await fixture.instance.alarm()
+  expect(fixture.values.has('action')).toBe(false)
+  expect(fixture.values.get('checkpoint')).toEqual(checkpoint)
+  expect(fixture.exec).not.toHaveBeenCalled()
+  expect(fixture.destroy).not.toHaveBeenCalled()
 })

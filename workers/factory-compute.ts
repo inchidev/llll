@@ -44,10 +44,20 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     cloudflareCapabilities.parse(context.capabilities)
     const active = await this.ctx.storage.get<string>('action')
     if (active === id && await this.ctx.storage.get<boolean>('started')) return new Response(null, { status: 202 })
-    if (active && active !== id) return new Response('Workspace is busy', { status: 409 })
+    if (active && active !== id) {
+      const previous = await this.env.DB.prepare('SELECT status FROM factory_actions WHERE id=?').bind(active).first<{ status: string }>()
+      if (await this.ctx.storage.get('started') || await this.ctx.storage.get('receipt') || previous && ['pending', 'approved', 'claimed', 'executing'].includes(previous.status)) return new Response('Workspace is busy', { status: 409 })
+      await this.clearQueuedAction(active)
+    }
     await this.ctx.storage.put('action', id)
     await this.ctx.storage.setAlarm(Date.now() + 1)
     return new Response(null, { status: 202 })
+  }
+
+  private async clearQueuedAction(actionId: string) {
+    await this.ctx.storage.transaction(async transaction => {
+      if (await transaction.get<string>('action') === actionId) await transaction.delete('action')
+    })
   }
 
   private async command(script: string, input: unknown, limit = 400000, processLimit = 128) {
@@ -65,7 +75,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     const actionId = await this.ctx.storage.get<string>('action')
     if (!actionId) return
     const row = await this.env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(actionId).first<ActionRow>()
-    if (!row) return
+    if (!row) { if (this.ctx.container?.running) await this.ctx.container.destroy(); await this.ctx.storage.delete(['action', 'started']); return }
     const nodeId = await this.ctx.storage.get<string>('nodeId')
     const receipt = await this.ctx.storage.get<Receipt>('receipt')
     if (receipt && nodeId) {
@@ -80,7 +90,13 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       await this.ctx.storage.delete(['action', 'started'])
       return
     }
-    const context = await authorizeFactoryAction(this.env, row)
+    if (row.status !== 'approved') { await this.clearQueuedAction(actionId); return }
+    let context: Awaited<ReturnType<typeof authorizeFactoryAction>>
+    try { context = await authorizeFactoryAction(this.env, row) }
+    catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error && [403, 404, 409].includes(Number(error.statusCode))) { await this.clearQueuedAction(actionId); return }
+      throw error
+    }
     const capabilities = cloudflareCapabilities.parse(context.capabilities)
     if (!this.env.FACTORY_CODE || !this.ctx.container || capabilities.image !== this.env.FACTORY_IMAGE) throw new Error('Factory resources or pinned image unavailable')
     const claimed = await computePoll(this.env, context.workspace.nodeId, { operation: 'claim' }, actionId)

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { computeCapabilities, factorySnapshot, type ComputeNode } from '../../shared/software-factory'
+import { dockerCapabilities, factorySnapshot, type ComputeNode } from '../../shared/software-factory'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -27,8 +27,8 @@ export async function prepareComputePairing(env: L4Env, auth: AuthorizationConte
   if (!inserted) fail(429, 'compute_pairing_limit', 'Pairing limit reached')
   return { token, expiresAt }
 }
-export async function pairComputeNode(env: L4Env, token: string, capabilities: z.infer<typeof computeCapabilities>) {
-  const parsed = computeCapabilities.parse(capabilities), id = newId(), credential = secret()
+export async function pairComputeNode(env: L4Env, token: string, capabilities: z.infer<typeof dockerCapabilities>) {
+  const parsed = dockerCapabilities.parse(capabilities), id = newId(), credential = secret()
   const pairing = await env.DB.prepare('DELETE FROM compute_pairings WHERE token_hash=? AND expires_at>? RETURNING name,created_by AS createdBy').bind(await factoryHash(token), nowIso()).first<{ name: string; createdBy: string }>()
   if (!pairing) fail(403, 'compute_pairing_invalid', 'Pairing is unavailable or expired')
   await env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')

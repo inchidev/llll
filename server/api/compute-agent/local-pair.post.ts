@@ -2,7 +2,7 @@ import { toWebRequest } from 'h3'
 import { readLimitedStream } from '../../../workers/inbound-email-signature'
 import { z } from 'zod'
 import { cf, fail } from '../../utils/cf'
-import { computeCapabilities } from '../../../shared/software-factory'
+import { dockerCapabilities } from '../../../shared/software-factory'
 import { factoryHash } from '../../utils/factory-authority'
 import { getServerId } from '../../../shared/server-id'
 import { nowIso } from '../../../shared/ids'
@@ -20,7 +20,7 @@ export default defineEventHandler(async event => {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
   const valid = await crypto.subtle.verify('HMAC', key, Uint8Array.from(signature.match(/../gu)!, byte => parseInt(byte, 16)), new TextEncoder().encode('l4-local-compute-v1\n' + new URL(env.PUBLIC_ORIGIN).origin + '\n' + raw))
   if (!valid) fail(403, 'local_compute_denied', 'Invalid local signature')
-  const input = z.object({ nodeId: z.string().uuid(), token: z.string().regex(/^[a-f0-9]{64}$/u), timestamp: z.number().int(), capabilities: computeCapabilities }).strict().parse(JSON.parse(raw))
+  const input = z.object({ nodeId: z.string().uuid(), token: z.string().regex(/^[a-f0-9]{64}$/u), timestamp: z.number().int(), capabilities: dockerCapabilities }).strict().parse(JSON.parse(raw))
   if (Math.abs(Date.now() - input.timestamp) > 60000) fail(403, 'local_compute_expired', 'Local pairing expired')
   const owner = await env.DB.prepare('SELECT owner_id AS id FROM server WHERE owner_id IS NOT NULL').first<{ id: string }>()
   if (!owner) fail(409, 'owner_required', 'Claim the Server Owner before local pairing')
