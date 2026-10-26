@@ -3,6 +3,7 @@ import { cloudflareApi, cloudflareClient } from './cloudflare-client.js'
 import { readL4Server } from './servers.js'
 import { loadL4Release, releaseManifestUrl } from './release.js'
 import { createError } from './errors.js'
+import { factoryScriptContainer } from './factory-bindings.js'
 
 type FactoryAsset = { sha256: string; size: number }
 type FactoryRelease = { schemaVersion: number; version: string; manifestDigest: string; files: Record<string, FactoryAsset>; layers: { file: string; digest: string; size: number }[] }
@@ -21,14 +22,42 @@ async function verified(url: string, asset: FactoryAsset, maximum = 96000000) {
   return bytes.buffer
 }
 
+function artifactsStatus(error: unknown) {
+  if (!error || typeof error !== 'object') return 0
+  const value = error as { statusCode?: unknown; status?: unknown }
+  return Number(value.statusCode || value.status || 0)
+}
+
+async function ensureArtifactsNamespace(accessToken: string, accountId: string, namespace: string) {
+  const missing = 'Reconnect Cloudflare and approve Artifacts Read and Artifacts Write. Factory code storage cannot be provisioned without those permissions.'
+  const denied = (error: unknown) => {
+    const status = artifactsStatus(error)
+    if (status === 401 || status === 403) throw createError({ statusCode: 403, statusMessage: missing })
+    return status
+  }
+  try {
+    await cloudflareApi(accessToken, `/accounts/${accountId}/artifacts/namespaces/${encodeURIComponent(namespace)}`)
+    return
+  } catch (error) {
+    if (denied(error) !== 404) throw error
+  }
+  try {
+    await cloudflareApi(accessToken, `/accounts/${accountId}/artifacts/namespaces`, { method: 'POST', body: JSON.stringify({ namespace }) })
+  } catch (error) {
+    denied(error)
+    throw error
+  }
+}
+
 /** Browser-session grant only. No account token is persisted in the customer Server. */
 export async function enableL4Factory(accessToken: string, accountId: string, workerName: string, paidConsent: boolean, policy: { size?: 'small' | 'standard' | 'large'; timeoutSeconds?: number; processes?: number } = {}) {
   if (!paidConsent) throw createError({ statusCode: 400, statusMessage: 'Review and explicitly authorize paid Containers and Artifacts usage first' })
   const server = await readL4Server(accessToken, accountId, workerName)
   if (!server?.version) throw createError({ statusCode: 404, statusMessage: 'Select an installed L4 Server' })
   // Check available APIs before allocating or modifying anything. No subscription or plan upgrade call exists here.
-  await cloudflareApi(accessToken, `/accounts/${accountId}/containers/me`) 
+  await cloudflareApi(accessToken, `/accounts/${accountId}/containers/me`)
   const namespace = `${workerName}-factory`
+  await ensureArtifactsNamespace(accessToken, accountId, namespace)
   const sizes = { small: { instance_type: 'basic', cpu: 0.25, memoryMiB: 1024, diskBytes: 4000000000 }, standard: { instance_type: 'standard-1', cpu: 0.5, memoryMiB: 4096, diskBytes: 8000000000 }, large: { instance_type: 'standard-2', cpu: 1, memoryMiB: 6144, diskBytes: 12000000000 } }
   const size = sizes[policy.size ?? 'standard'], timeoutSeconds = policy.timeoutSeconds ?? 120, processes = policy.processes ?? 128
   if (!size || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 600 || !Number.isInteger(processes) || processes < 32 || processes > 512) throw new Error('Invalid Factory resource policy')
@@ -90,7 +119,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   // Re-upload only the installed, checksum-verified immutable release. Keep original data, assets, secrets and integrations.
   const form = new FormData()
   form.append('metadata', JSON.stringify({ main_module: 'llll-worker.mjs', compatibility_date: release.manifest.compatibilityDate, compatibility_flags: release.manifest.compatibilityFlags,
-    bindings, keep_assets: true, containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), { class_name: 'FactoryComputeDurableObject' }], tags: current.tags, annotations: current.annotations }))
+    bindings, keep_assets: true, containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), factoryScriptContainer(workerName, image, size.instance_type)], tags: current.tags, annotations: current.annotations }))
   form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
   await cloudflareApi(accessToken, `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`, { method: 'PUT', body: form })
   const deployed = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })

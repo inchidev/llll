@@ -10,6 +10,18 @@ compose() {
   # variables and remote Docker contexts from silently changing a managed Server.
   env -i PATH="$PATH" docker --host unix:///var/run/docker.sock compose --project-name "$project" --project-directory "$dir" --env-file "$dir/.env" -f "$dir/llll-compose.yml" -f "$dir/compose.vps.yml" "$@"
 }
+compose_up() {
+  say 'Waiting for Server containers. This can take several minutes.'
+  local pid status=0 pause=${LLLL_COMPOSE_POLL:-15}
+  compose up -d --wait --wait-timeout 600 >/dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$pause"
+    kill -0 "$pid" 2>/dev/null && say 'Still waiting for Server containers.'
+  done
+  wait "$pid" || status=$?
+  return "$status"
+}
 cleanup() {
   local code=$?
   trap - EXIT
@@ -158,9 +170,12 @@ validate_dir() {
   [[ $(realpath -m "$dir") == "$dir" ]] || fail 'LLLL_DIR must be canonical (no symlink parents or trailing slash).'
 }
 lock_installation() {
-  local key
+  local key lock_dir
   key=$(printf '%s' "$dir" | sha256sum | cut -c1-16)
-  exec 9>"/run/lock/llll-$key.lock"
+  lock_dir=${LLLL_LOCK_DIR:-/run/lock}
+  mkdir -p "$lock_dir" || fail 'Cannot create the installer lock directory. Create /run/lock (mode 1777) and retry.'
+  chmod 1777 "$lock_dir" 2>/dev/null || true
+  exec 9>"$lock_dir/llll-$key.lock" || fail 'Cannot open the installer lock. Create /run/lock (mode 1777) and retry.'
   flock -n 9 || fail 'Another installer/CLI operation is running for this directory.'
 }
 load_installation() {
@@ -206,7 +221,9 @@ configure_new() {
   put_env PUBLIC_ORIGIN "$origin" "$stage/.env"
   put_env LLLL_ORIGINS "$origin" "$stage/.env"
   put_env LLLL_SITE_ADDRESS "$address" "$stage/.env"
-  put_env LLLL_BIND 0.0.0.0 "$stage/.env"
+  local bind=0.0.0.0
+  if [[ $no_tls == true && $domain == 127.0.0.1 ]]; then bind=127.0.0.1; fi
+  put_env LLLL_BIND "$bind" "$stage/.env"
   put_env LLLL_HTTP_PORT "$http_port" "$stage/.env"
   put_env LLLL_HTTPS_PORT "$https_port" "$stage/.env"
   put_env LLLL_ACME_EMAIL "${LLLL_ACME_EMAIL:-$admin}" "$stage/.env"
@@ -304,7 +321,7 @@ domain_apply() {
     value=$(IFS=,; printf '%s' "${hosts[*]}")
     replace_env LLLL_SITE_ADDRESS "$value" "$dir/.env" || return 1
   fi
-  compose up -d --wait --wait-timeout 600 >/dev/null || return 1
+  compose_up || return 1
   domain_health "${seen[@]}"
 }
 domain_change() {
@@ -315,7 +332,7 @@ domain_change() {
   if [[ -n $next_primary ]]; then replace_env PUBLIC_ORIGIN "$next_primary" "$dir/.env"; fi
   if ! domain_apply "$@"; then
     install -m 600 "$previous" "$dir/.env"
-    compose up -d --wait --wait-timeout 600 >/dev/null || true
+    compose_up || true
     rm -f -- "$previous"
     fail 'The address change did not pass its checks; the previous configuration was restored.'
   fi
@@ -416,7 +433,7 @@ backup_stack() {
   chmod 600 "$archive.partial"
   mv "$archive.partial" "$archive"
   rm -rf -- "$work"
-  compose up -d --wait --wait-timeout 600 >/dev/null
+  compose_up
   restart_needed=false
   backup_result=$archive
   say "Backup: $archive"
@@ -464,7 +481,7 @@ rollback() {
   for key in rustfs-data celld-data caddy-data caddy-config; do docker volume rm "${project}_$key" >/dev/null; done
   load_installation
   restore_volumes
-  compose up -d --wait --wait-timeout 600 >/dev/null
+  compose_up
   health "$version"
   say "Recovered $version. Backup retained at $backup_result" >&2
 }
@@ -477,10 +494,11 @@ install_server() {
     [[ $version == "$pinned_version" ]] || fail 'An existing Server has another version; use llll upgrade <version>.'
     ensure_docker
     check_owned_volumes
-    compose up -d --wait --wait-timeout 600 >/dev/null
+    compose_up
     health
     install -m 700 "$dir/llll" /usr/local/bin/llll
     print_result
+    factory_rerun_notice
     return
   fi
   [[ ! -e $dir || ( -d $dir && -z $(ls -A "$dir") ) ]] || fail 'LLLL_DIR exists and is not an empty directory or a managed installation.'
@@ -505,10 +523,10 @@ install_server() {
   apply_files
   install -m 700 "$dir/llll" /usr/local/bin/llll
   say 'Starting standalone Server and checking its public origin.'
-  compose up -d --wait --wait-timeout 600 >/dev/null
+  compose_up
   health
   print_result
-  if [[ ${LLLL_FACTORY:-false} == true ]]; then version=$pinned_version; factory_command enable; fi
+  enable_optional_factory
 }
 upgrade_server() {
   local requested=${1:-} current=$version
@@ -548,7 +566,7 @@ apply_upgrade() {
   backup_stack
   local result
   set +e
-  (trap - EXIT; set -e; apply_files; compose up -d --wait --wait-timeout 600 >/dev/null; health)
+  (trap - EXIT; set -e; apply_files; compose_up; health)
   result=$?
   set -e
   if [[ $result != 0 ]]; then rollback; fail 'Upgrade did not succeed; previous Server restored.'; fi
@@ -577,7 +595,7 @@ restore_server() {
   restore_files
   load_installation
   restore_volumes
-  compose up -d --wait --wait-timeout 600 >/dev/null
+  compose_up
   health "$version"
   install -m 700 "$dir/llll" /usr/local/bin/llll
   say "Restored Server $version: $(get_env PUBLIC_ORIGIN). Preserve its DNS/origin and encryption secrets."
@@ -592,7 +610,7 @@ uninstall_server() {
   fi
   check_owned_volumes
   if [[ $backup == true ]]; then backup_stack; fi
-  if [[ -f /etc/systemd/system/$(factory_service).service ]]; then systemctl disable --now "$(factory_service)"; fi
+  if [[ -f /etc/systemd/system/$(factory_service).service ]] && systemd_available; then systemctl disable --now "$(factory_service)"; fi
   compose down --remove-orphans >/dev/null
   if [[ $purge == true ]]; then
     for key in rustfs-data celld-data caddy-data caddy-config; do docker volume rm "${project}_$key" >/dev/null; done
@@ -601,18 +619,55 @@ uninstall_server() {
   say "Stopped $project. Live volumes purged: $purge. Configuration: $dir. Backups: $backup_dir"
 }
 factory_service() { printf 'llll-factory-%s' "$project"; }
+systemd_available() { [[ -d ${LLLL_SYSTEMD_DIR:-/run/systemd/system} ]]; }
+require_factory_systemd() {
+  systemd_available || fail 'Factory status, logs, restart, disable and backup need systemd as PID 1 (/run/systemd/system). On a host without systemd, start the released node by hand. See the Software Factory docs. Source disks stay on disk.'
+}
+workspace_image_accepted() {
+  local loaded=$1 pin
+  [[ $loaded =~ ^sha256:[a-f0-9]{64}$ ]] || return 1
+  while IFS= read -r pin; do
+    [[ -n $pin && $loaded == "$pin" ]] && return 0
+  done < <(jq -r '[.image, .configDigest, .indexDigest] | .[] | select(. != null and . != "")' "$stage/llll-factory.json")
+  return 1
+}
+factory_rerun_notice() {
+  if [[ ${LLLL_FACTORY:-false} == true && ! -f $dir/factory/factory.env ]]; then
+    say 'LLLL_FACTORY=true was set, but this installation has no Factory executor yet. Enable it with: sudo llll factory enable --trust-shared-kernel'
+  fi
+}
+enable_optional_factory() {
+  [[ ${LLLL_FACTORY:-false} == true ]] || return 0
+  version=$pinned_version
+  # A failed optional step must not exit the Server install or run the EXIT trap that deletes the download stage.
+  if ! (trap - EXIT; factory_command enable); then
+    say 'Server installed. Optional Factory did not start. Retry with: sudo llll factory enable --trust-shared-kernel'
+    say 'A host without systemd can use: sudo llll factory enable --trust-shared-kernel --no-systemd'
+  fi
+}
 factory_command() {
   local action=${1:-status} unit image architecture hash asset expected
   unit=$(factory_service)
   case "$action" in
     enable)
-      [[ ${2:-} == --trust-shared-kernel || ${LLLL_SHARED_KERNEL_TRUSTED:-} == 1 ]] || fail 'Docker shares the host kernel. Run llll factory enable --trust-shared-kernel only for trusted code/users.'
-      for asset in systemctl fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$asset"; done
+      local trust=false no_systemd=false option tool tag loaded
+      for option in "${@:2}"; do
+        case "$option" in
+          --trust-shared-kernel) trust=true ;;
+          --no-systemd) no_systemd=true ;;
+          *) fail "Unknown option: $option" ;;
+        esac
+      done
+      [[ $trust == true || ${LLLL_SHARED_KERNEL_TRUSTED:-} == 1 ]] || fail 'Docker shares the host kernel. Run llll factory enable --trust-shared-kernel only for trusted code/users.'
+      [[ ${LLLL_FACTORY_NO_SYSTEMD:-} == 1 ]] && no_systemd=true
+      for tool in fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$tool"; done
+      if [[ $no_systemd != true ]]; then need systemctl; fi
       [[ $(uname -m) == x86_64 ]] || fail 'The released Compute Node supports Linux amd64.'
       [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 7516192768 ]] || fail 'Factory needs 7 GiB free disk capacity, including reserve for the Server.'
       [[ $(awk '/MemAvailable:/ {print $2}' /proc/meminfo) -ge 2097152 ]] || fail 'Factory needs 2 GiB available RAM, including reserve for the Server.'
       release_metadata "$version"
       validate_metadata "$version"
+      say 'Downloading the verified Factory image and Compute Node.'
       for asset in llll-factory.json llll-compute-node-linux-amd64.tgz llll-workspace-linux-amd64.tar.gz; do
         hash=$(manifest_hash "$asset")
         fetch "$base/$asset" "$stage/$asset"
@@ -628,17 +683,23 @@ factory_command() {
         case "$asset" in node|LICENSE.node|src/|src/*.mjs) [[ $asset != *..* ]] || exit 1 ;; *) exit 1 ;; esac
       done || fail 'Unsafe Compute Node archive'
       tar -tvzf "$stage/llll-compute-node-linux-amd64.tgz" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" {exit 1}' || fail 'Unsafe Compute Node archive links'
-      image=$(jq -er '.image' "$stage/llll-factory.json")
       if [[ -f $dir/factory/factory.env ]]; then
         expected=$(sed -n 's/^LLLL_WORKSPACE_IMAGE=//p' "$dir/factory/factory.env")
-        [[ $expected == "$image" ]] || fail 'The released image changed. Existing executor and source remain pinned. Export source, disable/revoke this Node in Server settings, and pair a replacement for new Tasks before changing images.'
+        workspace_image_accepted "$expected" || fail 'The released image changed. Existing executor and source remain pinned. Export source, disable/revoke this Node in Server settings, and pair a replacement for new Tasks before changing images.'
       fi
-      systemctl stop "$unit" 2>/dev/null || true
+      if [[ $no_systemd != true ]] && ! systemd_available; then
+        fail 'Factory needs systemd as PID 1 (/run/systemd/system) before it writes executor files. The Server install can continue without Factory. For a manual executor: llll factory enable --trust-shared-kernel --no-systemd'
+      fi
+      if [[ $no_systemd != true ]]; then systemctl stop "$unit" 2>/dev/null || true; fi
       install -m 700 -d "$dir/factory" "$dir/factory/releases/$version" "$dir/factory/state"
       tar -xzf "$stage/llll-compute-node-linux-amd64.tgz" --no-same-owner -C "$dir/factory/releases/$version"
       chmod 700 "$dir/factory/releases/$version/node"
+      say 'Loading the workspace image. This can take several minutes.'
       docker load -i "$stage/llll-workspace-linux-amd64.tar.gz" >/dev/null
-      image=$(jq -er '.image' "$stage/llll-factory.json")
+      tag="llll-workspace:$version"
+      loaded=$(docker image inspect "$tag" --format '{{.Id}}' 2>/dev/null) || fail "Workspace image $tag was not loaded."
+      workspace_image_accepted "$loaded" || fail "Loaded workspace image $loaded does not match a published Factory digest. Classic and containerd stores report different ids; the release lists image, configDigest and indexDigest."
+      image=$loaded
       architecture=$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')
       [[ $architecture == linux/amd64 ]] || fail 'Workspace image architecture mismatch'
       # Probe the actual hard-quota filesystem before installing or pairing the service.
@@ -656,6 +717,12 @@ LLLL_WORKSPACE_IMAGE=$image
 LLLL_SHARED_KERNEL_TRUSTED=1
 CONFIG
       install -m 600 "$stage/factory.env" "$dir/factory/factory.env"
+      if [[ $no_systemd == true ]]; then
+        say 'Local Factory files are ready without systemd. Claim the Server Owner, then start the executor with the environment file above:'
+        say "$dir/factory/releases/$version/node $dir/factory/releases/$version/src/pair-local.mjs $dir/.env"
+        say "$dir/factory/releases/$version/node $dir/factory/releases/$version/src/daemon.mjs"
+        say "Keep LLLL_SERVER_ORIGIN, LLLL_NODE_STATE, LLLL_WORKSPACE_IMAGE and LLLL_SHARED_KERNEL_TRUSTED from $dir/factory/factory.env."
+      else
       cat > "$stage/$unit.service" <<UNIT
 [Unit]
 Description=L4 trusted local Compute Node ($project)
@@ -681,12 +748,14 @@ UNIT
       systemctl daemon-reload
       systemctl enable --now "$unit"
       say 'Local Factory installed. Claim the Server Owner first if needed; pairing then happens automatically. Open Settings → Repositories to select this executor. Existing remote providers are preserved.'
+      fi
       ;;
-    status) systemctl --no-pager status "$unit" ;;
-    logs) journalctl -u "$unit" -n 100 --no-pager ;;
-    restart) systemctl restart "$unit" ;;
-    disable) systemctl disable --now "$unit"; say 'Local executor stopped. All source disks and recovery receipts retained.' ;;
+    status) require_factory_systemd; systemctl --no-pager status "$unit" ;;
+    logs) require_factory_systemd; journalctl -u "$unit" -n 100 --no-pager || fail 'Could not read Factory logs. systemd journal is unavailable.' ;;
+    restart) require_factory_systemd; systemctl restart "$unit" ;;
+    disable) require_factory_systemd; systemctl disable --now "$unit"; say 'Local executor stopped. All source disks and recovery receipts retained.' ;;
     backup)
+      require_factory_systemd
       [[ -d $dir/factory/state ]] || fail 'No local Factory state exists.'
       systemctl stop "$unit"
       sync
@@ -699,12 +768,17 @@ UNIT
       ;;
     remove)
       [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. Delete source only through explicitly reviewed workspace release actions.'
-      systemctl disable --now "$unit" 2>/dev/null || true
-      rm -f -- "/etc/systemd/system/$unit.service"
-      systemctl daemon-reload
+      if systemd_available; then
+        systemctl disable --now "$unit" 2>/dev/null || true
+        rm -f -- "/etc/systemd/system/$unit.service"
+        systemctl daemon-reload || fail 'Could not reload systemd after removing the Factory service.'
+      else
+        rm -f -- "/etc/systemd/system/$unit.service"
+        say 'systemd is not running. No service was stopped. Stop any manual node process yourself.'
+      fi
       say "Service removed. Source, binaries, private receipts and backups retained in $dir/factory and $backup_dir."
       ;;
-    *) fail 'Usage: llll factory enable --trust-shared-kernel|status|logs|restart|disable|backup|remove --keep-source' ;;
+    *) fail 'Usage: llll factory enable --trust-shared-kernel [--no-systemd]|status|logs|restart|disable|backup|remove --keep-source' ;;
   esac
 }
 
@@ -740,7 +814,7 @@ main() {
       case "$command" in
         status) compose ps; say "Version $version; $(get_env PUBLIC_ORIGIN)" ;;
         logs) compose logs --tail 100 --follow ;;
-        start) compose up -d --wait --wait-timeout 600 >/dev/null; health "$version" ;;
+        start) compose_up; health "$version" ;;
         stop) compose stop ;;
         backup) backup_stack ;;
         upgrade) upgrade_server "${1:-}" ;;

@@ -7,6 +7,7 @@ import * as githubAgent from '../../server/utils/github-agent-client'
 import { findAgentRun } from '../../server/utils/agent-run-service'
 import { FactoryOutbound } from '../../workers/factory-outbound'
 import { FactoryComputeDurableObject } from '../../workers/factory-compute'
+import { factoryRepositoryName } from '../../shared/software-factory'
 import type { AgentRun } from '../../shared/agent-execution'
 import type { L4Env } from '../../workers/env'
 
@@ -172,11 +173,17 @@ async function provisioningFixture() {
     layers: [{ file: 'llll-workspace-layer-0.tar.gz', digest: 'sha256:' + sha(layer), size: Buffer.byteLength(layer) }] })
   const assets: Record<string, string> = { 'llll-factory.json': factory, 'llll-workspace-config.json': config, 'llll-workspace-layer-0.tar.gz': layer, 'llll-workspace-manifest.json': manifest }
   const expectedImage = `registry.cloudflare.com/${accountId}/${workerName}-factory@sha256:${sha(manifest)}`
-  const state = { tamper: '', redirectUpload: false, uploaded: false, application: null as null | Record<string, unknown>, existingImage: '', paidUnavailable: false }
+  const state = { tamper: '', redirectUpload: false, uploaded: false, application: null as null | Record<string, unknown>, existingImage: '', paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
   const calls: Array<{ path: string; init?: RequestInit }> = [], requests: Array<{ url: string; init?: RequestInit }> = []
   const api = vi.fn(async (_token: string, path: string, init?: RequestInit) => {
     calls.push({ path, init })
     if (path.endsWith('/containers/me')) { if (state.paidUnavailable) throw new Error('Workers Paid or Containers access required'); return {} }
+    if (path.includes('/artifacts/namespaces')) {
+      if (state.artifactsDenied) throw Object.assign(new Error('forbidden'), { statusCode: 403 })
+      if (init?.method === 'POST') return { namespace: workerName + '-factory' }
+      if (state.artifactsMissing) { state.artifactsMissing = false; throw Object.assign(new Error('missing'), { statusCode: 404 }) }
+      return { name: workerName + '-factory' }
+    }
     if (path.endsWith('/registries/registry.cloudflare.com/credentials')) return { username: 'v1', password: 'registry-secret' }
     if (path.includes('/workers/scripts/')) { state.uploaded = true; return {} }
     if (path.endsWith('/containers/applications')) return init?.method === 'POST' ? { id: 'application-id' } : state.application ? [state.application] : []
@@ -223,6 +230,22 @@ it('paid provisioning requires explicit consent and stops before writes when pro
   expect(fixture.requests).toEqual([])
 })
 
+it('refuses Factory provisioning when the Cloudflare grant is missing Artifacts scopes', async () => {
+  const fixture = await provisioningFixture()
+  fixture.state.artifactsDenied = true
+  await expect(fixture.enable()).rejects.toThrow('Reconnect Cloudflare and approve Artifacts Read and Artifacts Write')
+  expect(fixture.calls.some(call => call.path.includes('/workers/scripts/'))).toBe(false)
+  expect(fixture.calls.some(call => call.init?.method === 'POST')).toBe(false)
+  expect(fixture.requests).toEqual([])
+})
+
+it('creates the Artifacts namespace when the account does not have one yet', async () => {
+  const fixture = await provisioningFixture()
+  fixture.state.artifactsMissing = true
+  await fixture.enable()
+  expect(fixture.calls.some(call => call.path.endsWith('/artifacts/namespaces') && call.init?.method === 'POST')).toBe(true)
+})
+
 it('provisions only verified release blobs, preserves existing bindings and never stores the browser account credential', async () => {
   const fixture = await provisioningFixture()
   expect(await fixture.enable()).toMatchObject({ state: 'provisioning', image: fixture.expectedImage, origin: 'https://customer.example' })
@@ -234,7 +257,7 @@ it('provisions only verified release blobs, preserves existing bindings and neve
   expect(metadata.bindings).toContainEqual(expect.objectContaining({ type: 'artifacts', name: 'FACTORY_CODE' }))
   expect(metadata.bindings).not.toContainEqual(expect.objectContaining({ type: 'r2_bucket' }))
   expect(metadata.containers).toContainEqual({ class_name: 'AgentComputeDurableObject' })
-  expect(metadata.containers).toContainEqual({ class_name: 'FactoryComputeDurableObject' })
+  expect(metadata.containers).toContainEqual(expect.objectContaining({ class_name: 'FactoryComputeDurableObject', image: fixture.expectedImage, instance_type: 'standard-1', max_instances: 1, name: 'llll-' + ids.server + '-factory' }))
   expect(await (form.get('llll-worker.mjs') as Blob).text()).toBe('published immutable module')
   expect(JSON.stringify(metadata)).not.toContain('browser-cloudflare-grant')
   expect(JSON.stringify(metadata)).not.toContain('registry-secret')
@@ -338,7 +361,7 @@ it('runs approved Cloud bootstrap through scoped claim, durable checkpoint/recei
   expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'completed' })
   expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1, status: 'ready' })
   expect(fixture.grant).toHaveBeenCalledTimes(1)
-  expect(fixture.artifacts.create).toHaveBeenCalledWith('l4-' + ids.server.replaceAll('-', '') + '-' + workspaceId.replaceAll('-', ''), expect.anything())
+  expect(fixture.artifacts.create).toHaveBeenCalledWith(factoryRepositoryName(ids.server, workspaceId), expect.anything())
   expect(fixture.phases.map(phase => phase.phase)).toEqual(['source', 'command', 'checkpoint'])
   expect(fixture.phases[0]).toMatchObject({ token: 'upstream-read-only-capability', remote: 'https://github.com/inchidev/afterprompt.git' })
   expect(JSON.stringify(fixture.inputs)).not.toContain('capability')

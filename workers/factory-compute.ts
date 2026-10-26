@@ -1,7 +1,7 @@
 import type {} from '../types/agent-exports'
 import { DurableObject } from 'cloudflare:workers'
 import type { L4Env } from './env'
-import { cloudflareCapabilities } from '../shared/software-factory'
+import { cloudflareCapabilities, factoryImageAccepted, factoryRepositoryName } from '../shared/software-factory'
 import { actionColumns, authorizeFactoryAction, type ActionRow } from '../server/utils/factory-actions'
 import { computePoll, computePollSchema } from '../server/utils/compute-nodes'
 import { readLimitedStream } from './inbound-email-signature'
@@ -25,16 +25,21 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       const container = this.ctx.container
       try {
         if (container.running) await container.destroy()
-        container.start({ entrypoint: ['/bin/sleep', 'infinity'], enableInternet: false })
+        await container.start({ entrypoint: ['/bin/sleep', 'infinity'], enableInternet: false })
         await container.setInactivityTimeout(1000)
         for (let attempt = 0; ; attempt++) {
           try { const process = await container.exec(['/usr/local/bin/node', '-e', 'if(process.getuid()!==1000)process.exit(1)'], { user: '1000:1000', stdout: 'ignore', stderr: 'ignore' }); if (await process.exitCode !== 0) throw new Error('Image user mismatch'); break }
           catch (error) { if (attempt >= 60) throw error; await scheduler.wait(500) }
         }
         const running = await container.inspect()
-        if (!running || running.image !== this.env.FACTORY_IMAGE) throw new Error('Released container image mismatch')
+        if (!factoryImageAccepted(running?.image, this.env.FACTORY_IMAGE ?? '')) throw new Error('Released container image mismatch')
         return Response.json({ ready: true })
-      } finally { if (container.running) await container.destroy() }
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : 'Container probe failed'
+        return Response.json({ ready: false, message }, { status: 503 })
+      } finally {
+        try { if (container.running) await container.destroy() } catch { /* Teardown must not replace the probe result. */ }
+      }
     }
     if (request.method !== 'POST' || !/^[a-f0-9-]{36}$/u.test(id)) return new Response('Invalid action', { status: 400 })
     const row = await this.env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(id).first<ActionRow>()
@@ -110,7 +115,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     const container = this.ctx.container
     const started = Date.now()
     let checkpoint = await this.ctx.storage.get<Checkpoint>('checkpoint')
-    const repository = `l4-${context.auth.serverId.replaceAll('-', '')}-${context.workspace.id.replaceAll('-', '')}`
+    const repository = factoryRepositoryName(context.auth.serverId, context.workspace.id)
     const sourceToken = 'sourceToken' in job ? job.sourceToken : undefined
     const tokens: string[] = []
     let repo: ArtifactsRepo | undefined
@@ -126,14 +131,14 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       } else {
         if (container.running) await container.destroy()
         // Default policy enforces non-root permissions; this released image is reset for every operation.
-        container.start({ entrypoint: ['/bin/sleep', 'infinity'], enableInternet: false })
+        await container.start({ entrypoint: ['/bin/sleep', 'infinity'], enableInternet: false })
         await container.setInactivityTimeout(1000)
         for (let attempt = 0; ; attempt++) {
           try { const probe = await container.exec(['/usr/local/bin/node', '--version'], { user: '1000:1000', stdout: 'ignore', stderr: 'ignore' }); await probe.exitCode; break }
           catch (error) { if (attempt >= 60) throw error; await scheduler.wait(500) }
         }
         const running = await container.inspect()
-        if (!running || running.image !== capabilities.image) throw new Error('Running container image differs from the approved digest')
+        if (!factoryImageAccepted(running?.image, capabilities.image)) throw new Error('Running container image differs from the approved digest')
         const phase = async (kind: 'source' | 'restore' | 'command' | 'checkpoint', remote?: string, token?: string) => {
           await container.interceptOutboundHttps('*', this.ctx.exports.FactoryOutbound({ props: { actionId, lease: claim.lease, phase: kind, remote, token } }))
         }

@@ -76,7 +76,16 @@ async function copyAddress(origin: string) {
 }
 const factoryMode = computed(() => route.query?.factory === '1')
 const factorySize = ref<'small' | 'standard' | 'large'>('standard'), factoryTimeout = ref(120), factoryProcesses = ref(128)
+const factoryConsentKey = computed(() => `llll-factory-consent:${String(route.query?.account || '')}:${String(route.query?.worker || '')}`)
 const factoryConsent = ref(false), factoryConnected = ref(false)
+function restoreFactoryConsent() {
+  if (typeof sessionStorage === 'undefined') return
+  factoryConsent.value = sessionStorage.getItem(factoryConsentKey.value) === '1'
+}
+watch(factoryConsent, value => {
+  if (typeof sessionStorage === 'undefined') return
+  try { sessionStorage.setItem(factoryConsentKey.value, value ? '1' : '0') } catch { /* Private browsing can reject storage. The checkbox still works for this view. */ }
+})
 async function enableFactory() {
   busy.value = true; error.value = ''
   try { await $fetch('/api/deploy/factory/enable', { method: 'POST', body: { accountId: String(route.query.account || ''), workerName: String(route.query.worker || ''), paidConsent: factoryConsent.value, size: factorySize.value, timeoutSeconds: factoryTimeout.value, processes: factoryProcesses.value }, timeout: 600000 }); factoryConnected.value = true }
@@ -148,7 +157,11 @@ async function refresh() {
   } catch (cause) {
     const status = (cause as { status?: number }).status
     if ([401, 403].includes(status || 0)) { session.value = null; sessionEnded.value = remembered.value.length > 0 }
-    else if (status !== 503) error.value = 'Could not load the Cloudflare connection. Try again.'
+    else {
+      const detail = (cause as { data?: { error?: { message?: string } } }).data?.error?.message
+      const safe = typeof detail === 'string' ? detail.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').slice(0, 220) : ''
+      error.value = safe ? `Could not load the Cloudflare connection. ${safe}` : `Could not load the Cloudflare connection${status ? ` (HTTP ${status})` : ''}. Try again.`
+    }
   }
 }
 let request = 0
@@ -272,13 +285,19 @@ async function runUpdate() {
 async function leaveUpdate() {
   try { await $fetch('/api/deploy/update/forget', { method: 'POST' }) } catch { /* The page still leaves update mode locally. */ }
   updateError.value = ''
-  await router.replace({ path: '/create', query: { tab: 'cloudflare' } })
+  const query: Record<string, string> = { tab: 'cloudflare' }
+  if (route.query?.factory === '1') {
+    query.factory = '1'
+    for (const key of ['account', 'worker', 'server'] as const) if (route.query?.[key]) query[key] = String(route.query[key])
+  }
+  await router.replace({ path: '/create', query })
   await refresh()
   void loadServers()
 }
 let clock: ReturnType<typeof setInterval> | undefined
 onUnmounted(() => { clearInterval(clock); for (const probe of probes) probe.abort(); request++ })
 onMounted(async () => {
+  restoreFactoryConsent()
   remembered.value = readDeployedServers()
   try { config.value = await $fetch('/api/deploy/config') }
   catch { error.value = 'Could not load Cloudflare configuration. Try again.' }
@@ -316,6 +335,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
       <UFormField label="Command timeout (seconds, up to 600)"><UInput v-model.number="factoryTimeout" type="number" :min="1" :max="600" /></UFormField>
       <UFormField label="Maximum processes (32–512)"><UInput v-model.number="factoryProcesses" type="number" :min="32" :max="512" /></UFormField>
       <UCheckbox v-model="factoryConsent" label="I reviewed these resources and authorize their usage charges in my Cloudflare account." />
+      <p v-if="connected && !factoryConsent && !factoryConnected" class="text-sm text-muted">Tick the checkbox to enable Provision. This browser keeps that choice across the Cloudflare redirect.</p>
       <UButton v-if="!factoryConnected" :to="oauthUrl" external :label="connected ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" color="neutral" variant="outline" />
       <UButton v-if="!factoryConnected" label="Provision Factory" :disabled="!connected || !factoryConsent" :loading="busy" @click="enableFactory" />
       <UAlert v-else title="Factory resources provisioned" description="Return to Settings → Repositories on your Server and activate Factory. Provisioning may take several minutes." color="success" />
@@ -402,7 +422,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
       </div>
     </UForm>
     </template>
-    <template v-else>
+    <template v-else-if="updateMode">
       <section class="space-y-4 rounded-lg border border-default p-4">
         <template v-if="update">
           <div>

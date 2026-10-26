@@ -1,6 +1,6 @@
 import type { L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
-import { cloudflareCapabilities } from '../../shared/software-factory'
+import { cloudflareCapabilities, factoryProbeRepositoryName } from '../../shared/software-factory'
 import { requireComputeOwner } from './compute-nodes'
 import { factoryHash } from './factory-authority'
 import { getServerId } from '../../shared/server-id'
@@ -10,7 +10,7 @@ import { fail } from './cf'
 export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   requireComputeOwner(auth)
   const nodes = await env.DB.prepare('SELECT id,name,enabled,last_seen AS lastSeen,capabilities_json AS capabilitiesJson FROM compute_nodes ORDER BY created_at').all<{ id: string; name: string; enabled: number; lastSeen: string | null; capabilitiesJson: string }>()
-  const placement = env.LLLL_RUNTIME === 'celld' ? 'vps' : 'cloudflare'
+  const placement = env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld' ? 'vps' : 'cloudflare'
   const cloud = nodes.results.find(node => placement === 'vps' ? node.name === 'Local VPS executor' : JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers')
   const limits = cloud ? JSON.parse(cloud.capabilitiesJson) : env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : null
   const resources = Boolean(env.FACTORY_COMPUTE && env.FACTORY_CODE && env.FACTORY_IMAGE)
@@ -21,7 +21,14 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
     cli: placement === 'vps' ? 'sudo llll factory enable --trust-shared-kernel' : null,
     durability: 'Task code, Git history and pending source edits are checkpointed. Dependencies, build output, process memory and running services are disposable.',
-    costs: 'Cloudflare compute, code storage and network usage are billed separately from model-provider usage. Activation does not upgrade your plan.' }
+    costs: placement === 'vps'
+      ? 'This VPS executor uses your host CPU, disk and network. Model-provider usage is billed separately.'
+      : 'Cloudflare compute, code storage and network usage are billed separately from model-provider usage. Activation does not upgrade your plan.' }
+}
+function artifactToken(token: unknown) {
+  if (typeof token === 'string' && token) return token
+  if (token && typeof token === 'object' && 'id' in token && typeof token.id === 'string') return token.id
+  return ''
 }
 export async function configureCloudflareFactory(env: L4Env, auth: AuthorizationContext, enabled: boolean) {
   requireComputeOwner(auth)
@@ -29,11 +36,28 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   if (enabled) {
     const serverId = await getServerId(env.DB)
     const probe = await env.FACTORY_COMPUTE.getByName(`probe:${serverId}`).fetch(new Request('http://factory/probe', { method: 'POST' }))
-    if (!probe.ok) fail(503, 'factory_provisioning', 'Container resources are still provisioning or unavailable. Retry activation after checking provider access.')
-    const name = `l4-probe-${serverId.replaceAll('-', '')}-${newId().replaceAll('-', '')}`
-    const created = await env.FACTORY_CODE.create(name)
-    try { using repository = await env.FACTORY_CODE.get(name); await repository.revokeToken(created.token) }
-    finally { await env.FACTORY_CODE.delete(name) }
+    if (!probe.ok) {
+      let detail = ''
+      try {
+        const body = await probe.json() as { message?: string }
+        if (body?.message) detail = ` ${body.message}`
+      } catch { /* The status is enough when the probe body is not JSON. */ }
+      fail(503, 'factory_provisioning', `Container resources are still provisioning or unavailable.${detail} Retry activation after checking provider access.`)
+    }
+    const name = factoryProbeRepositoryName(serverId, newId())
+    try {
+      const created = await env.FACTORY_CODE.create(name)
+      const token = artifactToken(created.token)
+      if (!token) throw new Error('Artifacts did not return a revocable token')
+      let repository: Awaited<ReturnType<NonNullable<L4Env['FACTORY_CODE']>['get']>> | undefined
+      try { repository = await env.FACTORY_CODE.get(name) }
+      catch { await new Promise(resolve => setTimeout(resolve, 50)); repository = await env.FACTORY_CODE.get(name) }
+      await repository.revokeToken(token)
+    } catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error) throw error
+      const message = error instanceof Error && error.message ? error.message : 'Artifacts request failed'
+      fail(502, 'factory_artifacts', `Factory code storage is unavailable: ${message}. Reconnect Cloudflare and approve Artifacts Read and Artifacts Write, then provision again.`)
+    } finally { await env.FACTORY_CODE.delete(name).catch(() => undefined) }
   }
   const existing = await env.DB.prepare("SELECT id,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='cloudflare-containers' ORDER BY created_at LIMIT 1").first<{ id: string; capabilitiesJson: string }>()
   const limits = env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : { diskBytes: 8000000000, cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000 }

@@ -57,3 +57,23 @@ export const cloudflareCapabilities = z.object({ provider: z.literal('cloudflare
   memoryMiB: z.number().int().min(256).max(12288), cpu: z.number().positive().max(4), processLimit: z.number().int().min(32).max(512), codeBytes: z.literal(500000000), timeoutMs: z.number().int().min(1000).max(600000),
 }).strict()
 export const computeCapabilities = z.union([dockerCapabilities, cloudflareCapabilities])
+
+/** Artifacts repository names allow 2–63 characters. Two UUIDs do not fit. */
+export function factoryRepositoryName(serverId: string, workspaceId: string) {
+  const hex = (value: string) => value.replaceAll('-', '').slice(0, 20)
+  return `l4${hex(serverId)}${hex(workspaceId)}`
+}
+
+export function factoryProbeRepositoryName(serverId: string, nonce: string) {
+  const hex = (value: string) => value.replaceAll('-', '').slice(0, 12)
+  return `l4probe${hex(serverId)}${hex(nonce)}`
+}
+
+/** Default policy does not echo the application image through inspect() unless start() was given one. An empty report is the approved image. A reported digest must match. */
+export function factoryImageAccepted(reported: string | undefined, expected: string) {
+  const digest = /sha256:[a-f0-9]{64}$/u
+  const expectedDigest = expected.match(digest)?.[0]
+  if (!expectedDigest) return false
+  if (!reported) return true
+  return reported.match(digest)?.[0] === expectedDigest
+}

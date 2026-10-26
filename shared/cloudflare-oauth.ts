@@ -7,7 +7,9 @@ export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
 // Groups: provisioning (accounts, Workers, D1, KV, R2),
 // custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
 // and optional provider configuration (browser rendering, containers,
-// realtime, queues). The encrypted installer grant is retained only within the
+// Artifacts, realtime, queues). Factory provisioning needs Artifacts Read
+// and Artifacts Write (`artifacts.read`, `artifacts.write`). The encrypted
+// installer grant is retained only within the
 // browser's bounded deployment session, allowing another Server to be created.
 // workers-scripts.admin
 // is the new-model Admin role: the legacy Workers Scripts Write group
@@ -26,6 +28,7 @@ export const CLOUDFLARE_SCOPES = [
   'email-sending.read', 'email-sending.write',
   'browser-rendering.read',
   'containers.read', 'containers.write',
+  'artifacts.read', 'artifacts.write',
   'realtime.read', 'realtime.write',
   'queues.read', 'queues.write',
 ].join(' ')

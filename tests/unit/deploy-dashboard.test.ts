@@ -26,12 +26,17 @@ const Select = defineComponent({
 })
 const Form = defineComponent({ emits: ['submit'], setup: (_, { emit, slots }) => () => h('form', { onSubmit: event => { event.preventDefault(); emit('submit') } }, slots.default?.()) })
 const Field = defineComponent({ props: ['label'], setup: (props, { slots }) => () => h('label', [props.label, slots.default?.()]) })
-const Alert = defineComponent({ props: ['description'], setup: props => () => h('p', props.description) })
-const stubs = { UButton: Button, UInput: Input, USelect: Select, UForm: Form, UFormField: Field, UAlert: Alert, UBadge: { template: '<span><slot /></span>' }, UIcon: true }
+const Alert = defineComponent({ props: ['description', 'title'], setup: props => () => h('p', [props.title, props.description].filter(Boolean).join(' ')) })
+const Checkbox = defineComponent({
+  props: ['modelValue', 'label'], emits: ['update:modelValue'],
+  setup: (props, { emit }) => () => h('label', [props.label, h('input', { type: 'checkbox', checked: Boolean(props.modelValue), onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).checked) })]),
+})
+const stubs = { UButton: Button, UInput: Input, USelect: Select, UForm: Form, UFormField: Field, UAlert: Alert, UCheckbox: Checkbox, UBadge: { template: '<span><slot /></span>' }, UIcon: true }
 
 beforeEach(() => {
   vi.useFakeTimers()
   localStorage.clear()
+  sessionStorage.clear()
   const state = new Map<string, Ref<unknown>>()
   vi.stubGlobal('useState', (key: string, create: () => unknown) => {
     if (!state.has(key)) state.set(key, ref(create()))
@@ -194,4 +199,39 @@ it('restores the Finish setup action after losing the original tab and installer
   row = view.findAll('li').find(row => row.text().includes('Unclaimed Server'))!
   expect(row.findAll('a').find(a => a.text() === 'Finish setup on your Server')?.attributes('href')).toContain('#claim=')
   expect(localStorage.getItem('llll.deploy-recall.v1')).not.toContain(claim)
+})
+
+it('keeps Factory provisioning on its own page and restores consent after the Cloudflare redirect', async () => {
+  const worker = 'llll-worker'
+  sessionStorage.setItem(`llll-factory-consent:${account}:${worker}`, '1')
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker, server: 'https://customer.example' } }))
+  const view = await render()
+  expect(view.text()).toContain('Enable Software Factory')
+  expect(view.text()).not.toContain('Update not loaded')
+  expect(view.text()).not.toContain('Add a server instead')
+  expect(view.text()).not.toContain('Tick the checkbox')
+  expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
+  expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
+})
+
+it('asks for Factory consent again when the checkbox was not kept', async () => {
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'llll-worker', server: 'https://customer.example' } }))
+  const view = await render()
+  expect(view.text()).toContain('Tick the checkbox to enable Provision')
+  const provision = view.findAll('button').find(button => button.text() === 'Provision Factory')
+  expect(provision?.attributes('disabled')).toBeDefined()
+  await view.get('input[type="checkbox"]').setValue(true)
+  expect(sessionStorage.getItem(`llll-factory-consent:${account}:llll-worker`)).toBe('1')
+  expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
+})
+
+it('shows why the Cloudflare connection could not be loaded', async () => {
+  api.mockImplementation(async (path: string) => {
+    if (path === '/api/deploy/config') return { oauth: true }
+    if (path === '/api/deploy/releases') return { releases: [] }
+    if (path === '/api/deploy/session') throw Object.assign(new Error('[GET] "/api/deploy/session": 502'), { status: 502, data: { error: { message: 'Cloudflare could not complete GET /accounts (502): timeout' } } })
+    throw new Error('Unexpected API request ' + path)
+  })
+  const view = await render()
+  expect(view.text()).toContain('Could not load the Cloudflare connection. Cloudflare could not complete GET /accounts (502): timeout')
 })

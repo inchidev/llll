@@ -63,7 +63,8 @@ it('builds a portable Node payload and an independently verifiable OCI config/la
     execFileSync(process.execPath, [script], { cwd: directory, env: { ...process.env, PATH: bin + ':' + process.env.PATH }, timeout: 30000, stdio: 'pipe' })
     const output = join(directory, '.installer/factory')
     const manifest = JSON.parse(readFileSync(join(output, 'llll-factory.json'), 'utf8'))
-    expect(manifest).toMatchObject({ schemaVersion: 1, version, image: imageId })
+    expect(manifest).toMatchObject({ schemaVersion: 1, version, image: imageId, configDigest: imageId })
+    expect(manifest.indexDigest).toBeUndefined()
     for (const [file, metadata] of Object.entries(manifest.files) as Array<[string, { sha256: string; size: number }]>) {
       const bytes = readFileSync(join(output, file))
       expect(metadata).toEqual({ sha256: sha256(bytes), size: bytes.length })
