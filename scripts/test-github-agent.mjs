@@ -18,6 +18,7 @@ const bundle = await build({
     } };
   `, resolveDir: process.cwd() },
   bundle: true, write: false, platform: 'browser', format: 'esm', target: 'es2022',
+  loader: { '.sql': 'text' },
   absWorkingDir: resolve('.'),
 })
 let redirectAt = null

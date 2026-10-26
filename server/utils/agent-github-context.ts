@@ -19,7 +19,7 @@ const pagination = (page: number, length: number) => ({ page, nextPage: length =
 /** No model-selected URL/repository/method. Current Task, Role and frozen repository scope govern every read. */
 async function reader(env: L4Env, runId: string, access: 'read' | 'issues' | 'pull_request_read') {
   const { environment } = await codeRun(env, runId)
-  const client = await githubAgentClient(env, { installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId, access }, async () => { await codeRun(env, runId) })
+  const client = await githubAgentClient(env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId, access }, async () => { await codeRun(env, runId) })
   return { environment, async get(path: string) {
     const result = await client.json(`/repos/${environment.sourceRepo}${path}`)
     await codeRun(env, runId)

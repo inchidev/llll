@@ -12,7 +12,8 @@
     "directory": ".output/public"
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "redact_query_string": true
   },
   "placement": {
     "mode": "smart"

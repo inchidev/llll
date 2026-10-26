@@ -8,5 +8,7 @@ import { agentRepositories, githubAgentConfigured } from '../../utils/github-age
 export default defineEventHandler(async event => {
   const { env } = cf(event)
   const actor = await requireMember(event, await getServerId(env.DB), Permission.manageServer)
-  return { configured: githubAgentConfigured(env), repositories: (await agentRepositories(env)).filter(repo => resourceAllowed(actor.authorization, 'repositories', String(repo.id))) }
+  const connectionId = getQuery(event).connectionId
+  if (connectionId !== undefined && (typeof connectionId !== 'string' || !/^[a-f0-9-]{36}$/u.test(connectionId))) throw createError({ statusCode: 400, message: 'Invalid Git connection' })
+  return { configured: await githubAgentConfigured(env, connectionId as string | undefined), repositories: (await agentRepositories(env, fetch, connectionId as string | undefined)).filter(repo => resourceAllowed(actor.authorization, 'repositories', String(repo.id))) }
 })

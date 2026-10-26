@@ -17,7 +17,7 @@ export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<
   const { environment: item } = await codeRun(env, runId)
   const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
   // Revalidate the dedicated App grant even when private code is already cached.
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
+  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const cached = await fileStorage(env).get(key)
   if (cached && cached.size <= 20000000) {
     await codeRun(env, runId)
@@ -69,7 +69,7 @@ export async function codeRun(env: L4Env, id: string, write = false) {
 }
 export async function readCodeTree(env: L4Env, runId: string) {
   const { environment: item } = await codeRun(env, runId)
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
+  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const tree = z.object({ truncated: z.boolean().optional(), tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })) })
     .parse(await client.json(`/repos/${item.sourceRepo}/git/trees/${item.baseTreeSha}?recursive=1`))
   return { repository: item.sourceRepo, commit: item.baseSha, truncated: tree.truncated || tree.tree.length > 5000, files: tree.tree.slice(0, 5000) }
@@ -77,7 +77,7 @@ export async function readCodeTree(env: L4Env, runId: string) {
 export async function readCodeFile(env: L4Env, runId: string, path: string) {
   safePath.parse(path)
   const { environment: item } = await codeRun(env, runId)
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
+  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
   const file = z.object({ type: z.literal('file'), encoding: z.literal('base64'), size: z.number().max(100000), content: z.string().max(150000) })
     .parse(await client.json(`/repos/${item.sourceRepo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${item.baseSha}`))
   let content
@@ -116,8 +116,8 @@ export async function publishCodeProposal(env: L4Env, runId: string, request: z.
   }
   try {
     proposal = (await env.DB.prepare(`SELECT ${proposalColumns} FROM agent_code_proposals WHERE run_id=?`).bind(runId).first<Proposal>())!
-    const work = await githubAgentClient(env, { installationId: item.workInstallationId, repositoryId: item.workRepoId, access: 'work' }, ensure)
-    const target = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'pull_request' }, ensure)
+    const work = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.workInstallationId, repositoryId: item.workRepoId, access: 'work' }, ensure)
+    const target = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'pull_request' }, ensure)
     const validatePull = (value: unknown) => {
       const pr = pull.parse(value)
       if (pr.head.repo.id !== item.workRepoId || pr.base.repo.id !== item.sourceRepoId || pr.head.ref !== branch || pr.base.ref !== item.baseBranch) fail(409, 'proposal_mismatch', 'Pull request identity changed')
@@ -175,7 +175,7 @@ export async function codeProposalChecks(env: L4Env, runId: string) {
   const { environment: item } = await codeRun(env, runId)
   const proposal = await env.DB.prepare(`SELECT ${proposalColumns} FROM agent_code_proposals WHERE run_id=?`).bind(runId).first<Proposal>()
   if (!proposal?.pullNumber || !proposal.publishedCommitSha) fail(404, 'not_found', 'Published code proposal not found')
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'checks' }, async () => { await codeRun(env, runId) })
+  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'checks' }, async () => { await codeRun(env, runId) })
   const pr = pull.parse(await client.json(`/repos/${item.sourceRepo}/pulls/${proposal.pullNumber}`))
   if (pr.head.repo.id !== item.workRepoId || pr.head.ref !== proposal.branch || pr.base.repo.id !== item.sourceRepoId || pr.base.ref !== item.baseBranch) fail(409, 'proposal_changed', 'Pull request identity changed')
   if (pr.head.sha !== proposal.publishedCommitSha) fail(409, 'proposal_changed', 'Pull request head changed; verify the new commit separately')

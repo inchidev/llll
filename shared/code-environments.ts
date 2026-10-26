@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 const repository = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u)
 export const codeEnvironmentSchema = z.object({
+  gitConnectionId: z.string().uuid().nullable().optional(),
   name: z.string().trim().min(1).max(80),
   sourceRepo: repository, sourceRepoId: z.number().int().positive(), sourceInstallationId: z.number().int().positive(),
   workRepo: repository, workRepoId: z.number().int().positive(), workInstallationId: z.number().int().positive(),

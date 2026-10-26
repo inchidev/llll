@@ -9,5 +9,5 @@ export default defineEventHandler(async event => {
   const { env } = cf(event)
   const actor = await requireMember(event, await getServerId(env.DB))
   if (!actor.isOwner && !hasPermission(actor.perms, Permission.useComputer) && !hasPermission(actor.perms, Permission.manageServer) && !hasPermission(actor.perms, Permission.manageRoles)) fail(403, 'forbidden', 'Repository access is not granted')
-  return { configured: githubAgentConfigured(env), environments: await listCodeEnvironments(env, actor.authorization) }
+  return { deploymentConfigured: Boolean(env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY), configured: await githubAgentConfigured(env), environments: await listCodeEnvironments(env, actor.authorization) }
 })

@@ -1,27 +1,18 @@
+import { githubPkcs8 } from '../../shared/github-key'
+import { githubConnectionCredentials } from './git-connections'
 import { importPKCS8, SignJWT } from 'jose'
 import type { L4Env } from '../../workers/env'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { fail } from './cf'
 
 const version = '2026-03-10'
-export function githubAgentConfigured(env: L4Env): boolean {
-  return Boolean(env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY)
+export async function githubAgentConfigured(env: L4Env, connectionId?: string | null): Promise<boolean> {
+  if (connectionId) return Boolean(await githubConnectionCredentials(env, connectionId))
+  if (env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY) return true
+  return Boolean(await env.DB.prepare("SELECT 1 FROM git_connections WHERE provider='github' AND enabled=1 LIMIT 1").first())
 }
 
-/** GitHub downloads PKCS#1 keys; WebCrypto uses the same RSA key inside a PKCS#8 wrapper. */
-export function githubPkcs8(pem: string): string {
-  if (!pem.includes('BEGIN RSA PRIVATE KEY')) return pem
-  const binary = atob(pem.replace(/-----[^-]+-----|\s/gu, ''))
-  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
-  const der = (tag: number, value: number[]) => {
-    let length = value.length
-    const encoded = []
-    do { encoded.unshift(length & 255); length >>>= 8 } while (length)
-    return [tag, ...(value.length < 128 ? [value.length] : [128 | encoded.length, ...encoded]), ...value]
-  }
-  const wrapped = der(48, [2, 1, 0, 48, 13, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 5, 0, ...der(4, [...bytes])])
-  return `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...wrapped)).match(/.{1,64}/gu)!.join('\n')}\n-----END PRIVATE KEY-----`
-}
+export { githubPkcs8 } from '../../shared/github-key'
 
 async function decode(response: Response) {
   if (!response.ok) {
@@ -34,11 +25,11 @@ async function decode(response: Response) {
 }
 
 /** A token is limited to one repository and one operation class; it never crosses the gateway. */
-export async function githubAgentClient(env: L4Env, input: { installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' },
+export async function githubAgentClient(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' },
   ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
-  if (!githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Configure a dedicated GitHub App for agent repositories')
+  if (!await githubConnectionCredentials(env, input.connectionId)) fail(409, 'github_unconfigured', 'Choose a configured GitHub App connection for this repository')
   await ensure()
-  const jwt = await appJwt(env)
+  const jwt = await appJwt(env, input.connectionId)
   const tokenResult = await decode(await transport(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
@@ -62,17 +53,19 @@ export async function githubAgentClient(env: L4Env, input: { installationId: num
   }
 }
 
-async function appJwt(env: L4Env) {
+async function appJwt(env: L4Env, connectionId?: string | null) {
+  const config = await githubConnectionCredentials(env, connectionId)
+  if (!config) fail(409, 'github_unconfigured', 'Choose a configured GitHub App connection')
   const now = Math.floor(Date.now() / 1000)
-  const key = await importPKCS8(githubPkcs8(env.GITHUB_AGENT_APP_PRIVATE_KEY!.replace(/\\n/gu, '\n')), 'RS256')
-  return await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(env.GITHUB_AGENT_APP_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
+  const key = await importPKCS8(githubPkcs8(config.privateKey.replace(/\\n/gu, '\n')), 'RS256')
+  return await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(String(config.appId)).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
 }
 
 export type AgentRepository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
 /** Metadata-only discovery for Server administration. Execution still mints single-repository tokens. */
-export async function agentRepositories(env: L4Env, transport: typeof fetch = fetch): Promise<AgentRepository[]> {
-  if (!githubAgentConfigured(env)) return []
-  const jwt = await appJwt(env)
+export async function agentRepositories(env: L4Env, transport: typeof fetch = fetch, connectionId?: string | null): Promise<AgentRepository[]> {
+  if (!await githubConnectionCredentials(env, connectionId)) return []
+  const jwt = await appJwt(env, connectionId)
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker' })
   const request = (path: string, token: string, body?: unknown) => transport(`https://api.github.com${path}`, {
     headers: { ...headers(token), ...(body ? { 'Content-Type': 'application/json' } : {}) },

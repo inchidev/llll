@@ -1,3 +1,4 @@
+import { githubConnectionCredentials } from './git-connections'
 import { requireEnvironmentProject } from './project-service'
 import { z } from 'zod'
 import { codeEnvironmentSchema, type CodeEnvironment, type CodeEnvironmentInput, type RunEnvironment } from '../../shared/code-environments'
@@ -41,8 +42,8 @@ export async function saveCodeEnvironment(env: L4Env, auth: AuthorizationContext
     if (linked && (linked.externalId !== String(input.sourceRepoId) || linked.slug.toLowerCase() !== input.sourceRepo.toLowerCase() || linked.defaultBranch !== input.baseBranch)) fail(409, 'project_repository_changed', 'Detach the project reference before changing repository identity or base branch')
   }
   if (existing) authorizeResource(auth, 'repositories', String(existing.sourceRepoId))
-  const sourceClient = await githubAgentClient(env, { installationId: input.sourceInstallationId, repositoryId: input.sourceRepoId, access: 'read' })
-  const workClient = await githubAgentClient(env, { installationId: input.workInstallationId, repositoryId: input.workRepoId, access: 'read' })
+  const sourceClient = await githubAgentClient(env, { connectionId: input.gitConnectionId, installationId: input.sourceInstallationId, repositoryId: input.sourceRepoId, access: 'read' })
+  const workClient = await githubAgentClient(env, { connectionId: input.gitConnectionId, installationId: input.workInstallationId, repositoryId: input.workRepoId, access: 'read' })
   const source = repository.parse(await sourceClient.json(`/repos/${input.sourceRepo}`))
   const work = repository.parse(await workClient.json(`/repos/${input.workRepo}`))
   if (source.id !== input.sourceRepoId || work.id !== input.workRepoId || source.full_name.toLowerCase() !== input.sourceRepo.toLowerCase()
@@ -72,18 +73,19 @@ export async function disableCodeEnvironment(env: L4Env, auth: AuthorizationCont
   await env.DB.prepare('UPDATE agent_environments SET enabled=0,version=version+1,updated_at=? WHERE id=?').bind(nowIso(), id).run()
 }
 export async function admitRunEnvironment(env: L4Env, auth: AuthorizationContext, id: string): Promise<RunEnvironment> {
-  if (!githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Configure a dedicated GitHub App for code execution')
+  if (!await githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Connect a GitHub App in Server settings')
   const item = await findCodeEnvironment(env, id)
   if (!item?.enabled) fail(403, 'code_revoked', 'Repository environment is unavailable')
   await requireEnvironmentProject(env, auth, item.id)
   authorizeResource(auth, 'repositories', String(item.sourceRepoId))
-  const client = await githubAgentClient(env, { installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' })
+  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' })
   const base = commit.parse(await client.json(`/repos/${item.sourceRepo}/commits/${encodeURIComponent(item.baseBranch)}`))
   return { ...item, baseSha: base.sha, baseTreeSha: base.commit.tree.sha }
 }
 export async function requireRunEnvironment(env: L4Env, auth: AuthorizationContext, snapshot: RunEnvironment) {
   const current = await findCodeEnvironment(env, snapshot.id)
   if (!current?.enabled || current.version !== snapshot.version) fail(403, 'code_revoked', 'Repository environment was changed or disabled')
+  if (current.gitConnectionId) await githubConnectionCredentials(env, current.gitConnectionId)
   await requireEnvironmentProject(env, auth, snapshot.id)
   authorizeResource(auth, 'repositories', String(snapshot.sourceRepoId))
   return snapshot
