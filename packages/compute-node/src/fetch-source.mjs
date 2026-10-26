@@ -1,5 +1,5 @@
 import { chmod } from 'node:fs/promises'
-import { runProcess } from './operate.mjs'
+import { runProcess } from './process.mjs'
 
 // This process belongs to the trusted source broker, in its own bounded container.
 // It never runs a model, checks out source, loads repository hooks or writes a credential file.

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp,writeFile,rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runProcess } from '../packages/compute-node/src/operate.mjs'
+import { runProcess } from '../packages/compute-node/src/process.mjs'
 
 const suffix=randomUUID().slice(0,8),directory=await mkdtemp(join(tmpdir(),'l4-factory-docker-'))
 const image=process.env.LLLL_FACTORY_TEST_IMAGE||'l4-workspace:test',volumes=[`l4-test-${suffix}-a`,`l4-test-${suffix}-b`]

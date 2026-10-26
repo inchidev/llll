@@ -2,23 +2,11 @@ import { spawn } from 'node:child_process'
 import { open, mkdir, lstat, realpath } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { resolve, dirname } from 'node:path'
+import { runProcess, collectProcess } from './process.mjs'
 
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 400 && !path.startsWith('/') && !path.includes('\\') && ![...path].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
     && path.split('/').every(part => part && part !== '.' && part !== '..' && !['.git','.github'].includes(part.toLowerCase()))
-}
-export async function runProcess(command, args, { cwd, input, limit = 400000, timeoutMs = 120000, signal, env } = {}) {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: ['pipe','pipe','pipe'], signal })
-    let total = 0, limited = false
-    const chunks = [], errors = []
-    const collect = (target, chunk) => { total += chunk.length; if (total > limit) { limited = true; child.kill('SIGKILL') } else target.push(chunk) }
-    child.stdout.on('data', chunk => collect(chunks, chunk)); child.stderr.on('data', chunk => collect(errors, chunk))
-    const timeout = setTimeout(() => { limited = true; child.kill('SIGKILL') }, timeoutMs)
-    child.on('error', error => { clearTimeout(timeout); reject(error) })
-    child.on('close', code => { clearTimeout(timeout); if (limited) reject(new Error('Process output or time limit reached')); else resolveResult({ code: code ?? -1, stdout: Buffer.concat(chunks), stderr: Buffer.concat(errors) }) })
-    child.stdin.on('error', () => {}); child.stdin.end(input)
-  })
 }
 const git = async (cwd, ...args) => {
   const result = await runProcess('git', ['-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','core.quotePath=false',...args], { cwd })
@@ -120,7 +108,11 @@ export async function operate(job, root = '/workspace/repo') {
   if (input.operation === 'snapshot') return { ok: true, exitCode: 0, output: 'Exact committed snapshot', snapshot: await snapshot(root,job.baseSha) }
   if (input.operation === 'suspend') return { ok: true, exitCode: 0, output: 'Workspace disk retained; no command process remains active' }
   if (input.operation === 'exec') {
-    const result = await runProcess('/bin/sh',['-lc',input.command],{cwd:root,timeoutMs:input.timeoutMs,limit:62000})
+    if (typeof input.command !== 'string' || !input.command.trim() || input.command.length > 8000 || input.command.includes('\0') || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1000 || input.timeoutMs > 120000) throw new Error('Invalid reviewed script')
+    // Only this container entrypoint interprets the approved script. Keep it on
+    // stdin, separate from fixed shell argv and all host Docker/disk operations.
+    const child = spawn('/bin/sh',['-s','--'],{cwd:root,stdio:['pipe','pipe','pipe'],shell:false})
+    const result = await collectProcess(child,{input:input.command,timeoutMs:input.timeoutMs,limit:62000})
     return { ok: result.code === 0, exitCode: result.code, output: Buffer.concat([result.stdout,result.stderr]).toString() }
   }
   throw new Error('Unsupported workspace operation')

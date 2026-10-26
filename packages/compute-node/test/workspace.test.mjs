@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp,writeFile,mkdir,symlink,rm,readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { operate,snapshot,runProcess,safePath } from '../src/operate.mjs'
+import { operate,snapshot,safePath } from '../src/operate.mjs'
+import { runProcess } from '../src/process.mjs'
 import { destination,publicIPv4 } from '../src/proxy.mjs'
 
 test('persistent checkout supports normal commits, exact snapshots and bounded failed-test repair',async()=>{

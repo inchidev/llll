@@ -1,6 +1,6 @@
 import { mkdir,chmod,chown,lstat,readdir,rm } from 'node:fs/promises'
 import { join,resolve } from 'node:path'
-import { runProcess } from './operate.mjs'
+import { runProcess } from './process.mjs'
 
 /** Trusted Linux broker only. Each mounted filesystem has a fixed allocated block capacity. */
 export class LoopDiskStore {

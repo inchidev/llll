@@ -1,14 +1,15 @@
 import { LoopDiskStore } from './disk-store.mjs'
-import { readFile, writeFile, mkdir, rm, chmod, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { runProcess } from './operate.mjs'
+import { runProcess } from './process.mjs'
+import { openNodeState, serverOrigin } from './state-store.mjs'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
 if (!/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/u.test(image ?? '')) throw new Error('Set LLLL_WORKSPACE_IMAGE to an immutable registry digest')
 if (process.env.LLLL_SHARED_KERNEL_TRUSTED !== '1') throw new Error('Docker shares the host kernel. Confirm trusted-code use with LLLL_SHARED_KERNEL_TRUSTED=1; public untrusted tenants require a stronger provider')
-await mkdir(state,{recursive:true,mode:0o700}); await chmod(state,0o700)
-const credentialPath = join(state,'connection.json')
+process.umask(0o077)
+const server = serverOrigin(process.env.LLLL_SERVER_ORIGIN)
+const store = await openNodeState(state)
 const workspaceDisks = new LoopDiskStore(join(state,'workspace-disks'))
 const sourceDisks = new LoopDiskStore(join(state,'source-disks'),{bytes:536870912,maxDisks:1})
 await workspaceDisks.initialize(); await sourceDisks.initialize()
@@ -23,11 +24,6 @@ const docker = async (args,options={}) => {
   if (result.code !== 0) throw new Error('Docker operation failed')
   return result.stdout.toString()
 }
-function origin(value) {
-  const url = new URL(value)
-  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname))) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Use an HTTPS Server origin, or local loopback for development')
-  return url.origin
-}
 async function request(server,path,body,token) {
   const response = await fetch(server+path,{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)})
   if (!response.ok) throw Object.assign(new Error('Server rejected Node operation'),{status:response.status})
@@ -35,19 +31,15 @@ async function request(server,path,body,token) {
   for await(const chunk of response.body){bytes+=chunk.length;if(bytes>420000)throw new Error('Server response limit reached');chunks.push(chunk)}
   return JSON.parse(Buffer.concat(chunks).toString())
 }
-let connection
-try { connection=JSON.parse(await readFile(credentialPath,'utf8')) }
-catch (error) {
-  if (error.code!=='ENOENT') throw error
-  const server=origin(process.env.LLLL_SERVER_ORIGIN),token=process.env.LLLL_PAIRING_TOKEN
-  if (!/^[a-f0-9]{64}$/u.test(token??'')) throw new Error('Set a one-use LLLL_PAIRING_TOKEN from Server Settings → Repositories → Compute Nodes', { cause: error })
+let connection = store.connection(server)
+if (!connection) {
+  const token=process.env.LLLL_PAIRING_TOKEN
+  if (!/^[a-f0-9]{64}$/u.test(token??'')) throw new Error('Set a one-use LLLL_PAIRING_TOKEN from Server Settings → Repositories → Compute Nodes')
   const paired=await request(server,'/api/compute-agent/pair',{token,capabilities})
-  connection={...paired,server}
-  await writeFile(credentialPath,JSON.stringify(connection),{mode:0o600})
+  store.pair(server,paired)
+  connection=store.connection(server)
 }
-connection.server=origin(connection.server)
-if (![connection.nodeId,connection.serverId].every(id=>/^[a-f0-9-]{36}$/u.test(id)) || !/^[a-f0-9]{64}$/u.test(connection.token)) throw new Error('Invalid private Node connection file')
-const poll=body=>request(connection.server,'/api/compute-agent/poll',body,connection.token)
+const poll=body=>request(server,'/api/compute-agent/poll',body,connection.token)
 await docker(['info','--format','{{.ServerVersion}}'])
 await docker(['image','inspect',image])
 // Only this paired Node's containers. A restart never resumes an uncertain command.
@@ -132,8 +124,8 @@ async function execute(job,controller) {
   } finally { controller.signal.removeEventListener('abort',stop);await cleanup() }
 }
 // Re-submit only retained receipts. Never restart a command after process loss.
-for (const name of await readdir(state)) if (/^receipt-[a-f0-9-]{36}\.json$/u.test(name)) {
-  try { const saved = await readFile(join(state,name),'utf8'); if(Buffer.byteLength(saved)>420000)continue; await poll(JSON.parse(saved)); await rm(join(state,name)) }
+for (const saved of store.receipts()) {
+  try { await poll(saved); store.acknowledge(saved.id,saved.lease) }
   catch { console.warn('compute.retained_receipt_requires_review') }
 }
 let stopping=false,active
@@ -151,8 +143,10 @@ while(!stopping){
     catch { result={ok:false,exitCode:-1,output:controller.signal.aborted?'Operation stopped after revocation, disconnect or expired lease':'Compute operation failed; inspect limits, source access and Node availability',runtimeMs:Math.min(180000,Date.now()-start)} }
     finally {clearInterval(heartbeat);active=undefined}
     const receipt={operation:'result',...claim,result}
-    const receiptPath=join(state,`receipt-${claim.id}.json`)
-    await writeFile(receiptPath,JSON.stringify(receipt),{mode:0o600})
-    try {await poll(receipt);await rm(receiptPath)}catch{console.warn('compute.receipt_requires_review',{actionId:claim.id})}
+    // FULL-synchronous transaction commits before the network callback. If the
+    // journal is unavailable/full, stop; never lose a receipt and continue work.
+    try { store.retain(receipt) } catch { console.error('compute.receipt_storage_unavailable');stopping=true;continue }
+    try {await poll(receipt);store.acknowledge(claim.id,claim.lease)}catch{console.warn('compute.receipt_requires_review',{actionId:claim.id})}
   }catch(error){active?.abort();if(error.status===403){console.warn('compute.connection_revoked');break}await delay(3000)}
 }
+store.close()
