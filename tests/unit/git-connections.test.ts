@@ -18,6 +18,7 @@ it('prepares an Owner-bound, expiring manifest from the configured origin withou
  const p=await prepare()
  expect(p.actionUrl).toMatch(/^https:\/\/github.com\/organizations\/inchidev\/settings\/apps\/new\?state=[a-f0-9]{64}$/u)
  expect(p.manifest.redirect_url).toBe('https://server.example.test/api/git-connections/github/callback')
+ expect(p.manifest.setup_url).toBe(`https://server.example.test/server/${(await f.actor()).serverId}/settings?section=environments`)
  expect(p.manifest.default_permissions).toMatchObject({contents:'write',pull_requests:'write',checks:'read'})
  expect(JSON.stringify(p)).not.toMatch(/private.key|AUTH_SECRET/iu)
  const row=f.db.prepare('SELECT state_hash AS hash,status FROM git_setup_requests').get()!

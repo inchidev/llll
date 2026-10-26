@@ -48,7 +48,7 @@ export async function testGitConnections({api,runtimes,ids}){
  await api('beta',callback,{expected:409})
  const done=await api('alpha',callback,{expected:302,redirect:'manual'})
  assert.equal(done.response.headers.get('Referrer-Policy'),'no-referrer')
- assert.equal(done.response.headers.get('Location'),`/server/${ids.alpha}/settings?section=repositories`)
+ assert.equal(done.response.headers.get('Location'),`/server/${ids.alpha}/settings?section=environments`)
  await api('alpha',callback,{expected:409})
  const listed=(await api('alpha',root)).payload,connection=listed.connections.find(c=>c.name===input.name)
  assert.ok(connection);assert.equal(JSON.stringify(listed).includes('PRIVATE KEY'),false)

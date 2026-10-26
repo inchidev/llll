@@ -37,7 +37,7 @@ export async function prepareGithubSetup(env: L4Env, actor: AuthorizationContext
   return { actionUrl: input.organization ? `https://github.com/organizations/${input.account}/settings/apps/new?state=${state}` : `https://github.com/settings/apps/new?state=${state}`,
     manifest: { name: input.name, url: origin.origin, redirect_url: `${origin.origin}/api/git-connections/github/callback`, public: false,
       description: 'L4 project code collaboration. Access is limited by selected repositories and L4 authorization.',
-      setup_url: `${origin.origin}/server/${actor.serverId}/settings?section=repositories`,
+      setup_url: `${origin.origin}/server/${actor.serverId}/settings?section=environments`,
       hook_attributes: { url: `${origin.origin}/api/git-connections/github/events`, active: false },
       default_permissions: { contents: 'write', pull_requests: 'write', issues: 'read', checks: 'read', statuses: 'read', metadata: 'read' }, default_events: [] } }
 }

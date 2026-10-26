@@ -18,5 +18,5 @@ export default defineEventHandler(async event=>{
   return sendRedirect(event, '/git-connections/github/complete?' + new URLSearchParams(input))
  }
  await completeGithubSetup(env,actor.authorization,input.code,input.state)
- return sendRedirect(event,`/server/${serverId}/settings?section=repositories`)
+ return sendRedirect(event,`/server/${serverId}/settings?section=environments`)
 })
