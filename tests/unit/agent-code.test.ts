@@ -1,3 +1,5 @@
+import { codeEnvironmentSchema } from '../../shared/code-environments'
+import { saveCodeEnvironment } from '../../server/utils/code-environment-service'
 import { readGithubRepository, readGithubIssue, readGithubPullRequest } from '../../server/utils/agent-github-context'
 import { agentTools } from '../../server/utils/agent-tools'
 import { DatabaseSync } from 'node:sqlite'
@@ -25,6 +27,7 @@ const baseTree = 'b'.repeat(40)
 let db: DatabaseSync
 let env: L4Env
 let run: AgentRun
+let sameRepository = false
 let head: string | null
 let pr: Record<string, unknown> | null
 let calls: Array<{ path: string; method: string; body: Record<string, unknown> }>
@@ -46,10 +49,10 @@ const configuration = { name: 'Project', sourceRepo: 'source/project', sourceRep
   workRepo: 'worker/project', workRepoId: 22, workInstallationId: 202, baseBranch: 'main', requiredChecks: ['lint', 'build'], previewHosts: ['dev.llll.gg'] }
 const input = (): CodeProposalInput => ({ title: 'Fix source behavior', body: 'Changes and reported validation.', files: [{ path: 'src/index.js', content: 'export const answer = 42\n', executable: false }] })
 const count = (suffix: string, method = 'POST') => calls.filter(call => call.path.endsWith(suffix) && call.method === method).length
-const currentPr = () => ({ ...pr, head: { ref: `l4-agent/${run.id}`, sha: head, repo: { id: 22 } }, base: { ref: 'main', repo: { id: 11 } } })
+const currentPr = () => ({ ...pr, head: { ref: `l4-agent/${run.id}`, sha: head, repo: { id: sameRepository ? 11 : 22 } }, base: { ref: 'main', repo: { id: 11 } } })
 
 beforeEach(async () => {
-  installationRevoked = false; contextChanged = false; contextHook = undefined
+  sameRepository = false; installationRevoked = false; contextChanged = false; contextHook = undefined
   archiveLocation = `https://codeload.github.com/source/project/legacy.tar.gz/${baseSha}`
   archiveStatus = 200; archiveRedirectStatus = 302; archiveHook = undefined; storedArchives = new Map()
   head = null; pr = null; calls = []; minted = []; tokens = new Map(); sequence = 1; dropPrResponse = false; lintSuccess = false
@@ -97,10 +100,10 @@ beforeEach(async () => {
     expect(capability.repository_ids).toEqual([source ? 11 : 22])
     calls.push({ path: uri.pathname, method, body })
     if (method !== 'GET') {
-      if (source) { expect(uri.pathname).toMatch(/\/pulls(?:\/\d+)?$/u); expect(capability.permissions.pull_requests).toBe('write'); expect(capability.permissions.contents).toBe('read') }
+      if (source && (!sameRepository || uri.pathname.includes('/pulls'))) { expect(uri.pathname).toMatch(/\/pulls(?:\/\d+)?$/u); expect(capability.permissions.pull_requests).toBe('write'); expect(capability.permissions.contents).toBe('read') }
       else expect(capability.permissions.contents).toBe('write')
     }
-    if (uri.pathname === '/repos/source/project') return Response.json({ id: 11, full_name: 'source/project', description: 'Source metadata', private: true, archived: false, default_branch: 'main', secret: 'not-returned' })
+    if (uri.pathname === '/repos/source/project') return Response.json({ id: 11, full_name: 'source/project', description: 'Source metadata', private: true, archived: false, fork: false, default_branch: 'main', secret: 'not-returned' })
     if (uri.pathname.includes('/issues/42')) {
       expect(capability.permissions).toEqual({ contents: 'read', issues: 'read' })
       contextHook?.()
@@ -161,6 +164,24 @@ describe('GitHub capability broker', () => {
     expect(minted.filter(token => token.permissions.contents === 'write').every(token => token.repository_ids[0] === 22)).toBe(true)
     expect(JSON.stringify(first)).not.toContain('installation-capability')
     expect(JSON.stringify(first)).not.toContain('PRIVATE KEY')
+  })
+  it('configures ordinary same-repository work and creates only its dedicated branch and draft PR', async () => {
+    sameRepository = true
+    const same = { ...configuration, workRepo: configuration.sourceRepo, workRepoId: configuration.sourceRepoId, workInstallationId: configuration.sourceInstallationId }
+    expect(codeEnvironmentSchema.parse(same).workRepoId).toBe(11)
+    expect(() => codeEnvironmentSchema.parse({ ...same, workInstallationId: 202 })).toThrow()
+    const owner = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+    expect((await saveCodeEnvironment(env, owner, same)).workRepoId).toBe(11)
+    db.prepare('UPDATE agent_environments SET config_json=? WHERE id=?').run(JSON.stringify(same), 'code-env')
+    db.prepare('UPDATE agent_runs SET environment_json=? WHERE id=?').run(JSON.stringify({ ...JSON.parse(run.environmentJson!), ...same }), run.id)
+    const result = await publishCodeProposal(env, run.id, input())
+    expect(result.status).toBe('draft')
+    expect(calls.find(c => c.path.endsWith('/git/refs'))?.body.ref).toBe(`refs/heads/l4-agent/${run.id}`)
+    expect(calls.find(c => c.path.endsWith('/pulls') && c.method === 'POST')?.body.head).toBe(`l4-agent/${run.id}`)
+    expect(minted.filter(t => t.permissions.contents === 'write').every(t => t.repository_ids[0] === 11)).toBe(true)
+    expect(await publishCodeProposal(env, run.id, input())).toEqual(result)
+    expect(count('/pulls')).toBe(1)
+    expect(calls.some(c => c.path.includes('/releases') || c.path.includes('/merges') || c.path.includes('/heads/main'))).toBe(false)
   })
   it('recovers an uncertain PR response by discovering the existing PR', async () => {
     dropPrResponse = true

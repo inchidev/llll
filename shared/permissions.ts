@@ -1,4 +1,6 @@
 export const Permission = {
+  readProjects: 1 << 26,
+  manageProjects: 1 << 27,
   useExternalTools: 1 << 25,
   proposeCode: 1 << 24,
   manageServer: 1 << 0,
@@ -30,7 +32,7 @@ export const Permission = {
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
 
 export const ALL_PERMISSIONS =
-  Permission.useExternalTools | Permission.proposeCode | Permission.manageServer
+  Permission.readProjects | Permission.manageProjects | Permission.useExternalTools | Permission.proposeCode | Permission.manageServer
   | Permission.manageChannels
   | Permission.manageRoles
   | Permission.invite
@@ -51,8 +53,10 @@ export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
 
 export const PermissionGrants = [
+  { key: 'readProjects', flag: Permission.readProjects, label: 'Read projects', description: 'View authorized projects and their repository references. Does not grant Git credentials or repository operations.' },
+  { key: 'manageProjects', flag: Permission.manageProjects, label: 'Manage projects', description: 'Create and configure authorized projects and repository references. Does not grant merge, release or computer execution.' },
   { key: 'useExternalTools', flag: Permission.useExternalTools, label: 'Use external tools', description: 'Use explicitly delegated read-only MCP connections. Does not grant access to unshared connections or external writes.' },
-  { key: 'proposeCode', flag: Permission.proposeCode, label: 'Propose code changes', description: 'Publish changes to an authorized working fork and open draft pull requests. Does not permit merges or production releases.' },
+  { key: 'proposeCode', flag: Permission.proposeCode, label: 'Propose code changes', description: 'Publish changes to an authorized working branch and open draft pull requests. Does not permit merges or production releases.' },
   { key: 'manageServer', flag: Permission.manageServer, label: 'Manage server', description: 'Change server name and settings.' },
   { key: 'manageChannels', flag: Permission.manageChannels, label: 'Manage channels', description: 'Create, edit, and remove channels and categories.' },
   { key: 'manageRoles', flag: Permission.manageRoles, label: 'Manage roles', description: 'Create roles, change grants, and assign roles to members.' },
@@ -90,6 +94,7 @@ export function permissionBitmask(enabled: Iterable<PermissionGrantKey>): number
 
 export function hasPermission(bitmask: number, flag: PermissionFlag): boolean {
   if ((bitmask & flag) === flag) return true
+  if (flag === Permission.readProjects) return (bitmask & Permission.manageProjects) !== 0
   if (flag === Permission.readTasks || flag === Permission.writeTasks) return (bitmask & Permission.manageTasks) !== 0
   if (flag === Permission.readData || flag === Permission.writeData) return (bitmask & Permission.manageDatabases) !== 0
   return false
@@ -108,6 +113,6 @@ export function directMessagePermissions(rolePermissions: number, isOwner: boole
 
 export function rolePermissions(name: string): number {
   if (name === 'owner') return ALL_PERMISSIONS
-  if (name === 'admin') return ALL_PERMISSIONS & ~(Permission.useExternalTools | Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode)
+  if (name === 'admin') return ALL_PERMISSIONS & ~(Permission.manageProjects | Permission.useExternalTools | Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode)
   return MemberPermissions
 }

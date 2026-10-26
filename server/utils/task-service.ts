@@ -1,3 +1,4 @@
+import { requireEnvironmentProject, requireProject, listProjects } from './project-service'
 import { authorizeResource as requireResource } from '../../shared/authorization'
 import { findCodeEnvironment } from './code-environment-service'
 import { fail } from './cf'
@@ -18,7 +19,19 @@ async function validateEnvironment(env: L4Env, auth: AuthorizationContext, id: s
   if (!id) return
   const item = await findCodeEnvironment(env, id)
   if (!item?.enabled) fail(403, 'code_revoked', 'Repository environment is unavailable')
+  await requireEnvironmentProject(env, auth, item.id)
   requireResource(auth, 'repositories', String(item.sourceRepoId))
+}
+
+async function taskProject(env: L4Env, auth: AuthorizationContext, requested: string | null | undefined, environmentId: string | null | undefined) {
+  const link = environmentId ? await env.DB.prepare('SELECT project_id AS projectId FROM project_repositories WHERE environment_id=?').bind(environmentId).first<{ projectId: string }>() : null
+  const id = requested === undefined ? link?.projectId ?? null : requested
+  if (id) {
+    const project = await requireProject(env, auth, id)
+    if (project.archivedAt) fail(403, 'project_archived', 'Restore the project before changing its Tasks')
+  }
+  if (link && link.projectId !== id) fail(403, 'project_repository', 'Task and Git execution configuration must belong to the same project')
+  return id
 }
 
 type Schedule = (promise: Promise<unknown>) => void
@@ -30,6 +43,7 @@ export type CreateTaskInput = {
   dueAt: string | null
   assigneeId: string | null
   channelId: string | null
+  projectId?: string | null
   environmentId?: string | null
   labelIds: string[]
   dependencyIds: string[]
@@ -45,6 +59,7 @@ export type UpdateTaskInput = {
   boardId?: string
   assigneeId?: string | null
   channelId?: string | null
+  projectId?: string | null
   environmentId?: string | null
   archived?: boolean
   labelIds?: string[]
@@ -57,7 +72,12 @@ export async function listTasks(
   includeArchived = false,
 ): Promise<TaskBoardDTO[]> {
   authorize(authorization, ServerAction.readTasks)
-  return (await loadTaskBoards(env, includeArchived)).filter(board => resourceAllowed(authorization, 'boards', board.id))
+  const boards = (await loadTaskBoards(env, includeArchived)).filter(board => resourceAllowed(authorization, 'boards', board.id))
+  if (!boards.some(b => b.tasks.some(t => t.projectId))) return boards
+  let visible = new Set<string>()
+  try { visible = new Set((await listProjects(env, authorization)).map(p => p.id)) }
+  catch (error) { if (!(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403)) throw error }
+  return boards.map(b => ({ ...b, tasks: b.tasks.filter(t => !t.projectId || visible.has(t.projectId)) }))
 }
 
 export async function getTask(
@@ -67,7 +87,10 @@ export async function getTask(
 ): Promise<TaskDetailDTO | null> {
   authorize(authorization, ServerAction.readTasks)
   const task = await loadTaskDetail(env, taskReference)
-  if (task) authorizeResource(authorization, 'boards', task.boardId)
+  if (task) {
+    authorizeResource(authorization, 'boards', task.boardId)
+    if (task.projectId) await requireProject(env, authorization, task.projectId)
+  }
   return task
 }
 
@@ -82,6 +105,7 @@ export async function createTask(
   authorizeResource(authorization, 'boards', boardId)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
+  const projectId = await taskProject(env, authorization, input.projectId, input.environmentId)
   await Promise.all([
     requireBoard(env, boardId),
     validateTaskAssignee(env, input.assigneeId),
@@ -96,6 +120,7 @@ export async function createTask(
   const task = {
     id,
     boardId,
+    projectId,
     title: input.title,
     description: input.description,
     status,
@@ -133,7 +158,8 @@ export async function updateTask(
   authorize(authorization, ServerAction.writeTasks)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
-  const task = await requireTask(env, taskReference)
+  const task = await requireTask(env, taskReference, authorization)
+  const projectId = await taskProject(env, authorization, input.projectId === undefined ? task.projectId : input.projectId, input.environmentId === undefined ? task.environmentId : input.environmentId)
   const id = task.id
   const boardId = input.boardId ?? task.boardId
   authorizeResource(authorization, 'boards', task.boardId)
@@ -155,6 +181,7 @@ export async function updateTask(
   const position = input.position ?? (input.boardId || input.status ? await nextTaskPosition(env, boardId, status as TaskStatus) : task.position)
   const updatedAt = nowIso()
   const patch: Partial<typeof tasks.$inferInsert> = {
+    projectId,
     title: input.title ?? task.title,
     description: input.description ?? task.description,
     status: status as TaskStatus,

@@ -906,8 +906,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
        WHERE u.id = ? AND u.status = 'active'`,
     ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string; resourceAccessJson: string }>()
     if (!membership) return null
-    const discussion = await this.env.DB.prepare('SELECT board_id as boardId FROM tasks WHERE discussion_channel_id = ?')
-      .bind(accessRoot.id).first<{ boardId: string }>()
+    const discussion = await this.env.DB.prepare('SELECT board_id as boardId, project_id as projectId FROM tasks WHERE discussion_channel_id = ?')
+      .bind(accessRoot.id).first<{ boardId: string; projectId: string | null }>()
+    if (discussion?.projectId && membership.ownerId !== userId && (!hasPermission(membership.perms, Permission.readProjects) || !resourceAccessAllows(parseResourceAccess(membership.resourceAccessJson), 'projects', discussion.projectId))) return null
     if (discussion && membership.ownerId !== userId && (!hasPermission(membership.perms, Permission.readTasks)
       || !resourceAccessAllows(parseResourceAccess(membership.resourceAccessJson), 'boards', discussion.boardId))) return null
     const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.useAgents)

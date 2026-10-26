@@ -11,6 +11,7 @@ const repositories = useQuery({ queryKey: ['agent-repositories'], queryFn: () =>
 const options = computed(() => (repositories.data.value?.repositories ?? []).map(repo => ({ label: repo.name, value: repo.id })))
 const sourceId = ref<number>()
 const workId = ref<number>()
+watch(sourceId, id => { if (!workId.value) workId.value = id })
 const name = ref('')
 const baseBranch = ref('main')
 const requiredChecks = ref('')
@@ -47,12 +48,12 @@ async function disable(item: CodeEnvironment) {
   <div class="space-y-6">
     <SettingsHeader title="Repository environments" description="Choose where agents can read code and propose changes. Assign repository access and agent permissions in Roles." />
     <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
-    <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a dedicated GitHub App" description="Set GITHUB_AGENT_APP_ID and GITHUB_AGENT_APP_PRIVATE_KEY in the Server's deployment secrets. Give the App access to the source repository and a separate working fork. See the agent documentation for permissions." color="neutral" variant="subtle" />
+    <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a dedicated GitHub App" description="Set GITHUB_AGENT_APP_ID and GITHUB_AGENT_APP_PRIVATE_KEY in the Server's deployment secrets. Give the App access to the repository. An optional working fork can be selected. See the agent documentation for permissions." color="neutral" variant="subtle" />
     <template v-else>
       <UButton label="Add environment" icon="i-ph-plus" color="neutral" :disabled="!repositories.data.value?.repositories.length" @click="edit()" />
-      <p v-if="repositories.data.value && !repositories.data.value.repositories.length" class="text-sm text-muted">No repositories are available. Install the dedicated App on the source and working fork, then reload this page.</p>
+      <p v-if="repositories.data.value && !repositories.data.value.repositories.length" class="text-sm text-muted">No repositories are available. Install the dedicated App on the repository, then reload this page.</p>
       <div v-for="item in list.data.value?.environments" :key="item.id" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-default p-4">
-        <div class="min-w-0"><p class="font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></p><p class="break-all text-sm text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</p><p class="break-all text-xs text-muted">Working fork: {{ item.workRepo }}</p></div>
+        <div class="min-w-0"><p class="font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></p><p class="break-all text-sm text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</p><p class="break-all text-xs text-muted">Working repository: {{ item.workRepo }}</p></div>
         <div class="flex gap-2"><UButton label="Edit" color="neutral" variant="outline" @click="edit(item)" /><UButton v-if="item.enabled" label="Disable" color="neutral" variant="ghost" :loading="saving" @click="disable(item)" /></div>
       </div>
     </template>
@@ -60,7 +61,7 @@ async function disable(item: CodeEnvironment) {
       <template #body><div class="space-y-4">
         <UFormField label="Name"><UInput v-model="name" class="w-full" /></UFormField>
         <UFormField label="Source repository"><USelect v-model="sourceId" :items="options" placeholder="Choose source" class="w-full" /></UFormField>
-        <UFormField label="Working fork" help="A separate fork in the same repository network. Agents publish draft PRs from Run-owned branches here."><USelect v-model="workId" :items="options.filter(repo => repo.value !== sourceId)" placeholder="Choose fork" class="w-full" /></UFormField>
+        <UFormField label="Working repository" help="Choose the source repository for ordinary branch-based work, or an optional fork. Changes use a dedicated working branch."><USelect v-model="workId" :items="options" placeholder="Choose repository" class="w-full" /></UFormField>
         <UFormField label="Base branch"><UInput v-model="baseBranch" class="w-full" /></UFormField>
         <UFormField label="Required CI checks" help="One exact check or commit-status name per line. Missing checks keep the proposal unverified."><UTextarea v-model="requiredChecks" class="w-full" :rows="3" /></UFormField>
         <UFormField label="Allowed Preview domains" help="One domain per line, for example dev.example.com. Preview links must use HTTPS."><UTextarea v-model="previewHosts" class="w-full" :rows="2" /></UFormField>

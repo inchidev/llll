@@ -994,7 +994,20 @@ export const taskBoards = sqliteTable('task_boards', {
   index('task_boards_position_idx').on(table.position),
 ])
 
+export const projects = sqliteTable('projects', {
+  id: text('id').primaryKey(), name: text('name').notNull(), description: text('description').notNull().default(''),
+  archivedAt: text('archived_at'), version: integer('version').notNull().default(1),
+  createdBy: text('created_by').notNull().references(() => users.id), ...isoTimestamps(),
+})
+export const projectRepositories = sqliteTable('project_repositories', {
+  id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(), host: text('host').notNull(), externalId: text('external_id').notNull(),
+  slug: text('slug').notNull(), defaultBranch: text('default_branch').notNull(), environmentId: text('environment_id').unique(),
+  createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
+}, table => [uniqueIndex('project_repository_identity').on(table.projectId, table.provider, table.host, table.externalId)])
+
 export const tasks = sqliteTable('tasks', {
+  projectId: text('project_id').references(() => projects.id),
   id: text('id').primaryKey(),
   boardId: text('board_id').notNull().references(() => taskBoards.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
@@ -1169,6 +1182,8 @@ export const schema = {
   canvasEdges,
   dataBookmarks,
   taskBoards,
+  projects,
+  projectRepositories,
   tasks,
   taskNumbers,
   taskNumberSequence,

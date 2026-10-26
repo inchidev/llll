@@ -1,3 +1,4 @@
+import { requireProject } from './project-service'
 import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { agents, channels, taskBoards, taskDependencies, taskLabels, taskNumbers, tasks, users } from '../../drizzle/schema'
@@ -23,7 +24,10 @@ export async function requireTask(env: L4Env, taskReference: string | number, au
   }
   const row = (await getDb(env.DB).select().from(tasks).where(eq(tasks.id, taskId)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Task not found')
-  if (authorization) authorizeResource(authorization, 'boards', row.boardId)
+  if (authorization) {
+    authorizeResource(authorization, 'boards', row.boardId)
+    if (row.projectId) await requireProject(env, authorization, row.projectId)
+  }
   return row
 }
 

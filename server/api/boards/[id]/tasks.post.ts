@@ -12,6 +12,7 @@ const bodySchema = z.object({
   priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
   dueAt: z.string().refine(value => !Number.isNaN(Date.parse(value)), 'Invalid due date').nullable().default(null),
   assigneeId: z.string().min(8).nullable().default(null),
+  projectId: z.string().min(8).nullable().optional(),
   environmentId: z.string().min(8).nullable().optional(),
   channelId: z.string().min(8).nullable().default(null),
   labelIds: z.array(z.string().min(8)).max(20).default([]),

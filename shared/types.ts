@@ -89,6 +89,7 @@ export type TaskAttachmentDTO = AttachmentDTO & {
 }
 
 export type TaskDTO = {
+  projectId?: string | null
   id: string
   number: number
   boardId: string

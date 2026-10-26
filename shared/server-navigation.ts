@@ -1,6 +1,6 @@
 import { channelPath, type ChannelRef } from './paths'
 
-export type ServerNavigationSection = 'chat' | 'inbox' | 'agents' | 'tasks' | 'schedules' | 'mail' | 'data' | 'gadgets'
+export type ServerNavigationSection = 'projects' | 'chat' | 'inbox' | 'agents' | 'tasks' | 'schedules' | 'mail' | 'data' | 'gadgets'
 
 /** The Chat rail must not reopen an Agent DM remembered by an older Client. */
 export function chatNavigationTarget(conversations: readonly ChannelRef[], lastId?: string): string {
@@ -15,11 +15,12 @@ export function serverNavigationSection(path: string): ServerNavigationSection |
   if (segment === 'channels') return 'chat'
   if (segment === 'runs') return 'tasks'
   if (['data', 'databases', 'documents', 'canvases'].includes(segment || '')) return 'data'
+  if (segment === 'projects') return 'projects'
   if (segment === 'inbox' || segment === 'agents' || segment === 'tasks' || segment === 'schedules' || segment === 'mail' || segment === 'gadgets') return segment
   return null
 }
 
 export function hasServerNavigationMenu(path: string): boolean {
   const section = serverNavigationSection(path)
-  return section !== null && section !== 'schedules'
+  return section !== null && section !== 'schedules' && section !== 'projects'
 }

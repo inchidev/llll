@@ -89,7 +89,7 @@ export async function readCodeFile(env: L4Env, runId: string, path: string) {
 type Proposal = { inputHash: string; branch: string; commitSha: string | null; publishedCommitSha: string | null; pullNumber: number | null; status: string }
 const proposalColumns = 'input_hash as inputHash,branch,commit_sha as commitSha,published_commit_sha as publishedCommitSha,pull_number as pullNumber,status'
 
-/** All writes target a Run-owned branch in a separate fork. This broker has no merge or release operation. */
+/** All writes target a Run-owned branch in the repository or its configured fork. This broker has no merge or release operation. */
 export async function publishCodeProposal(env: L4Env, runId: string, request: z.input<typeof codeProposalSchema>) {
   const input = codeProposalSchema.parse(request)
   const { run, environment: item, auth } = await codeRun(env, runId, true)
@@ -151,10 +151,10 @@ export async function publishCodeProposal(env: L4Env, runId: string, request: z.
     let pr: z.infer<typeof pull>
     if (proposal.pullNumber) pr = validatePull(await target.json(`/repos/${item.sourceRepo}/pulls/${proposal.pullNumber}`))
     else {
-      const existing = z.array(pull).parse(await target.json(`/repos/${item.sourceRepo}/pulls?${new URLSearchParams({ state: 'all', head: `${owner}:${branch}`, base: item.baseBranch })}`))
+      const existing = z.array(pull).parse(await target.json(`/repos/${item.sourceRepo}/pulls?${new URLSearchParams({ state: 'all', head: item.workRepoId === item.sourceRepoId ? branch : `${owner}:${branch}`, base: item.baseBranch })}`))
       pr = existing.length ? validatePull(existing[0]) : validatePull(await target.json(`/repos/${item.sourceRepo}/pulls`, 'POST', {
         title: input.title, body: description,
-        head: `${owner}:${branch}`, head_repo: item.workRepo.split('/')[1], base: item.baseBranch, draft: true, maintainer_can_modify: false,
+        head: item.workRepoId === item.sourceRepoId ? branch : `${owner}:${branch}`, head_repo: item.workRepo.split('/')[1], base: item.baseBranch, draft: true, maintainer_can_modify: false,
       }))
     }
     if (pr.title !== input.title || pr.body !== description) await target.json(`/repos/${item.sourceRepo}/pulls/${pr.number}`, 'PATCH', {

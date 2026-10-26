@@ -28,7 +28,7 @@ describe('permissions', () => {
     expect(hasPermission(ALL_PERMISSIONS, Permission.manageDatabases)).toBe(true)
     expect(hasPermission(ALL_PERMISSIONS, Permission.useGadgets)).toBe(true)
     expect(hasPermission(ALL_PERMISSIONS, Permission.manageGadgets)).toBe(true)
-    expect(rolePermissions('admin')).toBe(ALL_PERMISSIONS & ~(Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode | Permission.useExternalTools))
+    expect(rolePermissions('admin')).toBe(ALL_PERMISSIONS & ~(Permission.manageProjects | Permission.mcpConnect | Permission.executeTasks | Permission.useComputer | Permission.manageSchedules | Permission.proposeCode | Permission.useExternalTools))
   })
 
   it('requires an explicit mcp.connect grant for every role except owner', () => {

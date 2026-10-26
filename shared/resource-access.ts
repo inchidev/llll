@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
-export const RESOURCE_KINDS = ['boards', 'databases', 'documents', 'canvases', 'repositories'] as const
+export const RESOURCE_KINDS = ['projects', 'boards', 'databases', 'documents', 'canvases', 'repositories'] as const
 export type ResourceKind = typeof RESOURCE_KINDS[number]
 export const resourceAccessSchema = z.object({
+  projects: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
   boards: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
   databases: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
   documents: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
@@ -17,7 +18,7 @@ export function parseResourceAccess(value: string | null | undefined): ResourceA
     return resourceAccessSchema.parse(JSON.parse(value))
   } catch {
     // Corrupt policy never becomes unrestricted access.
-    return { boards: [], databases: [], documents: [], canvases: [], repositories: [] }
+    return { projects: [], boards: [], databases: [], documents: [], canvases: [], repositories: [] }
   }
 }
 

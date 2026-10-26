@@ -1,3 +1,4 @@
+import { requireProject } from './project-service'
 import { admitMcpConnections } from './outbound-mcp'
 import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
 import { agentConversationModel } from './agent-conversation-model'
@@ -69,6 +70,13 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.delegation.permissions = (auth.delegation.isOwner ? mandate.permissions : auth.delegation.permissions! & mandate.permissions)
   auth.delegation.isOwner = false
   auth.delegation.resourceAccess = intersect(auth.delegation.resourceAccess, mandate.resourceAccess)
+  const taskProject = await env.DB.prepare('SELECT project_id AS projectId FROM tasks WHERE id=(SELECT task_id FROM agent_runs WHERE id=?)').bind(run.id).first<{ projectId: string | null }>()
+  if (taskProject && mandate.projectId !== undefined && mandate.projectId !== taskProject.projectId) fail(403, 'project_mandate', 'Task project changed; start a new attempt')
+  const projectId = taskProject?.projectId ?? mandate.projectId
+  if (projectId) {
+    const project = await requireProject(env, auth, projectId)
+    if (project.archivedAt) fail(403, 'project_archived', 'Project execution is unavailable while archived')
+  }
   if (run.environmentJson) await requireRunEnvironment(env, auth, JSON.parse(run.environmentJson) as RunEnvironment)
   return auth
 }
@@ -110,6 +118,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (!agent) fail(403, 'forbidden', 'Agent unavailable')
   const computer = Boolean(input.taskId && hasPermission(agent.principal.permissions, Permission.useComputer)
     && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer)))
+  let projectId: string | null = null
   let environmentId = input.environmentId ?? null
   if (input.taskId) {
     if (!hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent’s role needs Execute assigned tasks. Change its role in Server settings.')
@@ -122,6 +131,8 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     }
     const task = await getTask(env, agent, input.taskId)
     if (!task || task.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
+    projectId = task.projectId ?? null
+    if (ceiling?.projectId !== undefined && ceiling.projectId !== projectId) fail(403, 'project_mandate', 'Child work must remain in the original project')
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
     environmentId ??= task.environmentId ?? null
   }
@@ -145,7 +156,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     .bind(sessionId, input.agentId, input.channelId, now, now).run()
   const session = await env.DB.prepare('SELECT id FROM agent_sessions WHERE agent_id=? AND channel_id=?').bind(input.agentId, input.channelId).first<{ id: string }>()
   const id = newId()
-  const mandate: RunMandate = { permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
+  const mandate: RunMandate = { projectId, permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
     agentPermissions: agent.principal.permissions, agentResourceAccess: agent.principal.resourceAccess,
     computer, maxSteps: 20, maxModelCalls: 20, maxToolCalls: 100, maxTokens: 64000 }
   if (ceiling) {

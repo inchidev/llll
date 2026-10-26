@@ -9,8 +9,8 @@ export const codeEnvironmentSchema = z.object({
   requiredChecks: z.array(z.string().trim().min(1).max(200)).min(1).max(30),
   previewHosts: z.array(z.string().regex(/^[a-z0-9.-]+$/u)).max(20).default([]),
 }).superRefine((value, context) => {
-  if (value.sourceRepoId === value.workRepoId || value.sourceRepo.toLowerCase() === value.workRepo.toLowerCase()) {
-    context.addIssue({ code: 'custom', message: 'Code changes need a separate working fork' })
+  if (value.sourceRepoId === value.workRepoId && (value.sourceRepo.toLowerCase() !== value.workRepo.toLowerCase() || value.sourceInstallationId !== value.workInstallationId)) {
+    context.addIssue({ code: 'custom', message: 'The same repository must use the same identity and App installation' })
   }
   if ((value.baseBranch.includes('..') || value.baseBranch.includes('[') || /[~^:?*\\\s]/u.test(value.baseBranch) || value.baseBranch.startsWith('/')) || value.baseBranch.endsWith('/')) context.addIssue({ code: 'custom', message: 'Invalid base branch' })
 })

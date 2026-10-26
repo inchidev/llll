@@ -1,3 +1,4 @@
+import { requireProject } from './project-service'
 import { authorizeResource } from '../../shared/authorization'
 import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
@@ -125,7 +126,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
       eq(emailMailboxAccess.channelId, accessRoot.id),
       eq(emailMailboxAccess.userId, user.id),
     )).limit(1),
-    db.select({ id: tasks.id, boardId: tasks.boardId }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
+    db.select({ id: tasks.id, boardId: tasks.boardId, projectId: tasks.projectId }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
   ])
   if (privateParts && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
   // A task's discussion is part of the task: only people who can work with tasks may open it.
@@ -133,7 +134,10 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
     fail(404, 'not_found', 'Channel not found')
   }
 
-  if (discussions[0]) authorizeResource(baseMember.authorization, 'boards', discussions[0].boardId)
+  if (discussions[0]) {
+    authorizeResource(baseMember.authorization, 'boards', discussions[0].boardId)
+    if (discussions[0].projectId) await requireProject(env, baseMember.authorization, discussions[0].projectId)
+  }
 
   const mailbox = mailboxes[0]
   if (mailbox) {

@@ -18,6 +18,7 @@ export const RUN_EXECUTION_MS = 15 * 60_000
 export const RUN_QUEUE_WAIT_MS = 24 * 60 * 60_000
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type RunMandate = {
+  projectId?: string | null
   toolConnections?: Array<{ id: string; revision: number }>
   depth?: number
   environmentId?: string | null

@@ -27,19 +27,25 @@ import { searchToolCatalog, validateToolCatalog, type DiscoverableTool, type Too
 
 type Definition = { action?: ServerAction; schema: z.ZodType; parameters?: Record<string, unknown>; guidance?: ToolGuidance; provenance?: DiscoverableTool['provenance']; description: string; execute: (value: unknown) => Promise<unknown> }
 export function agentTools(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal, external: ExternalToolAdapter[] = []) {
+  const projectId = run ? (JSON.parse(run.mandateJson) as RunMandate).projectId : null
+  async function scopedTask(taskId: string) {
+    const task = await getTask(env, authorization, taskId)
+    if (projectId && task?.projectId !== projectId) fail(403, 'project_mandate', 'This Task is outside the admitted project')
+    return task
+  }
   const definitions: Record<string, Definition> = {}
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
     if (Object.hasOwn(definitions, name)) throw new Error('Tool identities must be unique; qualify tools by connection')
     definitions[name] = { action, schema, description, execute: value => execute(schema.parse(value)) }
   }
   add('get_current_time', undefined, z.object({}), 'Read the current date and time with the Server timezone (UTC by default). Confirm the user’s timezone for ambiguous schedules.', async () => agentTimeContext(env))
-  add('list_tasks', ServerAction.readTasks, z.object({}), 'Read authorized task boards and tasks.', async () => ({ boards: await listTasks(env, authorization) }))
-  add('get_task', ServerAction.readTasks, z.object({ taskId: z.string().min(1) }), 'Read one authorized task.', async ({ taskId }) => ({ task: await getTask(env, authorization, taskId) }))
+  add('list_tasks', ServerAction.readTasks, z.object({}), 'Read authorized task boards and tasks.', async () => ({ boards: (await listTasks(env, authorization)).map(b => ({ ...b, tasks: projectId ? b.tasks.filter(t => t.projectId === projectId) : b.tasks })) }))
+  add('get_task', ServerAction.readTasks, z.object({ taskId: z.string().min(1) }), 'Read one authorized task.', async ({ taskId }) => ({ task: await scopedTask(taskId) }))
   add('create_task', ServerAction.writeTasks, z.object({ boardId: z.string().min(1), title: z.string().min(1).max(160), description: z.string().max(12000).default(''), environmentId: z.string().min(8).nullable().optional() }),
     'Create tracked work on an authorized board. Creation does not expand the current mandate.', async ({ boardId, title, description, environmentId }) => ({ task: await createTask(env, authorization, boardId,
-      { title, description, environmentId, priority: 'normal', dueAt: null, assigneeId: authorization.principal.id, channelId: null, labelIds: [], dependencyIds: [] }, schedule) }))
+      { title, description, environmentId, projectId: projectId ?? undefined, priority: 'normal', dueAt: null, assigneeId: authorization.principal.id, channelId: null, labelIds: [], dependencyIds: [] }, schedule) }))
   add('update_task', ServerAction.writeTasks, z.object({ taskId: z.string().min(1), title: z.string().min(1).max(160).optional(), description: z.string().max(12000).optional(), status: z.enum(['backlog', 'ready', 'review', 'done', 'failed']).optional() }),
-    'Update an authorized task.', async ({ taskId, ...patch }) => ({ task: await updateTask(env, authorization, taskId, patch, schedule) }))
+    'Update an authorized task.', async ({ taskId, ...patch }) => { await scopedTask(taskId); return { task: await updateTask(env, authorization, taskId, patch, schedule) } })
   add('list_tables', ServerAction.readRecords, z.object({}), 'Discover authorized table IDs, fields and saved views without reading records.', async () => ({ tables: await listAuthorizedTables(env, authorization) }))
   add('list_data', ServerAction.readDocuments, z.object({}), 'Discover authorized tables and documents.', async () => listAuthorizedDataResources(env, authorization))
   add('create_table', ServerAction.manageData, createTableSchema, 'Create a table with typed fields when the role permits new tables. Include source URL fields for research evidence.', input => createTable(env, authorization, input))
@@ -47,7 +53,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     'Start a bounded attempt for a task assigned to you, in this conversation. Subtasks inherit the original authority and computer limits. Maximum nesting: two.', async ({ taskId }) => {
       const mandate = JSON.parse(run.mandateJson) as RunMandate
       if ((mandate.depth ?? 0) >= 2) fail(409, 'task_depth', 'Subtask nesting limit reached')
-      const task = await getTask(env, authorization, taskId)
+      const task = await scopedTask(taskId)
       if (!task || task.assigneeId !== run.agentId) fail(403, 'task_denied', 'Task must be assigned to this agent')
       const human = await loadAuthorizationContext(env, { principalId: run.initiatedBy, credential: { kind: 'session' } })
       if (!human) fail(403, 'run_revoked', 'Task delegator unavailable')

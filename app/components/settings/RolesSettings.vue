@@ -42,14 +42,14 @@ const tabs = computed(() => [
 
 // Grants grouped by what they govern, so a role reads as a policy rather than a flat list.
 const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
-  { label: 'Server', keys: ['manageServer', 'manageChannels', 'manageRoles', 'invite', 'kick'] },
-  { label: 'Conversations', keys: ['sendMessages', 'attachFiles', 'startLive'] },
-  { label: 'Tasks', keys: ['readTasks', 'writeTasks', 'manageTasks'] },
-  { label: 'Data', keys: ['readData', 'writeData', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
-  { label: 'Using agents', keys: ['useAgents', 'manageAgents', 'approveAgentActions'] },
-  { label: 'Research', keys: ['browseWeb'] },
-  { label: 'Agent autonomy', keys: ['executeTasks', 'useComputer', 'proposeCode', 'manageSchedules'] },
+  { label: 'Projects', keys: ['readProjects', 'manageProjects', 'readTasks', 'writeTasks', 'manageTasks', 'executeTasks', 'useComputer', 'proposeCode'] },
+  { label: 'Data', keys: ['readData', 'writeData', 'manageDatabases'] },
+  { label: 'Chat', keys: ['manageChannels', 'sendMessages', 'attachFiles', 'startLive'] },
+  { label: 'Email', keys: [] },
+  { label: 'Apps', keys: ['useGadgets', 'manageGadgets'] },
+  { label: 'Agents', keys: ['useAgents', 'manageAgents', 'approveAgentActions', 'manageSchedules', 'browseWeb'] },
   { label: 'Integrations', keys: ['mcp.connect', 'useExternalTools'] },
+  { label: 'Server', keys: ['manageServer', 'manageRoles', 'invite', 'kick'] },
 ]
 const groupedGrants = grantGroups.map(group => ({
   label: group.label,
@@ -75,10 +75,12 @@ function permissionSummary(role: RoleDTO) {
 
 // Draft edits, compared against the saved role to drive the save bar.
 const roleResourceAccess = ref<ResourceAccess>({})
+const resourceSection: Record<ResourceKind, string> = { projects: 'Projects', boards: 'Projects', repositories: 'Projects', databases: 'Data', documents: 'Data', canvases: 'Data' }
 const resourceGroups: Array<{ kind: ResourceKind; label: string }> = [
-  { kind: 'boards', label: 'Task boards' }, { kind: 'databases', label: 'Tables' },
+  { kind: 'projects', label: 'Projects' }, { kind: 'boards', label: 'Task boards' }, { kind: 'databases', label: 'Tables' },
   { kind: 'repositories', label: 'Repositories' }, { kind: 'documents', label: 'Documents' }, { kind: 'canvases', label: 'Canvases' },
 ]
+const projectResources = useQuery({ queryKey: computed(() => ['projects', props.serverId]), queryFn: () => api<{ projects: Array<{ id: string; name: string }> }>(`/api/servers/${props.serverId}/projects`), enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readProjects)) })
 const boardResources = useQuery({
   queryKey: computed(() => ['boards', props.serverId]),
   queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${props.serverId}/boards`),
@@ -91,6 +93,7 @@ const dataResources = useQuery({
 })
 const environments = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ environments: Array<{ sourceRepo: string; sourceRepoId: number }> }>('/api/code-environments'), enabled: computed(() => Boolean(selectedRole.value)) })
 function resourceOptions(kind: ResourceKind) {
+  if (kind === 'projects') return (projectResources.data.value?.projects ?? []).map(p => ({ label: p.name, value: p.id }))
   if (kind === 'repositories') return [...new Map((environments.data.value?.environments ?? []).map(item => [item.sourceRepoId, { label: item.sourceRepo, value: String(item.sourceRepoId) }])).values()]
   if (kind === 'boards') return (boardResources.data.value?.boards ?? []).map(row => ({ label: row.name, value: row.id }))
   const data = dataResources.data.value
@@ -343,11 +346,12 @@ watch(addMemberId, async (userId) => {
           <div class="mb-1 flex items-center justify-between gap-3">
             <h2 class="text-[11px] font-bold uppercase tracking-wide text-muted">{{ group.label }}</h2>
             <div v-if="!readOnly" class="flex gap-1">
-              <UButton size="xs" color="neutral" variant="ghost" label="All" @click="setGroup(group.grants.map(grant => grant.key), true)" />
-              <UButton size="xs" color="neutral" variant="ghost" label="None" @click="setGroup(group.grants.map(grant => grant.key), false)" />
+              <UButton v-if="group.grants.length" size="xs" color="neutral" variant="ghost" label="All" @click="setGroup(group.grants.map(grant => grant.key), true)" />
+              <UButton v-if="group.grants.length" size="xs" color="neutral" variant="ghost" label="None" @click="setGroup(group.grants.map(grant => grant.key), false)" />
             </div>
           </div>
-          <div class="divide-y divide-default rounded-lg border border-default">
+          <p v-if="group.label === 'Email'" class="text-sm text-muted">Read, send and manage access is currently assigned per mailbox in Mail settings. This Role does not override mailbox access.</p>
+          <div v-if="group.grants.length" class="divide-y divide-default rounded-lg border border-default">
             <label
               v-for="grant in group.grants"
               :key="grant.key"
@@ -366,17 +370,17 @@ watch(addMemberId, async (userId) => {
               />
             </label>
           </div>
-        </section>
-        <section class="space-y-4">
-          <h3 class="text-sm font-medium text-highlighted">Resources</h3>
-          <p class="text-sm text-muted">Permissions above determine what members can do. Choose where those permissions apply. Selected resources also limit agents and MCP connections.</p>
-          <UFormField v-for="group in resourceGroups" :key="group.kind" :label="group.label">
+          <div v-if="resourceGroups.some(r => resourceSection[r.kind] === group.label)" class="mt-4 space-y-3">
+            <p class="text-sm text-muted">Choose where these permissions apply. Resource selection does not grant an operation.</p>
+          <UFormField v-for="resource in resourceGroups.filter(r => resourceSection[r.kind] === group.label)" :key="resource.kind" :label="resource.label">
             <div class="space-y-2">
-              <USelect :model-value="roleResourceAccess[group.kind] == null ? 'all' : 'selected'" :items="[{ label: 'All resources', value: 'all' }, { label: 'Selected resources', value: 'selected' }]" :disabled="readOnly" class="w-full" @update:model-value="setResourceMode(group.kind, $event)" />
-              <USelectMenu v-if="roleResourceAccess[group.kind] != null" :model-value="roleResourceAccess[group.kind] ?? []" multiple :items="resourceOptions(group.kind)" value-key="value" placeholder="Choose resources" :disabled="readOnly" class="w-full" @update:model-value="roleResourceAccess = { ...roleResourceAccess, [group.kind]: $event }" />
+              <USelect :model-value="roleResourceAccess[resource.kind] == null ? 'all' : 'selected'" :items="[{ label: 'All resources', value: 'all' }, { label: 'Selected resources', value: 'selected' }]" :disabled="readOnly" class="w-full" @update:model-value="setResourceMode(resource.kind, $event)" />
+              <USelectMenu v-if="roleResourceAccess[resource.kind] != null" :model-value="roleResourceAccess[resource.kind] ?? []" multiple :items="resourceOptions(resource.kind)" value-key="value" placeholder="Choose resources" :disabled="readOnly" class="w-full" @update:model-value="roleResourceAccess = { ...roleResourceAccess, [resource.kind]: $event }" />
             </div>
           </UFormField>
+          </div>
         </section>
+
       </div>
 
       <div v-else class="mt-6">

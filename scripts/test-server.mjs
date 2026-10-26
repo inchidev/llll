@@ -1,3 +1,4 @@
+import { testProjects } from './test-projects.mjs'
 import { testRunPublication } from './test-run-publication.mjs'
 import { createHash } from 'node:crypto'
 import { Miniflare, convertV4MiniflareOptions, Log, LogLevel } from 'miniflare'
@@ -333,6 +334,7 @@ try {
   await testAgentToolDiscovery({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   const outboundMcp = await testOutboundMcp({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id, memberId })
   const publication = await testRunPublication({ api, runtimes, ids, channelId: general.id })
+  const projectFixture = await testProjects({ api, runtimes, ids, memberId })
   await testRoleManagement({ api, runtimes, ids, memberId })
   await testAgentRoles({ api, runtimes, ids, memberId })
   await testGadgetAuthorization({ api, runtimes, ids, memberId })
@@ -699,6 +701,8 @@ try {
   assert.deepEqual(restored.prepare('PRAGMA foreign_key_check').all(), [])
   assert.equal(restored.prepare('SELECT credential_json FROM mcp_outbound_connections WHERE id=?').get(outboundMcp.connectionId).credential_json, outboundMcp.credentialJson)
   assert.ok(restored.prepare('SELECT s.untrusted_at FROM agent_sessions s JOIN agent_runs r ON r.session_id=s.id WHERE r.id=?').get(outboundMcp.runId).untrusted_at)
+  assert.equal(restored.prepare('SELECT project_id AS projectId FROM tasks WHERE id=?').get(projectFixture.taskId).projectId, projectFixture.projectId)
+  assert.equal(restored.prepare('SELECT count(*) AS n FROM project_repositories WHERE project_id=?').get(projectFixture.projectId).n, 2)
   assert.equal(restored.prepare('SELECT status FROM agent_run_publications WHERE id=?').get(publication.publicationId).status, 'completed')
   assert.ok(restored.prepare('SELECT count(*) AS n FROM agent_tool_decisions WHERE run_id=?').get(outboundMcp.runId).n > 0)
   restored.close()
