@@ -5,6 +5,9 @@ const root = resolve(import.meta.dirname, '..')
 // These sources use a coding workspace, not the retired community/account domain.
 // Keep the exception local to the integrated factory and its exact vocabulary.
 const codingWorkspaceSources = new Set([
+  'app/components/settings/FactorySetup.vue', 'server/api/agent-runs/[id]/factory-export.post.ts',
+  'server/api/agent-runs/[id].get.ts', 'server/utils/factory-completion.ts', 'server/utils/factory-setup.ts',
+  'workers/env.ts', 'workers/factory-compute.ts', 'packages/deployment-core/src/factory.ts', 'apps/site/app/components/ServerVps.vue',
   'app/components/agents/FactoryReview.vue', 'app/components/settings/ComputeNodes.vue',
   'app/components/settings/ToolsSettings.vue', 'app/pages/runs/[id].vue',
   'server/utils/agent-tool-security.ts', 'server/utils/agent-tools.ts', 'server/utils/compute-nodes.ts',

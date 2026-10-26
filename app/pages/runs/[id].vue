@@ -38,7 +38,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ factoryCalls: { callId: string; status: string; argumentsJson: string; error: string | null; createdAt: string }[]; publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -106,6 +106,14 @@ async function publicationAction(decision?: 'approve' | 'reject') {
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <details v-if="runQ.data.value?.factoryCalls?.length" class="space-y-3 rounded-lg border border-default p-4">
+        <summary class="cursor-pointer font-medium">Private Factory tool audit</summary>
+        <article v-for="call in runQ.data.value.factoryCalls" :key="call.callId" class="space-y-2 border-t border-default pt-3">
+          <p class="break-all text-sm">{{ call.callId }} · {{ call.status }} · {{ new Date(call.createdAt).toLocaleString() }}</p>
+          <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{{ call.argumentsJson }}</pre>
+          <p v-if="call.error" class="break-words text-sm text-warning">{{ call.error }}</p>
+        </article>
+      </details>
       <AgentsFactoryReview v-if="run.hasFactory" :run-id="run.id" :active="['queued', 'running'].includes(run.status)" />
       <section v-if="runQ.data.value?.security" class="space-y-3">
         <h2 class="text-sm font-medium">Tool security</h2>

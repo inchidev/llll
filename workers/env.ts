@@ -9,6 +9,11 @@ export function asRpc<T>(stub: unknown): Rpc<T> {
 }
 
 export type L4Env = {
+  /** Optional paid Factory bindings. Absent from Free deployments. */
+  FACTORY_COMPUTE?: DurableObjectNamespace
+  FACTORY_CODE?: Artifacts
+  FACTORY_IMAGE?: string
+  FACTORY_POLICY?: string
   /** Dedicated repository integration, separate from GitHub sign-in. Never exposed to compute. */
   GITHUB_AGENT_APP_ID?: string
   GITHUB_AGENT_APP_PRIVATE_KEY?: string

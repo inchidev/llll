@@ -1,3 +1,4 @@
+import { factoryCompletion } from './factory-completion'
 import { PRIVATE_RUN_SUMMARY } from './agent-tool-security'
 import type { AgentRun } from '../../shared/agent-execution'
 import { authorize, ServerAction } from '../../shared/authorization'
@@ -28,12 +29,13 @@ export async function deliverAgentRun(env: L4Env, run: AgentRun, publish: () => 
       const auth = await runAuthorization(env, run)
       authorize(auth, ServerAction.executeTasks)
       const task = await getTask(env, auth, run.taskId!)
+      const factory = await factoryCompletion(env, run)
       const eligible = task?.assigneeId === run.agentId && !task.archivedAt
       const result = eligible ? await env.DB.prepare(`UPDATE tasks SET status=?,result_summary=?,result_details=?,last_error=?,updated_at=?
         WHERE id=? AND assignee_id=? AND archived_at IS NULL
         AND (updated_at<=? OR updated_at=(SELECT task_edit_at FROM agent_runs WHERE id=?))
         AND status NOT IN ('done','review')`)
-        .bind(run.status === 'completed' ? 'review' : 'failed', PRIVATE_RUN_SUMMARY,
+        .bind(run.status === 'completed' && !factory.pending && !factory.missingWork ? 'review' : 'failed', PRIVATE_RUN_SUMMARY,
           `[Open private Run](/runs/${run.id})`, run.status === 'failed' ? 'Run failed; private details require review.' : null, nowIso(), run.taskId, run.agentId, run.createdAt, run.id).run() : null
       const changed = Boolean(result?.meta.changes)
       await env.DB.prepare('UPDATE agent_run_deliveries SET task_status=?,task_error=?,updated_at=? WHERE run_id=?')

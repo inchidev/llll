@@ -88,6 +88,7 @@ beforeAll(async () => {
   }))
   vi.stubGlobal('useLiveStore', () => ({ setState: vi.fn() }))
   vi.stubGlobal('useUiStore', () => ({ dmFrozen: false, liveSetupOpen: false }))
+  vi.stubGlobal('useToast', () => ({ add: vi.fn() }))
   vi.stubGlobal('useSessionStore', () => ({ user: null }))
   vi.stubGlobal('useNuxtApp', () => ({ $queryClient: queryClient }))
   vi.stubGlobal('useApi', () => ({

@@ -1,6 +1,6 @@
 {
   "name": "@llll/deployment-core",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Cloudflare server provisioning and updates for L4 servers",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,8 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "cloudflare": "7.1.0"
+    "cloudflare": "7.1.0",
+    "@noble/hashes": "2.4.0"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

@@ -3,6 +3,8 @@ import type { RoleDTO } from './types'
 
 export const TaskAgentPermissions = Permission.readTasks | Permission.writeTasks | Permission.executeTasks | Permission.sendMessages
 
+export const FactoryAgentPermissions = Permission.readProjects | Permission.readTasks | Permission.executeTasks | Permission.sendMessages | Permission.useComputer | Permission.proposeCode
+
 export const TaskAgentGrants = [
   { flag: Permission.readTasks, label: 'Read tasks' },
   { flag: Permission.writeTasks, label: 'Create and update tasks' },

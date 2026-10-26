@@ -60,7 +60,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const time = await agentTimeContext(env)
   const instructions = `Current time: ${time.utc}. Server timezone: ${time.timezone}. Local date and time: ${time.localTime}. Ask for a timezone when the user’s scheduling timezone is unclear.\n` + input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
   let providerFailure: unknown
-  const settings = { model, instructions, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
+  const settings = { model, instructions, maxRetries: 2, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }
   if (input.stream) {
     const abort = new AbortController()
@@ -145,6 +145,9 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
       const message = inferenceFailure(error)
       await env.DB.batch([env.DB.prepare('UPDATE agent_runs SET last_error=? WHERE id=?').bind(message, run.id), env.DB.prepare("UPDATE agent_model_calls SET status='failed',error=?,completed_at=? WHERE run_id=? AND status='running'").bind(message, new Date().toISOString(), run.id)])
       return Response.json({ error: { message } }, { status: 502 })
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: { message: 'Invalid tool arguments: ' + error.issues.map(issue => `${issue.path.join('.') || 'arguments'}: ${issue.code}`).join('; ').slice(0, 400) } }, { status: 400 })
     }
     const code = error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 502
     return Response.json({ error: { message: code === 403 ? 'Current permissions do not allow this operation' : 'The operation failed; inspect the Run before retrying' } }, { status: code })

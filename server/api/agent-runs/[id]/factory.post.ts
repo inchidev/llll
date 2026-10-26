@@ -10,5 +10,5 @@ export default defineEventHandler(async event => {
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
   const input = parseBody(z.object({ id: z.string().uuid(), digest: z.string().regex(/^[a-f0-9]{64}$/u), decision: z.enum(['approve','reject']) }).strict(), await readBody(event))
-  return { action: await decideFactoryAction(env, run.id, actor.user.id, input) }
+  return { action: await decideFactoryAction(env, run.id, actor.user.id, input, cf(event).waitUntil) }
 })

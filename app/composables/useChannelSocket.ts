@@ -20,6 +20,7 @@ function keepOwnReactions(next: MessageDTO['reactions'], previous: MessageDTO['r
 
 export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   const { api, socketUrl } = useApi()
+  const session = useSessionStore(), toast = useToast()
   const presence = usePresenceStore()
   const live = useLiveStore()
   const nuxt = useNuxtApp()
@@ -240,6 +241,9 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             break
           case 'typing':
             presence.markTyping(id, parsed.userId, parsed.active)
+            break
+          case 'agent.start_failed':
+            if (session.user?.id === parsed.initiatedBy) toast.add({ title: parsed.message, color: 'error' })
             break
           case 'agent.state':
             void queryClient()?.invalidateQueries({ queryKey: ['agent-conversation-runs'] })

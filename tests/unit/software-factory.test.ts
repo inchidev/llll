@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { generateKeyPairSync, createHash } from 'node:crypto'
 import { factoryFeedback } from '../../server/utils/factory-github'
-import type { FactorySnapshot } from '../../shared/software-factory'
+import { factoryToolSchema, parseFactoryToolInput, type FactorySnapshot } from '../../shared/software-factory'
+import { factoryCompletion } from '../../server/utils/factory-completion'
+import { factoryStatus } from '../../server/utils/factory-status'
+import { agentGateway } from '../../server/utils/agent-gateway'
 import { mcpFixture, ids } from '../helpers/outbound-mcp'
 import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import { factoryToolCall, decideFactoryAction, listFactoryActions, expireFactoryActions } from '../../server/utils/factory-actions'
 import { computePoll, prepareComputePairing, pairComputeNode, requireComputeNode, disableComputeNode } from '../../server/utils/compute-nodes'
 import { factoryHash } from '../../server/utils/factory-authority'
-import { findAgentRun, runAuthorization } from '../../server/utils/agent-run-service'
+import { findAgentRun, runAuthorization, runCapability } from '../../server/utils/agent-run-service'
 import { executeRunTool, toolsForRun } from '../../server/utils/agent-tools'
 import type { AgentRun } from '../../shared/agent-execution'
 
@@ -230,4 +233,113 @@ it('refuses publication when the original base moved before any Git provider wri
   await finishBootstrap();await recordSnapshot(proposal([localCommit('a'.repeat(40),'change\n','Change\n')]),'snapshot-one')
   const github=githubFixture();github.moveBase();await expect(requestPublication('publish-one')).rejects.toMatchObject({statusCode:409})
   expect(github.writes).toHaveLength(0)
+})
+
+it('finds every currently permitted tool by exact identity through the real discovery surface', async () => {
+  const tools = await toolsForRun(f.env, await runAuthorization(f.env, run), () => {}, run)
+  const permitted = await tools.catalog()
+  expect(permitted.some(tool => tool.name === 'factory_workspace')).toBe(true)
+  for (const tool of permitted) {
+    const found = await tools.call('search_tools', { query: tool.name }) as { tools: Array<{ name: string }> }
+    expect(found.tools[0]?.name, tool.name).toBe(tool.name)
+  }
+  for (const query of ['repository', 'compute node']) {
+    const found = await tools.call('search_tools', { query, limit: 8 }) as { tools: Array<{ name: string }> }
+    expect(found.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['factory_workspace', 'factory_status']))
+  }
+  const missing = await tools.call('search_tools', { query: 'zyxwvut' }) as { diagnostic: string }
+  expect(missing.diagnostic).not.toContain('review, which is currently unavailable')
+})
+it.each([
+  [{ operation: 'bootstrap', command: 'ignored', timeoutMs: 30000, networkHosts: ['example.com'], body: 'ignored' }, { operation: 'bootstrap' }],
+  [{ operation: 'exec', command: 'node --test', path: 'unused.txt', content: 'ignored', body: 'ignored' }, { operation: 'exec', command: 'node --test', timeoutMs: 30000, networkHosts: [] }],
+  [{ operation: 'read', path: 'answer.txt', command: 'ignored', timeoutMs: 30000, title: 'ignored' }, { operation: 'read', path: 'answer.txt' }],
+])('accepts advertised optional fields but reviews only the selected operation: %j', async (input, expected) => {
+  expect(factoryToolSchema.safeParse(input).success).toBe(true)
+  expect(parseFactoryToolInput(input)).toEqual(expected)
+  if (input.operation !== 'bootstrap') await finishBootstrap()
+  await factoryToolCall(f.env, run.id, 'advertised-extra-fields', input)
+  const row = f.db.prepare('SELECT request_json FROM factory_actions WHERE run_id=? AND call_id=?').get(run.id, 'advertised-extra-fields') as { request_json: string }
+  expect(JSON.parse(row.request_json)).toEqual(expected)
+  expect(await computePoll(f.env, nodeId, { operation: 'claim' })).toEqual({ job: null })
+})
+it.each([
+  { operation: 'exec', body: 'irrelevant field' }, { operation: 'read', command: 'irrelevant field' },
+  { operation: 'write', path: 'answer.txt', command: 'irrelevant field' }, { operation: 'publish', title: 'Missing snapshot' },
+  { operation: 'exec', command: 'curl', networkHosts: ['127.0.0.1'] }, { operation: 'bootstrap', repository: 'another/private' },
+])('still rejects missing required fields, invalid operation fields and unadvertised keys: %j', async input => {
+  await expect(factoryToolCall(f.env, run.id, 'invalid-operation', input)).rejects.toThrow()
+  expect(f.db.prepare('SELECT count(*) AS total FROM factory_actions').get()).toMatchObject({ total: 0 })
+  expect(await computePoll(f.env, nodeId, { operation: 'claim' })).toEqual({ job: null })
+  expect(fetch).not.toHaveBeenCalled()
+})
+it('persists a rejected invocation in the private Run audit and returns a corrective 400 without echoing input', async () => {
+  const input = { callId: 'invalid-exec', name: 'factory_workspace', arguments: { operation: 'exec', body: 'PRIVATE_INPUT_MUST_NOT_BE_ECHOED' } }
+  const token = await runCapability(f.env, run.id)
+  const response = await agentGateway(new Request('https://server.example/tools', { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: JSON.stringify(input) }), f.env, run.id, 'tools', () => {})
+  expect(response.status).toBe(400)
+  const body = await response.text()
+  expect(body).toContain('Invalid tool arguments: ')
+  expect(body).toContain('command')
+  expect(body).not.toContain('PRIVATE_INPUT_MUST_NOT_BE_ECHOED')
+  expect(f.db.prepare('SELECT name,status,arguments_json FROM agent_run_tools WHERE run_id=? AND call_id=?').get(run.id, input.callId))
+    .toMatchObject({ name: 'factory_workspace', status: 'failed', arguments_json: JSON.stringify(input.arguments) })
+  expect(f.db.prepare('SELECT tool,decision FROM agent_tool_decisions WHERE run_id=? AND call_id=?').get(run.id, input.callId))
+    .toMatchObject({ tool: 'factory_workspace', decision: 'allowed' })
+  expect(f.db.prepare('SELECT count(*) AS total FROM factory_actions').get()).toMatchObject({ total: 0 })
+  expect((await findAgentRun(f.env, run.id))?.status).toBe('running')
+})
+it('keeps one audit row while polling an approval and settles it with the exact provider receipt', async () => {
+  const authorization = await runAuthorization(f.env, run)
+  const call = () => executeRunTool(f.env, run.id, authorization, { callId: 'bootstrap', name: 'factory_workspace', arguments: { operation: 'bootstrap', body: 'ignored' } }, () => {})
+  expect(await call()).toMatchObject({ factoryPending: true })
+  expect(await call()).toMatchObject({ factoryPending: true })
+  expect(f.db.prepare('SELECT status FROM agent_run_tools WHERE run_id=? AND call_id=?').get(run.id, 'bootstrap')).toMatchObject({ status: 'pending' })
+  await finishBootstrap()
+  expect(await call()).toMatchObject({ ok: true, output: 'Pinned checkout' })
+  expect(f.db.prepare('SELECT status,result_json FROM agent_run_tools WHERE run_id=? AND call_id=?').get(run.id, 'bootstrap')).toMatchObject({ status: 'completed', result_json: expect.stringContaining('Pinned checkout') })
+  expect(f.db.prepare('SELECT count(*) AS total FROM agent_run_tools WHERE run_id=?').get(run.id)).toMatchObject({ total: 1 })
+})
+it('does not treat discovery, a bootstrap or a pending approval as completed coding work', async () => {
+  expect(await factoryCompletion(f.env, run)).toEqual({ pending: false, missingWork: true })
+  await factoryToolCall(f.env, run.id, 'bootstrap', { operation: 'bootstrap' })
+  expect(await factoryCompletion(f.env, run)).toEqual({ pending: true, missingWork: true })
+  await finishBootstrap()
+  expect(await factoryCompletion(f.env, run)).toEqual({ pending: false, missingWork: true })
+  await factoryToolCall(f.env, run.id, 'write-answer', { operation: 'write', path: 'answer.txt', content: '42' })
+  await approve()
+  expect(await factoryCompletion(f.env, run)).toEqual({ pending: true, missingWork: true })
+  const { job } = await computePoll(f.env, nodeId, { operation: 'claim' })
+  await computePoll(f.env, nodeId, { operation: 'begin', ...job! })
+  await computePoll(f.env, nodeId, { operation: 'result', ...job!, result: { ok: true, exitCode: 0, output: 'Wrote answer.txt', runtimeMs: 10 } })
+  expect(await factoryCompletion(f.env, run)).toEqual({ pending: false, missingWork: false })
+  expect(await factoryCompletion(f.env, { ...run, channelId: 'another-chat' })).toEqual({ pending: false, missingWork: true })
+  expect(await factoryCompletion(f.env, { ...run, initiatedBy: ids.member })).toEqual({ pending: false, missingWork: true })
+  expect(await factoryCompletion(f.env, { ...run, taskId: 'another-task' })).toEqual({ pending: false, missingWork: true })
+  expect(await factoryCompletion(f.env, { ...run, environmentJson: JSON.stringify({ ...JSON.parse(run.environmentJson!), baseSha: 'c'.repeat(40) }) })).toEqual({ pending: false, missingWork: true })
+})
+it('restores bounded private operation evidence without write bodies or broad credentials', async () => {
+  await finishBootstrap()
+  await factoryToolCall(f.env, run.id, 'write-answer', { operation: 'write', path: 'answer.txt', content: 'PRIVATE_WRITE_CONTENT' })
+  await approve()
+  let claim = await computePoll(f.env, nodeId, { operation: 'claim' })
+  await computePoll(f.env, nodeId, { operation: 'begin', ...claim.job! })
+  await computePoll(f.env, nodeId, { operation: 'result', ...claim.job!, result: { ok: true, exitCode: 0, output: 'Wrote answer.txt', runtimeMs: 10 } })
+  await factoryToolCall(f.env, run.id, 'tests', { operation: 'exec', command: 'node --test' })
+  await approve()
+  claim = await computePoll(f.env, nodeId, { operation: 'claim' })
+  await computePoll(f.env, nodeId, { operation: 'begin', ...claim.job! })
+  await computePoll(f.env, nodeId, { operation: 'result', ...claim.job!, result: { ok: true, exitCode: 0, output: 'All tests passed. ' + 'x'.repeat(3000), runtimeMs: 10 } })
+  const progress = await factoryStatus(f.env, run.id)
+  expect(progress.recentActions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ operation: 'write', path: 'answer.txt', exitCode: 0 }),
+    expect.objectContaining({ operation: 'exec', command: 'node --test', exitCode: 0, output: expect.stringContaining('All tests passed.') }),
+  ]))
+  expect(progress.recentActions.every(action => !action.output || action.output.length <= 1000)).toBe(true)
+  expect(progress.instruction).toContain('Resume the existing checkout')
+  expect(JSON.stringify(progress)).not.toContain('PRIVATE_WRITE_CONTENT')
+  expect(JSON.stringify(progress)).not.toContain('single-repository-read-capability')
+  f.db.prepare("INSERT INTO channels(id,name,type,visibility) VALUES('other-progress-chat','Other','text','server')").run()
+  f.db.prepare('UPDATE agent_runs SET channel_id=? WHERE id=?').run('other-progress-chat', run.id)
+  await expect(factoryStatus(f.env, run.id)).rejects.toMatchObject({ statusCode: 409 })
 })

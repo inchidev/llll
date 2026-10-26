@@ -129,7 +129,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     } catch { return false }
   })
   const catalog: DiscoverableTool[] = allowed.map(([name, definition]) => {
-    const effect = /^(create|update|publish|execute|cancel)_/u.test(name) ? 'write' : 'read'
+    const effect = /^(create|update|publish|execute|cancel)_/u.test(name) || name === 'factory_workspace' ? 'write' : 'read'
     const cost: ToolGuidance['cost'] = name === 'search_web' ? (env.EXA_API_KEY ? 'network' : 'inference') : name === 'read_url' || (name.includes('code') || name.includes('github')) ? 'network' : 'local'
     return { name, description: definition.description, parameters: definition.parameters ?? z.toJSONSchema(definition.schema), ...(definition.provenance ? { provenance: definition.provenance } : {}), deferred: name !== 'get_current_time',
       guidance: definition.guidance ?? { effect, cost, useWhen: definition.description,
@@ -161,7 +161,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       if (name === 'search_tools') {
         const request = z.object({ query: z.string().trim().min(1).max(240), limit: z.number().int().min(1).max(8).default(5) }).strict().parse(input)
         const tools = searchToolCatalog(await availableCatalog(), request.query, request.limit)
-        return { tools, diagnostic: tools.length ? 'Load an exact tool with get_tool_details. Discovery does not grant access.' : 'No matching available tool. Sensitive writes and outbound calls require human review, which is currently unavailable. Report the missing capability; do not invent a result.' }
+        return { tools, diagnostic: tools.length ? 'Load an exact tool with get_tool_details. Discovery does not grant access.' : 'No matching tool in the currently permitted catalog. Try the exact tool name or report the missing capability. Factory operations support exact human review; other sensitive operations may be unavailable.' }
       }
       if (name === 'get_tool_details') {
         const request = z.object({ name: z.string().min(1).max(64), purpose: z.string().trim().min(1).max(240) }).strict().parse(input)
@@ -208,13 +208,21 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
   const currentRun = await findAgentRun(env, runId)
   if (!currentRun || currentRun.status !== 'running') fail(403, 'run_revoked', 'Run is no longer active')
   await runAuthorization(env, currentRun)
-  if (input.name === 'factory_workspace') return factoryToolCall(env, runId, input.callId, input.arguments)
   const encoded = JSON.stringify(input.arguments)
   const policy = JSON.stringify({ principal: authorization.principal, delegation: authorization.delegation })
   const existing = await env.DB.prepare('SELECT name,arguments_json as argumentsJson,policy_json as policyJson,status,result_json as resultJson FROM agent_run_tools WHERE run_id=? AND call_id=?')
     .bind(runId, input.callId).first<{ name: string; argumentsJson: string; policyJson: string; status: string; resultJson: string | null }>()
   if (existing) {
     if (existing.name !== input.name || existing.argumentsJson !== encoded) fail(409, 'call_conflict', 'Tool call identity changed')
+    // Factory polling observes the same immutable request; it never replays an effect.
+    if (input.name === 'factory_workspace') {
+      if (existing.policyJson !== policy) fail(403, 'call_revoked', 'The call authorization changed')
+      await guardRunTool(env, currentRun, input.name, input.callId)
+      const value = await factoryToolCall(env, runId, input.callId, input.arguments)
+      await env.DB.prepare('UPDATE agent_run_tools SET status=?,result_json=? WHERE run_id=? AND call_id=?')
+        .bind(value.factoryPending ? 'pending' : 'completed', JSON.stringify(value), runId, input.callId).run()
+      return value
+    }
     if (existing.status !== 'completed') {
       await env.DB.prepare("UPDATE agent_runs SET status='failed',last_error='A tool outcome is uncertain; review it before starting another attempt',updated_at=? WHERE id=? AND status='running'").bind(new Date().toISOString(), runId).run()
       fail(409, 'call_uncertain', 'The previous call did not finish. Inspect its outcome before retrying')
@@ -238,13 +246,16 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
     .bind(runId, input.callId || newId(), input.name, encoded, policy, new Date().toISOString(), runId, runId).first()
   if (!admitted) fail(429, 'tool_budget', 'Run tool budget exhausted')
   try {
-    const value = await (await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)).call(input.name, input.arguments)
+    const value = input.name === 'factory_workspace' ? await factoryToolCall(env, runId, input.callId, input.arguments)
+      : await (await toolsForRun(env, authorization, schedule, (await findAgentRun(env, runId)) ?? undefined, signal)).call(input.name, input.arguments)
     const result = JSON.stringify(value)
     if (new TextEncoder().encode(result).byteLength > 500000) fail(413, 'tool_output_large', 'Tool output exceeds the run limit')
-    await env.DB.prepare("UPDATE agent_run_tools SET status='completed',result_json=? WHERE run_id=? AND call_id=?").bind(result, runId, input.callId).run()
+    const pending = input.name === 'factory_workspace' && value && typeof value === 'object' && 'factoryPending' in value && value.factoryPending === true
+    await env.DB.prepare('UPDATE agent_run_tools SET status=?,result_json=? WHERE run_id=? AND call_id=?').bind(pending ? 'pending' : 'completed', result, runId, input.callId).run()
     return value
   } catch (error) {
-    await env.DB.prepare("UPDATE agent_run_tools SET status='failed' WHERE run_id=? AND call_id=?").bind(runId, input.callId).run()
+    const diagnostic = error instanceof z.ZodError ? 'Invalid tool arguments: ' + error.issues.map(issue => `${issue.path.join('.') || 'arguments'}: ${issue.code}`).join('; ').slice(0, 400) : 'The operation was rejected or failed. Inspect its private action receipt before retrying.'
+    await env.DB.prepare("UPDATE agent_run_tools SET status='failed',result_json=? WHERE run_id=? AND call_id=?").bind(JSON.stringify({ error: diagnostic }), runId, input.callId).run()
     const status = error && typeof error === 'object' && 'statusCode' in error ? Number(error.statusCode) : 500
     const mutating = /^(create|update|publish|execute|cancel)_/u.test(input.name)
     if (mutating && status >= 500 && !(error instanceof z.ZodError)) {

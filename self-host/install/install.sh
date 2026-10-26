@@ -508,6 +508,7 @@ install_server() {
   compose up -d --wait --wait-timeout 600 >/dev/null
   health
   print_result
+  if [[ ${LLLL_FACTORY:-false} == true ]]; then version=$pinned_version; factory_command enable; fi
 }
 upgrade_server() {
   local requested=${1:-} current=$version
@@ -591,6 +592,7 @@ uninstall_server() {
   fi
   check_owned_volumes
   if [[ $backup == true ]]; then backup_stack; fi
+  if [[ -f /etc/systemd/system/$(factory_service).service ]]; then systemctl disable --now "$(factory_service)"; fi
   compose down --remove-orphans >/dev/null
   if [[ $purge == true ]]; then
     for key in rustfs-data celld-data caddy-data caddy-config; do docker volume rm "${project}_$key" >/dev/null; done
@@ -598,6 +600,114 @@ uninstall_server() {
   # Keep .env and the CLI for recovery. Never remove Docker, shared images or backups.
   say "Stopped $project. Live volumes purged: $purge. Configuration: $dir. Backups: $backup_dir"
 }
+factory_service() { printf 'llll-factory-%s' "$project"; }
+factory_command() {
+  local action=${1:-status} unit image architecture hash asset expected
+  unit=$(factory_service)
+  case "$action" in
+    enable)
+      [[ ${2:-} == --trust-shared-kernel || ${LLLL_SHARED_KERNEL_TRUSTED:-} == 1 ]] || fail 'Docker shares the host kernel. Run llll factory enable --trust-shared-kernel only for trusted code/users.'
+      for asset in systemctl fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$asset"; done
+      [[ $(uname -m) == x86_64 ]] || fail 'The released Compute Node supports Linux amd64.'
+      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 7516192768 ]] || fail 'Factory needs 7 GiB free disk capacity, including reserve for the Server.'
+      [[ $(awk '/MemAvailable:/ {print $2}' /proc/meminfo) -ge 2097152 ]] || fail 'Factory needs 2 GiB available RAM, including reserve for the Server.'
+      release_metadata "$version"
+      validate_metadata "$version"
+      for asset in llll-factory.json llll-compute-node-linux-amd64.tgz llll-workspace-linux-amd64.tar.gz; do
+        hash=$(manifest_hash "$asset")
+        fetch "$base/$asset" "$stage/$asset"
+        check_hash "$hash" "$stage/$asset"
+      done
+      jq -e --arg version "$version" '.schemaVersion==1 and .version==$version and (.image | test("^sha256:[a-f0-9]{64}$"))' "$stage/llll-factory.json" >/dev/null || fail 'Invalid Factory release identity'
+      for asset in llll-compute-node-linux-amd64.tgz llll-workspace-linux-amd64.tar.gz; do
+        expected=$(jq -er --arg name "$asset" '.files[$name].sha256' "$stage/llll-factory.json")
+        check_hash "$expected" "$stage/$asset"
+      done
+      # Extraction is restricted to regular files below fixed node/src paths.
+      tar -tzf "$stage/llll-compute-node-linux-amd64.tgz" | while IFS= read -r asset; do
+        case "$asset" in node|src/|src/*.mjs) [[ $asset != *..* ]] || exit 1 ;; *) exit 1 ;; esac
+      done || fail 'Unsafe Compute Node archive'
+      tar -tvzf "$stage/llll-compute-node-linux-amd64.tgz" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" {exit 1}' || fail 'Unsafe Compute Node archive links'
+      image=$(jq -er '.image' "$stage/llll-factory.json")
+      if [[ -f $dir/factory/factory.env ]]; then
+        expected=$(sed -n 's/^LLLL_WORKSPACE_IMAGE=//p' "$dir/factory/factory.env")
+        [[ $expected == "$image" ]] || fail 'The released image changed. Existing executor and source remain pinned. Export source, disable/revoke this Node in Server settings, and pair a replacement for new Tasks before changing images.'
+      fi
+      systemctl stop "$unit" 2>/dev/null || true
+      install -m 700 -d "$dir/factory" "$dir/factory/releases/$version" "$dir/factory/state"
+      tar -xzf "$stage/llll-compute-node-linux-amd64.tgz" --no-same-owner -C "$dir/factory/releases/$version"
+      chmod 700 "$dir/factory/releases/$version/node"
+      docker load -i "$stage/llll-workspace-linux-amd64.tar.gz" >/dev/null
+      image=$(jq -er '.image' "$stage/llll-factory.json")
+      architecture=$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')
+      [[ $architecture == linux/amd64 ]] || fail 'Workspace image architecture mismatch'
+      # Probe the actual hard-quota filesystem before installing or pairing the service.
+      "$dir/factory/releases/$version/node" --input-type=module - "$dir/factory/releases/$version/src/disk-store.mjs" "$dir/factory/state/probe-disks" <<'PROBE'
+import { pathToFileURL } from 'node:url';
+const { LoopDiskStore } = await import(pathToFileURL(process.argv[2]));
+const store = new LoopDiskStore(process.argv[3], { bytes: 33554432, maxDisks: 1 });
+await store.initialize(); const id = crypto.randomUUID();
+try { await store.ensure(id, true) } finally { await store.remove(id) }
+PROBE
+      cat > "$stage/factory.env" <<CONFIG
+LLLL_SERVER_ORIGIN=$(get_env PUBLIC_ORIGIN)
+LLLL_NODE_STATE=$dir/factory/state
+LLLL_WORKSPACE_IMAGE=$image
+LLLL_SHARED_KERNEL_TRUSTED=1
+CONFIG
+      install -m 600 "$stage/factory.env" "$dir/factory/factory.env"
+      cat > "$stage/$unit.service" <<UNIT
+[Unit]
+Description=L4 trusted local Compute Node ($project)
+After=docker.service network-online.target
+Requires=docker.service
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+User=root
+UMask=0077
+EnvironmentFile=$dir/factory/factory.env
+ExecStartPre=$dir/factory/releases/$version/node $dir/factory/releases/$version/src/pair-local.mjs $dir/.env
+ExecStart=$dir/factory/releases/$version/node $dir/factory/releases/$version/src/daemon.mjs
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=180
+CPUQuota=100%
+MemoryMax=256M
+[Install]
+WantedBy=multi-user.target
+UNIT
+      install -m 644 "$stage/$unit.service" "/etc/systemd/system/$unit.service"
+      systemctl daemon-reload
+      systemctl enable --now "$unit"
+      say 'Local Factory installed. Claim the Server Owner first if needed; pairing then happens automatically. Open Settings → Repositories to select this executor. Existing remote providers are preserved.'
+      ;;
+    status) systemctl --no-pager status "$unit" ;;
+    logs) journalctl -u "$unit" -n 100 --no-pager ;;
+    restart) systemctl restart "$unit" ;;
+    disable) systemctl disable --now "$unit"; say 'Local executor stopped. All source disks and recovery receipts retained.' ;;
+    backup)
+      [[ -d $dir/factory/state ]] || fail 'No local Factory state exists.'
+      systemctl stop "$unit"
+      sync
+      mkdir -p "$backup_dir"; chmod 700 "$backup_dir"
+      asset="$backup_dir/factory-$project-$(date -u +%Y%m%dT%H%M%S).tar.gz"
+      # Loop-mounted directories are excluded; their complete backing disks are retained.
+      tar --one-file-system -czf "$asset.partial" -C "$dir" factory
+      mv "$asset.partial" "$asset"; chmod 600 "$asset"
+      say "Factory source disks and private receipts exported to $asset. Executor remains stopped; use llll factory restart to continue."
+      ;;
+    remove)
+      [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. Delete source only through explicitly reviewed workspace release actions.'
+      systemctl disable --now "$unit" 2>/dev/null || true
+      rm -f -- "/etc/systemd/system/$unit.service"
+      systemctl daemon-reload
+      say "Service removed. Source, binaries, private receipts and backups retained in $dir/factory and $backup_dir."
+      ;;
+    *) fail 'Usage: llll factory enable --trust-shared-kernel|status|logs|restart|disable|backup|remove --keep-source' ;;
+  esac
+}
+
 main() {
   set -Eeuo pipefail
   umask 077
@@ -635,6 +745,7 @@ main() {
         backup) backup_stack ;;
         upgrade) upgrade_server "${1:-}" ;;
         domain) domain_command "$@" ;;
+        factory) factory_command "$@" ;;
         uninstall) uninstall_server "$@" ;;
         *) fail 'Usage: llll status|logs|start|stop|backup|restore <file>|upgrade [version]|domain list|add <hostname>|remove <hostname>|primary <hostname>|uninstall [--purge] [--yes] [--no-backup]' ;;
       esac

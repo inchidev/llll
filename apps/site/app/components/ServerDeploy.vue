@@ -74,9 +74,18 @@ async function copyAddress(origin: string) {
   try { await navigator.clipboard.writeText(origin); copied.value = origin }
   catch { /* The displayed address remains selectable. */ }
 }
+const factoryMode = computed(() => route.query?.factory === '1')
+const factorySize = ref<'small' | 'standard' | 'large'>('standard'), factoryTimeout = ref(120), factoryProcesses = ref(128)
+const factoryConsent = ref(false), factoryConnected = ref(false)
+async function enableFactory() {
+  busy.value = true; error.value = ''
+  try { await $fetch('/api/deploy/factory/enable', { method: 'POST', body: { accountId: String(route.query.account || ''), workerName: String(route.query.worker || ''), paidConsent: factoryConsent.value, size: factorySize.value, timeoutSeconds: factoryTimeout.value, processes: factoryProcesses.value }, timeout: 600000 }); factoryConnected.value = true }
+  catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Factory activation failed. Check Workers Paid, Containers availability and account access. No plan upgrade was performed; retry to reconcile the same resources.' }
+  finally { busy.value = false }
+}
 const storageMode = computed(() => route.query?.storage === '1')
 const storageConnected = ref(false)
-const oauthUrl = computed(() => '/api/deploy/oauth?' + new URLSearchParams({ ...(pending.value ? { resume: '1' } : {}), ...(storageMode.value ? { storage: '1', account: String(route.query.account || ''), worker: String(route.query.worker || ''), server: String(route.query.server || '') } : {}) }).toString())
+const oauthUrl = computed(() => '/api/deploy/oauth?' + new URLSearchParams({ ...(pending.value ? { resume: '1' } : {}), ...(factoryMode.value ? { factory: '1', account: String(route.query.account || ''), worker: String(route.query.worker || ''), server: String(route.query.server || '') } : {}), ...(storageMode.value ? { storage: '1', account: String(route.query.account || ''), worker: String(route.query.worker || ''), server: String(route.query.server || '') } : {}) }).toString())
 async function enableStorage() {
   busy.value = true
   error.value = ''
@@ -299,7 +308,19 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
   <section class="space-y-6">
     <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update a Server from a published release. Your Cloudflare account is billed directly, and the Server receives no account credential.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
     <p v-if="loading" role="status" class="text-sm text-muted">Checking Cloudflare connection…</p>
-    <section v-if="storageMode" class="space-y-4 rounded-xl border border-default p-5">
+    <section v-if="factoryMode" class="space-y-4 rounded-xl border border-default p-5">
+      <h2 class="text-lg font-semibold">Enable Software Factory</h2>
+      <p class="text-sm text-muted">Connect the account that owns this Server. Factory uses optional paid Containers and Artifacts. Cloudflare bills compute, code storage and network separately from your model provider. R2 is independent. This action preserves the Server identity, existing data, secrets and repositories.</p>
+      <p class="text-xs text-muted">One active operation, 0.5 vCPU, 4 GiB RAM and 8 GB temporary disk; a 500 MB retained code budget per Task. Compute stops after each code checkpoint. Dependencies and builds are disposable. No automatic plan upgrade or alternate paid provider.</p>
+      <UFormField label="Compute limit"><USelect v-model="factorySize" :items="[{ label: 'Small · 0.25 CPU, 1 GiB RAM, 4 GB disk', value: 'small' }, { label: 'Standard · 0.5 CPU, 4 GiB RAM, 8 GB disk', value: 'standard' }, { label: 'Large · 1 CPU, 6 GiB RAM, 12 GB disk', value: 'large' }]" class="w-full" /></UFormField>
+      <UFormField label="Command timeout (seconds, up to 600)"><UInput v-model.number="factoryTimeout" type="number" :min="1" :max="600" /></UFormField>
+      <UFormField label="Maximum processes (32–512)"><UInput v-model.number="factoryProcesses" type="number" :min="32" :max="512" /></UFormField>
+      <UCheckbox v-model="factoryConsent" label="I reviewed these resources and authorize their usage charges in my Cloudflare account." />
+      <UButton v-if="!factoryConnected" :to="oauthUrl" external :label="connected ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" color="neutral" variant="outline" />
+      <UButton v-if="!factoryConnected" label="Provision Factory" :disabled="!connected || !factoryConsent" :loading="busy" @click="enableFactory" />
+      <UAlert v-else title="Factory resources provisioned" description="Return to Settings → Repositories on your Server and activate Factory. Provisioning may take several minutes." color="success" />
+    </section>
+    <section v-else-if="storageMode" class="space-y-4 rounded-xl border border-default p-5">
       <h2 class="text-lg font-semibold">Connect R2 storage</h2>
       <p class="text-sm text-muted">Authorize the Cloudflare account that owns this Server. Connecting the bucket preserves existing files; start the verified migration in your Server’s Storage settings.</p>
       <UButton v-if="!storageConnected" label="Connect R2" :disabled="!connected" :loading="busy" @click="enableStorage" />
@@ -318,7 +339,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
       <p v-if="config && !config.oauth" class="text-sm text-muted">Cloudflare connection is unavailable here. <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">Manual setup</a> is available.</p>
     </section>
 
-    <template v-if="!updateMode">
+    <template v-if="!updateMode && !factoryMode">
     <section class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-xl font-semibold tracking-tight">{{ connected ? 'Your Servers' : 'Saved on this device' }}</h2>
@@ -337,12 +358,13 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
             </div>
             <UBadge :color="statuses[entry.origin] === 'ready' ? 'success' : statuses[entry.origin] === 'setup' ? 'warning' : 'neutral'" variant="subtle">{{ checking[entry.origin] ? 'Checking…' : statuses[entry.origin] === 'unavailable' && claimFor(entry.origin) ? 'Waiting for HTTPS…' : statuses[entry.origin] ? statusLabel(entry.origin) : 'Not checked' }}</UBadge>
           </div>
+          <UButton label="Refresh Server status" color="neutral" variant="ghost" size="sm" :loading="checking[entry.origin]" @click="checkServer(entry.origin)" />
           <p v-if="statuses[entry.origin] === 'ready'" class="text-sm text-muted">Ready. This Server is saved in your Shell.</p>
           <div class="flex flex-wrap gap-2">
             <UButton v-if="statuses[entry.origin] === 'setup' && claimFor(entry.origin)" :to="claimFor(entry.origin)" external target="_blank" rel="noopener noreferrer" label="Finish setup on your Server" size="sm" />
             <UButton v-else :to="openRoute(entry.origin)" label="Open in Shell" size="sm" color="neutral" variant="outline" :disabled="statuses[entry.origin] !== 'ready'" />
             <UButton :to="statuses[entry.origin] === 'setup' && claimFor(entry.origin) || entry.origin" external label="Open directly" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="ghost" />
-            <UButton v-if="connected && 'workerName' in entry && entry.workerName" :label="statuses[entry.origin] === 'setup' && !claimFor(entry.origin) ? 'Finish setup on your Server' : 'Recover setup link'" size="sm" color="neutral" variant="ghost" :loading="recoveringSetup === entry.origin" :disabled="Boolean(recoveringSetup)" @click="recoverSetup(entry)" />
+            <UButton v-if="statuses[entry.origin] !== 'ready' && connected && 'workerName' in entry && entry.workerName" :label="statuses[entry.origin] === 'setup' && !claimFor(entry.origin) ? 'Finish setup on your Server' : 'Recover setup link'" size="sm" color="neutral" variant="ghost" :loading="recoveringSetup === entry.origin" :disabled="Boolean(recoveringSetup)" @click="recoverSetup(entry)" />
             <UButton :label="copied === entry.origin ? 'Copied' : 'Copy address'" size="sm" color="neutral" variant="ghost" @click="copyAddress(entry.origin)" />
           </div>
         </li>

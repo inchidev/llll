@@ -111,7 +111,14 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       const body = await readLimitedStream(response.body, 500000)
       if (!body.ok) throw new Error('Tool output exceeds its limit')
         output = new TextDecoder().decode(body.bytes)
-      if (!response.ok) throw new Error(`Tool gateway rejected the operation (${response.status})`)
+      if (!response.ok) {
+        let message = `Tool gateway rejected the operation (${response.status})`
+        // Only this Server-owned validation diagnostic is safe to return to the model.
+        if (response.status === 400) {
+          try { const detail = JSON.parse(output).error?.message; if (typeof detail === 'string' && detail.startsWith('Invalid tool arguments: ')) message = detail.slice(0, 500) } catch { /* Generic error below. */ }
+        }
+        throw new Error(message)
+      }
 
         if (definition.name !== 'factory_workspace' || JSON.parse(output).factoryPending !== true) break
         await new Promise<void>((resolve, reject) => {

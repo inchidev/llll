@@ -3,12 +3,19 @@ import { useQuery } from '@tanstack/vue-query'
 import type { FactoryAction, FactorySnapshot } from '~~/shared/software-factory'
 import { Permission } from '~~/shared/permissions'
 const props = defineProps<{ runId: string; active: boolean }>(), { api } = useApi(), { can } = useRoleGrants(), toast = useToast()
-const query = useQuery({ queryKey: computed(() => ['factory', props.runId]), queryFn: () => api<{ actions: FactoryAction[]; workspace: { repository: string; baseBranch: string; branch: string; connectionId: string; taskId: string; agentId: string; initiatedBy: string; id: string; status: string; nodeId: string; commands: number; runtimeMs: number; publicationCount: number; snapshot: FactorySnapshot | null; snapshotDigest: string | null; pull: { url: string; number: number; commit: string } | null } | null }>(`/api/agent-runs/${props.runId}/factory`), refetchInterval: () => props.active ? 2000 : false })
+const query = useQuery({ queryKey: computed(() => ['factory', props.runId]), queryFn: () => api<{ recovery: { checkpoint: { sha: string; updatedAt: string } | null; recovery: string } | null; actions: FactoryAction[]; workspace: { repository: string; baseBranch: string; branch: string; connectionId: string; taskId: string; agentId: string; initiatedBy: string; id: string; status: string; nodeId: string; commands: number; runtimeMs: number; publicationCount: number; snapshot: FactorySnapshot | null; snapshotDigest: string | null; pull: { url: string; number: number; commit: string } | null } | null }>(`/api/agent-runs/${props.runId}/factory`), refetchInterval: () => props.active ? 2000 : false })
 watch(() => props.active, active => { if (!active) void query.refetch() })
 const feedback = ref<{ state?: string; commit?: string; providerMergeState?: string; previewState?: string; previewReason?: string; checks?: { name: string; state: string; url: string | null }[]; previews?: { state: string; url: string | null; source: string }[] } | null>(null)
 async function refreshFeedback() {
   busy.value = true
   try { feedback.value = await api(`/api/agent-runs/${props.runId}/factory-feedback`) }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { busy.value = false }
+}
+const exported = ref<{ remote: string; token: string; expiresAt: string; instruction: string } | null>(null)
+async function exportSource() {
+  busy.value = true
+  try { exported.value = await api(`/api/agent-runs/${props.runId}/factory-export`, { method: 'POST' }) }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
@@ -29,6 +36,15 @@ async function decide(action: FactoryAction, decision: 'approve' | 'reject') {
       <p class="break-all text-xs text-muted">Task {{ query.data.value.workspace.taskId }} · Agent {{ query.data.value.workspace.agentId }} · Initiator {{ query.data.value.workspace.initiatedBy }} · Connection {{ query.data.value.workspace.connectionId }} · Node {{ query.data.value.workspace.nodeId }}</p>
       <p class="break-all text-sm">Workspace {{ query.data.value.workspace.id }} · {{ query.data.value.workspace.status }}</p>
       <p class="text-xs text-muted">{{ query.data.value.workspace.commands }}/50 operations · {{ Math.ceil(query.data.value.workspace.runtimeMs / 1000) }}/3600 seconds · {{ query.data.value.workspace.publicationCount }}/10 publications. Action requests expire with their Run. This review is private to you.</p>
+      <div v-if="query.data.value.recovery" class="space-y-2 text-sm">
+        <p>Code recovery: {{ query.data.value.recovery.recovery }} · checkpoint {{ query.data.value.recovery.checkpoint?.sha || 'Not acknowledged yet' }}</p>
+        <UButton label="Export private Task code" color="neutral" variant="outline" :loading="busy" @click="exportSource" />
+        <div v-if="exported" class="space-y-2 rounded border border-default p-3">
+          <p class="text-xs text-muted">{{ exported.instruction }} Expires {{ new Date(exported.expiresAt).toLocaleString() }}.</p>
+          <code class="block select-all break-all text-xs">{{ exported.remote }}</code>
+          <details><summary class="cursor-pointer text-sm">Show private read token</summary><code class="block select-all break-all text-xs">{{ exported.token }}</code></details>
+        </div>
+      </div>
       <a v-if="query.data.value.workspace.pull" :href="query.data.value.workspace.pull.url" target="_blank" rel="noopener noreferrer" class="text-primary underline">Open canonical GitHub PR #{{ query.data.value.workspace.pull.number }}</a>
       <UButton v-if="query.data.value.workspace.pull" label="Refresh existing CI and Preview" color="neutral" variant="outline" :loading="busy" @click="refreshFeedback" />
       <div v-if="feedback" class="space-y-2 text-sm">
@@ -45,7 +61,7 @@ async function decide(action: FactoryAction, decision: 'approve' | 'reject') {
       <article v-for="action in query.data.value.actions" :key="action.id" class="space-y-2 rounded border border-default p-3">
         <p class="text-sm">{{ action.request.operation }} · {{ action.status }}</p>
         <p class="break-all text-xs text-muted">Action {{ action.id }} · Run {{ action.runId }} · expires {{ new Date(action.expiresAt).toLocaleString() }}</p>
-        <p class="break-all text-xs text-muted">Image {{ action.computeImage }} · Workspace revision {{ action.workspaceRevision }} · 1 CPU, 1 GiB memory, 128 processes, {{ Math.round(action.diskBytes / 1048576) }} MiB hard disk capacity; commands up to 120 seconds.</p>
+        <p class="break-all text-xs text-muted">Image {{ action.computeImage }} · Workspace revision {{ action.workspaceRevision }} · {{ action.computeLimits.cpu }} CPU, {{ action.computeLimits.memoryMiB }} MiB memory, {{ action.computeLimits.processes }} processes, {{ Math.round(action.diskBytes / 1048576) }} MiB hard disk capacity; commands up to {{ action.computeLimits.timeoutMs / 1000 }} seconds.</p>
         <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(action.request, null, 2) }}</pre>
         <template v-if="action.status === 'pending' && can(Permission.approveAgentActions)">
           <p class="text-xs text-warning">Approval applies only to these arguments, Task, repository snapshot and Node. Commands can change or delete workspace files. Approved network hosts may receive source data. Publication writes the exact reviewed commits to a dedicated GitHub branch and draft PR; it grants no merge or release.</p>

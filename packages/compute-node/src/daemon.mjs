@@ -5,7 +5,7 @@ import { openNodeState, serverOrigin } from './state-store.mjs'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
-if (!/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/u.test(image ?? '')) throw new Error('Set LLLL_WORKSPACE_IMAGE to an immutable registry digest')
+if (!/^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$/u.test(image ?? '')) throw new Error('Set LLLL_WORKSPACE_IMAGE to an immutable registry digest')
 if (process.env.LLLL_SHARED_KERNEL_TRUSTED !== '1') throw new Error('Docker shares the host kernel. Confirm trusted-code use with LLLL_SHARED_KERNEL_TRUSTED=1; public untrusted tenants require a stronger provider')
 process.umask(0o077)
 const server = serverOrigin(process.env.LLLL_SERVER_ORIGIN)

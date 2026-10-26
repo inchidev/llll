@@ -35,3 +35,6 @@ export default {
     await routeServerEmail(message, env)
   },
 }
+
+export { FactoryComputeDurableObject } from '../workers/factory-compute'
+export { FactoryOutbound } from '../workers/factory-outbound'

@@ -34,3 +34,23 @@ it('requires distinct connection-qualified identities instead of selecting the f
   expect(() => validateToolCatalog(tools)).not.toThrow()
   expect(searchToolCatalog(tools, 'second query')[0]?.name).toBe('mcp_second_query')
 })
+
+it('ranks every exact permitted identity ahead of overlapping names and repeated description keywords', () => {
+  const tools = [
+    make('factory_status', 'Workspace evidence'),
+    make('factory_workspace', 'Request a Task workspace operation', 'write'),
+    make('factory_workspace_status', 'factory workspace status '.repeat(40)),
+    make('mcp_docs_factory_workspace', 'External workspace status'),
+    ...catalog,
+  ]
+  for (const tool of tools) {
+    expect(searchToolCatalog(tools, tool.name)[0]?.name, tool.name).toBe(tool.name)
+    expect(searchToolCatalog(tools, tool.name.toUpperCase())[0]?.name, tool.name).toBe(tool.name)
+  }
+})
+it.each(['repository', 'coding', 'compute node', 'github', 'computer', 'git commit'])('surfaces permitted Factory tools for %s without relying on their descriptions', query => {
+  const tools = [make('factory_status', 'Task workspace evidence'), make('factory_workspace', 'Request a Task operation', 'write'),
+    make('factory_feedback', 'Inspect current checks'), make('read_code_tree', 'Read the selected source tree')]
+  expect(searchToolCatalog(tools, query, 8).map(tool => tool.name)).toEqual(expect.arrayContaining(['factory_status', 'factory_workspace', 'factory_feedback']))
+  expect(searchToolCatalog(tools.filter(tool => !tool.name.startsWith('factory_')), query, 8).some(tool => tool.name.startsWith('factory_'))).toBe(false)
+})

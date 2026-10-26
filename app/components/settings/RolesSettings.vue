@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DataResourcesDTO, TaskBoardDTO, MemberDTO, RoleDTO } from '~~/shared/types'
-import { hasPermission, MemberPermissions, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
+import { hasPermission, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
 
 import { cloneResourceAccess, type ResourceAccess, type ResourceKind } from '~~/shared/resource-access'
 
@@ -168,7 +168,7 @@ async function createRole() {
     const name = newRoleName.value.trim()
     const res = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
       method: 'POST',
-      body: { name, permissions: MemberPermissions },
+      body: { name, permissions: 0 },
     })
     createOpen.value = false
     await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
@@ -278,7 +278,7 @@ watch(addMemberId, async (userId) => {
 <template>
   <div>
     <UModal v-model:open="createOpen" title="Create role" :dismissible="!creating">
-      <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name"><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
+      <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name" help="New roles start with no permissions. Choose grants after creation."><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
     </UModal>
     <!-- Role list -->
     <template v-if="!selectedRole">
@@ -328,6 +328,7 @@ watch(addMemberId, async (userId) => {
         System roles are built in. Their name and permissions are fixed, but you can change who has them.
       </p>
 
+      <UButton v-if="!readOnly" class="mt-3" label="Save changes" :loading="saving" :disabled="!dirty || !roleName.trim()" @click="saveRole" />
       <LayoutSegmentedTabs v-model="tab" :items="tabs" label="Role settings" class="mt-5" />
 
       <div v-if="tab === 'display'" class="mt-6 space-y-6">

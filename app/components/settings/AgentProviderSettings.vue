@@ -10,7 +10,7 @@ const open = ref(false), busy = ref(false), loadingModels = ref(false), query = 
 const availableModels = shallowRef<AgentProviderModel[]>([])
 const modelError = ref('')
 const connection = shallowRef<{ state: string; authorizationUrl: string; expiresAt: number } | null>(null)
-const state = reactive({ kind: 'openrouter' as AgentProviderId, name: '', enabled: true, apiKey: '', webSearch: false, models: [] as AgentProviderModel[] })
+const state = reactive({ kind: 'openrouter' as AgentProviderId, name: providerNames.openrouter, enabled: true, apiKey: '', webSearch: false, models: [] as AgentProviderModel[] })
 const modelSearch = ref('')
 const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId, query.value, page.value]), queryFn: () => api<{ providers: AgentProviderDTO[]; total: number }>(`/api/servers/${props.serverId}/agent-providers/connections`, { query: { search: query.value, page: page.value } }) })
 const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null; deploymentProvider?: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
@@ -19,10 +19,11 @@ const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value
 const visible = computed(() => catalog.data.value?.providers ?? [])
 const modelItems = computed(() => [...new Map([...state.models, ...availableModels.value].map(m => [m.id, { ...m, label: (m.label ?? m.id) + (m.tools === false ? ' (AI functions only)' : '') }])).values()])
 const selectedModels = computed({ get: () => state.models.map(m => m.id), set: (ids: string[]) => { state.models = ids.flatMap(id => { const m = [...state.models, ...availableModels.value].find(m => m.id === id); return m ? [{ id: m.id, label: m.label, api: m.api, tools: m.tools }] : [] }) } })
+watch(() => state.kind, (kind, previous) => { if (!state.name.trim() || state.name === providerNames[previous]) state.name = providerNames[kind] })
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
   editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
-  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? '', enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
+  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? providerNames.openrouter, enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
   open.value = true
   if (provider?.configured) void loadModels()
 }

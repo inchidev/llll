@@ -75,7 +75,7 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
     const stub = asRpc<{
       receiveMessage: (input: AgentReceiveMessage) => Promise<string>
     }>(env.AGENT_DO.getByName(`agent:${id}`))
-    await stub.receiveMessage({
+    try { await stub.receiveMessage({
       messageId: message.messageId,
       channelId: message.channelId,
       authorId: message.authorId,
@@ -83,6 +83,12 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
       content: message.content,
       hasImages,
       mode: message.mode,
-    })
+    }) } catch {
+      // Only a coarse notice is shared: admission errors may include private scope details.
+      if (env.CHANNEL_DO) await asRpc<{ fanout: (event: unknown) => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${message.channelId}`)).fanout({
+        t: 'agent.start_failed', agentId: id, initiatedBy: message.authorId,
+        message: 'Agent could not start. Check its role, project access and model configuration.',
+      })
+    }
   }))
 }

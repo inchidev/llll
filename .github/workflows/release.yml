@@ -101,6 +101,7 @@ jobs:
           test "$(docker image inspect "llll:${RELEASE_VERSION}" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           docker save "llll:${RELEASE_VERSION}" | gzip -1 > .installer/runtime/llll-runtime-linux-amd64.tar.gz
           node scripts/build-vps-release.mjs
+          node scripts/build-factory-release.mjs
       - name: Build the complete versioned web and Server bundle
         if: steps.existing.outputs.published != 'true'
         env:
@@ -111,6 +112,7 @@ jobs:
         run: |
           pnpm release:installer
           cp .installer/vps/* .installer/release/
+          cp .installer/factory/llll-* .installer/release/
           cp .installer/deployment/llll-deployment.json .installer/release/
           cp .installer/deployment/llll.tgz .installer/release/
           tar -czf .installer/release/llll-docs.tgz docs README.md CONTEXT.md

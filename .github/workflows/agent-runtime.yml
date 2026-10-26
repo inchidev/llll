@@ -23,6 +23,13 @@ jobs:
       - run: pnpm --filter @llll/compute-node test
       - run: docker build -t l4-workspace:test -f packages/compute-node/Dockerfile.workspace .
       - run: node scripts/test-factory-workspace.mjs
+      - name: Build the fixed root idle supervisor for Cloudflare
+        run: docker build --build-arg WORKSPACE_IMAGE=l4-workspace:test -t l4-workspace:cloud-test -f packages/compute-node/Dockerfile.cloud .
+      - name: Verify code checkpoints, replacement restore and process cleanup
+        run: node --test packages/compute-node/test/cloud-state.test.mjs
+        env:
+          LLLL_FACTORY_CLOUD_TEST_IMAGE: l4-workspace:cloud-test
+          LLLL_FACTORY_CLOUD_LIFECYCLE_IMAGE: l4-workspace:cloud-test
       - run: docker build -t llll-agent:pi-1.3.0 -f packages/agent-runtime/Dockerfile .
       - run: docker build -t llll-agent-runner:local packages/agent-runner
       - run: node scripts/test-pi-runtime.mjs

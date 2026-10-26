@@ -4,7 +4,7 @@ import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
 import { Permission, PermissionGrants, MemberPermissions } from '~~/shared/permissions'
-import { agentRoleSummary, TaskAgentGrants, TaskAgentPermissions } from '~~/shared/agent-roles'
+import { agentRoleSummary, TaskAgentGrants, TaskAgentPermissions, FactoryAgentPermissions } from '~~/shared/agent-roles'
 import { resourceAccessWithin } from '~~/shared/resource-access'
 import type { AgentDTO, RoleDTO } from '~~/shared/types'
 
@@ -23,6 +23,7 @@ const { can, mine } = useRoleGrants()
 const roleId = ref('member')
 const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: computed(() => open.value && can(Permission.manageRoles)) })
 const creatingRole = ref(false)
+const canUseFactoryRole = computed(() => can(Permission.manageRoles) && PermissionGrants.filter(grant => (FactoryAgentPermissions & grant.flag) === grant.flag).every(grant => can(grant.flag)))
 const canUseTaskRole = computed(() => can(Permission.manageRoles) && TaskAgentGrants.every(grant => can(grant.flag)))
 const selectedRole = computed(() => roles.data.value?.roles.find(role => role.id === roleId.value || (roleId.value === 'member' && role.key === 'member')))
 const selectedPermissions = computed(() => selectedRole.value?.permissions ?? (roleId.value === 'member' ? MemberPermissions : null))
@@ -35,17 +36,18 @@ const roleSelection = computed({
 })
 const roleItems = computed(() => [
   { value: memberRoleId.value, label: 'Member' },
-  ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.name, description: agentRoleSummary(role) })),
+  ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.key === 'admin' ? 'Admin' : role.name, description: agentRoleSummary(role) })),
 ])
-async function useTaskRole() {
-  if (!canUseTaskRole.value || busy.value) return
-  const existing = roles.data.value?.roles.find(role => role.name === 'Task agent' && role.permissions === TaskAgentPermissions && resourceAccessWithin(role.resourceAccess ?? {}, mine?.value?.role.resourceAccess))
+async function useTaskRole(factory = false) {
+  if (!(factory ? canUseFactoryRole.value : canUseTaskRole.value) || busy.value) return
+  const permissions = factory ? FactoryAgentPermissions : TaskAgentPermissions, name = factory ? 'Factory agent' : 'Task agent'
+  const existing = roles.data.value?.roles.find(role => role.name === name && role.permissions === permissions && resourceAccessWithin(role.resourceAccess ?? {}, mine?.value?.role.resourceAccess))
   if (existing) { roleId.value = existing.id; return }
   creatingRole.value = true
   try {
     const result = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
       method: 'POST',
-      body: { name: 'Task agent', permissions: TaskAgentPermissions, resourceAccess: mine?.value?.role.resourceAccess ?? {} },
+      body: { name, permissions, resourceAccess: mine?.value?.role.resourceAccess ?? {} },
     })
     await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
     roleId.value = result.role.id
@@ -260,8 +262,10 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <LayoutLoadError v-if="roles.error.value" message="Roles did not load." :retry="roles.refetch" inline />
         <p v-if="selectedSummary" class="mt-2 text-sm text-muted">{{ selectedSummary }}</p>
         <p v-if="selectedGrants" class="mt-1 text-xs text-muted">Permissions: {{ selectedGrants }}.</p>
+        <UButton v-if="canUseFactoryRole" class="mt-2" label="Use Factory agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(true)" />
+        <p v-if="canUseFactoryRole" class="text-xs text-muted">Factory grants Read projects, Read tasks, Execute assigned tasks, Send messages, Use a computer and Propose code changes within your selected resource scopes. Each coding operation still needs human review.</p>
         <template v-if="canUseTaskRole">
-          <UButton class="mt-2" label="Use task agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole" />
+          <UButton class="mt-2" label="Use task agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(false)" />
           <p class="mt-1 text-xs text-muted">Creates or selects a role with Read tasks, Create and update tasks, Execute assigned tasks and Send messages. New roles inherit your resource limits and grant no administration or computer tools. Save the agent to apply the selection.</p>
         </template>
       </UFormField>
