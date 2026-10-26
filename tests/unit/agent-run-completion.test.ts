@@ -50,6 +50,44 @@ function coordinator(id: string) {
   const ctx = { storage: { get: async () => id, setAlarm: async () => {}, deleteAlarm: async () => {} }, waitUntil: (p: Promise<unknown>) => { void p.catch(() => {}) } }
   return new AgentRunDurableObject(ctx as unknown as DurableObjectState, env)
 }
+it('does not delegate native computer tools to the executor even with an admitted computer mandate', async () => {
+  db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.useComputer} WHERE id='agent-role'`)
+  const run = await completed()
+  expect(JSON.parse(run.mandateJson).computer).toBe(true)
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  env.PUBLIC_ORIGIN = 'https://server.example'
+  const submissions: Array<{ computer: boolean }> = []
+  env.AGENT_COMPUTE = { getByName: () => ({ fetch: async (request: Request) => {
+    if (request.method === 'POST') {
+      submissions.push(await request.json())
+      return Response.json({ status: 'running' }, { status: 202 })
+    }
+    return Response.json({ status: 'running', events: [], nextCursor: 0, result: null })
+  } }) } as unknown as L4Env['AGENT_COMPUTE']
+  const data = new Map<string, unknown>([['runId', run.id]])
+  const ctx = { storage: { get: async (key: string) => data.get(key), put: async (key: string, value: unknown) => { data.set(key, value) }, setAlarm: async () => {} }, waitUntil: (p: Promise<unknown>) => { void p.catch(() => {}) } }
+  await new AgentRunDurableObject(ctx as unknown as DurableObjectState, env).alarm()
+  expect(submissions).toHaveLength(1)
+  expect(submissions[0]?.computer).toBe(false)
+  expect(data.get('computerPolicy')).toBe('server-broker-only')
+})
+it('interrupts an already submitted legacy computer Run instead of resuming its native tools', async () => {
+  db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.useComputer} WHERE id='agent-role'`)
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  const requests: Array<{ path: string; method: string }> = []
+  env.AGENT_COMPUTE = { getByName: () => ({ fetch: async (request: Request) => {
+    requests.push({ path: new URL(request.url).pathname, method: request.method })
+    return new Response(null, { status: 204 })
+  } }) } as unknown as L4Env['AGENT_COMPUTE']
+  const pending: Promise<unknown>[] = []
+  const data = new Map<string, unknown>([['runId', run.id], ['submitted', true]])
+  const ctx = { storage: { get: async (key: string) => data.get(key), setAlarm: async () => {}, deleteAlarm: async () => {} }, waitUntil: (p: Promise<unknown>) => { pending.push(p) } }
+  await new AgentRunDurableObject(ctx as unknown as DurableObjectState, env).alarm()
+  await Promise.all(pending)
+  expect(db.prepare('SELECT status FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed' })
+  expect(requests).toEqual([{ path: '/run', method: 'DELETE' }, { path: '/lifecycle', method: 'DELETE' }])
+})
 it('records the assigned task result without granting general task-write permission', async () => {
   const run = await completed()
   await coordinator(run.id).alarm()

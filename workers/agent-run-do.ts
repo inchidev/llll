@@ -208,6 +208,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const files = fileStorage(this.env)
       if (!files) throw new Error('Pi file storage unavailable')
       const mandate = JSON.parse(run.mandateJson) as RunMandate
+      if (mandate.computer && (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL)
+        && await this.ctx.storage.get<boolean>('submitted')
+        && await this.ctx.storage.get<string>('computerPolicy') !== 'server-broker-only') {
+        throw new Error('Legacy computer execution interrupted; a new attempt requires Server review policy')
+      }
       if (!await this.ctx.storage.get<boolean>('submitted')) {
         phase = 'readiness'
         const ready = await this.runtime(run, 'health')
@@ -221,7 +226,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         const capability = await runCapability(this.env, run.id)
         // Record intent before the network operation. If the executor disappears,
         // fail this attempt rather than silently starting its work a second time.
-        if (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL) await this.ctx.storage.put('submitted', true)
+        if (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL) {
+          await this.ctx.storage.put('computerPolicy', 'server-broker-only')
+          await this.ctx.storage.put('submitted', true)
+        }
         phase = 'submission'
         const started = await this.runtime(run, 'run', 'POST', {
           runId: run.id, sessionId: run.sessionId, prompt: run.prompt,
@@ -231,7 +239,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           repository: run.environmentJson ? { archiveUrl: `${origin}/api/agent-runs/${run.id}/gateway/repository/archive` } : undefined,
           filesUrl: mandate.computer && await previousRunFiles(this.env, run) ? `${origin}/api/agent-runs/${run.id}/gateway/files` : undefined,
           tools: (await toolsForRun(this.env, authorization, promise => this.ctx.waitUntil(promise), run)).descriptors,
-          computer: mandate.computer, maxSteps: mandate.maxSteps, transcript,
+          // A repository mandate is not approval of model-selected local commands.
+          // Native Pi tools bypass the Server's per-call policy and audit boundary.
+          computer: false, maxSteps: mandate.maxSteps, transcript,
           timeoutMs: Math.min(900000, Math.max(1000, Date.parse(run.deadline) - Date.now())),
         })
         if (!started.ok) throw new Error(`Executor rejected the run (${started.status})`)

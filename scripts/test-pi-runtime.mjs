@@ -70,7 +70,8 @@ try {
   const input = { runId, sessionId, prompt: 'Read the evidence and report it', instructions: 'Use read_evidence before answering.',
     modelGateway: { url: 'http://gateway/v1', token, model: 'fixture' }, toolEndpoint: 'http://gateway/tools',
     tools: [{ name: 'read_evidence', description: 'Read evidence', parameters: { type: 'object', properties: {} } }],
-    repository: { archiveUrl: 'http://gateway/repository' }, computer: true, maxSteps: 5, timeoutMs: 30000 }
+    repository: { archiveUrl: 'http://gateway/repository' }, computer: false, maxSteps: 5, timeoutMs: 30000 }
+  assert.equal((await request('/run', 'POST', { ...input, computer: true })).status, 400)
   assert.equal((await request('/run', 'POST', input)).status, 202)
   let result
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -83,7 +84,7 @@ try {
   assert.ok(result.events.some(event => event.type === 'tool'))
   const archive = await (await request('/session')).json()
   assert.ok(archive.transcript.includes('Fixture source'))
-  assert.equal((await command('exec', agent, 'cat', '/data/session/work/source.txt')).stdout, 'source')
+  assert.equal((await command('exec', agent, 'node', '-e', "console.log(require('node:fs').existsSync('/data/session/work/source.txt'))")).stdout.trim(), 'false')
   await command('exec', agent, 'node', '-e', "require('node:fs').writeFileSync('/data/session/work/result.txt','saved evidence')")
   const output = await (await request('/files')).json()
   assert.ok(output.files.some(file => file.path === 'result.txt' && Buffer.from(file.content, 'base64').toString() === 'saved evidence'))

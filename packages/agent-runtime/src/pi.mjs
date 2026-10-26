@@ -5,6 +5,7 @@ import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManage
 
 /** A runtime instance serves one authorized execution identity, never an entire Server. */
 export async function openPi(input, { directory, emit, callTool, signal }) {
+  if (input.computer) throw new Error('Native computer tools require exact Server review and are unavailable')
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const cwd = join(directory, 'work')
   await mkdir(cwd, { recursive: true })
@@ -49,11 +50,11 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
       return { content: [{ type: 'text', text: JSON.stringify(value) }], details: {} }
     },
   }))
-  // The container is the filesystem boundary. No host paths, credentials or Docker socket are mounted.
-  const computerTools = input.computer ? ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'] : []
+  // Isolation alone cannot authorize an action. Native tools never pass through
+  // callTool, so neither a stale computer flag nor restored model context may enable them.
   // The SDK allowlist controls registration as well as exposure. Keep deferred
   // definitions registered, then narrow the model's initial loadout explicitly.
-  const tools = [...input.tools.map(tool => tool.name), ...computerTools]
+  const tools = input.tools.map(tool => tool.name)
   let sessionManager
   try {
     const file = (await readFile(join(directory, 'session-path'), 'utf8')).trim()
@@ -69,7 +70,7 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     settingsManager: SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } }),
     thinkingLevel: 'off',
   })
-  session.setActiveToolsByName([...input.tools.filter(tool => !tool.deferred).map(tool => tool.name), ...computerTools])
+  session.setActiveToolsByName(input.tools.filter(tool => !tool.deferred).map(tool => tool.name))
   const stop = () => { void session.abort() }
   signal?.addEventListener('abort', stop, { once: true })
   let steps = 0
