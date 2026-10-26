@@ -88,10 +88,11 @@ enable_optional_factory
 
 it('prints progress while Server containers are still starting', () => {
   const output = run(`
-compose() { :; }
+compose() { sleep 2; }
 compose_up
-`, { LLLL_COMPOSE_POLL: '0' })
+`, { LLLL_COMPOSE_POLL: '1' })
   expect(output).toContain('Waiting for Server containers')
+  expect(output).toContain('Still waiting for Server containers')
 })
 
 it('fails Factory status and logs before calling systemd when it is not running', () => {

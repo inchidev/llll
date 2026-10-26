@@ -12,12 +12,17 @@ compose() {
 }
 compose_up() {
   say 'Waiting for Server containers. This can take several minutes.'
-  local pid status=0 pause=${LLLL_COMPOSE_POLL:-15}
+  local pid status=0 elapsed=0 pause=${LLLL_COMPOSE_POLL:-15}
+  [[ $pause =~ ^[0-9]+$ ]] || pause=15
   compose up -d --wait --wait-timeout 600 >/dev/null &
   pid=$!
+  # Poll every second. A finished Compose must not wait out the whole progress interval.
   while kill -0 "$pid" 2>/dev/null; do
-    sleep "$pause"
-    kill -0 "$pid" 2>/dev/null && say 'Still waiting for Server containers.'
+    sleep 1
+    elapsed=$((elapsed + 1))
+    if [[ $pause -gt 0 && $((elapsed % pause)) -eq 0 ]] && kill -0 "$pid" 2>/dev/null; then
+      say 'Still waiting for Server containers.'
+    fi
   done
   wait "$pid" || status=$?
   return "$status"
