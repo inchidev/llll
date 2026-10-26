@@ -146,7 +146,8 @@ jobs:
 
   self-host:
     name: self-host
-    runs-on: ubuntu-latest
+    # The VPS installer supports Ubuntu 24.04; ubuntu-latest may move ahead.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Check out repository

@@ -10,7 +10,7 @@ export const codeEnvironmentSchema = z.object({
   previewHosts: z.array(z.string().regex(/^[a-z0-9.-]+$/u)).max(20).default([]),
 }).superRefine((value, context) => {
   if (value.sourceRepoId === value.workRepoId && (value.sourceRepo.toLowerCase() !== value.workRepo.toLowerCase() || value.sourceInstallationId !== value.workInstallationId)) {
-    context.addIssue({ code: 'custom', message: 'The same repository must use the same identity and App installation' })
+    context.addIssue({ code: 'custom', message: 'The same repository must use the same identity and App grant' })
   }
   if ((value.baseBranch.includes('..') || value.baseBranch.includes('[') || /[~^:?*\\\s]/u.test(value.baseBranch) || value.baseBranch.startsWith('/')) || value.baseBranch.endsWith('/')) context.addIssue({ code: 'custom', message: 'Invalid base branch' })
 })
