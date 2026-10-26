@@ -261,7 +261,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const toolEvent = [...poll.events].reverse().find(event => event.type === 'tool')
       const partial = poll.events.filter((event): event is Extract<RuntimeEvent, { type: 'text' }> => event.type === 'text').map(event => event.text).join('')
       if (toolEvent?.type === 'tool' || partial) {
-        await patchAgentTurn(this.env, run.id, { status: toolEvent?.type === 'tool' ? 'tool' : 'thinking', detail: safeRunProgress(toolEvent?.type === 'tool' ? 'tool' : 'thinking') })
+        const waiting = await this.env.DB.prepare("SELECT 1 FROM factory_actions WHERE run_id=? AND status='pending' AND expires_at>? LIMIT 1").bind(run.id, nowIso()).first()
+        const progress = waiting ? 'waiting_approval' : toolEvent?.type === 'tool' ? 'tool' : 'thinking'
+        await patchAgentTurn(this.env, run.id, { status: progress, detail: safeRunProgress(progress) })
         await fanoutAgentTurns(this.env, run.channelId, run.agentId)
       }
       const terminal: RuntimeEvent | undefined | null = poll.result || [...poll.events].reverse().find(event => event.type === 'result' || event.type === 'error')

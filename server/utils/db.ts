@@ -23,6 +23,7 @@ import agentToolSecuritySql from '../../drizzle/server-migrations/0019_agent_too
 import runPublicationsSql from '../../drizzle/server-migrations/0020_run_publications.sql?raw'
 import projectsSql from '../../drizzle/server-migrations/0021_projects.sql?raw'
 import gitConnectionsSql from '../../drizzle/server-migrations/0022_git_connections.sql?raw'
+import softwareFactorySql from '../../drizzle/server-migrations/0023_software_factory.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -69,6 +70,7 @@ export const INIT_SQL = d1ExecSql([
   runPublicationsSql,
   projectsSql,
   gitConnectionsSql,
+  softwareFactorySql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

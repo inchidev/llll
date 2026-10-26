@@ -61,3 +61,6 @@ apps/client/.bundle
 apps/site/.bundle
 
 .playwright-cli
+
+# Private Compute Node default state
+compute-node-state/

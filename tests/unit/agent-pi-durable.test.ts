@@ -39,6 +39,26 @@ function streamAnswer(delta: Record<string, unknown>, finish = 'stop') {
   return new Response(frame(delta, null) + frame({}, finish) + 'data: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
 }
 
+it('waits for one exact factory action using a stable call identity before continuing the model', async () => {
+  const calls: Array<{ callId: string; name: string; arguments: unknown }> = []
+  let turns = 0
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body))
+    if (url.endsWith('/tools')) {
+      calls.push(body)
+      return Response.json(calls.length === 1 ? { factoryPending: true, status: 'pending', actionId: 'approved-once' } : { ok: true, output: 'Pinned checkout' })
+    }
+    turns++
+    return turns === 1 ? streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'factory-once', type: 'function', function: { name: 'factory_workspace', arguments: '{"operation":"bootstrap"}' } }] }, 'tool_calls') : streamAnswer({ role: 'assistant', content: 'The approved workspace is ready.' })
+  }))
+  const result = await runEmbeddedPi({ ...input, toolEndpoint: 'https://fixture.invalid/tools', tools: [{ name: 'factory_workspace', description: 'Request an exactly reviewed workspace action', parameters: { type: 'object', properties: { operation: { type: 'string' } }, required: ['operation'] } }] }, {} as DurableObjectStorage)
+  expect(result.result).toMatchObject({ type: 'result', text: 'The approved workspace is ready.' })
+  expect(calls).toHaveLength(2)
+  expect(calls[0]?.callId).toBe(calls[1]?.callId)
+  expect(calls[0]?.arguments).toEqual(calls[1]?.arguments)
+  expect(turns).toBe(2)
+})
+
 it('loads one deferred schema after Server discovery, then executes it through the same gateway', async () => {
   let turn = 0
   const events: unknown[] = []

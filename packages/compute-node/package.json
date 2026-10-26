@@ -1,0 +1,1 @@
+{"name":"@llll/compute-node","version":"0.1.0","private":true,"type":"module","scripts":{"start":"node src/daemon.mjs","test":"node --test test/*.test.mjs"}}

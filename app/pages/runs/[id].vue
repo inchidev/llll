@@ -38,7 +38,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -106,6 +106,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <AgentsFactoryReview v-if="run.hasFactory" :run-id="run.id" :active="['queued', 'running'].includes(run.status)" />
       <section v-if="runQ.data.value?.security" class="space-y-3">
         <h2 class="text-sm font-medium">Tool security</h2>
         <UAlert color="neutral" title="Sensitive actions require review" :description="runQ.data.value.security.untrustedContext ? 'This conversation contains untrusted content. Model-selected Server writes are blocked, including across retries. Model-selected outbound calls are unavailable until exact human approvals are implemented.' : 'Model-selected outbound calls and Server writes require exact human review and are currently unavailable, even before a tool reads untrusted content.'" />

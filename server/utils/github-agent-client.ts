@@ -25,7 +25,7 @@ async function decode(response: Response) {
 }
 
 /** A token is limited to one repository and one operation class; it never crosses the gateway. */
-export async function githubAgentClient(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' },
+export async function githubAgentClient(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' | 'feedback' },
   ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
   if (!await githubConnectionCredentials(env, input.connectionId)) fail(409, 'github_unconfigured', 'Choose a configured GitHub App connection for this repository')
   await ensure()
@@ -34,7 +34,7 @@ export async function githubAgentClient(env: L4Env, input: { connectionId?: stri
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
     body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: input.access === 'work' ? 'write' : 'read',
-      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'pull_request_read' ? { pull_requests: 'read' } : {}), ...(input.access === 'issues' ? { issues: 'read' } : {}), ...(input.access === 'checks' ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}) } }),
+      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'pull_request_read' ? { pull_requests: 'read' } : {}), ...(input.access === 'issues' ? { issues: 'read' } : {}), ...(['checks','feedback'].includes(input.access) ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}), ...(input.access === 'feedback' ? { actions: 'read', deployments: 'read' } : {}) } }),
   })) as { token?: string }
   const token = tokenResult.token
   if (!token) fail(502, 'github_response', 'GitHub did not issue a repository capability')
@@ -59,6 +59,27 @@ async function appJwt(env: L4Env, connectionId?: string | null) {
   const now = Math.floor(Date.now() / 1000)
   const key = await importPKCS8(githubPkcs8(config.privateKey.replace(/\\n/gu, '\n')), 'RS256')
   return await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(String(config.appId)).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
+}
+
+/** Trusted source-fetch broker only: a single-repository read credential, never an Agent/workspace credential. */
+export async function githubSourceGrant(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number }, ensure: () => Promise<void>) {
+  await ensure()
+  const jwt = await appJwt(env, input.connectionId)
+  const response = await decode(await fetch(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
+    method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
+    headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-source-broker', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: 'read' } }),
+  })) as { token?: string }
+  if (!response.token) fail(502, 'github_response', 'GitHub did not issue a source capability')
+  try { await ensure() } catch (error) {
+    try {
+      const revoked = await fetch('https://api.github.com/installation/token', { method: 'DELETE', redirect: 'manual', signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${response.token}`, 'User-Agent': 'L4-source-broker', 'X-GitHub-Api-Version': version } })
+      await revoked.body?.cancel()
+    } catch { /* The unused single-repository read capability is never delivered or reused. */ }
+    throw error
+  }
+  return response.token
 }
 
 export type AgentRepository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }

@@ -40,7 +40,12 @@ it('ships only the current schema and no mirrored identities or obsolete Agent r
   try {
     sqlite.exec(INIT_SQL)
     const objects = sqlite.prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL").all()
-    expect(JSON.stringify(objects)).not.toMatch(/workspace|installation|identity_keys|computer_id/i)
+    // Task-scoped factory_workspaces are current execution records, not the old
+    // mirrored Workspace/Installation identity model.
+    const names = objects.map(row => row.name)
+    for (const legacy of ['workspaces', 'installations', 'identity_keys']) expect(names).not.toContain(legacy)
+    expect(JSON.stringify(objects)).not.toMatch(/identity_keys|computer_id/i)
+    expect(names).toContain('factory_workspaces')
     expect(sqlite.prepare("PRAGMA table_info('auth_accounts')").all().map(row => row.name)).not.toContain('issuer')
     expect(sqlite.prepare("PRAGMA table_info('users')").all().map(row => row.name)).toContain('kind')
   }

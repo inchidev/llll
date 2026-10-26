@@ -39,7 +39,7 @@ export async function prepareGithubSetup(env: L4Env, actor: AuthorizationContext
       description: 'L4 project code collaboration. Access is limited by selected repositories and L4 authorization.',
       setup_url: `${origin.origin}/server/${actor.serverId}/settings?section=environments`,
       hook_attributes: { url: `${origin.origin}/api/git-connections/github/events`, active: false },
-      default_permissions: { contents: 'write', pull_requests: 'write', issues: 'read', checks: 'read', statuses: 'read', metadata: 'read' }, default_events: [] } }
+      default_permissions: { contents: 'write', pull_requests: 'write', issues: 'read', checks: 'read', statuses: 'read', actions: 'read', deployments: 'read', metadata: 'read' }, default_events: [] } }
 }
 const resultSchema = z.object({ id: z.number().int().positive(), slug: z.string().regex(/^[A-Za-z0-9-]+$/u), pem: z.string().min(100).max(20000), owner: z.object({ login: z.string() }) })
 export async function completeGithubSetup(env: L4Env, actor: AuthorizationContext, code: string, state: string, transport: typeof fetch = fetch) {

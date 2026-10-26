@@ -18,3 +18,6 @@ apps/*/.bundle
 apps/*/node_modules
 
 .playwright-cli
+
+# Private Compute Node default state
+compute-node-state/

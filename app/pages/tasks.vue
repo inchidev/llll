@@ -626,6 +626,7 @@ const boardMenu = computed(() => [[
                 </div>
                 <div v-if="task.dueAt" class="text-[11px] text-muted">{{ formatDate(task.dueAt) }}</div>
                 <UAlert v-if="task.lastError" color="error" :description="task.lastError" />
+                <p v-if="task.factoryState" class="text-xs text-muted">Factory: {{ task.factoryState }}</p>
                 <div v-if="task.resultSummary" class="text-xs border-t border-default pt-2 line-clamp-3">{{ task.resultSummary }}</div>
                 <div v-if="!showArchived && can(Permission.writeTasks)" class="flex items-center gap-1 pt-1" @click.stop>
                   <USelect
@@ -783,6 +784,7 @@ const boardMenu = computed(() => [[
             </div>
           </section>
 
+          <p v-if="selectedTask.factoryState" class="text-sm">Software Factory: {{ selectedTask.factoryState }}</p>
           <section v-if="selectedTask.resultSummary || selectedTask.resultDetails">
             <div class="mb-2 text-sm font-medium">Result</div>
             <div class="space-y-2 rounded-lg border border-default p-3 text-sm">

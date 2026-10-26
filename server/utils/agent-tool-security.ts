@@ -4,7 +4,7 @@ import { fail } from './cf'
 
 export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
 const controls = new Set(['get_current_time', 'search_tools', 'get_tool_details'])
-const reads = new Set(['list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
+const reads = new Set(['factory_status', 'factory_workspace', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
 const writes = new Set(['create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'create_document', 'update_document', 'create_reminder', 'cancel_schedule', 'publish_code_changes'])
 const external = new Set(['read_url', 'search_web', 'read_code_file', 'read_github_issue', 'read_github_pull_request'])
 /** Server-owned classification. Remote hints/descriptions and tool-name prefixes never grant authority. */

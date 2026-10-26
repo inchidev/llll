@@ -1,0 +1,107 @@
+# Software Factory MVP
+
+A human assigns a repository-backed Task to a Pi Agent. The Agent requests workspace operations, the initiating human reviews their exact arguments, and a connected Docker Node executes approved work on persistent Task disk. The Agent makes normal local Git commits, submits a committed snapshot, and requests separate approval to publish those exact commits to one dedicated branch and draft PR in the original GitHub repository. Existing CI and deployment integrations remain authoritative. A repair uses the same workspace and PR, with a new committed snapshot and publication approval.
+
+This implementation is in PR #337 for #336/#307/#310/#309. Real GitHub App, afterprompt, public Server and Preview acceptance is assigned to the operator's Grok bot. Local deterministic/provider fixtures are separate evidence. No release version is assigned by this feature PR.
+
+## Set up the Server
+
+1. Apply append-only migration `0023_software_factory.sql` through the normal installation/update or Git Preview build. Do not edit earlier migrations.
+2. As the Server Owner, open Settings → Repositories and create a dedicated GitHub App connection. For first acceptance, select only `inchidev/afterprompt` in GitHub. Existing Apps need **Actions read** and **Deployments read**, in addition to the existing Contents/Pull requests/Issues/Checks/Statuses permissions. These read scopes observe existing automation; they do not configure or deploy it. No administration or protection-bypass permission is requested.
+3. Under Compute Nodes, create a one-use pairing code. It expires after ten minutes. Install the Node below on your Linux Docker host. The same outbound protocol works for a Cloudflare Server and a VPS/celld Server; the Server does not need Docker or an inbound route to the Node.
+4. Create a repository environment using the original repository for both Source and Working repository, its base branch, exact additional CI check names and allowed preview status domains. Select the connected Compute Node. Assign this environment to a Project repository reference and Task using the existing interfaces.
+5. Give the Agent an explicit Role with Read tasks, Execute assigned tasks, Use a computer, Send messages and Propose code changes. Scope Projects, boards and repositories to the intended resources. The initiating human must hold the corresponding grants plus Approve Agent actions. Owner invocation never upgrades the Agent Role. Changing Project, repository environment, Task assignment or current grants revokes pending work.
+
+No Node means no coding execution. There is no automatic provider provisioning, paid fallback, credential fallback or Cloudflare Containers dependency. GitLab/Gitea/Forgejo/Cursor references remain available as metadata; executable factory publication is GitHub-first.
+
+## Install a trusted Linux Compute Node
+
+The Node is trusted infrastructure with Docker control. Run it under a dedicated operator account on a host used for compute, with Node 24, Docker, `fallocate`, `mkfs.ext4`, `mount`, `umount`, `findmnt` and `losetup`. Run this trusted service as root with loop-device/mount access; it already controls Docker. These privileges are never given to a workspace. Its state directory and private connection file must never be mounted into an Agent container. The workspace image includes Node, Git, Python and ripgrep. Extend and review that image if your repository needs another toolchain.
+
+Build the image from the candidate checkout, push it to your own registry and record its immutable registry digest. The daemon requires `repository@sha256:…` and refuses mutable tags. Build/publish commands below concern your compute image, not an official L4 deployment or production promotion.
+
+```sh
+docker build -f packages/compute-node/Dockerfile.workspace -t YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE .
+docker push YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE
+docker image inspect YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE --format '{{json .RepoDigests}}'
+```
+
+Configure a private environment file or service manager. To enter the initial pairing code in Bash without putting it in command history:
+
+```sh
+export LLLL_SERVER_ORIGIN=https://YOUR_SERVER
+export LLLL_NODE_STATE=/PRIVATE/COMPUTE_STATE
+export LLLL_WORKSPACE_IMAGE=YOUR_REGISTRY/l4-workspace@sha256:THE_REVIEWED_REGISTRY_DIGEST
+export LLLL_SHARED_KERNEL_TRUSTED=1
+read -r -s -p 'One-use pairing code: ' LLLL_PAIRING_TOKEN
+export LLLL_PAIRING_TOKEN
+sudo --preserve-env=LLLL_SERVER_ORIGIN,LLLL_NODE_STATE,LLLL_WORKSPACE_IMAGE,LLLL_SHARED_KERNEL_TRUSTED,LLLL_PAIRING_TOKEN node packages/compute-node/src/daemon.mjs
+```
+
+`LLLL_SHARED_KERNEL_TRUSTED=1` explicitly selects the trusted-code Docker threat model below. HTTPS is required for a remote Server; HTTP is accepted only for local loopback development. The Node stores the returned revocable credential in `connection.json` with mode 0600 in a 0700 state directory. Subsequent starts reuse that connection and do not need the pairing code. No public Node port or public Docker socket is opened. Disable and revoke the old Node in the Server before pairing a replacement; update the repository environment and start a new Task after an image/provider change.
+
+Idle Nodes poll for approved work. Every job is claimed once, then started once under a short lease. Heartbeats recheck current authority. A disconnect, revoke, Run stop, deadline or expired lease aborts the operation. Restart removes only containers labelled with this paired Node and Server, resubmits retained receipts, and never restarts uncertain commands. Retained receipts are private operator evidence; a receipt rejection means inspect the outcome rather than rerun the operation.
+
+## Source credentials and Git history
+
+The App private key and every upstream Git **write** credential stay in the L4 Server broker. Bootstrap issues a short-lived, single-repository **read** capability to the trusted source-fetch component of the Node. This component runs stock Git in a separate, trusted non-root fetch container with a read-only root, fixed 512 MiB source filesystem, CPU/memory/process/time limits and no Agent execution. It fetches the pinned SHA and its history into a temporary bare repository, exports a Git bundle, attempts immediate token revocation, and deletes temporary source data. It does not implement a Git HTTP proxy.
+
+Only the bundle enters the workspace, through a read-only mount. The read capability is never passed to an Agent, container environment, Git configuration, named volume or receipt. There is no upstream remote in the Agent checkout. Normal local `git log/status/diff/add/commit/rebase` works against the pinned history. Repository or branch changes need a renewed Task; upstream base divergence blocks publication. The source fetch has a time and capacity limit; an oversized history fails explicitly.
+
+Treat this trusted source-fetch component as part of the provider credential broker. Operators who require every Git read credential to remain physically on the Server machine need a separately operated bundle source; that topology is not implemented by the first Docker Node.
+
+## Run, review and repair
+
+Start the Agent on the Task and open its private Run. `factory_workspace` is an object-schema tool compatible with embedded and container Pi. Native Pi shell/filesystem tools remain disabled. Each factory operation records a SHA-256 digest over its exact arguments, Run/Agent/initiator, Task/channel/workspace, frozen repository/base/connection, current authority, pinned image, workspace revision and expiry.
+
+The Run and Task indicate review is required. The private Software Factory panel displays destination repository/ref, identities, Node, image, exact command or file content, timeout, selected network hosts and the committed diff/test receipts. Select the explicit acknowledgement and approve or reject. Approval is for that action only; it does not approve later commands, changed arguments, merge or release. An approved publication must retain exact local Git commit and tree SHAs; a provider mismatch stops before branch publication.
+
+Pi waits using the same durable call identity. Gateway polls only observe that one action; they do not create new commands. Rejected, expired, cancelled, changed or uncertain actions never execute through retries. A completed receipt is idempotent. One active action per workspace and one claimed/executing action per Node prevent concurrent workspace mutations.
+
+Typical Agent sequence:
+
+1. `factory_status` to select bootstrap or resume. For a new workspace request `bootstrap`, then `read` or `exec` to inspect the checkout/history.
+2. `write` or `exec` for the bounded edit; `exec` tests and a normal local commit. Every operation receives its own human review.
+3. `snapshot` after the worktree is clean. The result includes an immutable snapshot digest, exact linear commits, final text changes and independently stored command receipt digests.
+4. `publish` with that snapshot digest, title and description. After approval, the Server reconstructs and verifies each exact Git object, updates only `l4-agent/<workspace-id>`, and creates/reconciles one draft PR in the original repository. It never moves main, force-pushes, merges, releases or deploys.
+5. `factory_feedback` observes exact-head checks, commit statuses, Actions jobs/logs and existing deployments. Old green results cannot satisfy a new SHA. Missing/skipped/running/failing evidence stays distinct. Draft PRs may have no preview; no URL is invented. The human can also refresh feedback from the private Run after inference ends.
+6. On failure, inspect an allowed job's logs, edit/test/commit in the same workspace, snapshot and approve publication again. The same canonical PR branch advances by fast-forward. Treat repository and CI content as untrusted; it never authorizes egress or writes.
+
+GitHub's native merge state and protections remain authoritative. Configured check names are additional local requirements, not a replacement for classic branch protection or rulesets. An unavailable native protection assessment is unknown, not permission to merge. Feedback pagination/capacity limits are reported as incomplete and prevent a readiness claim. Provider reviews/merge remain on GitHub.
+
+## Limits, persistence and isolation
+
+Each workspace uses a preallocated 1 GiB ext4 image mounted by the trusted Node and exposed through a Task-labelled Docker named volume. The filesystem itself enforces capacity, including dependency caches, and is remounted from its persistent image after host restart. The Node reserves at most four workspace disks and one temporary source disk; allocation or mount failure never falls back to unbounded host storage.
+
+Each workspace is bound to one Task, Agent, initiating human, original conversation and exact repository environment. Another human, Task, Server, Node lease or changed conversation cannot inherit it. The named volume retains the checkout and dependency cache while fresh per-operation containers are removed, including after suspend. `release` explicitly deletes that Task disk only after review. Back up Node volumes separately; a Server database backup preserves authorization/audit records, not Docker volume contents.
+
+Commands have 1 CPU, 1 GiB memory, 128 PIDs, a read-only root, non-root UID 1000, dropped capabilities, no privilege escalation and bounded temporary files/output. A Task is limited to 50 operations, 3600 execution seconds and ten publications; a snapshot has at most twenty linear commits and 100 bounded ordinary text files. Workflow paths, binary/symlink changes and large proposals are rejected. Cleanup remains possible after a Task budget is exhausted. Existing Run model/token/daily budgets still apply, and review expires within the Run deadline.
+
+Default command networking is disabled. Explicitly reviewed HTTPS hosts use a separate allowlisted CONNECT proxy; private/rebinding/numeric destinations are denied, DNS cannot bypass the proxy, and no host port is published. Hosts can receive data under an approved command, so review network requests together with that command's contents and repository trust. No background process survives into the next operation.
+
+Docker shares the host kernel. This provider is for trusted operators/code and is not a hard boundary for hostile public tenants. Use a VM/microVM provider and a separate policy before admitting untrusted multi-tenant code. Workspace disk capacity is a hard 1 GiB block-filesystem ceiling; temporary source fetches have a separate hard 512 MiB filesystem. The Linux Node requires loop/mount support and fails closed when unavailable. Fixed filesystems limit disk consumption but do not make Docker or Git object parsing a safe boundary for hostile public tenants. Do not declare hostile-code or stronger-isolation acceptance based on this Docker path.
+
+Windows/macOS hosts, local browser/desktop capabilities, workspace HTTP port previews, shared caches across Tasks, live relocation and provider-neutral VM implementations are outside this Linux MVP. Canonical repository previews are observed through the existing CI provider instead.
+
+## Verification and Grok handoff
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec nuxt prepare apps/site
+corepack pnpm test
+corepack pnpm --filter @llll/agent-runtime test
+corepack pnpm --filter @llll/compute-node test
+docker build -t l4-workspace:test -f packages/compute-node/Dockerfile.workspace .
+node scripts/test-factory-workspace.mjs
+corepack pnpm typecheck
+corepack pnpm typecheck:site
+corepack pnpm lint
+corepack pnpm db:migrations:check --base 77d551f9765d28c0d3b6f819625e317e38bc34de
+corepack pnpm model:check
+corepack pnpm build:deployment
+corepack pnpm test:server
+```
+
+The GitHub fixture independently computes Git object SHAs, exercises a failing CI result followed by repair on one PR, rejects old-head logs, unapproved egress, revocation, changed arguments/base, cross-Node leases and uncertain publication replay. The Docker smoke uses real persistent volumes and containers for history, edits, failing commands, commits, snapshot/resume, cross-Task separation, non-root/no-socket/no-credential checks and egress denial. These tests do not authorize a real GitHub installation.
+
+Grok must validate the candidate SHA on a test Server with an explicitly selected `inchidev/afterprompt` installation, actual Pi/model interactions, one deliberately failing CI test and repair, existing preview integration or explicit absence, desktop/mobile review UI, restart/revoke/cancellation and both Cloudflare Server → VPS Node and VPS Server → local Docker topologies. Verify candidate CI and native Server/web Previews without a production release. Keep #307/#310/#309/#336 open until their acceptance criteria are demonstrated; real Linux loop-backed quota/reboot verification and the stronger-isolation policy must remain explicit in the acceptance record.

@@ -106,6 +106,7 @@ export type TaskDTO = {
   /** Hidden channel for the task's discussion; null until someone opens it. */
   discussionChannelId: string | null
   createdBy: string
+  factoryState?: string | null
   resultSummary: string | null
   resultDetails: string | null
   lastError: string | null

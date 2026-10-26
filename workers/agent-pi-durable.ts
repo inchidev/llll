@@ -101,15 +101,27 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
     replay: 'safe', executionMode: 'sequential',
     async execute(args, api, context) {
       if (!input.toolEndpoint) throw new Error('Tool gateway unavailable')
-      const response = await fetch(input.toolEndpoint, { method: 'POST',
+      let output: string
+      for (;;) {
+        const response = await fetch(input.toolEndpoint, { method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.modelGateway.token}` },
         body: JSON.stringify({ callId: api.callId, name: definition.name, arguments: args }),
         signal: AbortSignal.any([...(context.abortSignal ? [context.abortSignal] : []), ...(host.signal ? [host.signal] : []), AbortSignal.timeout(60000)]),
       })
       const body = await readLimitedStream(response.body, 500000)
       if (!body.ok) throw new Error('Tool output exceeds its limit')
-      const output = new TextDecoder().decode(body.bytes)
+        output = new TextDecoder().decode(body.bytes)
       if (!response.ok) throw new Error(`Tool gateway rejected the operation (${response.status})`)
+
+        if (definition.name !== 'factory_workspace' || JSON.parse(output).factoryPending !== true) break
+        await new Promise<void>((resolve, reject) => {
+          const signal = context.abortSignal ?? host.signal
+          if (signal?.aborted) { reject(new Error('Run cancelled')); return }
+          const stop = () => { clearTimeout(timer); reject(new Error('Run cancelled')) }
+          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, 2000)
+          signal?.addEventListener('abort', stop, { once: true })
+        })
+      }
       if (definition.name === 'get_tool_details') {
         const result = JSON.parse(output) as { tool?: { name?: string }; purpose?: string }
         const selected = tools.find(tool => tool.name === result.tool?.name && tool.deferred)

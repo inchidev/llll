@@ -191,6 +191,6 @@ The App requests Contents/Pull requests write and Issues/Checks/Statuses/Metadat
 
 After GitHub finishes, refresh connections and choose an explicit connection before discovering repositories or saving an execution configuration. An existing deployment-provided App remains a separate compatibility option; it is never an implicit fallback for a disabled or missing selected connection. **Disable in L4** immediately denies subsequent broker calls using that connection; it does not uninstall or revoke the App on GitHub. Uninstall the App in GitHub when its provider access must also be removed. GitLab, Gitea and Cursor references do not yet have executable credential adapters.
 
-Creating a connection does not enable model-selected publication. Exact code review/approval, per-branch merge/release policy and a configured execution environment remain separate Software Factory requirements.
+Creating a connection does not enable model-selected publication. Coding uses separate exact-action review and a connected Compute Node selected in the repository environment. Merge/release stay separately authorized in the original provider.
 
-Software Factory implementation and verification gaps are recorded in the [foundation audit](software-factory-audit.md).
+The [Software Factory guide](software-factory.md) covers exact reviewed workspace operations, persistent Compute Nodes, approved original-repository PR publication and the existing CI/Preview repair loop. Native Pi shell tools remain disabled; the factory uses the Server broker. [Implementation evidence](software-factory-audit.md) separates local tests from external acceptance.

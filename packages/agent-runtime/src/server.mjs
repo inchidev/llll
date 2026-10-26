@@ -92,10 +92,19 @@ const server = createServer(async (request, response) => {
         await prepareFiles(input, join(sessionDirectory, 'work'), controller.signal)
         const pi = await openPi(input, { directory: sessionDirectory, emit, signal: controller.signal,
           callTool: async (call, signal) => {
-            const tool = await fetch(input.toolEndpoint, { method: 'POST', signal,
-              headers: { Authorization: `Bearer ${input.modelGateway.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...call, runId: input.runId }) })
-            if (!tool.ok) throw new Error(`Tool rejected (${tool.status})`)
-            return tool.json()
+            for (;;) {
+              const tool = await fetch(input.toolEndpoint, { method: 'POST', signal,
+                headers: { Authorization: `Bearer ${input.modelGateway.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...call, runId: input.runId }) })
+              if (!tool.ok) throw new Error(`Tool rejected (${tool.status})`)
+              const result = await tool.json()
+              if (call.name !== 'factory_workspace' || result.factoryPending !== true) return result
+              await new Promise((resolve, reject) => {
+                if (signal?.aborted) { reject(new Error('Run cancelled')); return }
+                const stop = () => { clearTimeout(timer); reject(new Error('Run cancelled')) }
+                const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, 2000)
+                signal?.addEventListener('abort', stop, { once: true })
+              })
+            }
           },
         })
         result = { type: 'result', ...(await pi.run(input.prompt)) }

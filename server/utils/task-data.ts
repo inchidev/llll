@@ -24,7 +24,7 @@ export async function loadTaskBoards(env: L4Env, includeArchived = false): Promi
       `SELECT t.id, n.number, t.board_id as boardId, t.project_id as projectId, t.title, t.description, t.status, t.priority, t.due_at as dueAt, t.position,
        t.assignee_id as assigneeId, t.channel_id as channelId, t.environment_id as environmentId,
        t.discussion_channel_id as discussionChannelId, t.created_by as createdBy,
-       t.result_summary as resultSummary, t.result_details as resultDetails, t.last_error as lastError,
+       t.factory_state as factoryState, t.result_summary as resultSummary, t.result_details as resultDetails, t.last_error as lastError,
        t.archived_at as archivedAt, t.created_at as createdAt, t.updated_at as updatedAt
        FROM tasks t JOIN task_numbers n ON n.task_id = t.id ${taskArchivedClause} ORDER BY t.position, t.created_at`,
     ).all<TaskRow>(),
