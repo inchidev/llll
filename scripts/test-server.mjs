@@ -1,3 +1,4 @@
+import { testFactoryTransport } from './test-factory-transport.mjs'
 import { githubSetupFixture, testGitConnections } from './test-git-connections.mjs'
 import { testProjects } from './test-projects.mjs'
 import { testRunPublication } from './test-run-publication.mjs'
@@ -339,6 +340,7 @@ try {
   await testAgentToolDiscovery({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id })
   const outboundMcp = await testOutboundMcp({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id, memberId })
   const publication = await testRunPublication({ api, runtimes, ids, channelId: general.id })
+  await testFactoryTransport({ api })
   const gitFixture = await testGitConnections({ api, runtimes, ids })
   const projectFixture = await testProjects({ api, runtimes, ids, memberId })
   await testRoleManagement({ api, runtimes, ids, memberId })
