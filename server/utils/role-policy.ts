@@ -13,7 +13,7 @@ export function toRoleDto(role: RoleRow, serverId: string, memberCount = 0): Rol
     serverId,
     key: role.key,
     name: role.name,
-    permissions: role.permissionsBitmask,
+    permissions: role.key === 'owner' ? ALL_PERMISSIONS : role.permissionsBitmask,
     resourceAccess: parseResourceAccess(role.resourceAccessJson),
     position: role.position,
     isSystem: role.isSystem,

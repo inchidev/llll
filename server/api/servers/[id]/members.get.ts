@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { agents, roles, users } from '../../../../drizzle/schema'
-import { hasPermission, Permission } from '../../../../shared/permissions'
+import { ALL_PERMISSIONS, hasPermission, Permission } from '../../../../shared/permissions'
 import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
         serverId: id,
         key: r.role.key,
         name: r.role.name,
-        permissions: canViewRoleDetails || r.user.id === actor.user.id ? r.role.permissionsBitmask : 0,
+        permissions: canViewRoleDetails || r.user.id === actor.user.id ? (r.role.key === 'owner' ? ALL_PERMISSIONS : r.role.permissionsBitmask) : 0,
         position: r.role.position,
         isSystem: r.role.isSystem,
       },

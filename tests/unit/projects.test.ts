@@ -1,3 +1,4 @@
+import { toRoleDto } from '../../server/utils/role-policy'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { ids, mcpFixture } from '../helpers/outbound-mcp'
 import { Permission, ALL_PERMISSIONS } from '../../shared/permissions'
@@ -86,4 +87,12 @@ it('does not expand an existing execution ceiling after later project grants', a
  run.mandateJson = JSON.stringify({ ...JSON.parse(run.mandateJson), projectId: p.id })
  f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS, ids.agentRole)
  await expect(runAuthorization(f.env, { ...run, taskId: task.id })).rejects.toMatchObject({ statusCode: 403 })
+})
+
+it('reports current effective Owner grants without rewriting the stored Role mask', () => {
+ const row = f.db.prepare('SELECT id,key,name,permissions_bitmask AS permissionsBitmask,resource_access_json AS resourceAccessJson,is_system AS isSystem,position,created_at AS createdAt,updated_at AS updatedAt FROM roles WHERE id=?').get(ids.ownerRole)!
+ row.permissionsBitmask = 0
+ const dto = toRoleDto(row as never, ids.server)
+ expect(dto.permissions).toBe(ALL_PERMISSIONS)
+ expect(dto.permissions & Permission.manageProjects).toBeTruthy()
 })
