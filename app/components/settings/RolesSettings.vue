@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DataResourcesDTO, TaskBoardDTO, MemberDTO, RoleDTO } from '~~/shared/types'
 import { hasPermission, MemberPermissions, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
 
-import type { ResourceAccess, ResourceKind } from '~~/shared/resource-access'
+import { cloneResourceAccess, type ResourceAccess, type ResourceKind } from '~~/shared/resource-access'
 
 const props = defineProps<{ serverId: string }>()
 
@@ -117,7 +117,7 @@ function resetDraft() {
   const role = selectedRole.value
   roleName.value = role ? roleLabel(role) : ''
   rolePermissions.value = role?.permissions ?? 0
-  roleResourceAccess.value = structuredClone(role?.resourceAccess ?? {})
+  roleResourceAccess.value = cloneResourceAccess(role?.resourceAccess ?? {})
 }
 watch(selectedRole, resetDraft, { immediate: true })
 

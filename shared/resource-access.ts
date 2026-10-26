@@ -33,3 +33,8 @@ export function resourceAccessWithin(child: ResourceAccess, parent: ResourceAcce
     return limit == null || (Array.isArray(child[kind]) && child[kind]!.every(id => limit.includes(id)))
   })
 }
+
+/** Copy Role scopes from reactive/readonly UI data without structuredClone's Proxy limitation. */
+export function cloneResourceAccess(value: { readonly [K in ResourceKind]?: readonly string[] | null }): ResourceAccess {
+  return Object.fromEntries(RESOURCE_KINDS.filter(kind => kind in value).map(kind => [kind, Array.isArray(value[kind]) ? [...value[kind]!] : value[kind]]))
+}
