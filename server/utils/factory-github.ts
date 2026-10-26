@@ -60,7 +60,7 @@ export async function executeFactoryPublication(env: L4Env, id: string) {
     }
     if (currentHead) await writer.json(`${root}/git/refs/heads/${branch}`, 'PATCH', { sha: snapshot.headSha, force: false })
     else await writer.json(`${root}/git/refs`, 'POST', { ref: `refs/heads/${branch}`, sha: snapshot.headSha })
-    const description = `${context.request.body}\n\nL4 Task: ${context.run.taskId}\nWorkspace: ${context.workspace.id}\nApproved snapshot: ${context.request.snapshotDigest}\nHead: ${snapshot.headSha}\n\nIndependent CI and provider review remain required.`
+    const description = `${context.request.body}\n\nL4 Task: ${context.run.taskId}\nCoding workspace: ${context.workspace.id}\nApproved snapshot: ${context.request.snapshotDigest}\nHead: ${snapshot.headSha}\n\nIndependent CI and provider review remain required.`
     let pull
     if (prior) pull = validatePull(await pulls.json(`${root}/pulls/${prior.number}`))
     else {

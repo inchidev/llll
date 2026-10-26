@@ -88,6 +88,35 @@ it('interrupts an already submitted legacy computer Run instead of resuming its 
   expect(db.prepare('SELECT status FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'failed' })
   expect(requests).toEqual([{ path: '/run', method: 'DELETE' }, { path: '/lifecycle', method: 'DELETE' }])
 })
+it('finishes broker-only computer Runs without fetching a nonexistent native checkout archive', async () => {
+  db.exec(`UPDATE roles SET permissions_bitmask=permissions_bitmask|${Permission.useComputer} WHERE id='agent-role'`)
+  const run = await completed()
+  db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+  env.PUBLIC_ORIGIN = 'https://server.example'
+  const put = vi.fn(async () => {})
+  env.FILES = { put } as unknown as L4Env['FILES']
+  const requests: string[] = []
+  env.AGENT_COMPUTE = { getByName: () => ({ fetch: async (request: Request) => {
+    const path = new URL(request.url).pathname
+    requests.push(request.method + ' ' + path)
+    if (request.method === 'POST') {
+      expect(await request.json()).not.toHaveProperty('filesUrl')
+      return Response.json({ status: 'running' }, { status: 202 })
+    }
+    if (request.method === 'DELETE') return new Response(null, { status: 204 })
+    if (path === '/session') return Response.json({ transcript: 'Private broker-only transcript' })
+    return Response.json({ status: 'finished', events: [{ type: 'result', text: 'Reviewed coding result', steps: 1 }], nextCursor: 1 })
+  } }) } as unknown as L4Env['AGENT_COMPUTE']
+  const data = new Map<string, unknown>([['runId', run.id]])
+  const pending: Promise<unknown>[] = []
+  const ctx = { storage: { get: async (key: string) => data.get(key), put: async (key: string, value: unknown) => { data.set(key, value) }, setAlarm: async () => {}, deleteAlarm: async () => {} }, waitUntil: (p: Promise<unknown>) => { pending.push(p) } }
+  await new AgentRunDurableObject(ctx as unknown as DurableObjectState, env).alarm()
+  await Promise.all(pending)
+  expect(db.prepare('SELECT status,files_key FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'completed', files_key: null })
+  expect(requests).not.toContain('GET /files')
+  expect(put).toHaveBeenCalledTimes(1)
+  expect(db.prepare("SELECT count(*) AS total FROM agent_run_events WHERE run_id=? AND event_json LIKE '%could not be archived%'").get(run.id)).toMatchObject({ total: 0 })
+})
 it('records the assigned task result without granting general task-write permission', async () => {
   const run = await completed()
   await coordinator(run.id).alarm()

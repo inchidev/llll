@@ -85,9 +85,11 @@ try {
   const archive = await (await request('/session')).json()
   assert.ok(archive.transcript.includes('Fixture source'))
   assert.equal((await command('exec', agent, 'node', '-e', "console.log(require('node:fs').existsSync('/data/session/work/source.txt'))")).stdout.trim(), 'false')
-  await command('exec', agent, 'node', '-e', "require('node:fs').writeFileSync('/data/session/work/result.txt','saved evidence')")
-  const output = await (await request('/files')).json()
-  assert.ok(output.files.some(file => file.path === 'result.txt' && Buffer.from(file.content, 'base64').toString() === 'saved evidence'))
+  // Broker-only Pi has no native Git checkout. Coding receipts belong to the
+  // separately approved Compute Node; do not manufacture a checkout in this test.
+  const output = await request('/files')
+  assert.equal(output.status, 422)
+  assert.equal((await output.json()).error, 'Working files exceed archive limits or are unavailable')
   assert.equal((await request('/run', 'POST', input)).status, 202)
   const stats = JSON.parse((await command('exec', gateway, 'node', '-e', "fetch('http://127.0.0.1/stats').then(r=>r.text()).then(console.log)")).stdout)
   assert.equal(stats.tools, 1, 'Duplicate admission repeated a side effect')

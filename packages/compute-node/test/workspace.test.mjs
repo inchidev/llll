@@ -29,7 +29,13 @@ test('persistent checkout supports normal commits, exact snapshots and bounded f
 test('file operations reject traversal, protected paths and symlink escapes',async()=>{
   for(const path of ['../other-task','/etc/passwd','.git/config','.github/workflows/push.yml','a/../../secret','a\\b','bad\nfile'])assert.equal(safePath(path),false)
   const root=await mkdtemp(join(tmpdir(),'l4-path-'))
-  try{await symlink(tmpdir(),join(root,'escape'));await assert.rejects(operate({request:{operation:'write',path:'escape/stolen',content:'x'}},root));await mkdir(join(root,'src'));await operate({request:{operation:'write',path:'src/file',content:'ok'}},root);assert.equal(await readFile(join(root,'src/file'),'utf8'),'ok')}
+  try{
+    await symlink(tmpdir(),join(root,'escape'));await assert.rejects(operate({request:{operation:'write',path:'escape/stolen',content:'x'}},root))
+    await symlink('/etc/passwd',join(root,'link'));await assert.rejects(operate({request:{operation:'read',path:'link'}},root));await assert.rejects(operate({request:{operation:'write',path:'link',content:'x'}},root))
+    await mkdir(join(root,'src'));await operate({request:{operation:'write',path:'src/file',content:'ok'}},root);assert.equal(await readFile(join(root,'src/file'),'utf8'),'ok')
+    await operate({request:{operation:'write',path:'src/file',content:'x'}},root);assert.equal((await operate({request:{operation:'read',path:'src/file'}},root)).output,'x')
+    await writeFile(join(root,'large'),Buffer.alloc(60001));await assert.rejects(operate({request:{operation:'read',path:'large'}},root),/File size/u)
+  }
   finally{await rm(root,{recursive:true,force:true})}
 })
 test('egress proxy denies private, rebinding, unselected and numeric destinations',async()=>{

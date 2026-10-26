@@ -9,7 +9,6 @@ import type { L4Env } from './env'
 import { asRpc } from './env'
 import { RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RuntimeEvent } from '../shared/agent-execution'
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
-import { previousRunFiles, workingFilesSchema } from '../server/utils/agent-files'
 import { toolsForRun } from '../server/utils/agent-tools'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
@@ -237,7 +236,6 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           modelGateway: { url: `${origin}/api/agent-runs/${run.id}/gateway/v1`, token: capability, model: run.model },
           toolEndpoint: `${origin}/api/agent-runs/${run.id}/gateway/tools`,
           repository: run.environmentJson ? { archiveUrl: `${origin}/api/agent-runs/${run.id}/gateway/repository/archive` } : undefined,
-          filesUrl: mandate.computer && await previousRunFiles(this.env, run) ? `${origin}/api/agent-runs/${run.id}/gateway/files` : undefined,
           tools: (await toolsForRun(this.env, authorization, promise => this.ctx.waitUntil(promise), run)).descriptors,
           // A repository mandate is not approval of model-selected local commands.
           // Native Pi tools bypass the Server's per-call policy and audit boundary.
@@ -281,19 +279,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         await files.put(key, saved.transcript, { httpMetadata: { contentType: 'application/x-ndjson' } })
         await this.env.DB.prepare('UPDATE agent_sessions SET transcript_key=? WHERE id=? AND active_run_id=?').bind(key, run.sessionId, run.id).run()
       }
-      if (mandate.computer) {
-        const output = await this.runtime(run, 'files')
-        const contents = await readLimitedStream(output.body, 2000000)
-        if (output.ok && contents.ok) {
-          const snapshot = workingFilesSchema.parse(JSON.parse(new TextDecoder().decode(contents.bytes)))
-          const key = `agent-files/${run.sessionId}/${run.id}.json`
-          await files.put(key, JSON.stringify(snapshot), { httpMetadata: { contentType: 'application/json' } })
-          await this.env.DB.prepare('UPDATE agent_runs SET files_key=? WHERE id=?').bind(key, run.id).run()
-        } else {
-          await this.env.DB.prepare('INSERT INTO agent_run_events(run_id,sequence,event_json,created_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING')
-            .bind(run.id, poll.nextCursor, JSON.stringify({ type: 'error', message: 'Working files could not be archived within the file limits' }), nowIso()).run()
-        }
-      }
+      // Pi has no native checkout. Reviewed coding snapshots and command receipts
+      // are persisted by the factory broker, independently of this transcript.
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
       const current = terminal.type === 'error' ? await findAgentRun(this.env, run.id) : null
       const failure = terminal.type === 'error' ? current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')

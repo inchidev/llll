@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { readFile, writeFile, mkdir, lstat, realpath } from 'node:fs/promises'
+import { open, mkdir, lstat, realpath } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 
 export function safePath(path) {
@@ -90,13 +91,30 @@ export async function operate(job, root = '/workspace/repo') {
     return { ok: true, exitCode: 0, output: `Pinned checkout ${job.baseSha}` }
   }
   if (input.operation === 'read') {
-    const path = await scopedFile(root,input.path), stat = await lstat(path)
-    if (!stat.isFile() || stat.size > 60000) throw new Error('File size or type unavailable')
-    const content = await readFile(path)
-    return { ok: true, exitCode: 0, output: new TextDecoder('utf-8',{fatal:true}).decode(content) }
+    const path = await scopedFile(root,input.path)
+    const file = await open(path,constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    try {
+      const stat = await file.stat()
+      if (!stat.isFile() || stat.size > 60000) throw new Error('File size or type unavailable')
+      // Check and read the same inode; keep the read bounded even if it grows.
+      const content = Buffer.alloc(60001)
+      let bytes = 0
+      while (bytes < content.length) {
+        const read = await file.read(content,bytes,content.length-bytes,null)
+        if (!read.bytesRead) break
+        bytes += read.bytesRead
+      }
+      if (bytes > 60000) throw new Error('File size or type unavailable')
+      return { ok: true, exitCode: 0, output: new TextDecoder('utf-8',{fatal:true}).decode(content.subarray(0,bytes)) }
+    } finally { await file.close() }
   }
   if (input.operation === 'write') {
-    await writeFile(await scopedFile(root,input.path,true),input.content,{mode:0o644})
+    const file = await open(await scopedFile(root,input.path,true),constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,0o644)
+    try {
+      if (!(await file.stat()).isFile()) throw new Error('File type unavailable')
+      await file.truncate(0)
+      await file.writeFile(input.content)
+    } finally { await file.close() }
     return { ok: true, exitCode: 0, output: `Wrote ${input.path}` }
   }
   if (input.operation === 'snapshot') return { ok: true, exitCode: 0, output: 'Exact committed snapshot', snapshot: await snapshot(root,job.baseSha) }
