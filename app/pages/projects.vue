@@ -8,7 +8,7 @@ const toast = useToast(), busy = ref(false), name = ref(''), description = ref('
 const projects = useQuery({ queryKey: computed(() => ['projects', serverId.value]), queryFn: () => api<{ projects: Project[] }>(`/api/servers/${serverId.value}/projects`) })
 const detail = useQuery({ queryKey: computed(() => ['project', selected.value]), queryFn: () => api<{ project: Project; repositories: ProjectRepository[] }>(`/api/projects/${selected.value}`), enabled: computed(() => Boolean(selected.value)) })
 const environments = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ environments: { id: string; name: string; sourceRepo: string; sourceRepoId: number; baseBranch: string }[] }>('/api/code-environments'), enabled: computed(() => can(Permission.manageProjects)) })
-const environmentId = ref('')
+const environmentId = ref<string | null>(null)
 const provider = ref('github'), host = ref('https://github.com'), slug = ref(''), externalId = ref(''), branch = ref('main')
 watch(environmentId, id => { const e = environments.data.value?.environments.find(e => e.id === id); if (e) { provider.value = 'github'; host.value = 'https://github.com'; slug.value = e.sourceRepo; externalId.value = String(e.sourceRepoId); branch.value = e.baseBranch } else externalId.value = '' })
 async function create() {
@@ -63,7 +63,7 @@ async function remove(id: string) {
      <UFormField label="Provider origin"><UInput v-model="host" placeholder="https://github.com" class="w-full" /></UFormField>
      <UFormField label="Repository path"><UInput v-model="slug" placeholder="organization/repository" class="w-full" /></UFormField>
      <UFormField label="Default branch"><UInput v-model="branch" class="w-full" /></UFormField>
-     <UFormField label="Git execution configuration (optional)" help="Configure GitHub access in Server settings → Repositories, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: '' }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name, value: e.id }))]" class="w-full" /></UFormField>
+     <UFormField label="Git execution configuration (optional)" help="Configure GitHub access in Server settings → Repositories, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name, value: e.id }))]" class="w-full" /></UFormField>
      <UButton type="submit" label="Attach reference" :disabled="!slug || !host" :loading="busy" />
     </form>
    </section>
