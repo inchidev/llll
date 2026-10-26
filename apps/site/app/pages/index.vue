@@ -21,7 +21,7 @@ const primaryActionLabel = 'Install your own'
 const productGroups = [
   { name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
   { name: 'Tasks', icon: 'i-ph-kanban', title: 'Know what happens next.', description: 'Turn plans into shared boards with priorities, due dates, checklists, and dependencies. Give each task a responsible teammate and a place to discuss it.' },
-  { name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.', note: 'Connect an email domain to enable Mail.' },
+  { name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.' },
   { name: 'Data', icon: 'i-ph-table', title: 'Make knowledge easy to find.', description: 'Organize records in tables, boards, lists, and calendars. Keep documents and canvases alongside them, and bookmark what matters to you.' },
 ]
 
@@ -99,8 +99,7 @@ useHead({
 
         <UContainer>
           <div class="mx-auto max-w-4xl text-center">
-            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl"><span class="block">L4. Chat. Work.</span><span class="block text-muted">On your terms.</span></h1>
-            <p class="mt-4 text-sm text-dimmed"><span class="font-medium text-toned">llll.gg</span> — four lowercase Ls.</p>
+            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl"><span class="mb-4 block text-[1.2em]">L4</span><span class="block">Chat. Work.</span><span class="block text-muted">On your terms.</span></h1>
             <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. Independent servers. Run it on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
@@ -188,7 +187,7 @@ useHead({
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
             </UCard>
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
-              <UBadge label="Docker Compose · Coolify" color="neutral" variant="outline" class="self-start" />
+              <UBadge label="Your server" color="neutral" variant="outline" class="self-start" />
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on your VPS</h3>
               <p class="mt-4 text-base leading-7 text-muted">The same server logic on celld. Keep chat, tasks, documents and files on your own machine. Connect optional calls, AI and mail providers when you need them.</p>
               <ul class="my-7 space-y-3 text-sm text-toned"><li>Local accounts and your own domain</li><li>One private runtime and database per server</li><li>Separate backups and operator-controlled updates</li></ul>
