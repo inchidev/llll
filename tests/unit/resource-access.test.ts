@@ -1,8 +1,7 @@
 import { reactive, readonly } from 'vue'
-import { cloneResourceAccess } from '../../shared/resource-access'
 import { describe, expect, it } from 'vitest'
 import { authorizeResource, resourceAllowed, type AuthorizationContext } from '../../shared/authorization'
-import { parseResourceAccess, resourceAccessWithin } from '../../shared/resource-access'
+import { cloneResourceAccess, parseResourceAccess, resourceAccessWithin } from '../../shared/resource-access'
 import { authorizeResourceRequest } from '../../server/utils/resource-policy'
 import type { L4Env } from '../../workers/env'
 
