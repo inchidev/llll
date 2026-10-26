@@ -42,11 +42,11 @@ export async function testGitConnections({api,runtimes,ids}){
  const prepared=(await api('alpha',root+'/github/manifest',{method:'POST',body:input})).payload
  assert.equal(prepared.manifest.public,false);assert.equal(prepared.manifest.default_permissions.contents,'write')
  const state=new URL(prepared.actionUrl).searchParams.get('state'),callback=root+'/github/callback?code=test-code&state='+state
- const signIn=await api('alpha',callback,{actor:'anonymous',expected:302})
+ const signIn=await api('alpha',callback,{actor:'anonymous',expected:302,redirect:'manual'})
  assert.equal(signIn.response.headers.get('Location'),'/git-connections/github/complete?code=test-code&state='+state)
  await api('alpha',callback,{actor:'alpha-member',expected:403})
  await api('beta',callback,{expected:409})
- const done=await api('alpha',callback,{expected:302})
+ const done=await api('alpha',callback,{expected:302,redirect:'manual'})
  assert.equal(done.response.headers.get('Referrer-Policy'),'no-referrer')
  assert.equal(done.response.headers.get('Location'),`/server/${ids.alpha}/settings?section=repositories`)
  await api('alpha',callback,{expected:409})

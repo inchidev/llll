@@ -91,6 +91,7 @@ async function api(
     body,
     actor = server + '-owner',
     expected = 200,
+    redirect = 'follow',
     headers = {},
   } = {},
 ) {
@@ -98,6 +99,7 @@ async function api(
     origins[server] + path,
     {
       method,
+      redirect,
       headers: {
         Host: new URL(origins[server]).host,
         Origin: origins[server],
