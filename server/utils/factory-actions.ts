@@ -1,5 +1,6 @@
+import { dispatchCloudflareFactory } from './factory-setup'
 import { patchAgentTurn, fanoutAgentTurns } from '../../workers/agent-turns'
-import { factoryRequest, factorySnapshot, type FactoryAction } from '../../shared/software-factory'
+import { factoryRequest, parseFactoryToolInput, factorySnapshot, type FactoryAction } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { factoryAuthority, factoryHash, factoryWorkspace, type FactoryWorkspace, workspaceColumns } from './factory-authority'
@@ -10,7 +11,7 @@ import { getTask } from './task-service'
 
 export type ActionRow = { id: string; workspaceId: string; runId: string; callId: string; digest: string; requestJson: string; policyJson: string; status: string; expiresAt: string; decidedBy: string | null; decidedAt: string | null; resultJson: string | null; createdAt: string; leaseToken: string | null; leaseUntil: string | null }
 export const actionColumns = 'id,workspace_id AS workspaceId,run_id AS runId,call_id AS callId,digest,request_json AS requestJson,policy_json AS policyJson,status,expires_at AS expiresAt,decided_by AS decidedBy,decided_at AS decidedAt,result_json AS resultJson,created_at AS createdAt,lease_token AS leaseToken,lease_until AS leaseUntil'
-export const visibleAction = (row: ActionRow): FactoryAction => ({ diskBytes: JSON.parse(row.policyJson).compute.diskBytes, computeImage: JSON.parse(row.policyJson).compute.image, workspaceRevision: JSON.parse(row.policyJson).workspaceRevision, id: row.id, workspaceId: row.workspaceId, runId: row.runId, digest: row.digest, request: factoryRequest.parse(JSON.parse(row.requestJson)), status: row.status, expiresAt: row.expiresAt, decidedAt: row.decidedAt, decidedBy: row.decidedBy, result: row.resultJson ? JSON.parse(row.resultJson) : null, createdAt: row.createdAt })
+export const visibleAction = (row: ActionRow): FactoryAction => ({ computeLimits: { cpu: JSON.parse(row.policyJson).compute.cpu ?? 1, memoryMiB: JSON.parse(row.policyJson).compute.memoryMiB ?? 1024, processes: JSON.parse(row.policyJson).compute.processLimit ?? 128, timeoutMs: JSON.parse(row.policyJson).compute.timeoutMs ?? 120000 }, diskBytes: JSON.parse(row.policyJson).compute.diskBytes, computeImage: JSON.parse(row.policyJson).compute.image, workspaceRevision: JSON.parse(row.policyJson).workspaceRevision, id: row.id, workspaceId: row.workspaceId, runId: row.runId, digest: row.digest, request: factoryRequest.parse(JSON.parse(row.requestJson)), status: row.status, expiresAt: row.expiresAt, decidedAt: row.decidedAt, decidedBy: row.decidedBy, result: row.resultJson ? JSON.parse(row.resultJson) : null, createdAt: row.createdAt })
 export async function expireFactoryActions(env: L4Env) {
   await env.DB.batch([
     env.DB.prepare("UPDATE factory_actions SET status='expired' WHERE status IN ('pending','approved') AND expires_at<=?").bind(nowIso()),
@@ -31,8 +32,9 @@ export async function authorizeFactoryAction(env: L4Env, row: ActionRow, actorId
 }
 /** This tool only records an immutable request. Every effect is separately claimed by an authorized human decision. */
 export async function factoryToolCall(env: L4Env, runId: string, callId: string, input: unknown) {
-  const request = factoryRequest.parse(input)
+  const request = parseFactoryToolInput(input)
   const context = await factoryAuthority(env, runId, undefined, request.operation === 'publish')
+  if (request.operation === 'exec' && request.timeoutMs > ('timeoutMs' in context.capabilities ? context.capabilities.timeoutMs : 120000)) fail(400, 'factory_timeout', 'Command timeout exceeds this provider’s configured execution limit')
   await markUntrustedContext(env, context.run)
   await expireFactoryActions(env)
   const encoded = JSON.stringify(request)
@@ -42,6 +44,7 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     await authorizeFactoryAction(env, row)
     if (['completed','failed'].includes(row.status) && row.resultJson) return JSON.parse(row.resultJson)
     if (!['pending', 'approved', 'claimed', 'executing'].includes(row.status)) return { factoryPending: false, actionId: row.id, status: row.status, message: 'This action did not complete. Inspect its outcome; it will not be replayed.' }
+    if (row.status === 'approved') await dispatchCloudflareFactory(env, row.id, row.workspaceId, (await factoryWorkspace(env, context)).nodeId)
     return { factoryPending: true, actionId: row.id, status: row.status, reviewUrl: `/runs/${runId}` }
   }
   const workspace = await factoryWorkspace(env, context)
@@ -83,10 +86,18 @@ export async function listFactoryActions(env: L4Env, runId: string, actorId: str
     (SELECT id FROM factory_workspaces WHERE task_id=? AND agent_id=? AND initiated_by=?) ORDER BY created_at DESC LIMIT 100`).bind(run.taskId, run.agentId, actorId).all<ActionRow>()
   const workspace = await env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE task_id=? AND agent_id=? AND initiated_by=?`).bind(run.taskId, run.agentId, actorId).first<FactoryWorkspace>()
   if (workspace && (workspace.channelId !== run.channelId || workspace.environmentJson !== run.environmentJson)) fail(403, 'factory_revoked', 'Workspace belongs to an earlier repository mandate')
-  return { actions: actions.results.map(visibleAction), workspace: workspace ? { repository: JSON.parse(workspace.environmentJson).sourceRepo, baseBranch: JSON.parse(workspace.environmentJson).baseBranch, branch: 'l4-agent/' + workspace.id, connectionId: JSON.parse(workspace.environmentJson).gitConnectionId ?? 'deployment', taskId: workspace.taskId, agentId: workspace.agentId, initiatedBy: workspace.initiatedBy, id: workspace.id, status: workspace.status, nodeId: workspace.nodeId, commands: workspace.commands, runtimeMs: workspace.runtimeMs, publicationCount: workspace.publicationCount,
+  let recovery: unknown = null
+  if (workspace && env.FACTORY_COMPUTE) {
+    const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=?').bind(workspace.nodeId).first<{ capabilitiesJson: string }>()
+    if (node && JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers') {
+      const state = await env.FACTORY_COMPUTE.getByName(`workspace:${workspace.id}`).fetch(`http://factory/state?workspace=${workspace.id}`)
+      if (state.ok) recovery = await state.json()
+    }
+  }
+  return { recovery, actions: actions.results.map(visibleAction), workspace: workspace ? { repository: JSON.parse(workspace.environmentJson).sourceRepo, baseBranch: JSON.parse(workspace.environmentJson).baseBranch, branch: 'l4-agent/' + workspace.id, connectionId: JSON.parse(workspace.environmentJson).gitConnectionId ?? 'deployment', taskId: workspace.taskId, agentId: workspace.agentId, initiatedBy: workspace.initiatedBy, id: workspace.id, status: workspace.status, nodeId: workspace.nodeId, commands: workspace.commands, runtimeMs: workspace.runtimeMs, publicationCount: workspace.publicationCount,
     snapshot: workspace.snapshotJson ? JSON.parse(workspace.snapshotJson) : null, snapshotDigest: workspace.snapshotJson ? await factoryHash(workspace.snapshotJson) : null, pull: workspace.pullJson ? JSON.parse(workspace.pullJson) : null } : null }
 }
-export async function decideFactoryAction(env: L4Env, runId: string, actorId: string, request: { id: string; digest: string; decision: 'approve' | 'reject' }) {
+export async function decideFactoryAction(env: L4Env, runId: string, actorId: string, request: { id: string; digest: string; decision: 'approve' | 'reject' }, schedule?: (promise: Promise<unknown>) => void) {
   await expireFactoryActions(env)
   const row = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=? AND run_id=?`).bind(request.id, runId).first<ActionRow>()
   if (!row || row.digest !== request.digest) fail(409, 'factory_changed', 'Review the exact action again')
@@ -98,9 +109,11 @@ export async function decideFactoryAction(env: L4Env, runId: string, actorId: st
   await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(request.decision === 'approve' ? 'queued' : 'rejected', context.run.taskId, context.run.agentId).run()
   await patchAgentTurn(env, runId, { status: 'tool', detail: 'Using a tool' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
+  if (request.decision === 'approve' && context.request.operation !== 'publish') await dispatchCloudflareFactory(env, row.id, row.workspaceId, context.workspace.nodeId)
   if (request.decision === 'approve' && context.request.operation === 'publish') {
     const { executeFactoryPublication } = await import('./factory-github')
-    await executeFactoryPublication(env, row.id)
+    const work = executeFactoryPublication(env, row.id)
+    if (schedule) schedule(work.catch(() => undefined)); else await work
   }
   return visibleAction((await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(row.id).first<ActionRow>())!)
 }

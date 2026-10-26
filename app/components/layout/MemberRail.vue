@@ -51,11 +51,11 @@ const list = computed(() => {
 })
 
 const grouped = computed(() => {
-  const online = list.value.filter((m) => presence.statusOf(m.user.id) !== 'offline')
-  const offline = list.value.filter((m) => presence.statusOf(m.user.id) === 'offline')
+  const online = list.value.filter((m) => m.user.kind === 'agent' || presence.statusOf(m.user.id) !== 'offline')
+  const offline = list.value.filter((m) => m.user.kind !== 'agent' && presence.statusOf(m.user.id) === 'offline')
   const byRole = new Map<string, MemberDTO[]>()
   for (const m of online) {
-    const key = m.role.name || 'online'
+    const key = m.user.kind === 'agent' ? 'Agents' : m.role.name || 'online'
     const arr = byRole.get(key) ?? []
     arr.push(m)
     byRole.set(key, arr)

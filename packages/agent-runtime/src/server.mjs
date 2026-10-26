@@ -95,7 +95,13 @@ const server = createServer(async (request, response) => {
             for (;;) {
               const tool = await fetch(input.toolEndpoint, { method: 'POST', signal,
                 headers: { Authorization: `Bearer ${input.modelGateway.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...call, runId: input.runId }) })
-              if (!tool.ok) throw new Error(`Tool rejected (${tool.status})`)
+              if (!tool.ok) {
+                let message = `Tool rejected (${tool.status})`
+                if (tool.status === 400) {
+                  try { const detail = (await tool.json()).error?.message; if (typeof detail === 'string' && detail.startsWith('Invalid tool arguments: ')) message = detail.slice(0, 500) } catch { /* Generic rejection. */ }
+                }
+                throw new Error(message)
+              }
               const result = await tool.json()
               if (call.name !== 'factory_workspace' || result.factoryPending !== true) return result
               await new Promise((resolve, reject) => {

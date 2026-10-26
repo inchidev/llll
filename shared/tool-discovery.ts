@@ -13,17 +13,18 @@ export type DiscoverableTool = RuntimeTool & { guidance: ToolGuidance; provenanc
 
 /** Search only a caller-filtered catalog. Descriptions are data, never policy. */
 export function searchToolCatalog(catalog: DiscoverableTool[], query: string, limit = 5) {
-  const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])].slice(0, 32)
+  const words = [...new Set(query.toLowerCase().replaceAll('_', ' ').match(/[\p{L}\p{N}]+/gu) ?? [])].slice(0, 32)
   const aliases: Record<string, string[]> = {
     research: ['search', 'web'], records: ['records', 'table'], data: ['records', 'table', 'document'],
-    repository: ['code'], github: ['code'], computer: ['code'], sources: ['search', 'url'],
+    repository: ['code', 'factory'], github: ['code', 'factory'], computer: ['code', 'factory'], coding: ['code', 'factory'], compute: ['factory'], node: ['factory'], git: ['code', 'factory'], sources: ['search', 'url'],
     cheaper: ['local'], cheapest: ['local'],
   }
   const terms = [...new Set(words.flatMap(word => [word, ...(aliases[word] ?? [])]))]
   return catalog.map(tool => {
     const name = tool.name.replaceAll('_', ' ')
     const text = `${name} ${tool.description} ${tool.guidance.useWhen} ${tool.guidance.cost} ${tool.guidance.effect}`.toLowerCase()
-    const score = terms.reduce((sum, term) => sum + (name.includes(term) ? 5 : text.includes(term) ? 1 : 0), 0)
+    const exact = query.toLowerCase().split(/\s+/u).includes(tool.name.toLowerCase())
+    const score = (exact ? 10000 : 0) + terms.reduce((sum, term) => sum + (name.includes(term) ? 5 : text.includes(term) ? 1 : 0), 0)
     return { tool, score }
   }).filter(row => row.score > 0)
     .sort((a, b) => b.score - a.score || Number(a.tool.guidance.effect === 'write') - Number(b.tool.guidance.effect === 'write')

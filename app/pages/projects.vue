@@ -41,7 +41,7 @@ async function remove(id: string) {
    <LayoutLoadError v-if="projects.error.value" message="Projects did not load." :retry="projects.refetch" />
    <div class="flex flex-wrap gap-2"><UButton v-for="p in projects.data.value?.projects" :key="p.id" :label="p.name + (p.archivedAt ? ' · Archived' : '')" :variant="selected === p.id ? 'solid' : 'outline'" color="neutral" @click="selected = p.id" /></div>
    <form v-if="can(Permission.manageProjects)" class="space-y-3 rounded-lg border border-default p-4" @submit.prevent="create">
-    <h2 class="font-medium">Create project</h2>
+    <h2 class="font-medium">Create project</h2><p class="text-sm text-muted">After creation, attach a repository and choose its coding environment below. Give the Agent Read projects and access to this Project in Roles.</p>
     <UFormField label="Project name"><UInput v-model="name" class="w-full" :maxlength="100" /></UFormField>
     <UFormField label="Description"><UTextarea v-model="description" class="w-full" /></UFormField>
     <UButton type="submit" label="Create project" :disabled="!name.trim()" :loading="busy" />
@@ -63,7 +63,7 @@ async function remove(id: string) {
      <UFormField label="Provider origin"><UInput v-model="host" placeholder="https://github.com" class="w-full" /></UFormField>
      <UFormField label="Repository path"><UInput v-model="slug" placeholder="organization/repository" class="w-full" /></UFormField>
      <UFormField label="Default branch"><UInput v-model="branch" class="w-full" /></UFormField>
-     <UFormField label="Git execution configuration (optional)" help="Configure GitHub access in Server settings → Repositories, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name, value: e.id }))]" class="w-full" /></UFormField>
+     <UFormField label="Coding environment" help="Configure GitHub access in Server settings → Repositories, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name + ' · ' + e.sourceRepo, value: e.id }))]" class="w-full" /></UFormField>
      <UButton type="submit" label="Attach reference" :disabled="!slug || !host" :loading="busy" />
     </form>
    </section>

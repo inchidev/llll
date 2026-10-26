@@ -108,7 +108,7 @@ export async function operate(job, root = '/workspace/repo') {
   if (input.operation === 'snapshot') return { ok: true, exitCode: 0, output: 'Exact committed snapshot', snapshot: await snapshot(root,job.baseSha) }
   if (input.operation === 'suspend') return { ok: true, exitCode: 0, output: 'Workspace disk retained; no command process remains active' }
   if (input.operation === 'exec') {
-    if (typeof input.command !== 'string' || !input.command.trim() || input.command.length > 8000 || input.command.includes('\0') || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1000 || input.timeoutMs > 120000) throw new Error('Invalid reviewed script')
+    if (typeof input.command !== 'string' || !input.command.trim() || input.command.length > 8000 || input.command.includes('\0') || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1000 || input.timeoutMs > 600000) throw new Error('Invalid reviewed script')
     // Only this container entrypoint interprets the approved script. Keep it on
     // stdin, separate from fixed shell argv and all host Docker/disk operations.
     const child = spawn('/bin/sh',['-s','--'],{cwd:root,stdio:['pipe','pipe','pipe'],shell:false})

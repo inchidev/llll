@@ -1,3 +1,4 @@
+import { enableL4Factory } from '../../../packages/deployment-core/src/factory'
 import { ownerRecoverySchema, recoverOwnerSetup } from './owner-setup'
 import { enableL4Files } from '../../../packages/deployment-core/src/storage'
 import { z } from 'zod'
@@ -25,8 +26,9 @@ function publicOrigin(value: string, env: WebEnv) {
   if (url.origin !== value || (!local && (url.protocol !== 'https:' || !url.hostname.includes('.') || /^(?:\d|\[)/.test(url.hostname) || /\.(?:localhost|local|internal|test|invalid)$/.test(url.hostname)))) fail(400, 'Enter a public HTTPS server origin')
   return url.origin
 }
-function resumePath(data: { oauthNext?: 'create' | 'domain', updateRequest?: unknown, storageRequest?: { accountId: string; workerName: string; origin: string } }) {
+function resumePath(data: { oauthNext?: 'create' | 'domain', updateRequest?: unknown, factoryRequest?: { accountId: string; workerName: string; origin: string }, storageRequest?: { accountId: string; workerName: string; origin: string } }) {
   if (data.oauthNext === 'domain') return '/domain?resume=1'
+  if (data.factoryRequest) return '/create?' + new URLSearchParams({ tab: 'cloudflare', factory: '1', account: data.factoryRequest.accountId, worker: data.factoryRequest.workerName, server: data.factoryRequest.origin }).toString()
   if (data.storageRequest) return '/create?' + new URLSearchParams({ tab: 'cloudflare', storage: '1', account: data.storageRequest.accountId, worker: data.storageRequest.workerName, server: data.storageRequest.origin }).toString()
   return '/create?tab=cloudflare' + (data.updateRequest ? '&resume=update' : '')
 }
@@ -72,6 +74,15 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     if (!row) fail(404, 'Server is not in the directory. Connect its server by address.')
     return json(row)
   }
+  if (path === '/api/deploy/factory/enable' && request.method === 'POST') {
+    const session = await webSession(request, env)
+    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/u), workerName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/u), paidConsent: z.literal(true), size: z.enum(['small', 'standard', 'large']).default('standard'), timeoutSeconds: z.number().int().min(1).max(600).default(120), processes: z.number().int().min(32).max(512).default(128) }).strict().parse(await input(request))
+    const grant = session.data.grant
+    if (!grant || grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
+    const accounts = await cloudflare<{ id: string }[]>(grant.accessToken, '/accounts')
+    if (!accounts.some(account => account.id === value.accountId)) fail(403, 'Choose the Cloudflare account that owns this Server')
+    return json(await enableL4Factory(grant.accessToken, value.accountId, value.workerName, value.paidConsent, value))
+  }
   if (path === '/api/deploy/storage/enable' && request.method === 'POST') {
     const session = await webSession(request, env)
     const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/u), workerName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/u) }).parse(await input(request))
@@ -98,6 +109,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     await rateLimit(request, env)
     const session = await webSession(request, env, true)
     if (session.data.worker && !session.data.completed && url.searchParams.get('resume') !== '1') fail(409, 'Resume your current deployment before starting another')
+    if (url.searchParams.get('factory') === '1') session.data.factoryRequest = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/u), workerName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/u), origin: z.string().url() }).parse({ accountId: url.searchParams.get('account'), workerName: url.searchParams.get('worker'), origin: url.searchParams.get('server') })
+    else delete session.data.factoryRequest
     if (url.searchParams.get('storage') === '1') session.data.storageRequest = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/u), workerName: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/u), origin: z.string().url() }).parse({ accountId: url.searchParams.get('account'), workerName: url.searchParams.get('worker'), origin: url.searchParams.get('server') })
     else delete session.data.storageRequest
     const running = await env.DB.prepare('SELECT lease_until FROM deployment_sessions WHERE id_hash=?').bind(session.id).first<{ lease_until: number }>()

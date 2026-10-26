@@ -63,6 +63,7 @@ const taskRunProblem = computed(() => {
   for (const [permission, label] of [[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages']] as const) {
     if (!hasPermission(member.role.permissions, permission)) return `${member.user.displayName}’s role needs ${label}. Change the role in Server settings.`
   }
+  if (task.projectId && !hasPermission(member.role.permissions, Permission.readProjects)) return `${member.user.displayName}’s role needs Read projects. Change the role in Server settings.`
   return ''
 })
 /** Board and the archived view live in the URL so the sidebar can link to them. */

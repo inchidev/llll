@@ -40,6 +40,7 @@ export type DeploymentState = {
   updateRequest?: UpdateRequest
   update?: UpdateState
   domainRequest?: DomainRequest
+  factoryRequest?: { accountId: string; workerName: string; origin: string }
   storageRequest?: { accountId: string; workerName: string; origin: string }
   oauthNext?: 'create' | 'domain'
   deployments?: { accountId: string; origin: string; name: string; version: string; setupToken: string }[]

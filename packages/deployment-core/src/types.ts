@@ -108,6 +108,7 @@ export type InstallerReleaseManifest = {
   compatibilityDate: string
   compatibilityFlags: string[]
   capabilities?: string[]
+  factory?: ReleaseAsset
   worker: ReleaseAsset
   assets: ReleaseAsset
   durableObjectMigrations?: Array<{ tag: string; new_sqlite_classes?: string[]; deleted_classes?: string[] }>

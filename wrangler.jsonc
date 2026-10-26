@@ -108,7 +108,8 @@
     {
       "tag": "v4-retire-think",
       "deleted_classes": ["L4Think"]
-    }
+    },
+    { "tag": "v5-factory-executor", "new_sqlite_classes": ["FactoryComputeDurableObject"] }
   ],
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",

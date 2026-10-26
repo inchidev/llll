@@ -8,5 +8,6 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.readTasks)
   const task = await getTask(cf(event).env, actor.authorization, getRouterParam(event, 'id')!)
   if (!task) fail(404, 'not_found', 'Task not found')
-  return { task }
+  const latest = await cf(event).env.DB.prepare('SELECT id FROM agent_runs WHERE task_id=? AND initiated_by=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(task.id, actor.user.id).first<{ id: string }>()
+  return { task: { ...task, ...(latest && task.resultDetails?.startsWith('[Open private Run](') ? { resultDetails: `[Open private Run](/runs/${latest.id})` } : {}) } }
 })

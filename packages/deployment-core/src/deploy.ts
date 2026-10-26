@@ -686,6 +686,7 @@ export async function deployL4Update(
   const origin = existing.publicOrigin || `https://${existing.appHostname}`
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
+    ...(existing.bindings?.some(binding => binding.name === 'FACTORY_COMPUTE') ? { containers: [{ class_name: 'FactoryComputeDurableObject' }] } : {}),
     compatibility_date: release.manifest.compatibilityDate,
     compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
     bindings: updateWorkerBindings(existing.bindings, release.manifest, {

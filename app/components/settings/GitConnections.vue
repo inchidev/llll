@@ -4,7 +4,7 @@ import type { GitConnection } from '~~/shared/git-connections'
 const {api}=useApi(),qc=useQueryClient(),toast=useToast()
 const connections=useQuery({queryKey:['git-connections'],queryFn:()=>api<{connections:GitConnection[];canConfigure:boolean}>('/api/git-connections')})
 const prepared=ref<{actionUrl:string;manifest:Record<string,unknown>}|null>(null)
-const name=ref('L4 project code'),account=ref(''),organization=ref(true),busy=ref(false)
+const name=ref('L4 project code'),account=ref(''),organization=ref(false),busy=ref(false)
 async function connect(){
  busy.value=true
  try{
@@ -34,12 +34,12 @@ async function disconnect(id:string){
   <UButton label="Refresh connections" color="neutral" variant="outline" @click="refresh" />
   <LayoutLoadError v-if="connections.error.value" message="Git connections did not load." :retry="connections.refetch" />
   <div v-for="c in connections.data.value?.connections" :key="c.id" class="space-y-2 rounded border border-default p-3">
-   <p class="break-words font-medium">{{c.name}} · {{c.account}} <UBadge v-if="!c.enabled" label="Disabled" color="neutral" /></p>
+   <p class="break-words font-medium">{{c.name}} · {{c.account}} <UBadge :label="c.enabled ? 'Active' : 'Disabled'" :color="c.enabled ? 'success' : 'neutral'" /></p>
    <div class="flex flex-wrap gap-2"><UButton v-if="c.enabled && connections.data.value?.canConfigure" :to="c.setupUrl" target="_blank" label="Choose repositories on GitHub" color="neutral" variant="outline" /><UButton v-if="c.enabled && connections.data.value?.canConfigure" label="Disable in L4" color="neutral" variant="ghost" :loading="busy" @click="disconnect(c.id)" /></div>
   </div>
   <form v-if="connections.data.value?.canConfigure" class="space-y-3" @submit.prevent="connect">
    <UFormField label="Connection name"><UInput v-model="name" class="w-full" /></UFormField>
-   <UFormField label="GitHub account or organization"><UInput v-model="account" placeholder="inchidev" class="w-full" /></UFormField>
+   <UFormField label="GitHub account or organization"><UInput v-model="account" placeholder="Your GitHub username or organization" class="w-full" /></UFormField>
    <UCheckbox v-model="organization" label="Create the App in a GitHub organization" />
    <p class="text-xs text-muted">GitHub will ask you to create the App and authorize selected repositories. It requests code and pull request write access for working branches and draft PRs, plus read access to issues and checks. L4 does not request branch-protection administration or configure bypass rights.</p>
    <UButton type="submit" label="Prepare GitHub connection" :disabled="!name.trim()||!account.trim()" :loading="busy" />

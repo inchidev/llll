@@ -123,6 +123,8 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (input.taskId) {
     if (!hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent’s role needs Execute assigned tasks. Change its role in Server settings.')
     if (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.executeTasks)) fail(403, 'actor_task_permission', 'Your role needs Execute assigned tasks.')
+    const admissionTask = await getTask(env, agent, input.taskId)
+    if (!admissionTask || admissionTask.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
     for (const id of [input.agentId, actor.principal.id]) {
       const member = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'").bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
       if (!member) fail(403, 'report_access', 'Report channel member is unavailable')

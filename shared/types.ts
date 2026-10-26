@@ -696,6 +696,7 @@ export type ServerMsg =
   | { t: 'thread.updated'; threadId: string }
   | { t: 'message.delete'; id: string }
   | { t: 'typing'; userId: string; active: boolean }
+  | { t: 'agent.start_failed'; agentId: string; initiatedBy: string; message: string }
   | { t: 'agent.state'; agentId: string; runs: AgentTurnDTO[] }
   | { t: 'presence'; users: Array<{ userId: string; status: PresenceStatus }> }
   | { t: 'live'; live: LiveState }

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { computeCapabilities, factorySnapshot, type ComputeNode } from '../../shared/software-factory'
+import { dockerCapabilities, factorySnapshot, type ComputeNode } from '../../shared/software-factory'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -27,8 +27,8 @@ export async function prepareComputePairing(env: L4Env, auth: AuthorizationConte
   if (!inserted) fail(429, 'compute_pairing_limit', 'Pairing limit reached')
   return { token, expiresAt }
 }
-export async function pairComputeNode(env: L4Env, token: string, capabilities: z.infer<typeof computeCapabilities>) {
-  const parsed = computeCapabilities.parse(capabilities), id = newId(), credential = secret()
+export async function pairComputeNode(env: L4Env, token: string, capabilities: z.infer<typeof dockerCapabilities>) {
+  const parsed = dockerCapabilities.parse(capabilities), id = newId(), credential = secret()
   const pairing = await env.DB.prepare('DELETE FROM compute_pairings WHERE token_hash=? AND expires_at>? RETURNING name,created_by AS createdBy').bind(await factoryHash(token), nowIso()).first<{ name: string; createdBy: string }>()
   if (!pairing) fail(403, 'compute_pairing_invalid', 'Pairing is unavailable or expired')
   await env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
@@ -52,14 +52,14 @@ export const computePollSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('claim') }).strict(),
   z.object({ operation: z.enum(['begin', 'heartbeat']), id: z.string().uuid(), lease: z.string().min(32).max(100) }).strict(),
   z.object({ operation: z.literal('result'), id: z.string().uuid(), lease: z.string().min(32).max(100),
-    result: z.object({ ok: z.boolean(), exitCode: z.number().int().min(-1).max(255), output: z.string().max(64000), runtimeMs: z.number().int().min(0).max(180000), snapshot: factorySnapshot.optional() }).strict() }).strict(),
+    result: z.object({ ok: z.boolean(), exitCode: z.number().int().min(-1).max(255), output: z.string().max(64000), runtimeMs: z.number().int().min(0).max(900000), snapshot: factorySnapshot.optional() }).strict() }).strict(),
 ])
-export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typeof computePollSchema>) {
+export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typeof computePollSchema>, scopedActionId: string | null = null) {
   await expireFactoryActions(env)
   if (input.operation === 'claim') {
-    const row = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE status='approved'
+    const row = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE status='approved' AND (? IS NULL OR id=?)
       AND workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND json_extract(request_json,'$.operation')<>'publish'
-      AND NOT EXISTS(SELECT 1 FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status IN ('claimed','executing')) ORDER BY created_at LIMIT 1`).bind(nodeId, nodeId).first<ActionRow>()
+      AND NOT EXISTS(SELECT 1 FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status IN ('claimed','executing')) ORDER BY created_at LIMIT 1`).bind(scopedActionId, scopedActionId, nodeId, nodeId).first<ActionRow>()
     if (!row) return { job: null }
     try { await authorizeFactoryAction(env, row) } catch {
       await env.DB.prepare("UPDATE factory_actions SET status='cancelled' WHERE id=? AND status='approved'").bind(row.id).run()
@@ -94,7 +94,7 @@ export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typ
     await env.DB.prepare("UPDATE tasks SET factory_state='executing' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId).run()
     const sourceToken = context.request.operation === 'bootstrap' ? await githubSourceGrant(env, { connectionId: context.environment.gitConnectionId, installationId: context.environment.sourceInstallationId, repositoryId: context.environment.sourceRepoId }, async () => { await authorizeFactoryAction(env, row) }) : undefined
     return { id: row.id, workspaceId: context.workspace.id, serverId: context.auth.serverId, taskId: context.run.taskId, agentId: context.run.agentId,
-      request: context.request, executionBudgetMs: Math.max(1, Math.min(context.request.operation === 'exec' ? context.request.timeoutMs : 120000, 3600000 - context.workspace.runtimeMs, Date.parse(row.expiresAt) - Date.now())), image: context.capabilities.image, baseSha: context.environment.baseSha, repository: context.environment.sourceRepo,
+      request: context.request, executionBudgetMs: Math.max(1, Math.min(context.request.operation === 'exec' ? context.request.timeoutMs + ('provider' in context.capabilities ? 240000 : 0) : 120000, 3600000 - context.workspace.runtimeMs, Date.parse(row.expiresAt) - Date.now())), image: context.capabilities.image, baseSha: context.environment.baseSha, repository: context.environment.sourceRepo,
       // Only the trusted fetch broker consumes this single-repository READ token, then revokes it. Never mount it in a workspace.
       ...(sourceToken ? { sourceToken } : {}) }
   }

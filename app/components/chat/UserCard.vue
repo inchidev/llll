@@ -19,7 +19,7 @@ const note = ref('')
 const opening = ref(false)
 const isMe = computed(() => props.user.id === session.user?.id)
 const status = computed(() => presence.statusOf(props.user.id))
-const statusLabel = computed(() => ({ online: 'Online', idle: 'Idle', offline: 'Offline' } as Record<string, string>)[status.value] ?? 'Offline')
+const statusLabel = computed(() => props.user.kind === 'agent' ? props.member?.agentStatus === 'paused' ? 'Paused' : status.value === 'online' ? 'Working' : 'Available' : ({ online: 'Online', idle: 'Idle', offline: 'Offline' } as Record<string, string>)[status.value] ?? 'Offline')
 const roleName = computed(() => {
   const name = props.member?.role.name
   if (!name) return null

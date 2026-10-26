@@ -8,7 +8,7 @@ import { writeAudit } from './messages'
 import { fail } from './cf'
 const columns = 'id,name,description,archived_at AS archivedAt,version,created_at AS createdAt,updated_at AS updatedAt'
 export function projectPermission(auth: AuthorizationContext, write = false) {
-  if (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, write ? Permission.manageProjects : Permission.readProjects)) fail(403, 'project_denied', 'Project permission is required')
+  if (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, write ? Permission.manageProjects : Permission.readProjects)) fail(403, 'project_denied', write ? 'Manage projects permission is required' : 'Read projects permission is required')
   if (auth.delegation && !auth.delegation.isOwner && !hasPermission(auth.delegation.permissions ?? 0, write ? Permission.manageProjects : Permission.readProjects)) fail(403, 'project_denied', 'Project delegation is required')
   // Project administration is a human control-plane action, not a model tool.
   if (write && (auth.principal.kind !== 'human' || auth.credential.kind !== 'session' || auth.delegation)) fail(403, 'project_denied', 'Project administration requires a human session')

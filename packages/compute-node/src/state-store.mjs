@@ -42,6 +42,7 @@ export async function openNodeState(directory) {
   const db = new DatabaseSync(path)
   db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA max_page_count=16384;
     CREATE TABLE IF NOT EXISTS connection(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,server_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
+    CREATE TABLE IF NOT EXISTS local_pairing(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
     CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,lease TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL) STRICT;`)
   return {
     connection(server) {
@@ -50,9 +51,25 @@ export async function openNodeState(directory) {
       if (row.server !== serverOrigin(server)) throw new Error('Node state belongs to a different Server origin')
       return connectionRecord(server,row)
     },
+    localPairing(server) {
+      const origin = serverOrigin(server)
+      let row = db.prepare('SELECT server,node_id AS nodeId,token FROM local_pairing WHERE singleton=1').get()
+      if (!row) {
+        const token = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2,'0')).join('')
+        db.prepare('INSERT INTO local_pairing(singleton,server,node_id,token) VALUES(1,?,?,?)').run(origin,crypto.randomUUID(),token)
+        row = db.prepare('SELECT server,node_id AS nodeId,token FROM local_pairing WHERE singleton=1').get()
+      }
+      if (row.server !== origin || !uuid(row.nodeId) || !capability(row.token)) throw new Error('Invalid local pairing intent or Server origin')
+      return { nodeId: row.nodeId, token: row.token }
+    },
     pair(server, value) {
       const record = connectionRecord(server,value)
-      db.prepare('INSERT INTO connection(singleton,server,node_id,server_id,token) VALUES(1,?,?,?,?)').run(record.server,record.nodeId,record.serverId,record.token)
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        db.prepare('INSERT INTO connection(singleton,server,node_id,server_id,token) VALUES(1,?,?,?,?)').run(record.server,record.nodeId,record.serverId,record.token)
+        db.prepare('DELETE FROM local_pairing WHERE server=? AND node_id=? AND token=?').run(record.server,record.nodeId,record.token)
+        db.exec('COMMIT')
+      } catch(error) { db.exec('ROLLBACK'); throw error }
     },
     retain(value) {
       const saved = receiptRecord(value), encoded = JSON.stringify(saved.result)

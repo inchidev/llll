@@ -84,7 +84,10 @@ const assetsName = 'llll-assets.json'
 const assetsPayload = Buffer.from(JSON.stringify({ assets, migrations }))
 await writeFile(join(outputDir, assetsName), assetsPayload)
 
+let factory
+try { const bytes = await readFile(join(root, '.installer/factory/llll-factory.json')); factory = { url: `${releaseBaseUrl}/llll-factory.json`, sha256: digest('sha256', bytes), size: bytes.length } } catch (error) { if (error.code !== 'ENOENT') throw error }
 const manifest = {
+  ...(factory ? { factory } : {}),
   schemaVersion: 1,
   version,
   releasedAt: new Date().toISOString(),
@@ -107,6 +110,7 @@ const manifest = {
     { tag: 'v2-agent-runs', new_sqlite_classes: ['AgentRunDurableObject'] },
     { tag: 'v3-agent-schedules', new_sqlite_classes: ['AgentScheduleDurableObject'] },
     { tag: 'v4-retire-think', deleted_classes: ['L4Think'] },
+    { tag: 'v5-factory-executor', new_sqlite_classes: ['FactoryComputeDurableObject'] },
   ],
   durableObjects: [
     { binding: 'CHANNEL_DO', className: 'ChannelDurableObject', migration: 'v1' },

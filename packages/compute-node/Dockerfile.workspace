@@ -3,9 +3,9 @@ RUN --mount=type=secret,id=proxy_ca \
     proxy_ca_bundle=/etc/ssl/certs/ca-certificates.crt; \
     if [ -s /run/secrets/proxy_ca ]; then proxy_ca_bundle=/run/secrets/proxy_ca; fi; \
     apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" update && \
-    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends git python3 ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*
+    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends git python3 ripgrep ca-certificates procps util-linux && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /workspace /opt/l4 && chown node:node /workspace
-COPY --chmod=0644 packages/compute-node/src/operate.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/fetch-source.mjs /opt/l4/
+COPY --chmod=0644 packages/compute-node/src/operate.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/fetch-source.mjs packages/compute-node/src/cloud-io.mjs /opt/l4/
 USER node
 WORKDIR /workspace
 ENV HOME=/tmp
