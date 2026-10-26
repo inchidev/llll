@@ -12,4 +12,3 @@ export function githubPkcs8(pem: string): string {
   const wrapped = der(48, [2, 1, 0, 48, 13, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 5, 0, ...der(4, [...bytes])])
   return `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...wrapped)).match(/.{1,64}/gu)!.join('\n')}\n-----END PRIVATE KEY-----`
 }
-
