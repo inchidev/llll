@@ -15,7 +15,8 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   const limits = cloud ? JSON.parse(cloud.capabilitiesJson) : env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : null
   const resources = Boolean(env.FACTORY_COMPUTE && env.FACTORY_CODE && env.FACTORY_IMAGE)
   const serverId = await getServerId(env.DB)
-  return { placement, resources, state: cloud ? cloud.enabled ? 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
+  const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_workspaces WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status IN ('claimed','executing')) AS active, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status='uncertain') AS recoveryRequired").bind(cloud.id, cloud.id, cloud.id).first<{ retained: number; active: number; recoveryRequired: number }>() : null
+  return { placement, resources, usage, state: cloud ? cloud.enabled ? usage?.recoveryRequired ? 'failed_recovery' : 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
     nodeId: cloud?.id ?? null, image: env.FACTORY_IMAGE ?? limits?.image ?? null, limits,
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
     cli: placement === 'vps' ? 'sudo llll factory enable --trust-shared-kernel' : null,
