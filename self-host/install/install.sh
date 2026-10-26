@@ -625,7 +625,7 @@ factory_command() {
       done
       # Extraction is restricted to regular files below fixed node/src paths.
       tar -tzf "$stage/llll-compute-node-linux-amd64.tgz" | while IFS= read -r asset; do
-        case "$asset" in node|src/|src/*.mjs) [[ $asset != *..* ]] || exit 1 ;; *) exit 1 ;; esac
+        case "$asset" in node|LICENSE.node|src/|src/*.mjs) [[ $asset != *..* ]] || exit 1 ;; *) exit 1 ;; esac
       done || fail 'Unsafe Compute Node archive'
       tar -tvzf "$stage/llll-compute-node-linux-amd64.tgz" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" {exit 1}' || fail 'Unsafe Compute Node archive links'
       image=$(jq -er '.image' "$stage/llll-factory.json")

@@ -9,7 +9,8 @@ await mkdir(staging, { recursive: true })
 await cp('packages/compute-node/src', join(staging, 'src'), { recursive: true })
 // Build on Node24 bookworm, matching the supported Debian12+ host ABI.
 await copyFile(process.execPath, join(staging, 'node'))
-execFileSync('tar', ['-czf', join(output, 'llll-compute-node-linux-amd64.tgz'), '-C', staging, 'node', 'src'])
+await copyFile(resolve(import.meta.dirname, '../packages/compute-node/LICENSE.node'), join(staging, 'LICENSE.node'))
+execFileSync('tar', ['-czf', join(output, 'llll-compute-node-linux-amd64.tgz'), '-C', staging, 'node', 'src', 'LICENSE.node'])
 const image = `llll-workspace:${version}`
 execFileSync('docker', ['build', '--platform', 'linux/amd64', '-t', image, '-f', 'packages/compute-node/Dockerfile.workspace', '.'], { stdio: 'inherit' })
 const imageId = execFileSync('docker', ['image', 'inspect', image, '--format', '{{.Id}}'], { encoding: 'utf8' }).trim()
