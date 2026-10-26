@@ -1,5 +1,7 @@
 // Fixed image helper. No provider token ever enters the container.
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { runProcess } from './process.mjs'
 
 const root = '/workspace/repo'
@@ -38,21 +40,23 @@ export async function codeState(input) {
   const index = await git(root, ['write-tree'])
   const identity = { GIT_AUTHOR_NAME: 'L4 private checkpoint', GIT_AUTHOR_EMAIL: 'checkpoint@local.invalid', GIT_COMMITTER_NAME: 'L4 private checkpoint', GIT_COMMITTER_EMAIL: 'checkpoint@local.invalid' }
   const staged = await git(root, ['commit-tree', index, '-p', head, '-m', 'Private index checkpoint'], identity)
-  const temporaryIndex = '/tmp/l4-checkpoint-index'
-  await unlink(temporaryIndex).catch(error => { if (error.code !== 'ENOENT') throw error })
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'l4-checkpoint-'))
+  try {
+  const temporaryIndex = join(temporaryDirectory, 'index')
+  const ignore = join(temporaryDirectory, 'ignore')
   const temporaryEnv = { ...identity, GIT_INDEX_FILE: temporaryIndex }
   await git(root, ['read-tree', head], temporaryEnv)
   // Explicitly disposable caches. Tracked source remains in history and checkpoints.
-  await writeFile('/tmp/l4-checkpoint-ignore', 'node_modules/\n.nuxt/\n.output/\ndist/\nbuild/\n.cache/\n')
-  await git(root, ['-c', 'core.excludesFile=/tmp/l4-checkpoint-ignore', 'add', '-A'], temporaryEnv)
+  await writeFile(ignore, 'node_modules/\n.nuxt/\n.output/\ndist/\nbuild/\n.cache/\n', { flag: 'wx', mode: 0o600 })
+  await git(root, ['-c', `core.excludesFile=${ignore}`, 'add', '-A'], temporaryEnv)
   const tree = await git(root, ['write-tree'], temporaryEnv)
   const checkpoint = await git(root, ['commit-tree', tree, '-p', head, '-p', staged, ...(input.checkpoint ? ['-p', input.checkpoint] : []), '-m', 'Private working files checkpoint'], identity)
   const count = await git(root, ['count-objects', '-v'])
   const sizes = Object.fromEntries(count.split('\n').map(line => line.split(': ')))
   if (1024 * (Number(sizes.size) + Number(sizes['size-pack'])) > 500000000) throw new Error('Code history exceeds the configured 500 MB checkpoint budget; export source before continuing')
   await git(root, ['push', `--force-with-lease=refs/heads/l4-state:${input.checkpoint ?? ''}`, input.remote, `${checkpoint}:refs/heads/l4-state`])
-  await unlink(temporaryIndex)
   return { ok: true, checkpoint, head, tree }
+  } finally { await rm(temporaryDirectory, { recursive: true, force: true }) }
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {

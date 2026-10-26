@@ -253,7 +253,7 @@ it('does not commit a corrupt layer or change the Server when a release blob che
 it('refuses an image registry upload redirect before it can disclose registry credentials', async () => {
   const fixture = await provisioningFixture(); fixture.state.redirectUpload = true
   await expect(fixture.enable()).rejects.toThrow('Unexpected image registry upload destination')
-  expect(fixture.requests.some(request => request.url.startsWith('https://attacker.example'))).toBe(false)
+  expect(fixture.requests.some(request => new URL(request.url).origin === 'https://attacker.example')).toBe(false)
   expect(fixture.calls.some(call => call.path.includes('/workers/scripts/'))).toBe(false)
 })
 
