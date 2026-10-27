@@ -16,3 +16,9 @@ it('keeps existing narrow GitHub provider exceptions without allowing installati
   expect(usesRetiredProductTerms('server/utils/git-connections.ts', 'installationId sourceInstallationId workInstallationId /app/installations/ /installation/token /installation/repositories /installations/new')).toBe(false)
   expect(usesRetiredProductTerms('server/utils/git-connections.ts', 'installationMembers')).toBe(true)
 })
+
+it('allows the public workspace description without reviving workspace identity models', () => {
+  expect(usesRetiredProductTerms('apps/site/app/pages/index.vue', 'One workspace for humans and agents. Isolated task workspaces.')).toBe(false)
+  expect(usesRetiredProductTerms('apps/site/app/pages/index.vue', 'workspace_members')).toBe(true)
+  expect(usesRetiredProductTerms('server/utils/authorization.ts', 'workspace')).toBe(true)
+})

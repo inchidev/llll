@@ -7,8 +7,8 @@ const connectUrl = '/create?tab=connect'
 const showProductPreview = false
 const showAppsSection = false
 const siteUrl = 'https://llll.gg/'
-const pageTitle = 'L4 — Chat. Work. On your terms.'
-const pageDescription = 'Bring team chat, tasks, shared email, knowledge, and internal tools together. AI teammates, custom internal apps, and no seat fees. Run on your Cloudflare account or VPS.'
+const pageTitle = 'L4 — One workspace for humans and agents'
+const pageDescription = 'An open-source workspace for humans and AI agents. Bring conversations, projects, tasks, repositories, mail and shared data together on your Cloudflare account or VPS.'
 
 const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Product', to: '#product' },
@@ -19,10 +19,12 @@ const navigation = computed<NavigationMenuItem[]>(() => [
 
 const primaryActionLabel = 'Install your own'
 const productGroups = [
-  { name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
-  { name: 'Tasks', icon: 'i-ph-kanban', title: 'Know what happens next.', description: 'Turn plans into shared boards with priorities, due dates, checklists, and dependencies. Give each task a responsible teammate and a place to discuss it.' },
-  { name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.' },
-  { name: 'Data', icon: 'i-ph-table', title: 'Make knowledge easy to find.', description: 'Organize records in tables, boards, lists, and calendars. Keep documents and canvases alongside them, and bookmark what matters to you.' },
+  { id: 'chat', name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
+  { id: 'tasks', name: 'Projects & tasks', icon: 'i-ph-kanban', title: 'Give the work a home.', description: 'Group tasks and repositories by project. Use boards, priorities, due dates, checklists, and dependencies. Assign work to a person or an agent, with a discussion for each task.' },
+  { id: 'repositories', name: 'Repositories', icon: 'i-ph-git-branch', title: 'Connect the code to the work.', description: 'Attach repositories to projects. Connect GitHub and a compute node for isolated task workspaces, reviewed code changes, and draft pull requests.' },
+  { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.' },
+  { id: 'data', name: 'Data & Apps', icon: 'i-ph-table', title: 'Keep knowledge and tools together.', description: 'Organize records in tables, boards, lists, and calendars. Keep documents and canvases alongside them. Build internal apps over shared data and publish them to the right roles.' },
+  { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Keep track of what is due.', description: 'Set reminders and schedule agent work. Keep track of upcoming, completed, and cancelled schedules in one place.', note: 'Agent execution requires a configured model provider and permissions.' },
 ]
 
 const freedoms = [
@@ -72,8 +74,8 @@ useHead({
       sameAs: repoUrl,
       offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account', price: '0', priceCurrency: 'USD' },
       featureList: [
-        'Five built-in apps: Chat, Tasks, Mail, Data, Apps',
-        'AI agents in chat who can read and create Tasks',
+        'Chat, Projects and Tasks, Repositories, Mail, Data and Apps, Schedules',
+        'AI agents in channels and direct messages with permission-controlled tools',
         'Optional voice, video, and screen sharing through RealtimeKit',
         'Unlimited customer-owned servers, members, and message history',
         'Independent servers with local accounts',
@@ -94,18 +96,19 @@ useHead({
     </UHeader>
 
     <main>
-      <section class="hero relative isolate border-b border-muted py-12 sm:py-20 lg:py-16">
-
-
+      <section class="hero relative isolate overflow-hidden border-b border-muted py-16 sm:py-24 lg:py-28">
         <UContainer>
-          <div class="mx-auto max-w-4xl text-center">
-            <h1 class="display-title text-[42px] font-semibold leading-[1.02] text-highlighted sm:text-7xl lg:text-8xl"><span class="mb-4 block text-[1.2em]">L4</span><span class="block">Chat. Work.</span><span class="block text-muted">On your terms.</span></h1>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Free, open-source chat, tasks, mail and data. Independent servers. Run it on your own infrastructure.</p>
+          <div class="mx-auto max-w-5xl text-center">
+            <div class="hero-heading relative isolate py-10 sm:py-14">
+              <span aria-hidden="true" class="hero-wordmark pointer-events-none absolute inset-0 -z-10 flex select-none items-center justify-center font-semibold text-muted opacity-50">L4</span>
+              <h1 class="display-title hero-title relative font-semibold leading-[1.05] text-highlighted">One workspace for humans and agents</h1>
+            </div>
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Bring conversations, projects, tasks, repositories, mail and shared data together. Run L4 on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
             </div>
-            <p class="mt-4 text-xs text-dimmed">MIT licensed. Cloudflare or your VPS. No seat fees.</p>
+            <p class="mt-4 text-sm text-dimmed">Open source. MIT licensed. Cloudflare or your VPS. No seat fees.</p>
           </div>
           <div v-if="showProductPreview" class="mx-auto mt-10 max-w-5xl sm:mt-12">
             <HeroPreview />
@@ -116,12 +119,12 @@ useHead({
       <section id="product" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
         <UContainer>
           <div class="max-w-3xl">
-            <p class="mb-3 text-sm font-medium text-primary">Four groups. One team.</p>
+            <p class="mb-3 text-sm font-medium text-primary">Inside your workspace</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Chat, Tasks, Mail, and Data bring the everyday work together, with the same people and permissions.</p>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, code, mail, data and schedules share one Server, with access controlled by your team.</p>
           </div>
           <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted sm:grid-cols-2">
-            <article v-for="app in productGroups" :id="`app-${app.name.toLowerCase()}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
+            <article v-for="app in productGroups" :id="`app-${app.id}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
               <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
               <h3 class="mt-6 text-xl font-semibold text-highlighted">{{ app.title }}</h3>
               <p class="mt-3 text-base leading-7 text-muted">{{ app.description }}</p>
@@ -129,9 +132,9 @@ useHead({
             </article>
           </div>
           <div class="mt-8 rounded-md border border-default bg-elevated p-7 sm:p-9">
-            <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI teammates</div>
+            <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI agents as teammates</div>
             <h3 class="display-title mt-4 text-2xl font-semibold text-highlighted sm:text-3xl">Bring an agent into the conversation.</h3>
-            <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Give an agent a profile, talk to it in a channel or direct message, and ask it to read or create tasks. Your team decides who can use and configure agents.</p>
+            <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Connect a model provider, give an agent a profile, and mention it in a channel or talk in a direct message. Agents can read permitted tasks and shared data. Your team controls who can use agents and which tools they can access.</p>
           </div>
         </UContainer>
       </section>
@@ -180,7 +183,7 @@ useHead({
               <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on Cloudflare</h3>
               <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy your server and invite your community. Each server has its own database, files and realtime runtime.</p>
               <ul class="my-7 space-y-3 text-sm text-toned">
-                <li>Full MIT product, including all five apps and agents</li>
+                <li>Full MIT product, including projects, shared tools and agents</li>
                 <li>No seats, history tiers, or reduced open-source edition</li>
                 <li>You pay Cloudflare directly for infrastructure usage</li>
               </ul>
@@ -219,7 +222,7 @@ useHead({
           <nav aria-label="Footer product">
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
             <ul class="space-y-3 text-sm text-muted">
-              <li v-for="app in productGroups" :key="app.name"><a :href="`#app-${app.name.toLowerCase()}`" class="hover:text-highlighted">{{ app.name }}</a></li>
+              <li v-for="app in productGroups" :key="app.name"><a :href="`#app-${app.id}`" class="hover:text-highlighted">{{ app.name }}</a></li>
               <li v-if="showAppsSection"><a href="#app-apps" class="hover:text-highlighted">Apps</a></li>
               <li><a href="#run" class="hover:text-highlighted">Ways to run</a></li>
             </ul>
@@ -255,3 +258,19 @@ useHead({
     </footer>
   </div>
 </template>
+
+<style scoped>
+.hero-wordmark {
+  font-size: clamp(17rem, 42vw, 26rem);
+  line-height: .85;
+  letter-spacing: -.08em;
+}
+.hero-title {
+  font-size: clamp(2.625rem, 6.8vw, 6rem);
+}
+@media (min-width: 1024px) and (max-height: 760px) {
+  .hero { padding-block: 3rem; }
+  .hero-heading { padding-block: 2rem; }
+  .hero-wordmark { font-size: 22rem; }
+}
+</style>

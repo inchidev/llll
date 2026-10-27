@@ -22,6 +22,8 @@ export function usesRetiredProductTerms(path, text) {
   if (codingWorkspaceSources.has(path)) {
     productText = productText.replace(/\b(?:[Ff]actoryWorkspace|factory_workspaces|factory_workspace|[Ww]orkspace(?:Id|Revision|Columns|Request|Provider|Receipt|Job)?|workspace_(?:id|failed|ready|exists|unavailable))\b/g, 'CodingCheckout')
   }
+  // The landing uses workspace as a product description, never a Server identity.
+  if (path === 'apps/site/app/pages/index.vue') productText = productText.replace(/\bworkspaces?\b/gi, 'SharedWork')
   return /workspace|installation|apps\/instance/i.test(productText) || /\bInstance\b/.test(productText)
 }
 async function scan(directory, violations) {
