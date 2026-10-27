@@ -66,7 +66,7 @@ async function disconnect(id:string){
   <form v-if="prepared" :action="prepared.actionUrl" method="POST" target="_blank" rel="noopener noreferrer" class="space-y-3 rounded border border-default p-3" @submit="submitted=true">
    <input type="hidden" name="manifest" :value="JSON.stringify(prepared.manifest)">
    <p class="text-sm">Continue in a new tab to create the App on GitHub. This setup request is valid for 10 minutes. Return here and refresh connections after GitHub finishes.</p>
-   <p class="text-sm text-muted">If GitHub asks you to sign in or confirm access and then says it did not find an App Manifest, finish signing in and return here. Prepare again below to send a fresh request. If you already created the App, finish its installation and refresh connections instead of creating another App.</p>
+   <p class="text-sm text-muted">If GitHub asks you to sign in or confirm access and then says it did not find an App Manifest, finish signing in and return here. Prepare again below to send a fresh request. If you already created the App, choose its repositories and refresh connections instead of creating another App.</p>
    <UButton type="submit" label="Create App on GitHub" :disabled="submitted||busy" />
    <UButton type="button" label="Prepare again after GitHub sign-in" color="neutral" variant="outline" :loading="busy" @click="resumeAfterSignIn" />
   </form>
