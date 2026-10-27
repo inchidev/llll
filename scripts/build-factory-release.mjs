@@ -1,7 +1,8 @@
-import { mkdir, copyFile, cp, writeFile, readFile, rename } from 'node:fs/promises'
+import { mkdir, copyFile, cp, writeFile, readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { resolve, join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { encodeFactoryLayer, validateFactoryImage } from './factory-image-layers.mjs'
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 const version = JSON.parse(await readFile('package.json')).version
@@ -35,17 +36,16 @@ const extracted = join(output, 'image')
 await mkdir(extracted, { recursive: true })
 execFileSync('tar', ['-xf', join(output, 'cloud-workspace.tar'), '-C', extracted])
 const saved = JSON.parse(await readFile(join(extracted, 'manifest.json')))[0]
+const config = await readFile(join(extracted, saved.Config))
+const diffIds = JSON.parse(config).rootfs?.diff_ids
+if (!Array.isArray(diffIds) || diffIds.length !== saved.Layers.length) throw new Error('Factory image layer count mismatch')
 const layers = []
 for (const [index, path] of saved.Layers.entries()) {
   const target = `llll-workspace-layer-${index}.tar.gz`
-  const raw = join(output, `layer-${index}.tar`)
-  await copyFile(join(extracted, path), raw)
-  execFileSync('gzip', ['-1', '-f', raw])
-  await rename(raw + '.gz', join(output, target))
-  const bytes = await readFile(join(output, target))
+  const bytes = encodeFactoryLayer(await readFile(join(extracted, path)), diffIds[index])
+  await writeFile(join(output, target), bytes)
   layers.push({ file: target, mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip', digest: 'sha256:' + digest(bytes), size: bytes.length })
 }
-const config = await readFile(join(extracted, saved.Config))
 await writeFile(join(output, 'llll-workspace-config.json'), config)
 const imageManifest = { schemaVersion: 2, mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
   config: { mediaType: 'application/vnd.docker.container.image.v1+json', size: config.length, digest: 'sha256:' + digest(config) },
@@ -59,4 +59,5 @@ for (const name of ['llll-compute-node-linux-amd64.tgz', 'llll-workspace-linux-a
   const bytes = await readFile(join(output, name)); files[name] = { sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length }
 }
 await writeFile(join(output, 'llll-factory.json'), JSON.stringify({ schemaVersion: 1, version, image: imageId, configDigest, ...(indexDigest ? { indexDigest } : {}), manifestDigest: 'sha256:' + digest(manifestBytes), layers, files }, null, 2) + '\n')
+validateFactoryImage(output)
 console.log(`Factory release ${version}: ${imageId}`)

@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { gunzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { expect, it } from 'vitest'
 import { sha256, validateReleaseManifest } from '../../scripts/release-artifacts.mjs'
+import { encodeFactoryLayer, validateFactoryImage } from '../../scripts/factory-image-layers.mjs'
 
 const factoryAssets = ['llll-factory.json', 'llll-compute-node-linux-amd64.tgz', 'llll-workspace-linux-amd64.tar.gz', 'llll-workspace-config.json', 'llll-workspace-manifest.json']
 const version = '9.0.0', commit = 'a'.repeat(40)
@@ -36,7 +37,7 @@ it.each([Number.NaN, Number.POSITIVE_INFINITY, 1.5, '1'])('rejects invalid Facto
   manifest.files['llll-factory.json']!.size = size as number
   expect(() => validateReleaseManifest(manifest, 'v' + version, commit)).toThrow('Incomplete Factory release')
 })
-it('builds a portable Node payload and an independently verifiable OCI config/layer digest graph', () => {
+it.each(['tar', 'gzip'])('builds a portable Node payload and valid OCI layers from %s Docker exports', format => {
   const directory = mkdtempSync(join(tmpdir(), 'llll-factory-release-'))
   const script = resolve('scripts/build-factory-release.mjs'), bin = join(directory, 'bin'), dockerArchive = join(directory, 'docker-save')
   const source = join(directory, 'packages/compute-node/src')
@@ -51,7 +52,11 @@ it('builds a portable Node payload and an independently verifiable OCI config/la
       mkdirSync(content); writeFileSync(join(content, name + '.txt'), name + ' layer content\n')
       const target = join(dockerArchive, name + '.tar')
       execFileSync('tar', ['-cf', target, '-C', content, '.'])
-      return { name: name + '.tar', bytes: readFileSync(target) }
+      const bytes = readFileSync(target)
+      // Classic Docker saves tar layers; containerd saves compressed blobs.
+      // The filename does not determine the exported compression format.
+      if (format === 'gzip') writeFileSync(target, gzipSync(bytes))
+      return { name: name + '.tar', bytes }
     })
     const config = Buffer.from(JSON.stringify({ architecture: 'amd64', os: 'linux', rootfs: { type: 'layers', diff_ids: layers.map(layer => 'sha256:' + sha256(layer.bytes)) } }))
     const imageId = 'sha256:' + sha256(config)
@@ -81,8 +86,23 @@ it('builds a portable Node payload and an independently verifiable OCI config/la
       expect(entry).toMatchObject(descriptor)
       expect(descriptor.digest).toBe('sha256:' + sha256(compressed))
       expect(descriptor.size).toBe(compressed.length)
-      expect(gunzipSync(compressed)).toEqual(layers[index]!.bytes)
+      expect(sha256(gunzipSync(compressed))).toBe(sha256(layers[index]!.bytes))
+      if (format === 'gzip') expect(compressed).toEqual(readFileSync(join(dockerArchive, layers[index]!.name)))
     }
+    expect(() => validateFactoryImage(output)).not.toThrow()
+    expect(() => encodeFactoryLayer(layers[0]!.bytes, 'sha256:' + '0'.repeat(64))).toThrow('diff_id mismatch')
+    // Even matching outer checksums cannot make a double-gzipped layer valid.
+    const first = manifest.layers[0], nested = gzipSync(readFileSync(join(output, first.file)))
+    writeFileSync(join(output, first.file), nested)
+    first.digest = 'sha256:' + sha256(nested); first.size = nested.length
+    oci.layers[0] = { mediaType: first.mediaType, digest: first.digest, size: first.size }
+    const nestedManifest = Buffer.from(JSON.stringify(oci))
+    writeFileSync(join(output, 'llll-workspace-manifest.json'), nestedManifest)
+    manifest.manifestDigest = 'sha256:' + sha256(nestedManifest)
+    manifest.files[first.file] = { sha256: sha256(nested), size: nested.length }
+    manifest.files['llll-workspace-manifest.json'] = { sha256: sha256(nestedManifest), size: nestedManifest.length }
+    writeFileSync(join(output, 'llll-factory.json'), JSON.stringify(manifest))
+    expect(() => validateFactoryImage(output)).toThrow('double-gzipped')
     const nodeArchive = join(output, 'llll-compute-node-linux-amd64.tgz')
     expect(execFileSync('tar', ['-xOf', nodeArchive, 'src/daemon.mjs'], { encoding: 'utf8' })).toBe(daemonSource)
     const extracted = join(directory, 'portable-node')

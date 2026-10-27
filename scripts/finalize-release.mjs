@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { sha256, validateDeploymentBundle, writeReleaseManifest } from './release-artifacts.mjs'
+import { validateFactoryImage } from './factory-image-layers.mjs'
 
 if (process.env.GITHUB_ACTIONS !== 'true' || !process.env.RELEASE_PR) throw new Error('Only the release-PR workflow can finalize release artifacts')
 const directory = resolve('.installer/release')
@@ -22,5 +23,6 @@ const publicInstaller = execFileSync('tar', ['-xOzf', resolve(directory, 'llll.t
 if (!vps.equals(publicInstaller)) throw new Error('Public VPS installer differs from release asset')
 const runtimeSha = sha256(await readFile(resolve(directory, 'llll-runtime-linux-amd64.tar.gz')))
 if (!vps.includes(Buffer.from(`runtime_sha='${runtimeSha}'`)) || !vps.includes(Buffer.from(`pinned_commit='${process.env.RELEASE_COMMIT}'`))) throw new Error('VPS installer provenance mismatch')
+validateFactoryImage(directory)
 await writeReleaseManifest(resolve('.installer/release'), { version: process.env.RELEASE_VERSION, commit: process.env.RELEASE_COMMIT, releasePr: Number(process.env.RELEASE_PR) })
 console.log('Verified complete llll / Server / Docs release bundle')

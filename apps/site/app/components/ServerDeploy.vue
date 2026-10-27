@@ -76,16 +76,36 @@ async function copyAddress(origin: string) {
 }
 const factoryMode = computed(() => route.query?.factory === '1')
 const factorySize = ref<'small' | 'standard' | 'large'>('standard'), factoryTimeout = ref(120), factoryProcesses = ref(128)
+const factorySizes = [
+  { label: 'Small · 0.25 CPU, 1 GiB RAM, 4 GB disk', value: 'small' },
+  { label: 'Standard · 0.5 CPU, 4 GiB RAM, 8 GB disk', value: 'standard' },
+  { label: 'Large · 1 CPU, 6 GiB RAM, 12 GB disk', value: 'large' },
+]
+const factoryResources = computed(() => factorySizes.find(size => size.value === factorySize.value)!.label)
 const factoryConsentKey = computed(() => `llll-factory-consent:${String(route.query?.account || '')}:${String(route.query?.worker || '')}`)
+const factoryOptionsKey = computed(() => `llll-factory-options:${String(route.query?.account || '')}:${String(route.query?.worker || '')}`)
 const factoryConsent = ref(false), factoryConnected = ref(false)
 function restoreFactoryConsent() {
+  factoryConsent.value = false
+  factorySize.value = 'standard'; factoryTimeout.value = 120; factoryProcesses.value = 128
   if (typeof sessionStorage === 'undefined') return
-  try { factoryConsent.value = sessionStorage.getItem(factoryConsentKey.value) === '1' }
-  catch { factoryConsent.value = false }
+  try {
+    const options = JSON.parse(sessionStorage.getItem(factoryOptionsKey.value) || 'null')
+    if (options?.size === 'small' || options?.size === 'standard' || options?.size === 'large') factorySize.value = options.size
+    if (Number.isInteger(options?.timeoutSeconds) && options.timeoutSeconds >= 1 && options.timeoutSeconds <= 600) factoryTimeout.value = options.timeoutSeconds
+    if (Number.isInteger(options?.processes) && options.processes >= 32 && options.processes <= 512) factoryProcesses.value = options.processes
+    factoryConsent.value = sessionStorage.getItem(factoryConsentKey.value) === '1'
+  } catch { /* Missing or blocked storage leaves the defaults and unchecked consent. */ }
 }
+watch(factoryConsentKey, restoreFactoryConsent)
 watch(factoryConsent, value => {
   if (typeof sessionStorage === 'undefined') return
   try { sessionStorage.setItem(factoryConsentKey.value, value ? '1' : '0') } catch { /* Private browsing can reject storage. The checkbox still works for this view. */ }
+})
+watch([factorySize, factoryTimeout, factoryProcesses], () => {
+  if (typeof sessionStorage === 'undefined') return
+  try { sessionStorage.setItem(factoryOptionsKey.value, JSON.stringify({ size: factorySize.value, timeoutSeconds: Number(factoryTimeout.value), processes: Number(factoryProcesses.value) })) }
+  catch { /* Resource choices remain usable when storage is unavailable. */ }
 })
 async function enableFactory() {
   busy.value = true; error.value = ''
@@ -331,8 +351,8 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
     <section v-if="factoryMode" class="space-y-4 rounded-xl border border-default p-5">
       <h2 class="text-lg font-semibold">Enable Software Factory</h2>
       <p class="text-sm text-muted">Connect the account that owns this Server. Factory uses optional paid Containers and Artifacts. Cloudflare bills compute, code storage and network separately from your model provider. R2 is independent. This action preserves the Server identity, existing data, secrets and repositories.</p>
-      <p class="text-xs text-muted">One active operation, 0.5 vCPU, 4 GiB RAM and 8 GB temporary disk; a 500 MB retained code budget per Task. Compute stops after each code checkpoint. Dependencies and builds are disposable. No automatic plan upgrade or alternate paid provider.</p>
-      <UFormField label="Compute limit"><USelect v-model="factorySize" :items="[{ label: 'Small · 0.25 CPU, 1 GiB RAM, 4 GB disk', value: 'small' }, { label: 'Standard · 0.5 CPU, 4 GiB RAM, 8 GB disk', value: 'standard' }, { label: 'Large · 1 CPU, 6 GiB RAM, 12 GB disk', value: 'large' }]" class="w-full" /></UFormField>
+      <p class="text-xs text-muted">{{ factoryResources }}; one active operation and a 500 MB retained code budget per Task. Compute stops after each code checkpoint. Dependencies and builds are disposable. No automatic plan upgrade or alternate paid provider.</p>
+      <UFormField label="Compute limit"><USelect v-model="factorySize" :items="factorySizes" class="w-full" /></UFormField>
       <UFormField label="Command timeout (seconds, up to 600)"><UInput v-model.number="factoryTimeout" type="number" :min="1" :max="600" /></UFormField>
       <UFormField label="Maximum processes (32–512)"><UInput v-model.number="factoryProcesses" type="number" :min="32" :max="512" /></UFormField>
       <UCheckbox v-model="factoryConsent" label="I reviewed these resources and authorize their usage charges in my Cloudflare account." />

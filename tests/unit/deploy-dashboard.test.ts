@@ -225,6 +225,40 @@ it('asks for Factory consent again when the checkbox was not kept', async () => 
   expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
 })
 
+it('keeps the selected Factory limits through OAuth and provisions the values shown', async () => {
+  const worker = 'llll-worker'
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker } }))
+  let view = await render()
+  await view.get('select').setValue('small')
+  await view.findAll('input')[0]!.setValue('60')
+  await view.findAll('input')[1]!.setValue('64')
+  await view.get('input[type="checkbox"]').setValue(true)
+  view.unmount()
+  view = await render()
+  expect(view.get('select').element.value).toBe('small')
+  expect(view.findAll('input')[0]!.element.value).toBe('60')
+  expect(view.findAll('input')[1]!.element.value).toBe('64')
+  expect(view.text()).toContain('Small · 0.25 CPU, 1 GiB RAM, 4 GB disk; one active operation')
+  expect(view.text()).not.toContain('Standard · 0.5 CPU, 4 GiB RAM, 8 GB disk; one active operation')
+  await view.findAll('button').find(button => button.text() === 'Provision Factory')!.trigger('click')
+  expect(api).toHaveBeenCalledWith('/api/deploy/factory/enable', expect.objectContaining({ body: { accountId: account, workerName: worker, paidConsent: true, size: 'small', timeoutSeconds: 60, processes: 64 } }))
+  view.unmount()
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'other-worker' } }))
+  view = await render()
+  expect(view.get('select').element.value).toBe('standard')
+  expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+})
+
+it('ignores malformed stored Factory limits', async () => {
+  const worker = 'llll-worker'
+  sessionStorage.setItem(`llll-factory-options:${account}:${worker}`, JSON.stringify({ size: 'extra-paid', timeoutSeconds: 601, processes: -1 }))
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker } }))
+  const view = await render()
+  expect(view.get('select').element.value).toBe('standard')
+  expect(view.findAll('input')[0]!.element.value).toBe('120')
+  expect(view.findAll('input')[1]!.element.value).toBe('128')
+})
+
 it('loads Factory with unchecked consent when browser storage is blocked', async () => {
   vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'llll-worker' } }))
   const read = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => { throw new DOMException('Storage blocked', 'SecurityError') })
