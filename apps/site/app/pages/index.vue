@@ -7,8 +7,8 @@ const connectUrl = '/create?tab=connect'
 const showProductPreview = false
 const showAppsSection = false
 const siteUrl = 'https://llll.gg/'
-const pageTitle = 'L4 — One workspace for humans and agents'
-const pageDescription = 'An open-source workspace for humans and AI agents. Bring conversations, projects, tasks, repositories, mail and shared data together on your Cloudflare account or VPS.'
+const pageTitle = 'L4 — One workspace for humans and agents.'
+const pageDescription = 'An open-source workspace for humans and AI agents. Bring conversations, projects, tasks, mail and shared data together on your Cloudflare account or VPS.'
 
 const navigation = computed<NavigationMenuItem[]>(() => [
   { label: 'Product', to: '#product' },
@@ -20,8 +20,8 @@ const navigation = computed<NavigationMenuItem[]>(() => [
 const primaryActionLabel = 'Install your own'
 const productGroups = [
   { id: 'chat', name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
-  { id: 'tasks', name: 'Projects & tasks', icon: 'i-ph-kanban', title: 'Give the work a home.', description: 'Group tasks and repositories by project. Use boards, priorities, due dates, checklists, and dependencies. Assign work to a person or an agent, with a discussion for each task.' },
-  { id: 'repositories', name: 'Repositories', icon: 'i-ph-git-branch', title: 'Connect the code to the work.', description: 'Attach repositories to projects. Connect GitHub and a compute node for isolated task workspaces, reviewed code changes, and draft pull requests.' },
+  { id: 'tasks', name: 'Tasks', icon: 'i-ph-kanban', title: 'Know what happens next.', description: 'Use boards, priorities, due dates, checklists, and dependencies. Assign work to a person or an agent, with a discussion for each task.' },
+  { id: 'projects', name: 'Projects', icon: 'i-ph-folder-simple', title: 'Give the work a home.', description: 'Group tasks around a shared goal. Give people and agents the access they need in each project. Connect repositories when the work involves code.', note: 'Code execution requires GitHub access and a compute node.' },
   { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.' },
   { id: 'data', name: 'Data & Apps', icon: 'i-ph-table', title: 'Keep knowledge and tools together.', description: 'Organize records in tables, boards, lists, and calendars. Keep documents and canvases alongside them. Build internal apps over shared data and publish them to the right roles.' },
   { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Keep track of what is due.', description: 'Set reminders and schedule agent work. Keep track of upcoming, completed, and cancelled schedules in one place.', note: 'Agent execution requires a configured model provider and permissions.' },
@@ -74,7 +74,7 @@ useHead({
       sameAs: repoUrl,
       offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account', price: '0', priceCurrency: 'USD' },
       featureList: [
-        'Chat, Projects and Tasks, Repositories, Mail, Data and Apps, Schedules',
+        'Chat, Projects and Tasks, Mail, Data and Apps, Schedules',
         'AI agents in channels and direct messages with permission-controlled tools',
         'Optional voice, video, and screen sharing through RealtimeKit',
         'Unlimited customer-owned servers, members, and message history',
@@ -100,10 +100,10 @@ useHead({
         <UContainer>
           <div class="mx-auto max-w-5xl text-center">
             <div class="hero-heading relative isolate py-10 sm:py-14">
-              <span aria-hidden="true" class="hero-wordmark pointer-events-none absolute inset-0 -z-10 flex select-none items-center justify-center font-semibold text-muted opacity-50">L4</span>
-              <h1 class="display-title hero-title relative font-semibold leading-[1.05] text-highlighted">One workspace for humans and agents</h1>
+              <span aria-hidden="true" class="hero-wordmark pointer-events-none absolute inset-0 -z-10 flex select-none items-center justify-center text-muted opacity-50">L4</span>
+              <h1 class="display-title hero-title relative font-semibold leading-[1.05] text-highlighted">One workspace for humans and agents.</h1>
             </div>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Bring conversations, projects, tasks, repositories, mail and shared data together. Run L4 on your own infrastructure.</p>
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Bring conversations, projects, tasks, mail and shared data together. Run L4 on your own infrastructure.</p>
             <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
               <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
@@ -121,7 +121,7 @@ useHead({
           <div class="max-w-3xl">
             <p class="mb-3 text-sm font-medium text-primary">Inside your workspace</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, code, mail, data and schedules share one Server, with access controlled by your team.</p>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, tasks, mail, data and schedules share one Server, with access controlled by your team.</p>
           </div>
           <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted sm:grid-cols-2">
             <article v-for="app in productGroups" :id="`app-${app.id}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
@@ -261,6 +261,8 @@ useHead({
 
 <style scoped>
 .hero-wordmark {
+  font-weight: 900;
+  -webkit-text-stroke: .012em currentColor;
   font-size: clamp(17rem, 42vw, 26rem);
   line-height: .85;
   letter-spacing: -.08em;
