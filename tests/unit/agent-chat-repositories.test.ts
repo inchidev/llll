@@ -3,7 +3,7 @@ import { ids, mcpFixture } from '../helpers/outbound-mcp'
 import { MemberPermissions } from '../../shared/permissions'
 import { createProject, addProjectRepository } from '../../server/utils/project-service'
 import { assignProjectPolicy, revokeProjectPolicy } from '../../server/utils/project-policies'
-import { inspectPublicProjectRepository, listPublicProjectRepositories } from '../../server/utils/agent-chat-repositories'
+import { inspectPrivateProjectRepository, inspectPublicProjectRepository, listPrivateProjectRepositories, listPublicProjectRepositories, readPrivateProjectFile } from '../../server/utils/agent-chat-repositories'
 import type { AgentRun } from '../../shared/agent-execution'
 const remote = vi.hoisted(() => ({ private: false }))
 vi.mock('../../server/utils/github-agent-client', () => ({ githubAgentClient: async () => ({ json: async (path: string) => {
@@ -29,11 +29,25 @@ it('lists and reads the admitted public repository using the project grant', asy
   expect(await listPublicProjectRepositories(f.env, run)).toEqual({ repositories: [{ id: repositoryId, repository: 'org/repo' }] })
   expect(await inspectPublicProjectRepository(f.env, run, repositoryId)).toMatchObject({ repository: 'org/repo', readme: 'Public README', files: [{ path: 'README.md' }] })
 })
-it('does not expose private repositories or newly added links', async () => {
+it('reads private repositories with the same project grant without exposing them as public', async () => {
   remote.private = true
   expect(await listPublicProjectRepositories(f.env, run)).toEqual({ repositories: [] })
   await expect(inspectPublicProjectRepository(f.env, run, repositoryId)).rejects.toMatchObject({ statusCode: 403 })
+  expect(await listPrivateProjectRepositories(f.env, run)).toEqual({ repositories: [{ id: repositoryId, repository: 'org/repo' }] })
+  expect(await inspectPrivateProjectRepository(f.env, run, repositoryId)).toMatchObject({ repository: 'org/repo', readme: 'Public README' })
+  expect(await readPrivateProjectFile(f.env, run, repositoryId, 'README.md')).toMatchObject({ content: 'Public README' })
+  await expect(readPrivateProjectFile(f.env, run, repositoryId, '../secret')).rejects.toMatchObject({ statusCode: 400 })
+})
+it('rejects repositories added after admission', async () => {
+  remote.private = true
+  await expect(inspectPrivateProjectRepository(f.env, run, 'new-repository')).rejects.toMatchObject({ statusCode: 403 })
   await expect(inspectPublicProjectRepository(f.env, run, 'new-repository')).rejects.toMatchObject({ statusCode: 403 })
+})
+it('denies private repository access after project permission is revoked', async () => {
+  remote.private = true
+  await revokeProjectPolicy(f.env, await f.actor(), projectId, assignmentId)
+  await expect(inspectPrivateProjectRepository(f.env, run, repositoryId)).rejects.toMatchObject({ statusCode: 403 })
+  expect(await listPrivateProjectRepositories(f.env, run)).toEqual({ repositories: [] })
 })
 it('stops immediately after project access or repository configuration changes', async () => {
   f.db.prepare('UPDATE agent_environments SET version=version+1 WHERE id=?').run('test-environment')
