@@ -9,6 +9,18 @@ const shell = useShell()
 const route = useRoute()
 const ownOrigin = ref('')
 const error = shell.error
+const pendingMessages = computed(() => Object.values(shell.pendingMessages.value).some(Boolean))
+function warnPendingMessages(event: BeforeUnloadEvent) {
+  if (!pendingMessages.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+watch(pendingMessages, (pending) => {
+  if (typeof window === 'undefined') return
+  if (pending) window.addEventListener('beforeunload', warnPendingMessages)
+  else window.removeEventListener('beforeunload', warnPendingMessages)
+}, { flush: 'sync', immediate: true })
+onUnmounted(() => window.removeEventListener('beforeunload', warnPendingMessages))
 const path = computed(() => normalizeRoutePath(route.path))
 const queryOrigin = computed(() => {
   // Installer handoffs use server as a target, not a request to open its Client.
@@ -96,6 +108,10 @@ async function handleQuery(queryOrigin: string, claim: string | undefined) {
 }
 function selectFrame(element: unknown, origin: string) {
   if (element instanceof HTMLIFrameElement) shell.frames.value[origin] = element
+  else {
+    Reflect.deleteProperty(shell.frames.value, origin)
+    Reflect.deleteProperty(shell.pendingMessages.value, origin)
+  }
 }
 function refreshMetadata() {
   if (!document.hidden && (showNavigation.value || route.params.serverId)) void shell.refreshMetadata()

@@ -30,6 +30,9 @@ export default defineNuxtPlugin(async (nuxt) => {
   const colorMode = useColorMode()
   const router = useRouter()
   const unread = useState('llll-embed-unread', () => 0)
+  const outstandingMessages = useState('llll-outstanding-messages', () => 0)
+  const publishDelivery = () => post({ type: 'delivery', pending: outstandingMessages.value > 0 })
+  watch(() => outstandingMessages.value > 0, publishDelivery, { flush: 'sync' })
   const appearance = computed(() => connection.servers.value.find(item => item.origin === location.origin && item.id === server.id) || server)
   const publish = () => {
     post({ type: 'session', authenticated: Boolean(session.user) })
@@ -89,6 +92,7 @@ export default defineNuxtPlugin(async (nuxt) => {
   })
   nuxt.hook('app:mounted', () => {
     post({ type: 'ready', version: EMBED_VERSION, name: server.name })
+    publishDelivery()
     publish()
   })
 })

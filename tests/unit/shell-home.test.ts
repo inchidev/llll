@@ -21,7 +21,7 @@ const headConfig = vi.fn()
 const shell = {
   servers, selected, loaded, error, ready: ref({ [origin]: true } as Record<string, boolean>), unclaimed: ref({} as Record<string, boolean>),
   groups: computed(() => [{ origin, name: 'Fixture', servers: servers.value }]),
-  frames: ref({}),
+  frames: ref({}), pendingMessages: ref({} as Record<string, boolean>),
   frameSrc: () => 'about:blank', initialize, forget,
   refreshMetadata: vi.fn(async () => {}),
   resolveServer: vi.fn(async () => { selected.value = origin }),
@@ -42,6 +42,7 @@ const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: 
 beforeEach(() => {
   go('/' + id)
   route.query = {}
+  shell.pendingMessages.value = {}
   shell.connect.mockClear()
   servers.value = [{ id, origin, name: 'Fixture community', unread: 3 }]
   selected.value = origin; loaded.value = [origin]; error.value = ''
@@ -176,4 +177,24 @@ it('still connects a plain Server handoff after installation', async () => {
   view = mount(Shell, { global: { stubs } })
   await flushPromises()
   expect(shell.connect).toHaveBeenCalledWith(origin, undefined)
+})
+
+it('guards top-level reload until every loaded Client acknowledges, including hidden Clients', async () => {
+  view = mount(Shell, { attachTo: document.body, global: { stubs } })
+  await flushPromises()
+  const unload = () => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented }
+  expect(unload()).toBe(false)
+  shell.pendingMessages.value[origin] = true
+  expect(unload()).toBe(true)
+  shell.pendingMessages.value['https://second.example'] = true
+  shell.pendingMessages.value[origin] = false
+  go('/servers'); await flushPromises()
+  expect(unload()).toBe(true)
+  shell.pendingMessages.value['https://second.example'] = false
+  expect(unload()).toBe(false)
+  shell.pendingMessages.value[origin] = true
+  expect(unload()).toBe(true)
+  expect(view.get('iframe').attributes('sandbox')).not.toContain('allow-modals')
+  view.unmount(); view = undefined
+  expect(unload()).toBe(false)
 })

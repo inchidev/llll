@@ -6,7 +6,7 @@ The Server has one persistent UUIDv4 allocated in D1 before owner setup. The sam
 
 ## Shell
 
-The official web/PWA/Telegram Shell connects a Server address or invitation. It embeds that Server's own Client, which authenticates and calls its own HTTP, file and WebSocket APIs. Direct use never depends on llll.gg. The Shell receives bounded metadata, unread state, navigation and call lifecycle events; it receives no password, session token, chat content or provider credential. postMessage verifies both the exact origin and iframe source.
+The official web/PWA/Telegram Shell connects a Server address or invitation. It embeds that Server's own Client, which authenticates and calls its own HTTP, file and WebSocket APIs. Direct use never depends on llll.gg. The Shell receives bounded metadata, unread state, navigation, call lifecycle events and a boolean pending-message delivery signal; it receives no password, session token, chat content or provider credential. postMessage verifies both the exact origin and iframe source. While any loaded Client has unacknowledged messages, the Shell warns before page reload or close; Cancel keeps the Client and its in-memory retry queue alive. Acknowledgement clears the warning. Message text is never copied into Shell storage, and this requires a matching updated Server Client.
 
 `/.well-known/llll` advertises `kind: server`, UUID, origin, name, version and embed origins. The official directory maps UUID directly to Server origin after checking discovery; it grants no membership. A changed identity at a bookmarked origin requires explicit reconnection. Device-local bookmarks contain metadata only; cross-device synchronization is deferred.
 
