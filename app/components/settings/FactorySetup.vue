@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 const { api } = useApi(), toast = useToast(), cache = useQueryClient()
-const setup = useQuery({ queryKey: ['factory-setup'], queryFn: () => api<{ usage: { retained: number; active: number; recoveryRequired: number } | null; limits: { cpu?: number; memoryMiB?: number; diskBytes?: number; processLimit?: number; timeoutMs?: number } | null; placement: string; resources: boolean; state: string; nodeId: string | null; image: string | null; connectUrl: string | null; cli: string | null; durability: string; costs: string }>('/api/factory'), refetchOnWindowFocus: true })
+const setup = useQuery({ queryKey: ['factory-setup'], queryFn: () => api<{ usage: { retained: number; active: number; recoveryRequired: number } | null; limits: { cpu?: number; memoryMiB?: number; diskBytes?: number; processLimit?: number; timeoutMs?: number } | null; placement: string; resources: boolean; state: string; nodeId: string | null; image: string | null; connectUrl: string | null; cli: string | null; durability: string; costs: string }>('/api/factory'), refetchOnWindowFocus: true, refetchInterval: 15000 })
 const acknowledged = ref(false), busy = ref(false), failure = ref('')
 async function configure(enabled: boolean) {
   if (busy.value) return
