@@ -59,6 +59,7 @@ useSeoMeta({
 useHead({
   link: [
     { rel: 'canonical', href: siteUrl },
+    { rel: 'preload', href: '/fonts/caveat-l4-bold.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
   ],
   script: [{
     type: 'application/ld+json',
@@ -260,24 +261,31 @@ useHead({
 </template>
 
 <style scoped>
+@font-face {
+  font-family: 'L4 Handwritten';
+  src: url('/fonts/caveat-l4-bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 .hero-heading {
   display: grid;
   min-height: clamp(18rem, 40vw, 27rem);
   place-items: center;
 }
 .hero-wordmark {
-  font-weight: 900;
-  -webkit-text-stroke: .02em currentColor;
-  font-size: clamp(19rem, 45vw, 36rem);
-  transform: scaleX(1.65);
-  line-height: .85;
+  font-family: 'L4 Handwritten', cursive;
+  font-weight: 700;
+  font-size: clamp(22rem, 55vw, 36rem);
+  transform: rotate(-7deg);
+  line-height: .8;
   letter-spacing: -.08em;
 }
 .hero-title {
   font-size: clamp(2.625rem, 6.8vw, 6rem);
 }
 @media (max-width: 639px) {
-  .hero-wordmark { transform: scaleX(.9); }
+  .hero-wordmark { font-size: 22rem; }
 }
 @media (min-width: 1024px) and (max-height: 760px) {
   .hero { padding-block: 3rem; }
