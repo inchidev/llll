@@ -42,9 +42,11 @@ export async function disableComputeNode(env: L4Env, auth: AuthorizationContext,
     env.DB.prepare("UPDATE factory_actions SET status=CASE WHEN status IN ('claimed','executing') THEN 'uncertain' ELSE 'cancelled' END WHERE workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND status IN ('pending','approved','claimed','executing')").bind(id),
   ])
 }
-export async function requireComputeNode(env: L4Env, credential: string) {
-  const node = await env.DB.prepare('SELECT id FROM compute_nodes WHERE token_hash=? AND enabled=1').bind(await factoryHash(credential)).first<{ id: string }>()
+export async function requireComputeNode(env: L4Env, credential: string, transport: 'direct' | 'lizard' = 'direct') {
+  const node = await env.DB.prepare('SELECT id,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE token_hash=? AND enabled=1').bind(await factoryHash(credential)).first<{ id: string; capabilitiesJson: string }>()
   if (!node) fail(403, 'compute_revoked', 'Compute Node authorization unavailable')
+  const provider = JSON.parse(node.capabilitiesJson).provider
+  if ((provider === 'lizard') !== (transport === 'lizard')) fail(403, 'compute_transport_denied', 'Compute Node transport does not match its provider')
   await env.DB.prepare('UPDATE compute_nodes SET last_seen=? WHERE id=?').bind(nowIso(), node.id).run()
   return node
 }

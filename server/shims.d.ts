@@ -8,3 +8,12 @@ declare module '*.sql?raw' {
 declare module '#nitro-internal-virtual/public-assets' {
   export function isPublicAssetURL(path: string): boolean
 }
+
+declare module '*.mjs?raw' {
+  const source: string
+  export default source
+}
+declare module '*Dockerfile.workspace?raw' {
+  const source: string
+  export default source
+}

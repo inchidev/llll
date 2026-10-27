@@ -50,7 +50,7 @@ export type FactoryAction = { approvalMode?: 'role' | 'review'; computeImage: st
   expiresAt: string; decidedBy: string | null; decidedAt: string | null; result: unknown; createdAt: string }
 export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null }
 // Existing Nodes retain their 1 GiB disks; new Nodes allocate 10 GiB per Task.
-export const dockerCapabilities = z.object({ diskBytes: z.union([z.literal(1073741824), z.literal(10737418240)]), docker: z.literal(true), durableDisk: z.literal(true), isolation: z.literal('shared-kernel'),
+export const dockerCapabilities = z.object({ provider: z.literal('lizard').optional(), diskBytes: z.union([z.literal(1073741824), z.literal(10737418240)]), docker: z.literal(true), durableDisk: z.literal(true), isolation: z.literal('shared-kernel'),
   image: z.string().regex(/^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$/u), maxParallel: z.literal(1), protocol: z.literal(1) }).strict()
 
 export const cloudflareCapabilities = z.object({ provider: z.literal('cloudflare-containers'), diskBytes: z.number().int().min(1000000000).max(20000000000), docker: z.literal(false), durableDisk: z.literal(false),

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { mcpFixture } from '../helpers/outbound-mcp'
 import { saveLizardConnection } from '../../server/utils/lizard-connection'
-import { createLizardSandbox, deleteLizardSandbox } from '../../server/utils/lizard-sandboxes'
+import { createLizardSandbox, deleteLizardSandbox, extendLizardSandbox, listOwnedLizardSandboxes } from '../../server/utils/lizard-sandboxes'
 let f: ReturnType<typeof mcpFixture>
 beforeEach(async () => {
   f = mcpFixture()
@@ -39,4 +39,18 @@ it('deletes only a VM carrying the exact workspace marker', async () => {
   vi.stubGlobal('fetch', fetcher)
   expect(await deleteLizardSandbox(f.env, 'own-sandbox', workspaceId)).toEqual({ deleted: true })
   expect(fetcher).toHaveBeenCalledTimes(2)
+})
+it('finds only VMs with the exact workspace marker after an uncertain create', async () => {
+  const workspaceId = 'b5949476-1a4e-4141-bfc6-a72a7751fd95'
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/sandboxes') ? Response.json([{ sandboxId: 'owned' }, { sandboxId: 'foreign', metadata: { l4Workspace: 'another' } }, { sandboxId: 'unmarked' }]) : Response.json({ metadata: url.endsWith('/owned') ? { l4Workspace: workspaceId } : {} })))
+  expect(await listOwnedLizardSandboxes(f.env, workspaceId)).toEqual(['owned'])
+})
+it('extends only the matching workspace VM for a bounded interval', async () => {
+  const workspaceId = 'b5949476-1a4e-4141-bfc6-a72a7751fd95', calls: { url: string; init?: RequestInit }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => { calls.push({ url, init }); return calls.length === 1 ? Response.json({ metadata: { l4Workspace: workspaceId } }) : Response.json({ ok: true }) }))
+  expect(await extendLizardSandbox(f.env, 'own-sandbox', workspaceId)).toMatchObject({ expiresAt: expect.any(Number) })
+  expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ timeoutMs: 600000 })
+  calls.length = 0
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ metadata: { l4Workspace: 'other' } })))
+  await expect(extendLizardSandbox(f.env, 'foreign-sandbox', workspaceId)).rejects.toMatchObject({ statusCode: 403 })
 })

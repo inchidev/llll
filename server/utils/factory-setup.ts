@@ -82,8 +82,13 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   return factorySetup(env, auth)
 }
 export async function dispatchCloudflareFactory(env: L4Env, actionId: string, workspaceId: string, nodeId: string) {
-  if (!env.FACTORY_COMPUTE) return
   const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
+  if (node && JSON.parse(node.capabilitiesJson).provider === 'lizard') {
+    const { ensureLizardCompute } = await import('./lizard-control')
+    await ensureLizardCompute(env, nodeId)
+    return
+  }
+  if (!env.FACTORY_COMPUTE) return
   if (node && JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers') {
     const result = await env.FACTORY_COMPUTE.getByName(`workspace:${workspaceId}`).fetch(new Request(`http://factory/${actionId}`, { method: 'POST' }))
     if (!result.ok) fail(503, 'factory_dispatch_failed', 'Factory is unavailable; the approved action remains recorded')

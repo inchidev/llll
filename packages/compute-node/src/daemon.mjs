@@ -19,7 +19,7 @@ const probe = new LoopDiskStore(join(state,'probe-disks'),{bytes:33554432,maxDis
 await probe.initialize()
 const probeId = crypto.randomUUID()
 try { await probe.cleanup(); await probe.ensure(probeId,true) } finally { await probe.remove(probeId) }
-const capabilities = { diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,maxParallel:1,protocol:1 }
+const capabilities = { ...(process.env.LLLL_COMPUTE_PROVIDER === 'lizard' ? {provider:'lizard'} : {}), diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,maxParallel:1,protocol:1 }
 const delay = ms => new Promise(resolveDelay => setTimeout(resolveDelay,ms))
 const docker = async (args,options={}) => {
   const result = await runProcess('docker',args,options)

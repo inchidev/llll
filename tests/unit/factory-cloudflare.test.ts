@@ -551,8 +551,8 @@ it.each(['start', 'timeout setup', 'readiness', 'readiness exit'] as const)('rec
   expect(fixture.values.has('action')).toBe(false)
   await fixture.instance.alarm()
   expect(fixture.container.start).toHaveBeenCalledTimes(1)
-  const retry = await factoryToolCall(f.env, run.id, 'separately-reviewed-bootstrap', { operation: 'bootstrap' })
-  expect(retry).toMatchObject({ factoryPending: true, status: 'pending' })
+  const retry = await factoryToolCall(f.env, run.id, 'separate-bootstrap', { operation: 'bootstrap' })
+  expect(retry).toMatchObject({ factoryPending: true, status: 'approved' })
   expect(retry.actionId).not.toBe(actionId)
 })
 
@@ -572,8 +572,8 @@ it('retains the acknowledged checkpoint when the next container cannot start, an
   expect(await factoryToolCall(f.env, run.id, 'read-after-checkpoint', { operation: 'read', path: 'fixture.txt' })).toMatchObject({ ok: false })
   await fixture.instance.alarm()
   expect(fixture.container.start).toHaveBeenCalledTimes(2)
-  const reviewed = await factoryToolCall(f.env, run.id, 'new-reviewed-read', { operation: 'read', path: 'fixture.txt' })
-  expect(reviewed).toMatchObject({ factoryPending: true, status: 'pending' })
+  const nextRead = await factoryToolCall(f.env, run.id, 'new-authorized-read', { operation: 'read', path: 'fixture.txt' })
+  expect(nextRead).toMatchObject({ factoryPending: true, status: 'approved' })
 })
 
 it('retries delivery of a durable startup-failure receipt without restarting the container', async () => {

@@ -5,6 +5,7 @@ import type { AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
 import { requireComputeOwner } from './compute-nodes'
 import { fail } from './cf'
+import { readLimitedStream } from '../../workers/inbound-email-signature'
 
 const key = 'compute.lizard.connection'
 const projectsSchema = z.array(z.object({ id: z.string().min(1).max(100), name: z.string().min(1).max(200) }).passthrough()).max(1000)
@@ -14,9 +15,9 @@ async function projects(apiKey: string) {
   try { response = await fetch('https://lizard.build/api/projects', { headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) }) }
   catch { fail(502, 'lizard_unavailable', 'Could not connect to Lizard') }
   if (!response.ok) fail(response.status === 401 || response.status === 403 ? 403 : 502, 'lizard_connection_failed', 'Lizard rejected the connection or is unavailable')
-  const text = await response.text()
-  if (text.length > 1000000) fail(502, 'lizard_response', 'Lizard response was too large')
-  try { return projectsSchema.parse(JSON.parse(text)).map(({ id, name }) => ({ id, name })) }
+  const data = await readLimitedStream(response.body, 1000000)
+  if (!data.ok) fail(502, 'lizard_response', 'Lizard response was too large')
+  try { return projectsSchema.parse(JSON.parse(new TextDecoder().decode(data.bytes))).map(({ id, name }) => ({ id, name })) }
   catch { fail(502, 'lizard_response', 'Lizard returned an unexpected project list') }
 }
 export async function getLizardConnection(env: L4Env, auth: AuthorizationContext) {

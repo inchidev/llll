@@ -1,10 +1,10 @@
 # Lizard execution provider evaluation
 
-Initial probe: 2026-10-27. Compute follow-up: 2026-10-28 (Asia/Ho_Chi_Minh). Tracks [#365](https://github.com/inchidev/llll/issues/365). This is a bounded provider probe, not an L4 integration or a replacement for the local compute node.
+Initial probe: 2026-10-27. Managed-compute follow-up: 2026-10-28 (Asia/Ho_Chi_Minh). Tracks [#365](https://github.com/inchidev/llll/issues/365). L4-managed Lizard compute is implemented and verified locally; it does not replace the local compute node and has not been released.
 
 ## Decision
 
-Conditional go for an optional L4 compute-provider prototype; no go for making it the default execution environment yet. The follow-up below demonstrated the existing Docker workspace image, loop filesystems and cgroup limits on a temporary Lizard VM; it did not complete an L4 Run. Authentication, a disposable Linux environment, public repository checkout and cleanup worked. In the initial probe the advertised Pi template was unavailable to this account/region and the fallback base image lacked Node and Pi. Guest dependencies were subsequently installed successfully. No model-backed L4 task or task-to-draft-PR acceptance is established.
+Conditional go for an optional L4 compute provider; no go for making it the default execution environment yet. The initial probes demonstrated the existing Docker workspace image, loop filesystems and cgroup limits on a temporary Lizard VM. Subsequent local testing completed model-backed Agent Runs through the managed provider, including VM idle shutdown and workspace recovery. Draft-PR publication through Lizard and production acceptance are not established.
 
 Keep Pi as L4's runtime and keep Server authorization, task state, source checkpoints and result acceptance in L4. The local compute node remains the working baseline. A future Lizard adapter must provide its own prepared toolchain, centrally bounded lifecycle and credential broker rather than transferring the provider management key into the guest.
 
@@ -46,7 +46,7 @@ Published compute rates are Small (2 vCPU / 4 GB / 5 GB) $0.0162/hour, Medium (4
 
 No Boat token or VM was used. The Boat pricing URL in #365 was unavailable to this research browser, so this run establishes no current same-task Boat cost or performance comparison. Neither provider's startup marketing benchmark is L4 acceptance evidence.
 
-## Before enabling the adapter
+## Earlier adapter checklist
 
 1. Prepare the existing L4 compute daemon and its immutable workspace image, with Node 24, Docker and enforceable filesystem/cgroup limits. Pi remains embedded on the L4 Server; the VM needs no model or provider-management credentials. Run a representative L4 Run through the Server, its task permissions and the paired Node.
 2. Run the same checkout/build/test/artifact task on Lizard and the existing local node, then compare total setup, active, idle and retention costs.
@@ -85,4 +85,10 @@ A fresh disposable Small VM and temporary 20 GB Volume in `us-east-1` ran the ex
 
 The local L4 Server paired the Node and ran an assigned developer Agent with real inference against `inchidev/llll`. The completed Run `01a17ea1-20ad-78bc-8e11-4ff190a78f09` bootstrapped the checkout pinned at `36c24791d9862ac93325c09bab6a45b578802dcd`, read README, wrote `LIZARD_AGENT_QA.md` and executed a shell verification showing the file and Git status. The Agent did not push or open a PR. The Node was disabled and revoked; the sandbox and Volume were deleted, and subsequent provider lists showed no remaining sandboxes or Volumes.
 
-This establishes an actual Agent Run on Lizard through the existing L4 action and permission pipeline, but does not establish automatic L4-managed sandbox lifecycle, recovery, or selecting a managed Lizard provider in the UI. Those remain implementation work. The temporary QA project, task, environment and Run remain on the local development Server as test records; the disposable VM's source disk was removed after the test.
+This first Run used a temporary bridge rather than the later L4-managed lifecycle. The temporary QA project, task, environment and Run remain on the local development Server as test records; the disposable VM's source disk was removed after the test.
+
+## L4-managed provider acceptance: 2026-10-28
+
+The local Server created and paired a Small Lizard VM through its saved connection, and the built-in browser showed Lizard as a selectable Compute Node in the repository environment editor. Agent Run `01a17ec2-8a39-7137-bf6c-8b6a82efcdd7` completed against `inchidev/llll`, bootstrapped the checkout, created `LIZARD_AGENT_QA.md` and verified it with shell commands. The VM was stopped, the disposable test disk deleted, and the provider then reported zero sandboxes and zero Volumes.
+
+A separate idle test reached Ready, stopped the VM automatically and deleted the unused disk. A recovery test completed Run `01a17ecb-868a-7ba1-b10a-4be886834444`, stopped the idle VM while retaining its Task disk, then automatically created another VM for Run `01a17ecd-ff2b-72e4-baa1-8c37756395e4` and read back the previously written marker. Afterward both the VM and the disposable QA disk were deleted; the provider again reported zero sandboxes and zero Volumes. These are local development results, not a deployed release or a draft-PR acceptance.

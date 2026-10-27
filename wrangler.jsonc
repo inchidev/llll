@@ -78,6 +78,10 @@
       {
         "name": "AGENT_SCHEDULE_DO",
         "class_name": "AgentScheduleDurableObject"
+      },
+      {
+        "name": "LIZARD_COMPUTE_DO",
+        "class_name": "LizardComputeDurableObject"
       }
     ]
   },
@@ -109,7 +113,8 @@
       "tag": "v4-retire-think",
       "deleted_classes": ["L4Think"]
     },
-    { "tag": "v5-factory-executor", "new_sqlite_classes": ["FactoryComputeDurableObject"] }
+    { "tag": "v5-factory-executor", "new_sqlite_classes": ["FactoryComputeDurableObject"] },
+    { "tag": "v6-lizard-compute", "new_sqlite_classes": ["LizardComputeDurableObject"] }
   ],
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",
@@ -134,7 +139,8 @@
         { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
         { "name": "AGENT_DO", "class_name": "L4Agent" },
         { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
-        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" }
+        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" },
+        { "name": "LIZARD_COMPUTE_DO", "class_name": "LizardComputeDurableObject" }
       ]
     },
     "d1_databases": [
