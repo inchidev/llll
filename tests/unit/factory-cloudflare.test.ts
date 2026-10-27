@@ -191,10 +191,13 @@ async function provisioningFixture() {
       const body = JSON.parse(String(init?.body))
       return [{ success: true, results: f.db.prepare(body.sql).all(...(body.params || [])) }]
     }
-    if (path.endsWith('/containers/applications/existing') && init?.method === 'PATCH') {
-      Object.assign(fixtureApplication(), JSON.parse(String(init.body)))
+    if (path.endsWith('/containers/applications/existing/rollouts') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body))
+      expect(body).toMatchObject({ strategy: 'rolling', kind: 'full_auto', step_percentage: 100 })
+      fixtureApplication().configuration = body.target_configuration
       return state.application
     }
+    if (path.endsWith('/containers/applications/existing')) return state.application
     if (path.includes('/workers/scripts/')) { state.uploaded = true; return {} }
     if (path.endsWith('/containers/applications')) return init?.method === 'POST' ? { id: 'application-id' } : state.application ? [state.application] : []
     throw new Error('Unexpected control-plane path ' + path)

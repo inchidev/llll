@@ -156,7 +156,15 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   if (application && (application.configuration.image !== image || application.configuration.instance_type !== size.instance_type || application.scheduling_policy !== 'default')) {
     if (!repair || application.id !== previousApplication?.id || application.scheduling_policy !== 'default') throw new Error('Existing Factory application configuration changed; inspect it before activation')
     await repair.check()
-    await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications/${application.id}`, { method: 'PATCH', body: JSON.stringify({ configuration: { ...application.configuration, image, instance_type: size.instance_type } }) })
+    await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications/${application.id}/rollouts`, { method: 'POST', body: JSON.stringify({ description: 'L4 unused Factory repair', strategy: 'rolling', kind: 'full_auto', step_percentage: 100, target_configuration: { image, instance_type: size.instance_type } }) })
+    for (let attempt = 0; ; attempt++) {
+      await repair.check()
+      const settled = await cloudflareApi<Application>(accessToken, `/accounts/${accountId}/containers/applications/${application.id}`)
+      if (settled.durable_objects?.namespace_id !== binding.namespace_id || settled.scheduling_policy !== 'default') throw new Error('Factory application authority changed during rollout')
+      if (settled.configuration.image === image && settled.configuration.instance_type === size.instance_type) break
+      if (attempt >= 59) throw new Error('Factory image rollout is still pending. Retry provisioning once Cloudflare finishes.')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
   }
   if (!application) await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications`, { method: 'POST', body: JSON.stringify({ name, configuration: { image, instance_type: size.instance_type }, instances: 0, max_instances: 1, scheduling_policy: 'default', durable_objects: { namespace_id: binding.namespace_id } }) })
   await repair?.complete()
