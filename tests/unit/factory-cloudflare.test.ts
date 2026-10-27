@@ -12,6 +12,7 @@ import type { AgentRun } from '../../shared/agent-execution'
 import type { L4Env } from '../../workers/env'
 import { configureCloudflareFactory } from '../../server/utils/factory-setup'
 import { beginUnusedFactoryRepair } from '../../packages/deployment-core/src/factory-repair'
+import { cloudCodeBridge } from '../../workers/factory-code-bridge'
 
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class { constructor(protected ctx: unknown, protected env: unknown) {} },
@@ -175,7 +176,7 @@ async function provisioningFixture() {
     layers: [{ file: 'llll-workspace-layer-0.tar.gz', digest: 'sha256:' + sha(layer), size: Buffer.byteLength(layer) }] })
   const assets: Record<string, string> = { 'llll-factory.json': factory, 'llll-workspace-config.json': config, 'llll-workspace-layer-0.tar.gz': layer, 'llll-workspace-manifest.json': manifest }
   const expectedImage = `registry.cloudflare.com/${accountId}/${workerName}-factory@sha256:${sha(manifest)}`
-  const state = { tamper: '', redirectUpload: false, uploaded: false, expandedSize: false, application: null as null | Record<string, unknown>, existingImage: '', repairSupported: true, paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
+  const state = { tamper: '', redirectUpload: false, uploaded: false, expandedSize: false, observability: undefined as undefined | { enabled: boolean }, application: null as null | Record<string, unknown>, existingImage: '', repairSupported: true, paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
   const calls: Array<{ path: string; init?: RequestInit }> = [], requests: Array<{ url: string; init?: RequestInit }> = []
   const api = vi.fn(async (_token: string, path: string, init?: RequestInit) => {
     calls.push({ path, init })
@@ -205,6 +206,7 @@ async function provisioningFixture() {
     throw new Error('Unexpected control-plane path ' + path)
   })
   const settings = vi.fn(async () => ({
+    observability: state.observability,
     bindings: [
       { type: 'd1', name: 'DB', database_id: 'existing-database' }, { type: 'secret_text', name: 'AUTH_SECRET' },
       { type: 'kv_namespace', name: 'TICKETS', namespace_id: 'existing-kv' }, { type: 'secret_text', name: 'GITHUB_AGENT_APP_PRIVATE_KEY' },
@@ -235,6 +237,15 @@ async function provisioningFixture() {
   function fixtureApplication() { if (!state.application) throw new Error('Missing fixture application'); return state.application }
   return { enable: (consent = true) => module.enableL4Factory('browser-cloudflare-grant', accountId, workerName, consent), state, calls, requests, expectedImage }
 }
+
+it.each([undefined, { enabled: false }])('preserves Factory provisioning observability settings: %j', async observability => {
+  const fixture = await provisioningFixture()
+  fixture.state.observability = observability
+  await fixture.enable()
+  const uploaded = fixture.calls.find(call => call.path.includes('/workers/scripts/'))!
+  const metadata = JSON.parse(String((uploaded.init!.body as FormData).get('metadata')))
+  expect(metadata.observability).toMatchObject(observability ?? { enabled: true, redact_query_string: true })
+})
 
 it('repairs an old image only when Factory has never admitted a Node or Task source', async () => {
   const fixture = await provisioningFixture()
@@ -409,7 +420,7 @@ async function cloudAlarmFixture() {
   const values = new Map<string, unknown>(), events: string[] = []
   const inputs: Array<{ script: string; input: Record<string, unknown>; user: string | undefined }> = []
   const phases: Array<{ phase: string; token?: string; remote?: string; actionId: string }> = []
-  const state = { running: false, image, checkpointFails: false, checkpointCount: 0 }
+  const state = { running: false, image, checkpointFails: false, checkpointCount: 0, stderrNoise: '', invalidOutput: false }
   const container = {
     get running() { return state.running },
     start: vi.fn(() => { state.running = true; events.push('start') }),
@@ -417,13 +428,14 @@ async function cloudAlarmFixture() {
     setInactivityTimeout: vi.fn(async () => {}),
     inspect: vi.fn(async () => ({ image: state.image })),
     interceptOutboundHttps: vi.fn(async (_host: string, binding: { props: { phase: string; token?: string; remote?: string; actionId: string } }) => { phases.push(binding.props) }),
-    exec: vi.fn(async (argv: string[], options: { stdin?: ReadableStream; user?: string } = {}) => {
+    exec: vi.fn(async (argv: string[], options: { stdin?: ReadableStream; user?: string; stdout?: string; stderr?: string } = {}) => {
       if (argv[0] === '/usr/bin/pkill') { expect(options.user).toBe('0:0'); events.push('kill-background'); return { exitCode: Promise.resolve(0), stdout: null } }
       if (argv.includes('--version')) return { exitCode: Promise.resolve(0), stdout: null }
-      const script = argv.at(-1)!, input = JSON.parse(await new Response(options.stdin).text()) as Record<string, unknown>
+      const script = argv.at(-1) === cloudCodeBridge ? '/opt/l4/cloud-io.mjs' : argv.at(-1)!, input = JSON.parse(await new Response(options.stdin).text()) as Record<string, unknown>
       inputs.push({ script, input, user: options.user })
       expect(options.user).toBe('1000:1000')
       expect(argv[0]).toBe('/usr/bin/prlimit')
+      expect(options.stdout).toBe('pipe'); expect(options.stderr).toBe('pipe')
       let output: unknown
       if (script.endsWith('/cloud-io.mjs')) {
         if (input.operation === 'bootstrap') { expect(phases.at(-1)?.phase).toBe('source'); events.push('source-cloned'); output = { ok: true } }
@@ -434,7 +446,7 @@ async function cloudAlarmFixture() {
           output = state.checkpointFails ? { ok: false } : { ok: true, checkpoint: (state.checkpointCount === 1 ? 'c' : 'd').repeat(40), head: 'a'.repeat(40), tree: 'e'.repeat(40) }
         }
       } else { expect(script).toBe('/opt/l4/operate.mjs'); expect(phases.at(-1)?.phase).toBe('command'); events.push('command-completed'); output = { ok: true, exitCode: 0, output: 'Approved tests passed' } }
-      return { exitCode: Promise.resolve(0), stdout: new Response(JSON.stringify(output)).body }
+      return { exitCode: Promise.resolve(0), stdout: new Response(state.invalidOutput ? 'not-json' : JSON.stringify(output)).body, stderr: new Response(state.stderrNoise).body }
     }),
   }
   const handles: Array<{ revokeToken: ReturnType<typeof vi.fn>; [Symbol.dispose]: ReturnType<typeof vi.fn> }> = []
@@ -499,6 +511,28 @@ it('runs approved Cloud bootstrap through scoped claim, durable checkpoint/recei
   expect(f.db.prepare('SELECT commands FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 2 })
   expect(fixture.container.destroy).toHaveBeenCalledTimes(2)
   expect(JSON.stringify(fixture.inputs)).not.toContain('capability')
+})
+
+it('keeps helper warnings separate from its JSON protocol', async () => {
+  const fixture = await cloudAlarmFixture()
+  fixture.state.stderrNoise = 'Runtime warning containing private-diagnostic-data'
+  await fixture.queue(); await fixture.instance.alarm()
+  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
+  expect(row.status).toBe('completed')
+  expect(String(row.result_json)).not.toContain('private-diagnostic-data')
+})
+
+it('records a safe failure stage without leaking diagnostics or replaying malformed output', async () => {
+  const fixture = await cloudAlarmFixture()
+  fixture.state.invalidOutput = true
+  fixture.state.stderrNoise = 'private-diagnostic-data'
+  await fixture.queue(); await fixture.instance.alarm()
+  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
+  expect(row.status).toBe('uncertain')
+  expect(JSON.parse(String(row.result_json))).toMatchObject({ failureStage: 'source_bootstrap', failureCode: 'helper_json', checkpoint: null })
+  expect(String(row.result_json)).not.toContain('private-diagnostic-data')
+  await fixture.instance.alarm()
+  expect(fixture.inputs).toHaveLength(1)
 })
 
 it('does not clone or acknowledge code when the running Cloud image differs from the approved digest', async () => {

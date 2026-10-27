@@ -6,6 +6,8 @@ import { durableObjectMigrations } from './migrations.js'
 import { randomBase64Url } from './random.js'
 import { ensureCloudflareAccess, ensureWorkersHostname } from './access.js'
 import { factoryInstanceType, factoryScriptContainer } from './factory-bindings.js'
+import { workerObservability } from './observability.js'
+export { workerObservability } from './observability.js'
 
 export type ExistingWorkerBinding = {
   name: string
@@ -56,22 +58,6 @@ export type DeploymentHealth = {
   migrated?: boolean
   ownerSetup?: boolean
 }
-
-export const workerObservability = {
-  enabled: true,
-  redact_query_string: true,
-  logs: {
-    enabled: true,
-    invocation_logs: true,
-    head_sampling_rate: 1,
-    persist: true,
-  },
-  traces: {
-    enabled: true,
-    head_sampling_rate: 0.1,
-    persist: true,
-  },
-} as const
 
 export function requiresReadyVerification(existing: boolean, authMode: DeployRequest['authMode'], previousHealth: DeploymentHealth | null): boolean {
   if (!existing || authMode === 'access') return false

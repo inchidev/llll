@@ -7,9 +7,25 @@ import { computePoll, computePollSchema } from '../server/utils/compute-nodes'
 import { readLimitedStream } from './inbound-email-signature'
 import { getServerId } from '../shared/server-id'
 import { nowIso } from '../shared/ids'
+import { cloudCodeBridge } from './factory-code-bridge'
 
 type Receipt = Extract<ReturnType<typeof computePollSchema.parse>, { operation: 'result' }>
 type Checkpoint = { sha: string; repository: string; image: string; updatedAt: string }
+class FactoryIoError extends Error {
+  constructor(readonly code: 'helper_stream_limit' | 'helper_exit' | 'helper_json') { super(code) }
+}
+async function discardDiagnostics(stream: ReadableStream<Uint8Array> | null) {
+  if (!stream) return
+  const reader = stream.getReader(); let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      size += value?.byteLength ?? 0
+      if (size > 10000) { await reader.cancel().catch(() => undefined); throw new FactoryIoError('helper_stream_limit') }
+    }
+  } finally { reader.releaseLock() }
+}
 /** One DO and one private code repository per Task workspace. No HTTP workspace port is exposed. */
 export class FactoryComputeDurableObject extends DurableObject<L4Env> {
   override async fetch(request: Request): Promise<Response> {
@@ -67,13 +83,19 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
 
   private async command(script: string, input: unknown, limit = 400000, processLimit = 128) {
     const container = this.ctx.container!
-    const process = await container.exec(['/usr/bin/prlimit', `--nproc=${processLimit}`, '--', '/usr/local/bin/node', `/opt/l4/${script}`], {
-      user: '1000:1000', stdin: new Response(JSON.stringify(input)).body!, stderr: 'combined',
+    const args = script === 'cloud-io.mjs' ? ['--input-type=module', '-e', cloudCodeBridge] : [`/opt/l4/${script}`]
+    const process = await container.exec(['/usr/bin/prlimit', `--nproc=${processLimit}`, '--', '/usr/local/bin/node', ...args], {
+      user: '1000:1000', stdin: new Response(JSON.stringify(input)).body!, stdout: 'pipe', stderr: 'pipe',
       env: { HOME: '/tmp', PATH: '/usr/local/bin:/usr/bin:/bin', GIT_SSL_CAINFO: '/etc/cloudflare/certs/cloudflare-containers-ca.crt', NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt' },
     })
-    const output = await readLimitedStream(process.stdout, limit)
-    if (!output.ok || await process.exitCode !== 0) throw new Error('Container output or execution limit reached')
-    return JSON.parse(new TextDecoder().decode(output.bytes))
+    const [output] = await Promise.all([
+      readLimitedStream(process.stdout, limit),
+      discardDiagnostics(process.stderr),
+    ])
+    if (!output.ok) throw new FactoryIoError('helper_stream_limit')
+    if (await process.exitCode !== 0) throw new FactoryIoError('helper_exit')
+    try { return JSON.parse(new TextDecoder().decode(output.bytes)) }
+    catch { throw new FactoryIoError('helper_json') }
   }
 
   override async alarm(): Promise<void> {
@@ -123,6 +145,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       void computePoll(this.env, context.workspace.nodeId, { operation: 'heartbeat', ...claim }).then(() => this.ctx.storage.setAlarm(Date.now() + 15000)).catch(() => container.destroy()).catch(() => undefined)
     }, 3000)
     const deadline = setTimeout(() => { void container.destroy().catch(() => undefined) }, job.executionBudgetMs)
+    let stage = 'container_start'
     try {
       if (context.request.operation === 'release') {
         if (checkpoint) await this.env.FACTORY_CODE.delete(repository)
@@ -143,15 +166,18 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
           await container.interceptOutboundHttps('*', this.ctx.exports.FactoryOutbound({ props: { actionId, lease: claim.lease, phase: kind, remote, token } }))
         }
         if (context.request.operation === 'bootstrap') {
+          stage = 'source_bootstrap'
           if (checkpoint) throw new Error('Workspace already has acknowledged code')
           const source = `https://github.com/${context.environment.sourceRepo}.git`
           await phase('source', source, sourceToken)
           const restored = await this.command('cloud-io.mjs', { operation: 'bootstrap', remote: source, baseSha: job.baseSha }, 400000, capabilities.processLimit)
           if (!restored.ok) throw new Error('Source bootstrap failed')
+          stage = 'code_repository_create'
           const created = await this.env.FACTORY_CODE.create(repository, { description: `L4 private Task ${context.workspace.taskId}`, setDefaultBranch: 'l4-state' })
           repo = await this.env.FACTORY_CODE.get(repository)
           await repo.revokeToken(created.token)
         } else {
+          stage = 'checkpoint_restore'
           if (!checkpoint || checkpoint.repository !== repository || checkpoint.image !== capabilities.image) throw new Error('Checkpoint or image recovery needs inspection')
           repo = await this.env.FACTORY_CODE.get(repository)
           const info = await repo.info(), token = await repo.createToken('read', 180)
@@ -163,11 +189,13 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
         }
         await phase('command')
       }
+      stage = 'operation'
       let result: { ok: boolean; exitCode: number; output: string; runtimeMs?: number; snapshot?: unknown } = context.request.operation === 'bootstrap'
         ? { ok: true, exitCode: 0, output: `Pinned checkout ${job.baseSha}` }
         : context.request.operation === 'release' ? { ok: true, exitCode: 0, output: 'Task code repository explicitly released' }
           : await this.command('operate.mjs', { request: context.request, baseSha: job.baseSha }, 400000, capabilities.processLimit)
       if (context.request.operation !== 'release') {
+        stage = 'checkpoint_write'
         const stop = await container.exec(['/usr/bin/pkill', '-KILL', '-u', '1000'], { user: '0:0', stdout: 'ignore', stderr: 'ignore' }); await stop.exitCode
         if (!repo) throw new Error('Private code repository unavailable')
         const info = await repo.info(), token = await repo.createToken('write', 180)
@@ -179,15 +207,17 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
         await this.ctx.storage.put('checkpoint', checkpoint)
       }
       result = { ...result, runtimeMs: Math.min(900000, Date.now() - started) }
+      stage = 'receipt_delivery'
       const saved = computePollSchema.parse({ operation: 'result', ...claim, result })
       if (saved.operation !== 'result') throw new Error('Invalid receipt')
       await this.ctx.storage.put('receipt', saved)
       await computePoll(this.env, context.workspace.nodeId, saved)
       await this.ctx.storage.delete(['action', 'receipt', 'started'])
-    } catch {
+    } catch (error) {
       if (await this.ctx.storage.get('receipt')) { await this.ctx.storage.setAlarm(Date.now() + 3000); return }
       await this.env.DB.prepare("UPDATE factory_actions SET status='uncertain',result_json=? WHERE id=? AND status IN ('claimed','executing')")
-        .bind(JSON.stringify({ message: 'Execution or durable code checkpoint could not be confirmed. The last acknowledged checkpoint is retained; inspect capacity, provider availability and interrupted effects. This command will not be replayed.', checkpoint: checkpoint?.sha ?? null }), actionId).run()
+        .bind(JSON.stringify({ message: 'Execution or durable code checkpoint could not be confirmed. The last acknowledged checkpoint is retained; inspect capacity, provider availability and interrupted effects. This command will not be replayed.', checkpoint: checkpoint?.sha ?? null,
+          failureStage: stage, failureCode: error instanceof FactoryIoError ? error.code : 'execution_failed' }), actionId).run()
       await this.ctx.storage.delete(['action', 'started'])
     } finally {
       clearInterval(heartbeat); clearTimeout(deadline)

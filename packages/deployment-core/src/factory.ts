@@ -5,6 +5,7 @@ import { loadL4Release, releaseManifestUrl } from './release.js'
 import { createError } from './errors.js'
 import { factoryApplicationSizeMatches, factoryScriptContainer, type FactoryApplicationConfiguration } from './factory-bindings.js'
 import { beginUnusedFactoryRepair } from './factory-repair.js'
+import { workerObservability } from './observability.js'
 
 type FactoryAsset = { sha256: string; size: number }
 type FactoryRelease = { schemaVersion: number; version: string; manifestDigest: string; files: Record<string, FactoryAsset>; layers: { file: string; digest: string; size: number }[] }
@@ -144,7 +145,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   // Re-upload only the installed, checksum-verified immutable release. Keep original data, assets, secrets and integrations.
   const form = new FormData()
   form.append('metadata', JSON.stringify({ main_module: 'llll-worker.mjs', compatibility_date: release.manifest.compatibilityDate, compatibility_flags: release.manifest.compatibilityFlags,
-    bindings, keep_assets: true, containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), factoryScriptContainer(workerName, image, size.instance_type)], tags: current.tags, annotations: current.annotations }))
+    bindings, keep_assets: true, observability: current.observability ?? workerObservability, containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), factoryScriptContainer(workerName, image, size.instance_type)], tags: current.tags, annotations: current.annotations }))
   form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
   await cloudflareApi(accessToken, `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`, { method: 'PUT', body: form })
   const deployed = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
