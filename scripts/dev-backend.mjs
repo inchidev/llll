@@ -1,14 +1,15 @@
 import { resolve } from 'node:path'
-import { cp, mkdir, readdir, rm, writeFile, rename } from 'node:fs/promises'
 import { buildNuxt, loadNuxt, useNitro } from 'nuxt/kit'
 import { build, prepare } from 'nitropack'
 import { createWatchHeadersPlugin } from './watch-headers.mjs'
+import { createBackendPublisher } from './publish-backend.mjs'
 
 // Generate Nuxt's server imports and templates without building the Client.
 // The production preset/entry stays the same; only Rollup's watch loop is enabled.
 const root = resolve(import.meta.dirname, '..')
 const output = resolve(root, '.deployment/dev-stack/backend-build')
 const published = resolve(root, '.deployment/dev-stack/backend')
+const publish = createBackendPublisher(output, published)
 const nuxt = await loadNuxt({
   cwd: root,
   dev: false,
@@ -39,14 +40,7 @@ const nitro = nuxt.runWithContext(() => useNitro())
 nitro.hooks.hook('compiled', async () => {
   // celld reads an immutable snapshot, so another Rollup build cannot change
   // chunks halfway through a deploy. The marker is published last.
-  const directory = `build-${Date.now()}`
-  await mkdir(published, { recursive: true })
-  await cp(output, resolve(published, directory), { recursive: true })
-  const marker = resolve(published, '.build.json')
-  await writeFile(marker + '.tmp', JSON.stringify({ builtAt: new Date().toISOString(), directory }))
-  await rename(marker + '.tmp', marker)
-  const previous = (await readdir(published)).filter(name => /^build-\d+$/.test(name)).sort().slice(0, -5)
-  for (const name of previous) await rm(resolve(published, name), { recursive: true })
+  await publish()
   console.log('llll: backend compiled; celld will adopt this build')
 })
 await prepare(nitro)
