@@ -59,7 +59,7 @@ useSeoMeta({
 useHead({
   link: [
     { rel: 'canonical', href: siteUrl },
-    { rel: 'preload', href: '/fonts/caveat-l4-bold.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
+    { rel: 'preload', href: '/fonts/rubik-storm-l4.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
   ],
   script: [{
     type: 'application/ld+json',
@@ -262,9 +262,9 @@ useHead({
 
 <style scoped>
 @font-face {
-  font-family: 'L4 Handwritten';
-  src: url('/fonts/caveat-l4-bold.woff2') format('woff2');
-  font-weight: 700;
+  font-family: 'Rubik Storm';
+  src: url('/fonts/rubik-storm-l4.woff2') format('woff2');
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
@@ -274,10 +274,9 @@ useHead({
   place-items: center;
 }
 .hero-wordmark {
-  font-family: 'L4 Handwritten', cursive;
-  font-weight: 700;
+  font-family: 'Rubik Storm', sans-serif;
+  font-weight: 400;
   font-size: clamp(22rem, 55vw, 36rem);
-  transform: rotate(-7deg);
   line-height: .8;
   letter-spacing: -.08em;
 }
@@ -285,7 +284,7 @@ useHead({
   font-size: clamp(2.625rem, 6.8vw, 6rem);
 }
 @media (max-width: 639px) {
-  .hero-wordmark { font-size: 22rem; }
+  .hero-wordmark { font-size: clamp(16rem, 72vw, 22rem); }
 }
 @media (min-width: 1024px) and (max-height: 760px) {
   .hero { padding-block: 3rem; }
