@@ -260,19 +260,28 @@ useHead({
 </template>
 
 <style scoped>
+.hero-heading {
+  display: grid;
+  min-height: clamp(18rem, 40vw, 27rem);
+  place-items: center;
+}
 .hero-wordmark {
   font-weight: 900;
-  -webkit-text-stroke: .012em currentColor;
-  font-size: clamp(17rem, 42vw, 26rem);
+  -webkit-text-stroke: .02em currentColor;
+  font-size: clamp(19rem, 45vw, 36rem);
+  transform: scaleX(1.65);
   line-height: .85;
   letter-spacing: -.08em;
 }
 .hero-title {
   font-size: clamp(2.625rem, 6.8vw, 6rem);
 }
+@media (max-width: 639px) {
+  .hero-wordmark { transform: scaleX(.9); }
+}
 @media (min-width: 1024px) and (max-height: 760px) {
   .hero { padding-block: 3rem; }
-  .hero-heading { padding-block: 2rem; }
-  .hero-wordmark { font-size: 22rem; }
+  .hero-heading { min-height: 17rem; padding-block: 2rem; }
+  .hero-wordmark { font-size: 24rem; }
 }
 </style>
