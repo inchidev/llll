@@ -4,7 +4,7 @@ This is the product glossary. See [product scope](docs/product.md), [runtime arc
 
 ## L4
 
-Free MIT licensed software for independent communities. A community gathers in a Server. Chat is the starting point; Tasks, Mail, Data, Apps and Agents are capabilities within that Server.
+An MIT licensed workspace for humans and agents. People and Agents discuss work in a Server, organize it into Projects and Tasks, and work with connected repositories and shared information. Chat is a starting point for work. Mail, Data and Apps are capabilities within the same Server.
 
 ## Server
 

@@ -26,7 +26,7 @@ it('shows the activation error in the Factory card', async () => {
   } } })
   try {
     await flushPromises()
-    expect(view.text()).toContain('Factory disabled')
+    expect(view.text()).toContain('Compute node disabled')
     await view.get('input[type="checkbox"]').setValue(true)
     await view.get('button').trigger('click')
     await flushPromises()

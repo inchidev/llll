@@ -46,7 +46,7 @@ async function finishBootstrap(){
   await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'});await approve()
   const claim=await computePoll(f.env,nodeId,{operation:'claim'}),job=claim.job!
   const started=await computePoll(f.env,nodeId,{operation:'begin',...job})
-  expect(started).toMatchObject({repository:'inchidev/afterprompt',baseSha:'a'.repeat(40),sourceToken:'single-repository-read-capability'})
+  expect(started).toMatchObject({repository:'inchidev/afterprompt',baseSha:'a'.repeat(40),sourceToken:'single-repository-read-capability',diskBytes:1073741824})
   await computePoll(f.env,nodeId,{operation:'result',...job,result:{ok:true,exitCode:0,output:'Pinned checkout',runtimeMs:123}})
 }
 it('waits for an exact human decision, delivers one scoped job and deduplicates completed tool calls',async()=>{
@@ -61,6 +61,12 @@ it('waits for an exact human decision, delivers one scoped job and deduplicates 
   expect(await call()).toMatchObject({ok:true,output:'Pinned checkout'})
   expect(await computePoll(f.env,nodeId,{operation:'claim'})).toEqual({job:null})
   expect(f.db.prepare('SELECT count(*) AS n FROM factory_actions').get()).toMatchObject({n:1})
+})
+it.each([1073741824, 10737418240])('delivers the paired Node disk policy without resizing retained work: %i bytes', async diskBytes => {
+  f.db.prepare('UPDATE compute_nodes SET capabilities_json=? WHERE id=?').run(JSON.stringify({ ...capabilities, diskBytes }), nodeId)
+  await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'});await approve()
+  const {job}=await computePoll(f.env,nodeId,{operation:'claim'})
+  expect(await computePoll(f.env,nodeId,{operation:'begin',...job!})).toMatchObject({diskBytes})
 })
 it('denies modified arguments, forged operations and protected paths without touching compute',async()=>{
   await factoryToolCall(f.env,run.id,'one-call',{operation:'bootstrap'})

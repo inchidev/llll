@@ -29,7 +29,7 @@ async function decide(action: FactoryAction, decision: 'approve' | 'reject') {
 </script>
 <template>
   <section v-if="query.data.value?.workspace || query.error.value" class="space-y-4 rounded-lg border border-default p-4">
-    <h2 class="font-medium">Software Factory</h2>
+    <h2 class="font-medium">Task workspace</h2>
     <LayoutLoadError v-if="query.error.value" message="Private workspace actions did not load." :retry="query.refetch" />
     <template v-if="query.data.value?.workspace">
       <p class="break-all text-sm">Repository: {{ query.data.value.workspace.repository }} · {{ query.data.value.workspace.baseBranch }} → {{ query.data.value.workspace.branch }}</p>

@@ -4,7 +4,7 @@ import { runProcess } from './process.mjs'
 
 /** Trusted Linux broker only. Each mounted filesystem has a fixed allocated block capacity. */
 export class LoopDiskStore {
-  constructor(root,{bytes=1073741824,maxDisks=4,runner=runProcess,ownerUid=1000,ownerGid=1000}={}) {
+  constructor(root,{bytes=10737418240,maxDisks=4,runner=runProcess,ownerUid=1000,ownerGid=1000}={}) {
     this.root=resolve(root);this.bytes=bytes;this.maxDisks=maxDisks;this.runner=runner;this.ownerUid=ownerUid;this.ownerGid=ownerGid
   }
   paths(id) {

@@ -12,7 +12,7 @@ if (serverOrigin(config.PUBLIC_ORIGIN) !== origin) throw new Error('Local pairin
 const state = await openNodeState(process.env.LLLL_NODE_STATE)
 try {
   if (!state.connection(origin)) {
-    const capabilities = { diskBytes: 1073741824, docker: true, durableDisk: true, isolation: 'shared-kernel', image: process.env.LLLL_WORKSPACE_IMAGE, maxParallel: 1, protocol: 1 }
+    const capabilities = { diskBytes: 10737418240, docker: true, durableDisk: true, isolation: 'shared-kernel', image: process.env.LLLL_WORKSPACE_IMAGE, maxParallel: 1, protocol: 1 }
     const { nodeId, token } = state.localPairing(origin)
     const body = JSON.stringify({ nodeId, token, capabilities, timestamp: Date.now() })
     const signature = createHmac('sha256', config.AUTH_SECRET).update('l4-local-compute-v1\n' + origin + '\n' + body).digest('hex')

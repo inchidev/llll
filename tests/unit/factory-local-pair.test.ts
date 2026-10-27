@@ -141,6 +141,16 @@ it('requires a new pairing identity when the released workspace image or declare
   expect(await requireComputeNode(fixture.env, token)).toEqual({ id: nodeId })
 })
 
+it('accepts a new 10 GiB Node while retaining existing 1 GiB Nodes', async () => {
+  await request()
+  const expandedId = '00000000-0000-4000-8000-000000000092'
+  const expanded = { ...capabilities, diskBytes: 10737418240 }
+  await request(payload({ nodeId: expandedId, token: 'd'.repeat(64), capabilities: expanded }))
+  expect(nodes()).toHaveLength(2)
+  expect(JSON.parse(nodes().find(node => node.id === nodeId)!.capabilities_json as string).diskBytes).toBe(1073741824)
+  expect(JSON.parse(nodes().find(node => node.id === expandedId)!.capabilities_json as string).diskBytes).toBe(10737418240)
+})
+
 it('cancels an oversized streaming body before waiting for its completion or checking a signature', async () => {
   const cancel = vi.fn(), stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array(4097)) }, cancel })
   const webRequest = new Request(origin + '/api/compute-agent/local-pair', { method: 'POST', body: stream, duplex: 'half' } as RequestInit)

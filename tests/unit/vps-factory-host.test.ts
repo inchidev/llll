@@ -149,7 +149,7 @@ project=factory-fixture
 version=${version}
 need() { :; }
 uname() { printf 'x86_64\\n'; }
-df() { printf 'Avail\\n12345678900\\n'; }
+df() { printf 'Avail\\n23456789000\\n'; }
 awk() { if [[ $1 == *MemAvailable:* ]]; then printf '4000000\\n'; else command awk "$@"; fi; }
 release_metadata() { base=${JSON.stringify(assets)}; }
 validate_metadata() { :; }

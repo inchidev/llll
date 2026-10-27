@@ -40,7 +40,7 @@ const roleItems = computed(() => [
 ])
 async function useTaskRole(factory = false) {
   if (!(factory ? canUseFactoryRole.value : canUseTaskRole.value) || busy.value) return
-  const permissions = factory ? FactoryAgentPermissions : TaskAgentPermissions, name = factory ? 'Factory agent' : 'Task agent'
+  const permissions = factory ? FactoryAgentPermissions : TaskAgentPermissions, name = factory ? 'Developer agent' : 'Task agent'
   const existing = roles.data.value?.roles.find(role => role.name === name && role.permissions === permissions && resourceAccessWithin(role.resourceAccess ?? {}, mine?.value?.role.resourceAccess))
   if (existing) { roleId.value = existing.id; return }
   creatingRole.value = true
@@ -262,8 +262,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <LayoutLoadError v-if="roles.error.value" message="Roles did not load." :retry="roles.refetch" inline />
         <p v-if="selectedSummary" class="mt-2 text-sm text-muted">{{ selectedSummary }}</p>
         <p v-if="selectedGrants" class="mt-1 text-xs text-muted">Permissions: {{ selectedGrants }}.</p>
-        <UButton v-if="canUseFactoryRole" class="mt-2" label="Use Factory agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(true)" />
-        <p v-if="canUseFactoryRole" class="text-xs text-muted">Factory grants Read projects, Read tasks, Execute assigned tasks, Send messages, Use a computer and Propose code changes within your selected resource scopes. Each coding operation still needs human review.</p>
+        <UButton v-if="canUseFactoryRole" class="mt-2" label="Use developer agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(true)" />
+        <p v-if="canUseFactoryRole" class="text-xs text-muted">This role grants Read projects, Read tasks, Execute assigned tasks, Send messages, Use a computer and Propose code changes within your selected resource scopes. Each coding operation still needs human review.</p>
         <template v-if="canUseTaskRole">
           <UButton class="mt-2" label="Use task agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(false)" />
           <p class="mt-1 text-xs text-muted">Creates or selects a role with Read tasks, Create and update tasks, Execute assigned tasks and Send messages. New roles inherit your resource limits and grant no administration or computer tools. Save the agent to apply the selection.</p>

@@ -107,7 +107,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
       </dl>
       <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
       <details v-if="runQ.data.value?.factoryCalls?.length" class="space-y-3 rounded-lg border border-default p-4">
-        <summary class="cursor-pointer font-medium">Private Factory tool audit</summary>
+        <summary class="cursor-pointer font-medium">Private workspace tool audit</summary>
         <article v-for="call in runQ.data.value.factoryCalls" :key="call.callId" class="space-y-2 border-t border-default pt-3">
           <p class="break-all text-sm">{{ call.callId }} · {{ call.status }} · {{ new Date(call.createdAt).toLocaleString() }}</p>
           <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{{ call.argumentsJson }}</pre>
@@ -117,7 +117,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
       <AgentsFactoryReview v-if="run.hasFactory" :run-id="run.id" :active="['queued', 'running'].includes(run.status)" />
       <section v-if="runQ.data.value?.security" class="space-y-3">
         <h2 class="text-sm font-medium">Tool security</h2>
-        <UAlert color="neutral" title="Sensitive actions require review" :description="runQ.data.value.security.untrustedContext ? 'This conversation contains untrusted content. Software Factory operations use the exact private reviews above. Other model-selected Server writes and outbound integrations remain blocked, including across retries.' : 'Software Factory operations require exact private review above. Other model-selected Server writes and outbound integrations remain blocked.'" />
+        <UAlert color="neutral" title="Sensitive actions require review" :description="runQ.data.value.security.untrustedContext ? 'This conversation contains untrusted content. Workspace operations use the exact private reviews above. Other model-selected Server writes and outbound integrations remain blocked, including across retries.' : 'Workspace operations require exact private review above. Other model-selected Server writes and outbound integrations remain blocked.'" />
         <p class="text-xs text-muted">Run content is private to you. Shared chat and Task views receive only a safe notice. These are context-policy decisions; an allowed decision does not mean the operation completed.</p>
         <ul v-if="runQ.data.value.security.decisions.length" class="space-y-1 text-xs text-muted">
           <li v-for="(decision, index) in runQ.data.value.security.decisions.slice(-20)" :key="index" class="break-all">{{ decision.tool }} · {{ decision.effect }} · {{ decision.decision }}<span v-if="decision.untrustedContext"> · Untrusted context</span><span v-if="decision.decision === 'blocked'"> · Human review required</span></li>
@@ -138,7 +138,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><ChatMarkdownView :content="run.resultText" class="text-sm text-default" /></section>
       <section v-if="run.status === 'completed' && run.resultText?.trim() && can(Permission.approveAgentActions)" class="space-y-3 rounded-lg border border-default p-4">
         <h2 class="text-sm font-medium">Share result</h2>
-        <p class="text-xs text-muted">The result above is private. Sharing posts the exact reviewed text as this Agent in the original conversation. Factory workspace and GitHub publication actions have their own exact reviews.</p>
+        <p class="text-xs text-muted">The result above is private. Sharing posts the exact reviewed text as this Agent in the original conversation. Workspace and GitHub publication actions have their own exact reviews.</p>
         <p v-if="run.resultText.trim().length > 2000" class="text-sm text-muted">Results over 2000 characters cannot be shared through this review.</p>
         <template v-else-if="runQ.data.value?.publication && ['completed', 'executing', 'uncertain'].includes(runQ.data.value.publication.status)">
           <p class="text-sm">Publication: {{ runQ.data.value.publication.status }}</p>

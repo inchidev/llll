@@ -19,7 +19,7 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   return { placement, resources, usage, state: cloud ? cloud.enabled ? usage?.recoveryRequired ? 'failed_recovery' : 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
     nodeId: cloud?.id ?? null, image: env.FACTORY_IMAGE ?? limits?.image ?? null, limits,
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
-    cli: placement === 'vps' ? 'sudo llll factory enable --trust-shared-kernel' : null,
+    cli: placement === 'vps' ? 'sudo llll compute enable --trust-shared-kernel' : null,
     durability: 'Task code, Git history and pending source edits are checkpointed. Dependencies, build output, process memory and running services are disposable.',
     costs: placement === 'vps'
       ? 'This VPS executor uses your host CPU, disk and network. Model-provider usage is billed separately.'

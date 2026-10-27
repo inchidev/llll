@@ -668,7 +668,7 @@ factory_command() {
       for tool in fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$tool"; done
       if [[ $no_systemd != true ]]; then need systemctl; fi
       [[ $(uname -m) == x86_64 ]] || fail 'The released Compute Node supports Linux amd64.'
-      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 7516192768 ]] || fail 'Factory needs 7 GiB free disk capacity, including reserve for the Server.'
+      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 18253611008 ]] || fail 'Compute Node needs 17 GiB free disk capacity for a 10 GiB Task workspace, its image and reserve for the Server.'
       [[ $(awk '/MemAvailable:/ {print $2}' /proc/meminfo) -ge 2097152 ]] || fail 'Factory needs 2 GiB available RAM, including reserve for the Server.'
       release_metadata "$version"
       validate_metadata "$version"
@@ -824,7 +824,7 @@ main() {
         backup) backup_stack ;;
         upgrade) upgrade_server "${1:-}" ;;
         domain) domain_command "$@" ;;
-        factory) factory_command "$@" ;;
+        compute|factory) factory_command "$@" ;;
         uninstall) uninstall_server "$@" ;;
         *) fail 'Usage: llll status|logs|start|stop|backup|restore <file>|upgrade [version]|domain list|add <hostname>|remove <hostname>|primary <hostname>|uninstall [--purge] [--yes] [--no-backup]' ;;
       esac

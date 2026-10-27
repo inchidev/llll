@@ -53,7 +53,7 @@ async function remove(){const c=removeTarget.value;if(!c)return;await action(c.i
 <template>
   <div class="min-w-0 space-y-5">
     <div><h1 class="text-xl font-semibold text-highlighted">Tools</h1><p class="mt-2 text-sm text-muted">Connect read-only sources, inspect Agent capabilities and review tool activity.</p></div>
-    <UAlert color="neutral" title="Sensitive tool calls require review" description="Software Factory actions use exact review in the initiating Member’s private Run. Other model-selected outbound calls and Server writes remain blocked. Connection setup and health checks remain available." />
+    <UAlert color="neutral" title="Sensitive tool calls require review" description="Workspace actions use exact review in the initiating Member’s private Run. Other model-selected outbound calls and Server writes remain blocked. Connection setup and health checks remain available." />
     <nav class="flex flex-wrap gap-2" aria-label="Tools sections"><UButton v-for="item in tabs" :key="item.value" :label="item.label" :aria-pressed="tab===item.value" :variant="tab===item.value?'solid':'outline'" color="neutral" @click="tab=item.value" /></nav>
     <LayoutSkeleton v-if="settingsQ.isPending.value" variant="form" />
     <LayoutLoadError v-else-if="settingsQ.error.value" message="Tools could not be loaded." :retry="settingsQ.refetch" />
@@ -91,7 +91,7 @@ async function remove(){const c=removeTarget.value;if(!c)return;await action(c.i
         <p v-if="settings.preview&&!tools.length" class="text-sm text-muted">No tools match the current access and search.</p>
         <details v-for="tool in tools" :key="tool.name" class="min-w-0 rounded-lg border border-default p-4"><summary class="cursor-pointer break-all text-sm">{{ tool.provenance?.remoteName??tool.name }} · {{ tool.guidance.effect }} · {{ tool.guidance.cost }}</summary><p class="mt-2 break-words text-sm">{{ tool.description }}</p><p v-if="tool.provenance" class="mt-2 break-words text-xs text-muted">Connection: {{ tool.provenance.connectionName }} · revision {{ tool.provenance.revision }}</p><p class="mt-2 text-sm text-muted">{{ tool.guidance.trust }}</p><pre class="mt-2 max-h-64 overflow-auto text-xs">{{ JSON.stringify(tool.parameters,null,2) }}</pre></details>
       </template>
-      <template v-else-if="tab==='approvals'"><UAlert color="neutral" title="Review Factory actions in the private Run" description="The initiating Member reviews exact workspace commands, network hosts, changes and GitHub publication in that Run. General external-tool approvals remain unavailable; connection grants alone do not enable invocation." /></template>
+      <template v-else-if="tab==='approvals'"><UAlert color="neutral" title="Review workspace actions in the private Run" description="The initiating Member reviews exact workspace commands, network hosts, changes and GitHub publication in that Run. General external-tool approvals remain unavailable; connection grants alone do not enable invocation." /></template>
       <template v-else-if="tab==='audit'">
         <p class="text-sm text-muted">Safe activity for connections you manage. Prompts, arguments, results and credentials are excluded. Personal connections stay private, including from the Server Owner.</p>
         <UInput v-if="settings.mayAudit" v-model="auditSearch" aria-label="Search tool audit" placeholder="Search connection, actor, tool or status" class="w-full" />

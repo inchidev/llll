@@ -110,7 +110,7 @@ watch([factorySize, factoryTimeout, factoryProcesses], () => {
 async function enableFactory() {
   busy.value = true; error.value = ''
   try { await $fetch('/api/deploy/factory/enable', { method: 'POST', body: { accountId: String(route.query.account || ''), workerName: String(route.query.worker || ''), paidConsent: factoryConsent.value, size: factorySize.value, timeoutSeconds: factoryTimeout.value, processes: factoryProcesses.value }, timeout: 600000 }); factoryConnected.value = true }
-  catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Factory activation failed. Check Workers Paid, Containers availability and account access. No plan upgrade was performed; retry to reconcile the same resources.' }
+  catch (cause) { error.value = (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Compute node activation failed. Check Workers Paid, Containers availability and account access. No plan upgrade was performed; retry to reconcile the same resources.' }
   finally { busy.value = false }
 }
 const storageMode = computed(() => route.query?.storage === '1')
@@ -349,8 +349,8 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
     <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update a Server from a published release. Your Cloudflare account is billed directly, and the Server receives no account credential.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
     <p v-if="loading" role="status" class="text-sm text-muted">Checking Cloudflare connection…</p>
     <section v-if="factoryMode" class="space-y-4 rounded-xl border border-default p-5">
-      <h2 class="text-lg font-semibold">Enable Software Factory</h2>
-      <p class="text-sm text-muted">Connect the account that owns this Server. Factory uses optional paid Containers and Artifacts. Cloudflare bills compute, code storage and network separately from your model provider. R2 is independent. This action preserves the Server identity, existing data, secrets and repositories.</p>
+      <h2 class="text-lg font-semibold">Enable a compute node</h2>
+      <p class="text-sm text-muted">Connect the account that owns this Server. The compute node uses paid Containers and Artifacts. Cloudflare bills compute, code storage and network separately from your model provider. R2 is independent. This action preserves the Server identity, existing data, secrets and repositories.</p>
       <p class="text-xs text-muted">{{ factoryResources }}; one active operation and a 500 MB retained code budget per Task. Compute stops after each code checkpoint. Dependencies and builds are disposable. No automatic plan upgrade or alternate paid provider.</p>
       <UFormField label="Compute limit"><USelect v-model="factorySize" :items="factorySizes" class="w-full" /></UFormField>
       <UFormField label="Command timeout (seconds, up to 600)"><UInput v-model.number="factoryTimeout" type="number" :min="1" :max="600" /></UFormField>
@@ -358,8 +358,8 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
       <UCheckbox v-model="factoryConsent" label="I reviewed these resources and authorize their usage charges in my Cloudflare account." />
       <p v-if="connected && !factoryConsent && !factoryConnected" class="text-sm text-muted">Tick the checkbox to enable Provision. This browser keeps that choice across the Cloudflare redirect.</p>
       <UButton v-if="!factoryConnected" :to="oauthUrl" external :label="connected ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" color="neutral" variant="outline" />
-      <UButton v-if="!factoryConnected" label="Provision Factory" :disabled="!connected || !factoryConsent" :loading="busy" @click="enableFactory" />
-      <UAlert v-else title="Factory resources provisioned" description="Return to Settings → Repositories on your Server and activate Factory. Provisioning may take several minutes." color="success" />
+      <UButton v-if="!factoryConnected" label="Provision compute node" :disabled="!connected || !factoryConsent" :loading="busy" @click="enableFactory" />
+      <UAlert v-else title="Compute node resources provisioned" description="Return to Settings → Repositories on your Server and activate the compute node. Provisioning may take several minutes." color="success" />
     </section>
     <section v-else-if="storageMode" class="space-y-4 rounded-xl border border-default p-5">
       <h2 class="text-lg font-semibold">Connect R2 storage</h2>
