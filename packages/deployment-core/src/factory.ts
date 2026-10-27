@@ -3,7 +3,7 @@ import { cloudflareApi, cloudflareClient } from './cloudflare-client.js'
 import { readL4Server } from './servers.js'
 import { loadL4Release, releaseManifestUrl } from './release.js'
 import { createError } from './errors.js'
-import { factoryScriptContainer } from './factory-bindings.js'
+import { factoryApplicationSizeMatches, factoryScriptContainer, type FactoryApplicationConfiguration } from './factory-bindings.js'
 import { beginUnusedFactoryRepair } from './factory-repair.js'
 
 type FactoryAsset = { sha256: string; size: number }
@@ -76,7 +76,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const boundPolicy = existing.find(binding => binding.name === 'FACTORY_POLICY')
   const boundImage = existing.find(binding => binding.name === 'FACTORY_IMAGE')
   const image = `registry.cloudflare.com/${accountId}/${workerName}-factory@${factory.manifestDigest}`
-  type Application = { id: string; name: string; scheduling_policy: string; configuration: { image: string; instance_type: string }; durable_objects?: { namespace_id: string } }
+  type Application = { id: string; name: string; scheduling_policy: string; configuration: FactoryApplicationConfiguration; durable_objects?: { namespace_id: string } }
   const name = `${workerName}-factory`
   const applications = await cloudflareApi<Application[]>(accessToken, `/accounts/${accountId}/containers/applications`)
   const previousApplication = applications.find(app => app.name === name)
@@ -85,7 +85,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   if (previousApplication && previousApplication.scheduling_policy !== 'default') throw new Error('Existing Factory application scheduling policy differs; inspect its configuration before retrying')
   const changed = (boundPolicy && 'text' in boundPolicy && boundPolicy.text !== JSON.stringify(limits))
     || (boundImage && 'text' in boundImage && boundImage.text !== image)
-    || (previousApplication && (previousApplication.configuration.image !== image || previousApplication.configuration.instance_type !== size.instance_type))
+    || (previousApplication && (previousApplication.configuration.image !== image || !factoryApplicationSizeMatches(previousApplication.configuration, size)))
   let repair: Awaited<ReturnType<typeof beginUnusedFactoryRepair>> | undefined
   const database = existing.find(binding => binding.name === 'DB' && binding.type === 'd1')
   const query = async (sql: string, params: (string | number)[]) => {
@@ -153,7 +153,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const deployedApplications = await cloudflareApi<Application[]>(accessToken, `/accounts/${accountId}/containers/applications`)
   const application = deployedApplications.find(app => app.name === name)
   if (application && application.durable_objects?.namespace_id !== binding.namespace_id) throw new Error('Factory application belongs to a different namespace; inspect it before retrying')
-  if (application && (application.configuration.image !== image || application.configuration.instance_type !== size.instance_type || application.scheduling_policy !== 'default')) {
+  if (application && (application.configuration.image !== image || !factoryApplicationSizeMatches(application.configuration, size) || application.scheduling_policy !== 'default')) {
     if (!repair || application.id !== previousApplication?.id || application.scheduling_policy !== 'default') throw new Error('Existing Factory application configuration changed; inspect it before activation')
     await repair.check()
     await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications/${application.id}/rollouts`, { method: 'POST', body: JSON.stringify({ description: 'L4 unused Factory repair', strategy: 'rolling', kind: 'full_auto', step_percentage: 100, target_configuration: { image, instance_type: size.instance_type } }) })
@@ -161,7 +161,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
       await repair.check()
       const settled = await cloudflareApi<Application>(accessToken, `/accounts/${accountId}/containers/applications/${application.id}`)
       if (settled.durable_objects?.namespace_id !== binding.namespace_id || settled.scheduling_policy !== 'default') throw new Error('Factory application authority changed during rollout')
-      if (settled.configuration.image === image && settled.configuration.instance_type === size.instance_type) break
+      if (settled.configuration.image === image && factoryApplicationSizeMatches(settled.configuration, size)) break
       if (attempt >= 59) throw new Error('Factory image rollout is still pending. Retry provisioning once Cloudflare finishes.')
       await new Promise(resolve => setTimeout(resolve, 1000))
     }

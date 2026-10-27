@@ -175,7 +175,7 @@ async function provisioningFixture() {
     layers: [{ file: 'llll-workspace-layer-0.tar.gz', digest: 'sha256:' + sha(layer), size: Buffer.byteLength(layer) }] })
   const assets: Record<string, string> = { 'llll-factory.json': factory, 'llll-workspace-config.json': config, 'llll-workspace-layer-0.tar.gz': layer, 'llll-workspace-manifest.json': manifest }
   const expectedImage = `registry.cloudflare.com/${accountId}/${workerName}-factory@sha256:${sha(manifest)}`
-  const state = { tamper: '', redirectUpload: false, uploaded: false, application: null as null | Record<string, unknown>, existingImage: '', repairSupported: true, paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
+  const state = { tamper: '', redirectUpload: false, uploaded: false, expandedSize: false, application: null as null | Record<string, unknown>, existingImage: '', repairSupported: true, paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
   const calls: Array<{ path: string; init?: RequestInit }> = [], requests: Array<{ url: string; init?: RequestInit }> = []
   const api = vi.fn(async (_token: string, path: string, init?: RequestInit) => {
     calls.push({ path, init })
@@ -194,7 +194,9 @@ async function provisioningFixture() {
     if (path.endsWith('/containers/applications/existing/rollouts') && init?.method === 'POST') {
       const body = JSON.parse(String(init.body))
       expect(body).toMatchObject({ strategy: 'rolling', kind: 'full_auto', step_percentage: 100 })
-      fixtureApplication().configuration = body.target_configuration
+      fixtureApplication().configuration = state.expandedSize
+        ? { image: body.target_configuration.image, vcpu: 0.5, memory_mib: 4096, disk: { size_mb: 8000 } }
+        : body.target_configuration
       return state.application
     }
     if (path.endsWith('/containers/applications/existing')) return state.application
@@ -242,6 +244,25 @@ it('repairs an old image only when Factory has never admitted a Node or Task sou
   await expect(fixture.enable()).resolves.toMatchObject({ image: fixture.expectedImage })
   expect(fixture.state.application.configuration).toMatchObject({ image: fixture.expectedImage })
   expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it('completes an image rollout when the provider expands the reviewed instance size', async () => {
+  const fixture = await provisioningFixture()
+  f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes')
+  fixture.state.expandedSize = true
+  fixture.state.existingImage = 'old-image'
+  fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: 'old-image', vcpu: 0.5, memory_mib: 4096, disk: { size_mb: 8000 } }, scheduling_policy: 'default' }
+  await expect(fixture.enable()).resolves.toMatchObject({ image: fixture.expectedImage })
+  expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it('does not acquire repair authority for an unchanged expanded provider configuration', async () => {
+  const fixture = await provisioningFixture()
+  fixture.state.existingImage = fixture.expectedImage
+  fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: fixture.expectedImage, vcpu: 0.5, memory_mib: 4096, disk: { size_mb: 8000 } }, scheduling_policy: 'default' }
+  // Existing Node and source authority deliberately remain: only an actual change needs repair.
+  await expect(fixture.enable()).resolves.toMatchObject({ image: fixture.expectedImage })
+  expect(fixture.calls.some(call => call.path.endsWith('/rollouts'))).toBe(false)
 })
 
 it.each(['node', 'source'])('preserves the pinned image when existing Factory %s authority remains', async kind => {
