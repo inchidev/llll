@@ -59,7 +59,7 @@ useSeoMeta({
 useHead({
   link: [
     { rel: 'canonical', href: siteUrl },
-    { rel: 'preload', href: '/fonts/rubik-storm-l4.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
+    { rel: 'preload', href: '/fonts/moo-lah-lah-l4.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
   ],
   script: [{
     type: 'application/ld+json',
@@ -262,8 +262,8 @@ useHead({
 
 <style scoped>
 @font-face {
-  font-family: 'Rubik Storm';
-  src: url('/fonts/rubik-storm-l4.woff2') format('woff2');
+  font-family: 'Moo Lah Lah';
+  src: url('/fonts/moo-lah-lah-l4.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -274,7 +274,7 @@ useHead({
   place-items: center;
 }
 .hero-wordmark {
-  font-family: 'Rubik Storm', sans-serif;
+  font-family: 'Moo Lah Lah', sans-serif;
   font-weight: 400;
   font-size: clamp(22rem, 55vw, 36rem);
   line-height: .8;
