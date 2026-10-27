@@ -25,6 +25,8 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   const live = useLiveStore()
   const nuxt = useNuxtApp()
   const connection = ref<RealtimeConnection>('connecting')
+  const outstandingMessages = useState('llll-outstanding-messages', () => 0)
+  let reportedOutstanding = 0
 
   let ws: WebSocket | null = null
   let closed = false
@@ -45,6 +47,8 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   }
   function updateUnloadGuard() {
     if (typeof window === 'undefined') return
+    outstandingMessages.value += outstanding.size - reportedOutstanding
+    reportedOutstanding = outstanding.size
     const needed = outstanding.size > 0
     if (needed && !unloadGuardAttached) window.addEventListener('beforeunload', beforeUnload)
     if (!needed && unloadGuardAttached) window.removeEventListener('beforeunload', beforeUnload)

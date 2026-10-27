@@ -38,6 +38,7 @@ export function useShell() {
   const unclaimed = useState<Record<string, boolean>>('shell-unclaimed', () => ({}))
   const ready = useState<Record<string, boolean>>('shell-ready', () => ({}))
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
+  const pendingMessages = useState<Record<string, boolean>>('shell-pending-messages', () => ({}))
   const initialized = useState('shell-initialized', () => false)
   const frames = useState<Record<string, HTMLIFrameElement>>(
     'shell-frames',
@@ -310,6 +311,7 @@ export function useShell() {
       const m = parsed.data
       if (m.type === 'ready') {
         ready.value[server.origin] = true
+        pendingMessages.value[server.origin] = false
         send(server.origin, { type: 'theme', theme: 'dark' })
         if (
           server.origin === selected.value &&
@@ -351,9 +353,12 @@ export function useShell() {
         persist()
       }
       if (m.type === 'call') calls.value[server.origin] = m.active
+      if (m.type === 'delivery') pendingMessages.value[server.origin] = m.pending
     })
   }
   function forget(origin: string) {
+    if (pendingMessages.value[origin])
+      throw new Error('Wait for pending messages to be delivered before removing this Server')
     if (calls.value[origin])
       throw new Error('End the active call before removing this Server')
     servers.value = servers.value.filter((s) => s.origin !== origin)
@@ -364,6 +369,7 @@ export function useShell() {
     Reflect.deleteProperty(ready.value, origin)
     Reflect.deleteProperty(unclaimed.value, origin)
     Reflect.deleteProperty(calls.value, origin)
+    Reflect.deleteProperty(pendingMessages.value, origin)
     Reflect.deleteProperty(metadata.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()
@@ -383,6 +389,7 @@ export function useShell() {
     unclaimed,
     ownerSetupUrl,
     calls,
+    pendingMessages,
     frames,
     frameSrc,
     initialize,

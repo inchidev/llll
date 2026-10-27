@@ -45,6 +45,7 @@ class FakeWebSocket {
   }
 }
 
+const outstandingMessages = ref(0)
 let useChannelSocket: typeof ChannelSocketFactory
 let apiResponder: (path: string) => Promise<unknown> = async () => ({ token: 'test-token' })
 const queryData = new Map<string, unknown>()
@@ -90,6 +91,7 @@ beforeAll(async () => {
   vi.stubGlobal('useUiStore', () => ({ dmFrozen: false, liveSetupOpen: false }))
   vi.stubGlobal('useToast', () => ({ add: vi.fn() }))
   vi.stubGlobal('useSessionStore', () => ({ user: null }))
+  vi.stubGlobal('useState', () => outstandingMessages)
   vi.stubGlobal('useNuxtApp', () => ({ $queryClient: queryClient }))
   vi.stubGlobal('useApi', () => ({
     api: (path: string) => apiResponder(path),
@@ -103,6 +105,7 @@ describe('channel read reconnect delivery', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     FakeWebSocket.instances = []
+    outstandingMessages.value = 0
     queryData.clear()
     vi.clearAllMocks()
     apiResponder = async () => ({ token: 'test-token' })
@@ -339,6 +342,26 @@ describe('channel read reconnect delivery', () => {
       browser.dispatchEvent(closed)
       expect(closed.defaultPrevented).toBe(false)
     } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
+  it('aggregates pending delivery across sockets and decrements each acknowledgement or teardown once', async () => {
+    const browser = new EventTarget()
+    vi.stubGlobal('window', browser)
+    const first = useChannelSocket(ref('channel-1')), second = useChannelSocket(ref('channel-2'))
+    try {
+      await flush()
+      first.send({ t: 'message.create', content: 'private first', clientId: 'first' })
+      second.send({ t: 'message.create', content: 'private second', clientId: 'second' })
+      first.retry('first')
+      expect(outstandingMessages.value).toBe(2)
+      const socket = FakeWebSocket.instances[0]!
+      socket.message({ t: 'ack', clientId: 'first', id: 'message-1' })
+      expect(outstandingMessages.value).toBe(1)
+      first.disconnect(); first.disconnect()
+      expect(outstandingMessages.value).toBe(1)
+      second.disconnect(); second.disconnect()
+      expect(outstandingMessages.value).toBe(0)
+    } finally { first.disconnect(); second.disconnect(); vi.stubGlobal('window', undefined) }
   })
 
   it('does not attach a reload guard for reads or typing without an unsent message', async () => {
