@@ -522,6 +522,91 @@ it('keeps helper warnings separate from its JSON protocol', async () => {
   expect(String(row.result_json)).not.toContain('private-diagnostic-data')
 })
 
+it.each(['start', 'timeout setup', 'readiness', 'readiness exit'] as const)('records a failed receipt for %s before workspace effects, without permanently fencing the Task', async failure => {
+  const fixture = await cloudAlarmFixture()
+  const unavailable = () => { throw new Error('private-provider-diagnostic') }
+  if (failure === 'start') fixture.container.start.mockImplementationOnce(unavailable)
+  else if (failure === 'timeout setup') fixture.container.setInactivityTimeout.mockImplementationOnce(unavailable)
+  else {
+    vi.stubGlobal('scheduler', { wait: vi.fn(async () => {}) })
+    const execute = fixture.container.exec.getMockImplementation()!
+    fixture.container.exec.mockImplementation(async (argv, options) => {
+      if (argv.includes('--version')) {
+        if (failure === 'readiness exit') return { exitCode: Promise.resolve(1), stdout: null }
+        unavailable()
+      }
+      return execute(argv, options)
+    })
+  }
+  await fixture.queue(); await fixture.instance.alarm()
+  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
+  expect(row.status).toBe('failed')
+  expect(JSON.parse(String(row.result_json))).toMatchObject({ ok: false, exitCode: -1 })
+  expect(String(row.result_json)).toContain('before any workspace operation')
+  expect(String(row.result_json)).not.toContain('private-provider-diagnostic')
+  expect(fixture.inputs).toEqual([])
+  expect(fixture.artifacts.create).not.toHaveBeenCalled()
+  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1, status: 'new' })
+  expect(fixture.values.has('receipt')).toBe(false)
+  expect(fixture.values.has('action')).toBe(false)
+  await fixture.instance.alarm()
+  expect(fixture.container.start).toHaveBeenCalledTimes(1)
+  const retry = await factoryToolCall(f.env, run.id, 'separately-reviewed-bootstrap', { operation: 'bootstrap' })
+  expect(retry).toMatchObject({ factoryPending: true, status: 'pending' })
+  expect(retry.actionId).not.toBe(actionId)
+})
+
+it('retains the acknowledged checkpoint when the next container cannot start, and never replays that action', async () => {
+  const fixture = await cloudAlarmFixture()
+  await fixture.queue(); await fixture.instance.alarm()
+  const checkpoint = fixture.values.get('checkpoint')
+  const next = await factoryToolCall(f.env, run.id, 'read-after-checkpoint', { operation: 'read', path: 'fixture.txt' })
+  const row = f.db.prepare('SELECT digest FROM factory_actions WHERE id=?').get(next.actionId) as { digest: string }
+  await decideFactoryAction(f.env, run.id, ids.owner, { id: next.actionId, digest: row.digest, decision: 'approve' })
+  fixture.container.start.mockImplementationOnce(() => { throw new Error('private-provider-diagnostic') })
+  await fixture.queue(next.actionId); await fixture.instance.alarm()
+  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(next.actionId)).toMatchObject({ status: 'failed' })
+  expect(fixture.values.get('checkpoint')).toEqual(checkpoint)
+  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 2, status: 'ready' })
+  expect(fixture.inputs.filter(input => input.script.endsWith('/operate.mjs'))).toHaveLength(0)
+  expect(await factoryToolCall(f.env, run.id, 'read-after-checkpoint', { operation: 'read', path: 'fixture.txt' })).toMatchObject({ ok: false })
+  await fixture.instance.alarm()
+  expect(fixture.container.start).toHaveBeenCalledTimes(2)
+  const reviewed = await factoryToolCall(f.env, run.id, 'new-reviewed-read', { operation: 'read', path: 'fixture.txt' })
+  expect(reviewed).toMatchObject({ factoryPending: true, status: 'pending' })
+})
+
+it('retries delivery of a durable startup-failure receipt without restarting the container', async () => {
+  const fixture = await cloudAlarmFixture()
+  fixture.container.start.mockImplementationOnce(() => { throw new Error('Unavailable') })
+  const batch = f.env.DB.batch.bind(f.env.DB)
+  let interrupt = true
+  vi.spyOn(f.env.DB, 'batch').mockImplementation(async statements => {
+    if (interrupt && fixture.values.has('receipt')) { interrupt = false; throw new Error('Receipt transport interrupted') }
+    return batch(statements)
+  })
+  await fixture.queue(); await fixture.instance.alarm()
+  expect(fixture.values.get('receipt')).toMatchObject({ operation: 'result', result: { ok: false } })
+  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'executing' })
+  await fixture.instance.alarm()
+  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'failed' })
+  expect(fixture.values.has('receipt')).toBe(false)
+  expect(fixture.container.start).toHaveBeenCalledTimes(1)
+  expect(fixture.inputs).toEqual([])
+})
+
+it('keeps an unsuccessful reset of a previous container uncertain', async () => {
+  const fixture = await cloudAlarmFixture()
+  fixture.state.running = true
+  fixture.container.destroy.mockRejectedValueOnce(new Error('Private reset failure'))
+  await fixture.queue(); await fixture.instance.alarm()
+  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
+  expect(row.status).toBe('uncertain')
+  expect(JSON.parse(String(row.result_json))).toMatchObject({ failureStage: 'container_reset' })
+  expect(fixture.container.start).not.toHaveBeenCalled()
+  expect(fixture.inputs).toEqual([])
+})
+
 it('records a safe failure stage without leaking diagnostics or replaying malformed output', async () => {
   const fixture = await cloudAlarmFixture()
   fixture.state.invalidOutput = true
