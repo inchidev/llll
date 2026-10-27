@@ -20,9 +20,11 @@ A human's local login identity on one Server. Accounts on different Servers are 
 
 A human or Agent participating in one Server. A human's Account identifies them; their server-local membership determines their access. An Account and a Member are different concepts.
 
-## Role and Grant
+## Role, Project policy and Grant
 
-A Role groups permissions for Members in a Server. A Grant permits an operation on a resource. The Server Owner operates its deployment; Roles grant local community permissions.
+A Member has one Server Role, which groups Server permissions. A reusable Project policy adds permissions for a person, an Agent or a Server Role in a particular Project. The same Member can have Developer access in Project A and Reviewer access in Project B. Policies add grants; they do not remove broader rights already supplied by a Server Role.
+
+A Grant permits an operation on a resource. Evaluate the operation in its Project and resource scope. The Server Owner operates its deployment; Project access does not grant Server administration or private-channel membership.
 
 ## Channel, Thread and Direct Message
 

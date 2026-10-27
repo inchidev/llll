@@ -27,7 +27,7 @@ beforeEach(() => {
     if (url.endsWith('/channels')) return { channels: [{ id: 'general', name: 'general', type: 'text', visibility: 'server' }] }
     return { environments: [] }
   })
-  for (const [name, value] of Object.entries({ computed, reactive, ref, shallowRef, useTemplateRef, watch, definePageMeta: vi.fn(), useServer: () => ({ serverId: ref('server') }), useRoleGrants: () => ({ can: () => true }), useIsMobile: () => ref(false), useApi: () => ({ api }), useToast: () => ({ add: vi.fn() }), useRoute: () => ({ query: { board: 'board', task: '1001' } }), useNavActions: () => ({ createBoardOpen: ref(false) }), useSessionStore: () => ({ health: { bindings: {} } }), navigateTo: vi.fn(), errorMessage: String })) vi.stubGlobal(name, value)
+  for (const [name, value] of Object.entries({ computed, reactive, ref, shallowRef, useTemplateRef, watch, definePageMeta: vi.fn(), useServer: () => ({ serverId: ref('server') }), useRoleGrants: () => ({ can: () => true, canAnyProject: () => true }), useIsMobile: () => ref(false), useApi: () => ({ api }), useToast: () => ({ add: vi.fn() }), useRoute: () => ({ query: { board: 'board', task: '1001' } }), useNavActions: () => ({ createBoardOpen: ref(false) }), useSessionStore: () => ({ health: { bindings: {} } }), navigateTo: vi.fn(), errorMessage: String })) vi.stubGlobal(name, value)
 })
 afterEach(() => { view?.unmount(); client.clear(); vi.unstubAllGlobals() })
 async function render() {

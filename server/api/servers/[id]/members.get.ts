@@ -5,6 +5,9 @@ import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { toPublicUser } from '../../../utils/messages'
+import { loadProjectPolicies } from '../../../utils/project-policies'
+import { anyProjectPermission, projectPermissionAllowed } from '../../../../shared/project-access'
+import { parseResourceAccess } from '../../../../shared/resource-access'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
@@ -26,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const canViewRoleDetails = actor.isOwner
     || hasPermission(actor.perms, Permission.manageRoles)
     || hasPermission(actor.perms, Permission.manageChannels)
-  const canViewAgents = actor.isOwner || (hasPermission(actor.perms, Permission.useAgents) || hasPermission(actor.perms, Permission.manageAgents))
+  const canViewAgents = actor.isOwner || (hasPermission(actor.perms, Permission.useAgents) || hasPermission(actor.perms, Permission.manageAgents)) || anyProjectPermission(actor.authorization, Permission.useAgents)
 
   const rows = await db.select({
     user: users,
@@ -39,8 +42,9 @@ export default defineEventHandler(async (event) => {
     .where(eq(users.status, 'active'))
 
   return {
-    members: rows.filter(r => canViewAgents || r.user.kind !== 'agent').map((r) => ({
+    members: await Promise.all(rows.filter(r => canViewAgents || r.user.kind !== 'agent').map(async (r) => ({
       user: toPublicUser(r.user),
+      projectPolicies: (await loadProjectPolicies(env, r.user.id, r.role.id)).filter(grant => canViewRoleDetails || r.user.id === actor.user.id || projectPermissionAllowed(actor.authorization, grant.projectId, Permission.readProjects)),
       ...(r.user.kind === 'agent' ? { agentStatus: r.agentStatus ?? 'paused' } : {}),
       role: {
         id: r.role.id,
@@ -48,11 +52,12 @@ export default defineEventHandler(async (event) => {
         key: r.role.key,
         name: r.role.name,
         permissions: canViewRoleDetails || r.user.id === actor.user.id ? (r.role.key === 'owner' ? ALL_PERMISSIONS : r.role.permissionsBitmask) : 0,
+        ...(canViewRoleDetails || r.user.id === actor.user.id ? { resourceAccess: parseResourceAccess(r.role.resourceAccessJson) } : {}),
         position: r.role.position,
         isSystem: r.role.isSystem,
       },
       nickname: r.nickname,
       status: statusMap.get(r.user.id) ?? 'offline',
-    })),
+    }))),
   }
 })

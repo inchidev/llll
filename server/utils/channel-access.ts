@@ -1,5 +1,6 @@
 import { requireProject } from './project-service'
-import { authorizeResource } from '../../shared/authorization'
+import { loadProjectPolicies } from './project-policies'
+import { taskPermissionAllowed } from './task-policy'
 import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -69,6 +70,7 @@ export async function requireMemberForUser(env: L4Env, user: PublicUser, serverI
       permissions: perms,
       isOwner,
       resourceAccess: parseResourceAccess(row.resourceAccessJson),
+      projectPolicies: await loadProjectPolicies(env, user.id, row.roleId!),
     },
     credential: source?.credential ?? { kind: 'session' },
     ...(source?.delegation ? { delegation: source.delegation } : {}),
@@ -130,12 +132,11 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
   ])
   if (privateParts && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
   // A task's discussion is part of the task: only people who can work with tasks may open it.
-  if (discussions[0] && !baseMember.isOwner && !hasPermission(baseMember.perms, Permission.readTasks)) {
+  if (discussions[0] && !taskPermissionAllowed(baseMember.authorization, discussions[0], Permission.readTasks)) {
     fail(404, 'not_found', 'Channel not found')
   }
 
   if (discussions[0]) {
-    authorizeResource(baseMember.authorization, 'boards', discussions[0].boardId)
     if (discussions[0].projectId) await requireProject(env, baseMember.authorization, discussions[0].projectId)
   }
 

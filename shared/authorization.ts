@@ -2,6 +2,7 @@ import { resourceAccessAllows, type ResourceAccess, type ResourceKind } from './
 import type { McpScope } from './mcp'
 import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
+import { projectPermissionAllowed, ProjectPolicyPermissions, type ProjectPolicyGrant } from './project-access'
 
 export const ServerAction = {
   useExternalTools: 'tools:read',
@@ -27,6 +28,7 @@ export type CredentialKind = 'session' | 'mcp' | 'agent_runtime'
 
 export type AuthorizationContext = {
   serverId: string
+  projectScope?: { id: string; repositoryId?: string }
   principal: {
     id: string
     kind: UserKind
@@ -35,6 +37,7 @@ export type AuthorizationContext = {
     permissions: number
     resourceAccess?: ResourceAccess
     isOwner: boolean
+    projectPolicies?: ProjectPolicyGrant[]
   }
   credential: {
     kind: CredentialKind
@@ -49,6 +52,7 @@ export type AuthorizationContext = {
     resourceAccess?: ResourceAccess
     isOwner?: boolean
     roleName?: string
+    projectPolicies?: ProjectPolicyGrant[]
   }
 }
 
@@ -101,6 +105,14 @@ export function authorizeMcpCredential(context: AuthorizationContext, scope?: Mc
 export function authorize(context: AuthorizationContext, action: ServerAction): void {
   authorizeMcpCredential(context)
   const rule = ACTION_RULES[action]
+  if (context.projectScope && (ProjectPolicyPermissions & rule.permission) === rule.permission) {
+    const repository = (action === ServerAction.useComputer || action === ServerAction.proposeCode) && context.projectScope.repositoryId
+      ? { kind: 'repositories' as const, id: context.projectScope.repositoryId } : undefined
+    if (!projectPermissionAllowed(context, context.projectScope.id, rule.permission, repository)) throw new AuthorizationError(`This project does not grant ${action}`)
+    authorizeMcpCredential(context, rule.scope)
+    if (context.delegation?.actions && !context.delegation.actions.includes(action)) throw new AuthorizationError(`The delegated Agent cannot perform ${action}`)
+    return
+  }
   if (!context.principal.isOwner && !hasPermission(context.principal.permissions, rule.permission)) {
     throw new AuthorizationError(`The ${context.principal.roleName} role cannot perform ${action}`)
   }
@@ -126,6 +138,11 @@ export function auditAttribution(context: AuthorizationContext): Record<string, 
 
 /** Resource access is checked separately so list operations can filter before disclosure. */
 export function resourceAllowed(context: AuthorizationContext, kind: ResourceKind, id: string): boolean {
+  if (context.projectScope && (kind === 'projects' || kind === 'repositories')) {
+    if (kind === 'projects' && id !== '*' && id !== context.projectScope.id) return false
+    if (kind === 'repositories' && (!context.projectScope.repositoryId || (id !== '*' && id !== context.projectScope.repositoryId))) return false
+    if (projectPermissionAllowed(context, context.projectScope.id, Permission.readProjects)) return true
+  }
   return (context.principal.isOwner || resourceAccessAllows(context.principal.resourceAccess, kind, id))
     && resourceAccessAllows(context.delegation?.resourceAccess, kind, id)
 }

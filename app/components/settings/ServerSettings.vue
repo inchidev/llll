@@ -81,6 +81,7 @@ const serverNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'overview' as const, label: 'Overview', icon: 'i-ph-house', keywords: ['name', 'icon', 'rename'] }] : []),
   ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
   ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles', icon: 'i-ph-shield', keywords: ['permissions', 'admin', 'access'] }] : []),
+  ...(can(Permission.manageRoles) ? [{ id: 'project-policies' as const, label: 'Project policies', icon: 'i-ph-shield-check', keywords: ['projects', 'developer', 'reviewer', 'permissions'] }] : []),
   ...(can(Permission.manageRoles) || can(Permission.kick) ? [{ id: 'members' as const, label: 'Members', icon: 'i-ph-users', keywords: ['people', 'kick', 'assign role'] }] : []),
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
 ])
@@ -619,6 +620,9 @@ function roleLabel(name: string) {
 
     <template v-else-if="section === 'roles'">
       <SettingsRolesSettings :server-id="serverId" />
+    </template>
+    <template v-else-if="section === 'project-policies'">
+      <SettingsProjectPolicies :server-id="serverId" />
     </template>
 
     <template v-else-if="section === 'environments'">

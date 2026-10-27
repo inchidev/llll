@@ -1006,6 +1006,22 @@ export const projectRepositories = sqliteTable('project_repositories', {
   createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
 }, table => [uniqueIndex('project_repository_identity').on(table.projectId, table.provider, table.host, table.externalId)])
 
+export const projectPolicies = sqliteTable('project_policies', {
+  id: text('id').primaryKey(), name: text('name').notNull().unique(), description: text('description').notNull().default(''),
+  permissionsBitmask: integer('permissions_bitmask').notNull(), version: integer('version').notNull().default(1),
+  createdBy: text('created_by').references(() => users.id), ...isoTimestamps(),
+})
+export const projectPolicyAssignments = sqliteTable('project_policy_assignments', {
+  id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  policyId: text('policy_id').notNull().references(() => projectPolicies.id, { onDelete: 'cascade' }),
+  memberId: text('member_id').references(() => users.id, { onDelete: 'cascade' }), roleId: text('role_id').references(() => roles.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
+}, table => [
+  check('project_policy_target', sql`(${table.memberId} IS NOT NULL AND ${table.roleId} IS NULL) OR (${table.roleId} IS NOT NULL AND ${table.memberId} IS NULL)`),
+  uniqueIndex('project_policy_members').on(table.projectId, table.policyId, table.memberId).where(sql`${table.memberId} IS NOT NULL`),
+  uniqueIndex('project_policy_roles').on(table.projectId, table.policyId, table.roleId).where(sql`${table.roleId} IS NOT NULL`),
+])
+
 export const tasks = sqliteTable('tasks', {
   projectId: text('project_id').references(() => projects.id),
   id: text('id').primaryKey(),
@@ -1122,6 +1138,8 @@ export const mcpOutboundConnections = sqliteTable('mcp_outbound_connections', {
 }, table => [index('mcp_outbound_server_owner').on(table.serverId, table.ownerId), check('mcp_outbound_enabled', sql`${table.enabled} IN (0,1)`)])
 
 export const schema = {
+  projectPolicies,
+  projectPolicyAssignments,
   mcpOutboundConnections,
   fileDeletions,
   serverSchema,

@@ -11,11 +11,11 @@ import { writeAudit } from '../../../utils/messages'
 import { requireTask } from '../../../utils/task-policy'
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.writeTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   if (!hasPermission(actor.perms, Permission.attachFiles)) fail(403, 'forbidden', 'Missing attach-files permission')
   const taskReference = getRouterParam(event, 'id')!
   const { env, waitUntil } = cf(event)
-  const task = await requireTask(env, taskReference, actor.authorization)
+  const task = await requireTask(env, taskReference, actor.authorization, Permission.writeTasks)
   const taskId = task.id
   const form = await readMultipartFormData(event)
   const file = form?.find(part => part.name === 'file' && part.data)

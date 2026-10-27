@@ -14,11 +14,11 @@ import { parseBody } from '../../../utils/validate'
 const bodySchema = z.object({ title: z.string().trim().min(1).max(240), position: z.number().int().min(0).optional() })
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.writeTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const taskReference = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
-  const task = await requireTask(env, taskReference, actor.authorization)
+  const task = await requireTask(env, taskReference, actor.authorization, Permission.writeTasks)
   const taskId = task.id
   const now = nowIso()
   const id = newId()

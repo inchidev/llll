@@ -7,7 +7,7 @@ import type { MemberDTO } from '~~/shared/types'
  * `members` query the app already keeps, so navigating between guarded pages
  * (or settings sections) does not refetch the member list.
  */
-export async function guardMemberPermission(flags: PermissionFlag[]) {
+export async function guardMemberPermission(flags: PermissionFlag[], allowProjectPolicies = false) {
   const session = useSessionStore()
   if (!session.user) return
 
@@ -24,7 +24,7 @@ export async function guardMemberPermission(flags: PermissionFlag[]) {
     : await load()
 
   const member = response.members.find(item => item.user.id === session.user?.id)
-  if (!member || (member.role.key !== 'owner' && !flags.some(flag => hasPermission(member.role.permissions, flag)))) {
+  if (!member || (member.role.key !== 'owner' && !flags.some(flag => hasPermission(member.role.permissions, flag) || (allowProjectPolicies && member.projectPolicies?.some(grant => hasPermission(grant.permissions, flag)))))) {
     return navigateTo('/channels')
   }
 }

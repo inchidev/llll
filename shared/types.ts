@@ -593,6 +593,7 @@ export type RoleDTO = {
 
 export type MemberDTO = {
   user: PublicUser
+  projectPolicies?: import('./project-access').ProjectPolicyGrant[]
   agentStatus?: AgentDTO['status']
   role: RoleDTO
   nickname: string | null

@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { codeEnvironmentSchema, type CodeEnvironment, type CodeEnvironmentInput, type RunEnvironment } from '../../shared/code-environments'
 import { authorizeResource, resourceAllowed, type AuthorizationContext } from '../../shared/authorization'
 import { hasPermission, Permission } from '../../shared/permissions'
+import { anyProjectPermission, projectPermissionAllowed } from '../../shared/project-access'
+import { authorize, ServerAction } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { githubAgentClient, githubAgentConfigured } from './github-agent-client'
@@ -19,12 +21,15 @@ export async function findCodeEnvironment(env: L4Env, id: string): Promise<CodeE
   return { ...codeEnvironmentSchema.parse(JSON.parse(row.configJson)), id: row.id, enabled: Boolean(row.enabled), version: row.version }
 }
 export async function listCodeEnvironments(env: L4Env, auth: AuthorizationContext) {
-  if (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.useComputer) && !hasPermission(auth.principal.permissions, Permission.manageServer) && !hasPermission(auth.principal.permissions, Permission.manageRoles)) fail(403, 'code_denied', 'Computer access is not granted')
+  const global = auth.principal.isOwner || hasPermission(auth.principal.permissions, Permission.useComputer) || hasPermission(auth.principal.permissions, Permission.manageServer) || hasPermission(auth.principal.permissions, Permission.manageRoles)
+  if (!global && !anyProjectPermission(auth, Permission.useComputer)) fail(403, 'code_denied', 'Computer access is not granted')
   const rows = await env.DB.prepare('SELECT id FROM agent_environments ORDER BY created_at').all<{ id: string }>()
   const visible = []
   for (const row of rows.results ?? []) {
     const item = await findCodeEnvironment(env, row.id)
-    if (item && resourceAllowed(auth, 'repositories', String(item.sourceRepoId))) {
+    const link = item ? await env.DB.prepare('SELECT project_id AS id FROM project_repositories WHERE environment_id=?').bind(item.id).first<{ id: string }>() : null
+    const scoped = item && link && projectPermissionAllowed(auth, link.id, Permission.useComputer, { kind: 'repositories', id: String(item.sourceRepoId) })
+    if (item && (scoped || (global && resourceAllowed(auth, 'repositories', String(item.sourceRepoId))))) {
       try { await requireEnvironmentProject(env, auth, item.id); visible.push(item) } catch { /* Project scope can narrow repository visibility. */ }
     }
   }
@@ -73,6 +78,7 @@ export async function disableCodeEnvironment(env: L4Env, auth: AuthorizationCont
   await env.DB.prepare('UPDATE agent_environments SET enabled=0,version=version+1,updated_at=? WHERE id=?').bind(nowIso(), id).run()
 }
 export async function admitRunEnvironment(env: L4Env, auth: AuthorizationContext, id: string): Promise<RunEnvironment> {
+  authorize(auth, ServerAction.useComputer)
   if (!await githubAgentConfigured(env)) fail(409, 'github_unconfigured', 'Connect a GitHub App in Server settings')
   const item = await findCodeEnvironment(env, id)
   if (!item?.enabled) fail(403, 'code_revoked', 'Repository environment is unavailable')
@@ -83,6 +89,7 @@ export async function admitRunEnvironment(env: L4Env, auth: AuthorizationContext
   return { ...item, baseSha: base.sha, baseTreeSha: base.commit.tree.sha }
 }
 export async function requireRunEnvironment(env: L4Env, auth: AuthorizationContext, snapshot: RunEnvironment) {
+  authorize(auth, ServerAction.useComputer)
   const current = await findCodeEnvironment(env, snapshot.id)
   if (!current?.enabled || current.version !== snapshot.version) fail(403, 'code_revoked', 'Repository environment was changed or disabled')
   if (current.gitConnectionId) await githubConnectionCredentials(env, current.gitConnectionId)

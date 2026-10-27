@@ -1,5 +1,7 @@
 import { requireProject } from './project-service'
-import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
+import { authorizeMcpCredential, authorizeResource, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
+import { projectPermissionAllowed } from '../../shared/project-access'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { agents, channels, taskBoards, taskDependencies, taskLabels, taskNumbers, tasks, users } from '../../drizzle/schema'
 import type { TaskStatus } from '../../shared/types'
@@ -14,7 +16,21 @@ export async function requireBoard(env: L4Env, boardId: string, authorization?: 
   return row
 }
 
-export async function requireTask(env: L4Env, taskReference: string | number, authorization?: AuthorizationContext) {
+export function taskPermissionAllowed(auth: AuthorizationContext, task: { projectId?: string | null; boardId: string }, flag: PermissionFlag): boolean {
+  const read = flag === Permission.readTasks
+  try { authorizeMcpCredential(auth, read ? 'tasks:read' : 'tasks:write') } catch { return false }
+  if (auth.delegation?.actions && !auth.delegation.actions.includes(read ? ServerAction.readTasks : ServerAction.writeTasks)) return false
+  if (auth.projectScope && task.projectId !== auth.projectScope.id) return false
+  if (task.projectId) return projectPermissionAllowed(auth, task.projectId, Permission.readProjects)
+    && projectPermissionAllowed(auth, task.projectId, flag, { kind: 'boards', id: task.boardId })
+  return (auth.principal.isOwner || hasPermission(auth.principal.permissions, flag))
+    && (!auth.delegation || auth.delegation.isOwner || hasPermission(auth.delegation.permissions ?? 0, flag))
+    && resourceAllowed(auth, 'boards', task.boardId)
+}
+export function requireTaskPermission(auth: AuthorizationContext, task: { projectId?: string | null; boardId: string }, flag: PermissionFlag) {
+  if (!taskPermissionAllowed(auth, task, flag)) fail(403, 'task_denied', 'This task does not grant the requested operation')
+}
+export async function requireTask(env: L4Env, taskReference: string | number, authorization?: AuthorizationContext, flag: PermissionFlag = Permission.readTasks) {
   const reference = String(taskReference).trim()
   let taskId = reference
   if (/^[1-9]\d*$/u.test(reference)) {
@@ -25,7 +41,7 @@ export async function requireTask(env: L4Env, taskReference: string | number, au
   const row = (await getDb(env.DB).select().from(tasks).where(eq(tasks.id, taskId)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Task not found')
   if (authorization) {
-    authorizeResource(authorization, 'boards', row.boardId)
+    requireTaskPermission(authorization, row, flag)
     if (row.projectId) await requireProject(env, authorization, row.projectId)
   }
   return row

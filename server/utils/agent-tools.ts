@@ -114,6 +114,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     read_code_tree: 'repositories', read_code_file: 'repositories', publish_code_changes: 'repositories', check_code_proposal: 'repositories',
   }
   const hasResources = (kind: ResourceKind) => {
+    if (authorization.projectScope && ['projects', 'boards', 'repositories'].includes(kind)) return true
     const own = authorization.principal.isOwner ? undefined : authorization.principal.resourceAccess?.[kind]
     const candidates = own ?? authorization.delegation?.resourceAccess?.[kind] ?? ['*']
     return candidates.some(id => resourceAllowed(authorization, kind, id))

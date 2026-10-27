@@ -19,14 +19,14 @@ const bodySchema = z.object({
 }).refine(body => Object.keys(body).length > 0, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const item = (await db.select().from(taskChecklistItems).where(eq(taskChecklistItems.id, id)).limit(1))[0]
   if (!item) fail(404, 'not_found', 'Checklist item not found')
-  const task = await requireTask(env, item.taskId, actor.authorization)
+  const task = await requireTask(env, item.taskId, actor.authorization, Permission.writeTasks)
   await db.update(taskChecklistItems).set({ ...body, updatedAt: nowIso() }).where(eq(taskChecklistItems.id, id))
   await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_checklist.update', targetType: 'task', targetId: task.id, meta: { itemId: id, fields: Object.keys(body) } })
   waitUntil(signalTasksChanged(env, task.boardId, task.id))

@@ -4,6 +4,7 @@ import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { AuthorizationContext, CredentialKind, ServerAction } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
 import type { L4Env } from '../../workers/env'
+import { loadProjectPolicies } from './project-policies'
 
 export async function loadAuthorizationContext(
   env: L4Env,
@@ -57,6 +58,7 @@ export async function loadAuthorizationContext(
       permissions: isOwner ? ALL_PERMISSIONS : row.permissions,
       isOwner,
       resourceAccess: parseResourceAccess(row.resourceAccessJson),
+      projectPolicies: await loadProjectPolicies(env, row.id, row.roleId),
     },
     credential: input.credential,
     ...(input.delegatedBy && delegated
@@ -67,6 +69,7 @@ export async function loadAuthorizationContext(
             resourceAccess: parseResourceAccess(delegated.resourceAccessJson),
             isOwner: delegated.ownerId === input.delegatedBy,
             roleName: delegated.roleName,
+            projectPolicies: await loadProjectPolicies(env, input.delegatedBy, (await env.DB.prepare('SELECT role_id AS id FROM users WHERE id=?').bind(input.delegatedBy).first<{ id: string }>())!.id),
             ...(input.delegatedActions ? { actions: input.delegatedActions } : {}),
           },
         }

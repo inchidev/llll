@@ -25,7 +25,7 @@ const membersQ = useQuery({
   queryKey: computed(() => ['members', props.serverId]),
   queryFn: () => api<{ members: M[] }>(`/api/servers/${props.serverId}/members`),
 })
-const { can } = usePermissions(computed(() => membersQ.data.value?.members))
+const { can, canAnyProject } = usePermissions(computed(() => membersQ.data.value?.members))
 
 const serverQ = useQuery({
   queryKey: computed(() => ['server', props.serverId]),
@@ -72,8 +72,8 @@ const mailTarget = computed(() => {
 const views = computed(() => [
   { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: unreadConversations.value.length, dot: false },
   { label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, path: '/channels', count: 0, dot: chatUnread.value },
-  ...(can(Permission.readProjects) ? [{ label: 'Projects', icon: 'i-ph-folder-simple', to: '/projects', path: '/projects', count: 0, dot: false }] : []),
-  ...(can(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),
+  ...(canAnyProject(Permission.readProjects) ? [{ label: 'Projects', icon: 'i-ph-folder-simple', to: '/projects', path: '/projects', count: 0, dot: false }] : []),
+  ...(canAnyProject(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),
   ...(can(Permission.manageSchedules) ? [{ label: 'Schedule', icon: 'i-ph-calendar-blank', to: '/schedules', path: '/schedules', count: 0, dot: false }] : []),
   { label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, path: '/mail', count: 0, dot: mailUnread.value },
   ...(can(Permission.useAgents) || can(Permission.manageAgents) ? [{ label: 'Agents', icon: 'i-ph-robot', to: '/agents', path: '/agents', count: 0, dot: false }] : []),
@@ -287,7 +287,7 @@ watch(nav.inviteOpen, (open) => {
           </nav>
           <LayoutInboxNav v-else-if="section === 'inbox'" :server-id="serverId" />
           <LayoutAgentsNav v-else-if="section === 'agents'" :server-id="serverId" />
-          <LayoutTasksNav v-else-if="section === 'tasks' && can(Permission.readTasks)" :server-id="serverId" />
+          <LayoutTasksNav v-else-if="section === 'tasks' && canAnyProject(Permission.readTasks)" :server-id="serverId" />
           <LayoutDatabasesNav v-else-if="section === 'data' && can(Permission.readData)" :server-id="serverId" />
           <LayoutGadgetsNav v-else-if="section === 'gadgets' && (can(Permission.useGadgets) || can(Permission.manageGadgets))" :server-id="serverId" />
           <LayoutMailNav v-else-if="section === 'mail'" />

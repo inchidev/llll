@@ -1,5 +1,6 @@
 import { authorize, ServerAction } from '../../shared/authorization'
 import { hasPermission, Permission } from '../../shared/permissions'
+import { projectSubjectPermissionAllowed } from '../../shared/project-access'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { computeCapabilities } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
@@ -22,7 +23,7 @@ export async function factoryAuthority(env: L4Env, runId: string, actorId?: stri
   const auth = await runAuthorization(env, run)
   authorize(auth, ServerAction.useComputer)
   if (publication) authorize(auth, ServerAction.proposeCode)
-  if (actorId && !readOnly && !hasPermission(auth.delegation?.permissions ?? 0, Permission.approveAgentActions)) fail(403, 'factory_approval_denied', 'Approve Agent actions is required')
+  if (actorId && !readOnly && !(auth.projectScope && auth.delegation ? projectSubjectPermissionAllowed(auth.delegation, auth.projectScope.id, Permission.approveAgentActions) : hasPermission(auth.delegation?.permissions ?? 0, Permission.approveAgentActions))) fail(403, 'factory_approval_denied', 'Approve Agent actions is required')
   const task = await getTask(env, auth, run.taskId)
   const environment = JSON.parse(run.environmentJson) as RunEnvironment
   if (!task || task.archivedAt || (!readOnly && task.status === 'done') || task.assigneeId !== run.agentId || task.environmentId !== environment.id) fail(403, 'factory_revoked', 'Task assignment or repository changed')

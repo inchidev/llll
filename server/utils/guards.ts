@@ -12,7 +12,7 @@ export async function requireMember(event: H3Event, serverId: string, flag?: Per
   const user = await requireUser(event)
   const member = await requireMemberForUser(cf(event).env, user, serverId, flag)
   const path = event.path.split('?')[0]!
-  if (event.method !== 'GET' || !path.match(/^\/api\/servers\/[^/]+\/(boards|documents|databases|canvases)$/u)) {
+  if (!/^\/api\/boards\/[^/]+\/tasks(?:\/reorder)?$/u.test(path) && (event.method !== 'GET' || !path.match(/^\/api\/servers\/[^/]+\/(boards|documents|databases|canvases)$/u))) {
     await authorizeResourceRequest(cf(event).env, member.authorization, path)
   }
   return member

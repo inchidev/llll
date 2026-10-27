@@ -1,5 +1,6 @@
 import { hasPermission, Permission } from '../../shared/permissions'
-import { resourceAllowed, authorizeResource, type AuthorizationContext } from '../../shared/authorization'
+import { anyProjectPermission, projectPermissionAllowed } from '../../shared/project-access'
+import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
 import { codeEnvironmentSchema } from '../../shared/code-environments'
 import { projectSchema, projectPatchSchema, projectRepositorySchema, type Project, type ProjectRepository } from '../../shared/projects'
 import { newId, nowIso } from '../../shared/ids'
@@ -14,15 +15,16 @@ export function projectPermission(auth: AuthorizationContext, write = false) {
   if (write && (auth.principal.kind !== 'human' || auth.credential.kind !== 'session' || auth.delegation)) fail(403, 'project_denied', 'Project administration requires a human session')
 }
 export async function requireProject(env: L4Env, auth: AuthorizationContext, id: string, write = false): Promise<Project> {
-  projectPermission(auth, write); authorizeResource(auth, 'projects', id)
+  if (!projectPermissionAllowed(auth, id, write ? Permission.manageProjects : Permission.readProjects)) fail(403, 'project_denied', 'Project access is not granted')
+  if (write) projectPermission(auth, true)
   const row = await env.DB.prepare(`SELECT ${columns} FROM projects WHERE id=?`).bind(id).first<Project>()
   if (!row) fail(404, 'not_found', 'Project not found')
   return row
 }
 export async function listProjects(env: L4Env, auth: AuthorizationContext) {
-  projectPermission(auth)
+  if (!anyProjectPermission(auth, Permission.readProjects)) projectPermission(auth)
   const rows = await env.DB.prepare(`SELECT ${columns} FROM projects ORDER BY created_at,id`).all<Project>()
-  return rows.results.filter(p => resourceAllowed(auth, 'projects', p.id))
+  return rows.results.filter(p => projectPermissionAllowed(auth, p.id, Permission.readProjects))
 }
 export async function createProject(env: L4Env, auth: AuthorizationContext, request: unknown) {
   projectPermission(auth, true); authorizeResource(auth, 'projects', '*')
@@ -77,5 +79,5 @@ export async function requireEnvironmentProject(env: L4Env, auth: AuthorizationC
   if (link) {
     const project = await requireProject(env, auth, link.projectId)
     if (project.archivedAt) fail(403, 'project_archived', 'Project execution is unavailable while archived')
-  }
+  } else if (auth.projectScope) fail(403, 'project_repository', 'This repository is not attached to the admitted project')
 }

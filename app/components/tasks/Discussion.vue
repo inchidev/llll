@@ -12,6 +12,7 @@ const props = defineProps<{
   channelId: string | null
   serverId: string
   members: MemberDTO[]
+  canCreate: boolean
 }>()
 
 const { api } = useApi()
@@ -22,7 +23,7 @@ const channelId = ref<string | null>(props.channelId)
 const failed = ref(false)
 
 async function ensureChannel() {
-  if (channelId.value) return
+  if (channelId.value || !props.canCreate) return
   failed.value = false
   try {
     const res = await api<{ channelId: string }>(`/api/tasks/${props.taskId}/discussion`, { method: 'POST' })
@@ -34,7 +35,7 @@ async function ensureChannel() {
   }
 }
 
-watch(() => [props.taskId, props.channelId] as const, ([, id]) => {
+watch(() => [props.taskId, props.channelId, props.canCreate] as const, ([, id]) => {
   channelId.value = id
   void ensureChannel()
 }, { immediate: true })
@@ -50,6 +51,7 @@ function onReply(id: string) {
   <section>
     <div class="mb-2 text-sm font-medium">Discussion</div>
     <LayoutLoadError v-if="failed" inline message="The discussion did not load." :retry="ensureChannel" />
+    <p v-else-if="!channelId && !canCreate" class="text-sm text-muted">No discussion yet. A task editor can start one.</p>
     <div v-else class="flex h-[26rem] flex-col overflow-hidden rounded-lg border border-default">
       <LayoutSkeleton v-if="!channelId" variant="messages" :rows="3" class="flex-1" />
       <template v-else>

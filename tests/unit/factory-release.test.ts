@@ -142,7 +142,7 @@ project=factory-fixture
 version=9.0.0
 need() { :; }
 uname() { printf 'x86_64\\n'; }
-df() { printf 'Avail\\n12345678900\\n'; }
+df() { printf 'Avail\\n23456789000\\n'; }
 awk() { if [[ $1 == *MemAvailable:* ]]; then printf '4000000\\n'; else command awk "$@"; fi; }
 release_metadata() { base="$FACTORY_TEST_ASSETS"; }
 validate_metadata() { :; }

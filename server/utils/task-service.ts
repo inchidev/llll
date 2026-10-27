@@ -1,4 +1,6 @@
-import { requireEnvironmentProject, requireProject, listProjects } from './project-service'
+import { requireEnvironmentProject, requireProject } from './project-service'
+import { Permission } from '../../shared/permissions'
+import { anyProjectPermission } from '../../shared/project-access'
 import { authorizeResource as requireResource } from '../../shared/authorization'
 import { findCodeEnvironment } from './code-environment-service'
 import { fail } from './cf'
@@ -11,9 +13,9 @@ import type { L4Env } from '../../workers/env'
 import { signalTasksChanged } from '../../workers/task-events'
 import { getDb } from './db'
 import { writeAudit } from './messages'
-import { authorize, authorizeResource, resourceAllowed, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { loadTaskBoards, loadTaskDetail } from './task-data'
-import { nextTaskPosition, requireBoard, requireTask, validateTaskAssignee, validateTaskChannel, validateTaskDependencies, validateTaskLabels } from './task-policy'
+import { nextTaskPosition, requireBoard, requireTask, requireTaskPermission, taskPermissionAllowed, validateTaskAssignee, validateTaskChannel, validateTaskDependencies, validateTaskLabels } from './task-policy'
 
 async function validateEnvironment(env: L4Env, auth: AuthorizationContext, id: string | null | undefined) {
   if (!id) return
@@ -31,6 +33,7 @@ async function taskProject(env: L4Env, auth: AuthorizationContext, requested: st
     if (project.archivedAt) fail(403, 'project_archived', 'Restore the project before changing its Tasks')
   }
   if (link && link.projectId !== id) fail(403, 'project_repository', 'Task and Git execution configuration must belong to the same project')
+  if (id && environmentId && !link) fail(403, 'project_repository', 'Attach this repository to the project before assigning it to a Task')
   return id
 }
 
@@ -71,13 +74,11 @@ export async function listTasks(
   authorization: AuthorizationContext,
   includeArchived = false,
 ): Promise<TaskBoardDTO[]> {
-  authorize(authorization, ServerAction.readTasks)
-  const boards = (await loadTaskBoards(env, includeArchived)).filter(board => resourceAllowed(authorization, 'boards', board.id))
-  if (!boards.some(b => b.tasks.some(t => t.projectId))) return boards
-  let visible = new Set<string>()
-  try { visible = new Set((await listProjects(env, authorization)).map(p => p.id)) }
-  catch (error) { if (!(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403)) throw error }
-  return boards.map(b => ({ ...b, tasks: b.tasks.filter(t => !t.projectId || visible.has(t.projectId)) }))
+  if (!anyProjectPermission(authorization, Permission.readTasks)) authorize(authorization, ServerAction.readTasks)
+  const boards = await loadTaskBoards(env, includeArchived)
+  const visible = new Set(boards.flatMap(board => board.tasks).filter(task => taskPermissionAllowed(authorization, task, Permission.readTasks)).map(task => task.id))
+  return boards.map(board => ({ ...board, tasks: board.tasks.filter(task => visible.has(task.id)).map(task => ({ ...task, dependencyIds: task.dependencyIds.filter(id => visible.has(id)) })) }))
+    .filter(board => board.tasks.length || taskPermissionAllowed(authorization, { boardId: board.id }, Permission.readTasks))
 }
 
 export async function getTask(
@@ -85,12 +86,21 @@ export async function getTask(
   authorization: AuthorizationContext,
   taskReference: string | number,
 ): Promise<TaskDetailDTO | null> {
-  authorize(authorization, ServerAction.readTasks)
   const task = await loadTaskDetail(env, taskReference)
   if (task) {
-    authorizeResource(authorization, 'boards', task.boardId)
+    requireTaskPermission(authorization, task, Permission.readTasks)
     if (task.projectId) await requireProject(env, authorization, task.projectId)
+    await filterTaskDependencies(env, authorization, task)
   }
+  return task
+}
+
+async function filterTaskDependencies(env: L4Env, authorization: AuthorizationContext, task: TaskDetailDTO): Promise<TaskDetailDTO> {
+  if (task.dependencyIds.length) {
+      const dependencies = await env.DB.prepare(`SELECT id,board_id AS boardId,project_id AS projectId FROM tasks WHERE id IN (${task.dependencyIds.map(() => '?').join(',')})`).bind(...task.dependencyIds).all<{ id: string; boardId: string; projectId: string | null }>()
+      const visible = new Set(dependencies.results.filter(row => taskPermissionAllowed(authorization, row, Permission.readTasks)).map(row => row.id))
+      task.dependencyIds = task.dependencyIds.filter(id => visible.has(id))
+    }
   return task
 }
 
@@ -101,11 +111,11 @@ export async function createTask(
   input: CreateTaskInput,
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
-  authorize(authorization, ServerAction.writeTasks)
-  authorizeResource(authorization, 'boards', boardId)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
   const projectId = await taskProject(env, authorization, input.projectId, input.environmentId)
+  requireTaskPermission(authorization, { projectId, boardId }, Permission.writeTasks)
+  for (const dependency of input.dependencyIds) await requireTask(env, dependency, authorization)
   await Promise.all([
     requireBoard(env, boardId),
     validateTaskAssignee(env, input.assigneeId),
@@ -145,7 +155,7 @@ export async function createTask(
   ])
   await writeAudit(env, { serverId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
   schedule(signalTasksChanged(env, boardId, id))
-  return (await loadTaskDetail(env, id))!
+  return filterTaskDependencies(env, authorization, (await loadTaskDetail(env, id))!)
 }
 
 export async function updateTask(
@@ -155,15 +165,14 @@ export async function updateTask(
   input: UpdateTaskInput,
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
-  authorize(authorization, ServerAction.writeTasks)
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
-  const task = await requireTask(env, taskReference, authorization)
+  const task = await requireTask(env, taskReference, authorization, Permission.writeTasks)
   const projectId = await taskProject(env, authorization, input.projectId === undefined ? task.projectId : input.projectId, input.environmentId === undefined ? task.environmentId : input.environmentId)
   const id = task.id
   const boardId = input.boardId ?? task.boardId
-  authorizeResource(authorization, 'boards', task.boardId)
-  authorizeResource(authorization, 'boards', boardId)
+  requireTaskPermission(authorization, { projectId, boardId }, Permission.writeTasks)
+  for (const dependency of input.dependencyIds ?? []) await requireTask(env, dependency, authorization)
   await Promise.all([
     input.boardId ? requireBoard(env, input.boardId) : Promise.resolve(),
     validateTaskAssignee(env, input.assigneeId),
@@ -244,5 +253,5 @@ export async function updateTask(
   })
   schedule(signalTasksChanged(env, boardId, id))
   if (boardId !== task.boardId) schedule(signalTasksChanged(env, task.boardId, id))
-  return (await loadTaskDetail(env, id))!
+  return filterTaskDependencies(env, authorization, (await loadTaskDetail(env, id))!)
 }

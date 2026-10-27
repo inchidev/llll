@@ -19,7 +19,7 @@ definePageMeta({ layout: 'server', middleware: ['auth', 'manage-tasks'] })
 
 const session = useSessionStore()
 const { serverId } = useServer()
-const { can } = useRoleGrants()
+const { can, canAnyProject } = useRoleGrants()
 const isMobile = useIsMobile()
 const { api } = useApi()
 const qc = useQueryClient()
@@ -54,16 +54,16 @@ const taskRunProblem = computed(() => {
   if (!task) return 'Choose a task to run.'
   if (task.archivedAt) return 'Restore this task before starting its agent.'
   if (taskDirty.value) return 'Save your task changes before starting the agent.'
-  if (!task.channelId && !task.discussionChannelId && !can(Permission.writeTasks)) return 'Ask a task manager to open its discussion before starting the agent.'
+  if (!task.channelId && !task.discussionChannelId && !can(Permission.writeTasks, task.projectId)) return 'Ask a task manager to open its discussion before starting the agent.'
   const agent = agents.value.find(item => item.id === task.assigneeId)
   if (agent?.status === 'paused') return 'Resume the assigned agent in Agents before starting this task.'
   if (!agent || agent.status !== 'active') return 'Assign an active agent to this task.'
   const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
   if (!member || member.user.kind !== 'agent') return 'Assign an active agent to this task.'
   for (const [permission, label] of [[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages']] as const) {
-    if (!hasPermission(member.role.permissions, permission)) return `${member.user.displayName}’s role needs ${label}. Change the role in Server settings.`
+    if (member.role.permissions && !hasPermission(member.role.permissions, permission) && !(task.projectId && member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, permission)))) return `${member.user.displayName}’s role needs ${label}. Change the role in Server settings.`
   }
-  if (task.projectId && !hasPermission(member.role.permissions, Permission.readProjects)) return `${member.user.displayName}’s role needs Read projects. Change the role in Server settings.`
+  if (task.projectId && member.role.permissions && !hasPermission(member.role.permissions, Permission.readProjects) && !member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, Permission.readProjects))) return `${member.user.displayName}’s role needs Read projects. Change the role in Server settings.`
   return ''
 })
 /** Board and the archived view live in the URL so the sidebar can link to them. */
@@ -97,9 +97,9 @@ const agentsQ = useQuery({
   enabled: computed(() => Boolean(serverId.value)),
 })
 const environmentsQ = useQuery({
-  queryKey: ['code-environments'], queryFn: () => api<{ environments: CodeEnvironment[] }>('/api/code-environments'), enabled: computed(() => can(Permission.useComputer)),
+  queryKey: ['code-environments'], queryFn: () => api<{ environments: CodeEnvironment[] }>('/api/code-environments'), enabled: computed(() => canAnyProject(Permission.useComputer)),
 })
-const projectsQ = useQuery({ queryKey: computed(() => ['projects', serverId.value]), queryFn: () => api<{ projects: { id: string; name: string; archivedAt: string | null }[] }>(`/api/servers/${serverId.value}/projects`), enabled: computed(() => can(Permission.readProjects)) })
+const projectsQ = useQuery({ queryKey: computed(() => ['projects', serverId.value]), queryFn: () => api<{ projects: { id: string; name: string; archivedAt: string | null }[] }>(`/api/servers/${serverId.value}/projects`), enabled: computed(() => canAnyProject(Permission.readProjects)) })
 const projectOptions = computed(() => [{ label: 'No project', value: null }, ...(projectsQ.data.value?.projects ?? []).filter(p => !p.archivedAt).map(p => ({ label: p.name, value: p.id }))])
 const environmentOptions = computed(() => [{ label: 'No repository', value: null }, ...(environmentsQ.data.value?.environments ?? []).filter(item => item.enabled).map(item => ({ label: item.name, value: item.id }))])
 const membersQ = useQuery({
@@ -461,7 +461,8 @@ async function setStatus(taskId: string, status: TaskStatus, position?: number) 
 async function dropTask(status: TaskStatus, beforeTaskId: string | null = null) {
   const taskId = draggedTaskId.value
   draggedTaskId.value = null
-  if (!taskId || showArchived.value || !can(Permission.writeTasks)) return
+  const task = allBoards.value.flatMap(board => board.tasks).find(item => item.id === taskId)
+  if (!taskId || !task || showArchived.value || !can(Permission.writeTasks, task.projectId)) return
   await mutate(() => api(`/api/boards/${activeBoard.value!.id}/tasks/reorder`, {
     method: 'PATCH',
     body: { taskId, status, beforeTaskId: beforeTaskId === taskId ? null : beforeTaskId },
@@ -571,7 +572,7 @@ const boardMenu = computed(() => [[
           <UDropdownMenu v-if="activeBoard && can(Permission.manageTasks)" :items="boardMenu">
             <UButton color="neutral" variant="ghost" icon="i-ph-dots-three" aria-label="Board actions" />
           </UDropdownMenu>
-          <UButton v-if="!showArchived && activeBoard && can(Permission.writeTasks)" icon="i-ph-plus" :label="isMobile ? undefined : 'Task'" aria-label="New task" @click="openCreateTask" />
+          <UButton v-if="!showArchived && activeBoard && (can(Permission.writeTasks) || (route.query.project && can(Permission.writeTasks, String(route.query.project))))" icon="i-ph-plus" :label="isMobile ? undefined : 'Task'" aria-label="New task" @click="openCreateTask" />
         </template>
       </LayoutPageHeader>
 
@@ -598,7 +599,7 @@ const boardMenu = computed(() => [[
                 v-for="task in tasksFor(column.status)"
                 :key="task.id"
                 class="df-panel rounded-lg p-3 space-y-2 cursor-pointer"
-                :draggable="!showArchived && can(Permission.writeTasks)"
+                :draggable="!showArchived && can(Permission.writeTasks, task.projectId)"
                 @dragstart="draggedTaskId = task.id"
                 @dragend="draggedTaskId = null"
                 @dragover.prevent
@@ -629,7 +630,7 @@ const boardMenu = computed(() => [[
                 <UAlert v-if="task.lastError" color="error" :description="task.lastError" />
                 <p v-if="task.factoryState" class="text-xs text-muted">Workspace: {{ task.factoryState }}</p>
                 <div v-if="task.resultSummary" class="text-xs border-t border-default pt-2 line-clamp-3">{{ task.resultSummary }}</div>
-                <div v-if="!showArchived && can(Permission.writeTasks)" class="flex items-center gap-1 pt-1" @click.stop>
+                <div v-if="!showArchived && can(Permission.writeTasks, task.projectId)" class="flex items-center gap-1 pt-1" @click.stop>
                   <USelect
                     :model-value="task.status"
                     :items="manualStatusOptions"
@@ -661,8 +662,8 @@ const boardMenu = computed(() => [[
           <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
           <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
-          <UFormField v-if="can(Permission.readProjects)" label="Project"><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
-          <UFormField v-if="can(Permission.useComputer)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+          <UFormField v-if="canAnyProject(Permission.readProjects)" label="Project"><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
           <p v-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
           <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
@@ -683,7 +684,7 @@ const boardMenu = computed(() => [[
       </template>
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
-        <UButton v-if="can(Permission.executeTasks) && can(Permission.useAgents) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
         <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
       </template>
     </UModal>
@@ -709,7 +710,7 @@ const boardMenu = computed(() => [[
 
     <USlideover :open="Boolean(selectedTaskId)" :title="selectedTask ? taskLabel(selectedTask) : 'Task'" :ui="{ content: 'w-full max-w-2xl' }" @update:open="value => { if (!value) selectedTaskId = null }">
       <template #body>
-        <section v-if="selectedTask && can(Permission.executeTasks) && can(Permission.useAgents)" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
+        <section v-if="selectedTask && can(Permission.executeTasks, selectedTask.projectId) && can(Permission.useAgents, selectedTask.projectId)" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
           <span :title="taskRunProblem || undefined"><UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem)" :aria-describedby="taskRunProblem ? 'task-run-problem' : undefined" @click="runSelectedTask" /></span>
           <p v-if="taskRunProblem" id="task-run-problem" class="text-sm text-muted" role="status">{{ taskRunProblem }}</p>
           <p v-else class="text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
@@ -717,14 +718,14 @@ const boardMenu = computed(() => [[
         </section>
         <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
         <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
-        <fieldset v-else-if="selectedTask" :disabled="!can(Permission.writeTasks)" class="space-y-8 min-w-0">
+        <fieldset v-else-if="selectedTask" :disabled="!can(Permission.writeTasks, selectedTask.projectId)" class="space-y-8 min-w-0">
           <section class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Title" class="sm:col-span-2"><UInput v-model="editTask.title" class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
             <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="editTask.description" :rows="5" autoresize class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
             <UFormField label="Status"><USelect v-model="editTask.status" :items="manualStatusOptions" class="w-full" /></UFormField>
             <UFormField label="Assignee"><USelect v-model="editTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
-          <UFormField v-if="can(Permission.readProjects)" label="Project"><USelect v-model="editTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
-          <UFormField v-if="can(Permission.useComputer)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="editTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+          <UFormField v-if="canAnyProject(Permission.readProjects)" label="Project"><USelect v-model="editTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer, editTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="editTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
             <UFormField label="Priority"><USelect v-model="editTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
             <UFormField label="Due"><UInput v-model="editTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
             <UFormField label="Board"><USelect :model-value="editTask.boardId" :items="boardOptions" class="w-full" @update:model-value="changeEditBoard" /></UFormField>
@@ -794,20 +795,24 @@ const boardMenu = computed(() => [[
             </div>
           </section>
 
-          <TasksDiscussion
-            :task-id="selectedTask.id"
-            :channel-id="selectedTask.discussionChannelId"
-            :server-id="serverId"
-            :members="members"
-          />
+
 
           <div v-if="can(Permission.manageTasks)" class="flex items-center gap-2 border-t border-default pt-4">
             <UButton color="neutral" variant="ghost" size="sm" :icon="selectedTask.archivedAt ? 'i-ph-arrow-counter-clockwise' : 'i-ph-archive'" :label="selectedTask.archivedAt ? 'Restore task' : 'Archive task'" @click="archiveTask" />
             <UButton color="error" variant="ghost" size="sm" icon="i-ph-trash" label="Delete task" @click="deleteTask" />
           </div>
 
-          <LayoutSaveBar v-if="can(Permission.writeTasks)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
+          <LayoutSaveBar v-if="can(Permission.writeTasks, selectedTask?.projectId)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
         </fieldset>
+
+        <TasksDiscussion
+          v-if="selectedTask"
+            :can-create="can(Permission.writeTasks, selectedTask.projectId)"
+            :task-id="selectedTask.id"
+            :channel-id="selectedTask.discussionChannelId"
+            :server-id="serverId"
+            :members="members"
+          />
 
       </template>
     </USlideover>

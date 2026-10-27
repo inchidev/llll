@@ -4,6 +4,7 @@ import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
 import { agentConversationModel } from './agent-conversation-model'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
+import { projectPermissionAllowed, projectSubjectPermissionAllowed, type ProjectPolicyGrant } from '../../shared/project-access'
 import { resourceAccessAllows, resourceAccessWithin, RESOURCE_KINDS, type ResourceAccess } from '../../shared/resource-access'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { intersectResources, runRequestSchema, RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RunRequest } from '../../shared/agent-execution'
@@ -13,7 +14,7 @@ import { loadAuthorizationContext } from './authorization'
 import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import { getTask } from './task-service'
 import { fail } from './cf'
-import { admitRunEnvironment, requireRunEnvironment } from './code-environment-service'
+import { admitRunEnvironment, findCodeEnvironment, requireRunEnvironment } from './code-environment-service'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
 
@@ -45,9 +46,18 @@ async function wakeAdmittedRun(env: L4Env, run: AgentRun): Promise<void> {
 export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'agentId' | 'channelId' | 'initiatedBy' | 'mandateJson'> & { environmentJson?: string | null }): Promise<AuthorizationContext> {
   const auth = await loadAuthorizationContext(env, { principalId: run.agentId, credential: { kind: 'agent_runtime', id: run.id }, delegatedBy: run.initiatedBy })
   if (!auth || !auth.delegation) fail(403, 'run_revoked', 'Run authorization was revoked')
+  const mandate = JSON.parse(run.mandateJson) as RunMandate
+  const retainPolicies = (current: ProjectPolicyGrant[] = [], ceiling: ProjectPolicyGrant[] = []) => ceiling.map(saved => {
+    const found = current.find(grant => grant.id === saved.id && grant.projectId === saved.projectId && grant.policyId === saved.policyId && grant.policyVersion === saved.policyVersion && grant.permissions === saved.permissions)
+    if (!found) fail(403, 'run_revoked', 'Project access changed; start a new attempt')
+    return found
+  })
+  auth.principal.projectPolicies = retainPolicies(auth.principal.projectPolicies, mandate.agentProjectPolicies)
+  auth.delegation.projectPolicies = retainPolicies(auth.delegation.projectPolicies, mandate.initiatorProjectPolicies)
+  if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: String((JSON.parse(run.environmentJson) as RunEnvironment).sourceRepoId) } : {}) }
   const actor = await env.DB.prepare(`SELECT u.kind, r.permissions_bitmask as permissions FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'`)
     .bind(run.initiatedBy).first<{ kind: string; permissions: number }>()
-  if (!actor || actor.kind !== 'human' || (!auth.delegation.isOwner && !hasPermission(actor.permissions, Permission.useAgents))) fail(403, 'run_revoked', 'Agent access was revoked')
+  if (!actor || actor.kind !== 'human' || (!auth.delegation.isOwner && !(mandate.projectId ? projectSubjectPermissionAllowed(auth.delegation, mandate.projectId, Permission.useAgents) : hasPermission(actor.permissions, Permission.useAgents)))) fail(403, 'run_revoked', 'Agent access was revoked')
   const profile = await env.DB.prepare("SELECT status,harness FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string }>()
   if (profile?.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
   for (const id of [run.agentId, run.initiatedBy]) {
@@ -56,7 +66,6 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
     if (!row) fail(403, 'run_revoked', 'Member unavailable')
     await requireChannelAccessForMember(env, requireMemberForUser(env, row, auth.serverId), run.channelId, Permission.sendMessages)
   }
-  const mandate = JSON.parse(run.mandateJson) as RunMandate
   if ((auth.principal.permissions & mandate.agentPermissions) !== mandate.agentPermissions
     || (!auth.delegation.isOwner && ((auth.delegation.permissions! & mandate.permissions) !== mandate.permissions))
     || !resourceAccessWithin(mandate.agentResourceAccess ?? {}, auth.principal.resourceAccess)
@@ -83,6 +92,9 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
 
 export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate): Promise<AgentRun> {
   const input = runRequestSchema.parse(request)
+  const requestedTask = input.taskId ? await getTask(env, actor, input.taskId) : null
+  const requestedProjectId = requestedTask?.projectId ?? null
+  if (requestedProjectId) actor = { ...actor, projectScope: { id: requestedProjectId } }
   const pairDm = await env.DB.prepare("SELECT id FROM channels WHERE id=? AND type='dm' AND (SELECT count(*) FROM channel_members WHERE channel_id=channels.id)=2").bind(input.channelId).first()
   if (pairDm) fail(400, 'thread_required', 'Send a message to the agent to start a reply thread')
   const sameRequest = (run: AgentRun) => {
@@ -96,7 +108,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
       .bind(input.channelId, input.sourceMessageId).first()
     if (!source) fail(404, 'not_found', 'Source message not found in this conversation')
   }
-  if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.useAgents))) fail(403, 'forbidden', 'Cannot invoke agents')
+  if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !(requestedProjectId ? projectPermissionAllowed(actor, requestedProjectId, Permission.useAgents) : hasPermission(actor.principal.permissions, Permission.useAgents)))) fail(403, 'forbidden', 'Cannot invoke agents')
   let admissionError: string | null = null
   if (!await piConfigured(env)) {
     if (input.sourceMessageId && env.AGENT_RUN_DO) admissionError = 'Agent execution is unavailable. Ask the Server operator to check its configuration.'
@@ -116,13 +128,14 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (!profile || profile.harness !== 'pi' || profile.status !== 'active') fail(409, 'agent_unavailable', 'Choose an active agent')
   const agent = await loadAuthorizationContext(env, { principalId: input.agentId, credential: { kind: 'agent_runtime' }, delegatedBy: actor.principal.id })
   if (!agent) fail(403, 'forbidden', 'Agent unavailable')
-  const computer = Boolean(input.taskId && hasPermission(agent.principal.permissions, Permission.useComputer)
-    && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer)))
+  if (requestedProjectId) agent.projectScope = { id: requestedProjectId }
+  const computer = Boolean(input.taskId && (requestedProjectId ? projectPermissionAllowed(agent, requestedProjectId, Permission.useComputer)
+    : hasPermission(agent.principal.permissions, Permission.useComputer) && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer))))
   let projectId: string | null = null
   let environmentId = input.environmentId ?? null
   if (input.taskId) {
-    if (!hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent’s role needs Execute assigned tasks. Change its role in Server settings.')
-    if (!actor.principal.isOwner && !hasPermission(actor.principal.permissions, Permission.executeTasks)) fail(403, 'actor_task_permission', 'Your role needs Execute assigned tasks.')
+    if (requestedProjectId ? !projectSubjectPermissionAllowed(agent.principal, requestedProjectId, Permission.executeTasks) : !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent needs Execute assigned tasks in this project or its Server role.')
+    if (!actor.principal.isOwner && (requestedProjectId ? !projectPermissionAllowed(actor, requestedProjectId, Permission.executeTasks) : !hasPermission(actor.principal.permissions, Permission.executeTasks))) fail(403, 'actor_task_permission', 'You need Execute assigned tasks in this project or your Server role.')
     const admissionTask = await getTask(env, agent, input.taskId)
     if (!admissionTask || admissionTask.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
     for (const id of [input.agentId, actor.principal.id]) {
@@ -158,7 +171,8 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     .bind(sessionId, input.agentId, input.channelId, now, now).run()
   const session = await env.DB.prepare('SELECT id FROM agent_sessions WHERE agent_id=? AND channel_id=?').bind(input.agentId, input.channelId).first<{ id: string }>()
   const id = newId()
-  const mandate: RunMandate = { projectId, permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
+  const restrictPolicies = (current: ProjectPolicyGrant[] = [], cap?: ProjectPolicyGrant[]) => current.filter(grant => grant.projectId === projectId && (!ceiling || cap?.some(saved => JSON.stringify(saved) === JSON.stringify(grant))))
+  const mandate: RunMandate = { projectId, agentProjectPolicies: restrictPolicies(agent.principal.projectPolicies, ceiling?.agentProjectPolicies), initiatorProjectPolicies: restrictPolicies(actor.principal.projectPolicies, ceiling?.initiatorProjectPolicies), permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
     agentPermissions: agent.principal.permissions, agentResourceAccess: agent.principal.resourceAccess,
     computer, maxSteps: 20, maxModelCalls: 20, maxToolCalls: 100, maxTokens: 64000 }
   if (ceiling) {
@@ -181,6 +195,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (ceiling && environmentId !== (ceiling.environmentId ?? null)) fail(403, 'code_denied', 'Subtasks and scheduled work cannot change repository environments')
   if (environmentId) {
     if (!mandate.computer) fail(403, 'code_denied', 'Repository execution needs computer permission in a task-backed mandate')
+    if (execution.projectScope) execution.projectScope.repositoryId = String((await findCodeEnvironment(env, environmentId))?.sourceRepoId ?? '')
     environment = await admitRunEnvironment(env, execution, environmentId)
     if (ceiling?.environmentVersion !== undefined && environment.version !== ceiling.environmentVersion) fail(403, 'code_revoked', 'Repository mandate must be renewed after configuration changes')
     mandate.environmentId = environment.id

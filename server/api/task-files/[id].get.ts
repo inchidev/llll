@@ -3,13 +3,12 @@ import { getServerId } from '../../../shared/server-id'
 import { eq } from 'drizzle-orm'
 import { taskAttachments } from '../../../drizzle/schema'
 import { parseByteRange } from '../../../shared/http-range'
-import { Permission } from '../../../shared/permissions'
 import { cf, requireFiles, fail } from '../../utils/cf'
 import { getDb } from '../../utils/db'
 import { requireMember } from '../../utils/guards'
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.readTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const id = getRouterParam(event, 'id')!
   const { env } = cf(event)
   const row = (await getDb(env.DB).select().from(taskAttachments).where(eq(taskAttachments.id, id)).limit(1))[0]

@@ -206,23 +206,23 @@ it('keeps Factory provisioning on its own page and restores consent after the Cl
   sessionStorage.setItem(`llll-factory-consent:${account}:${worker}`, '1')
   vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker, server: 'https://customer.example' } }))
   const view = await render()
-  expect(view.text()).toContain('Enable Software Factory')
+  expect(view.text()).toContain('Enable a compute node')
   expect(view.text()).not.toContain('Update not loaded')
   expect(view.text()).not.toContain('Add a server instead')
   expect(view.text()).not.toContain('Tick the checkbox')
   expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
-  expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
+  expect(view.findAll('button').find(button => button.text() === 'Provision compute node')?.attributes('disabled')).toBeUndefined()
 })
 
 it('asks for Factory consent again when the checkbox was not kept', async () => {
   vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'llll-worker', server: 'https://customer.example' } }))
   const view = await render()
   expect(view.text()).toContain('Tick the checkbox to enable Provision')
-  const provision = view.findAll('button').find(button => button.text() === 'Provision Factory')
+  const provision = view.findAll('button').find(button => button.text() === 'Provision compute node')
   expect(provision?.attributes('disabled')).toBeDefined()
   await view.get('input[type="checkbox"]').setValue(true)
   expect(sessionStorage.getItem(`llll-factory-consent:${account}:llll-worker`)).toBe('1')
-  expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
+  expect(view.findAll('button').find(button => button.text() === 'Provision compute node')?.attributes('disabled')).toBeUndefined()
 })
 
 it('keeps the selected Factory limits through OAuth and provisions the values shown', async () => {
@@ -240,7 +240,7 @@ it('keeps the selected Factory limits through OAuth and provisions the values sh
   expect(view.findAll('input')[1]!.element.value).toBe('64')
   expect(view.text()).toContain('Small · 0.25 CPU, 1 GiB RAM, 4 GB disk; one active operation')
   expect(view.text()).not.toContain('Standard · 0.5 CPU, 4 GiB RAM, 8 GB disk; one active operation')
-  await view.findAll('button').find(button => button.text() === 'Provision Factory')!.trigger('click')
+  await view.findAll('button').find(button => button.text() === 'Provision compute node')!.trigger('click')
   expect(api).toHaveBeenCalledWith('/api/deploy/factory/enable', expect.objectContaining({ body: { accountId: account, workerName: worker, paidConsent: true, size: 'small', timeoutSeconds: 60, processes: 64 } }))
   view.unmount()
   vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'other-worker' } }))
@@ -266,7 +266,7 @@ it('loads Factory with unchecked consent when browser storage is blocked', async
     const view = await render()
     expect(view.text()).toContain('Reconnect Cloudflare')
     expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
-    expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeDefined()
+    expect(view.findAll('button').find(button => button.text() === 'Provision compute node')?.attributes('disabled')).toBeDefined()
   } finally { read.mockRestore() }
 })
 

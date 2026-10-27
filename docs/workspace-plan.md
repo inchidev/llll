@@ -13,7 +13,13 @@ L4 is a workspace for humans and agents. This document records the agreed direct
 
 ## Roles and Agent templates
 
-Keep one authorization system for humans and Agents. Extend Role assignments with a scope: a Member can be Developer in Project A and Reviewer in Project B. Roles are reusable definitions; do not create a separate role definition for every project. Resolve permissions in the target Project instead of flattening assignments across projects. Server administration remains Server-scoped, and private-channel membership remains a separate access check.
+Keep one authorization system for humans and Agents. Each Member keeps one Server Role. Reusable Project policies supply Developer access in Project A and Reviewer access in Project B. Assign a policy directly to a Member or to a Server Role inside a Project; do not create a separate Role or policy definition for every Project.
+
+Project policies add rights. Existing Server Role grants still apply, so assigning Reviewer cannot remove broader Developer rights granted by a Server Role. Resolve each permission together with its target Project and resource; never flatten permission bits and allowed Project IDs independently. Server administration remains Server-scoped, and private-channel membership remains a separate access check.
+
+The local implementation includes policy definitions and scoped assignments, searchable lists with create/edit modals, per-Project Task and repository checks, and saved Run authority. Assignment removal, replacement or policy-version changes revoke affected Runs; adding a grant never expands an existing Run. Existing installations receive policy definitions without automatic assignments. This has local unit, HTTP and browser verification, not isolated Preview or real-model provider acceptance.
+
+The initial Reviewer policy permits reading Tasks and running review/check commands in an authorized repository workspace. It does not permit editing Tasks or proposing code. Publishing a GitHub review needs its own capability and remains pending. Starting a read-only Reviewer Task currently also needs an existing Task discussion or report channel; removing that setup dependency belongs to the execution/autonomy work.
 
 Agent templates propose instructions and a suitable Role. They do not independently grant permissions. Initial templates can cover Coordinator, Researcher, Developer, Reviewer, Maintainer and Release manager. Changes to a template do not silently change existing Agents.
 

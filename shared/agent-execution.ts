@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ResourceAccess } from './resource-access'
+import type { ProjectPolicyGrant } from './project-access'
 import { RESOURCE_KINDS, resourceAccessAllows } from './resource-access'
 
 export function intersectResources(current: ResourceAccess | undefined, cap: ResourceAccess | undefined): ResourceAccess {
@@ -19,6 +20,8 @@ export const RUN_QUEUE_WAIT_MS = 24 * 60 * 60_000
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type RunMandate = {
   projectId?: string | null
+  agentProjectPolicies?: ProjectPolicyGrant[]
+  initiatorProjectPolicies?: ProjectPolicyGrant[]
   toolConnections?: Array<{ id: string; revision: number }>
   depth?: number
   environmentId?: string | null

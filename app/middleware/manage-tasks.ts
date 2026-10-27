@@ -1,3 +1,3 @@
 import { Permission } from '~~/shared/permissions'
 
-export default defineNuxtRouteMiddleware(() => guardMemberPermission([Permission.readTasks]))
+export default defineNuxtRouteMiddleware(() => guardMemberPermission([Permission.readTasks], true))

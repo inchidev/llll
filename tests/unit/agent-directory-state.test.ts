@@ -6,7 +6,7 @@ import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 
 const state = vi.hoisted(() => ({ target: 'removed-agent', body: { status: 'active' }, query: {} as Record<string, unknown> }))
-vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: true, ownerId: 'owner', perms: ALL_PERMISSIONS, user: { id: 'owner' } }) }))
+vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: true, ownerId: 'owner', perms: ALL_PERMISSIONS, user: { id: 'owner' }, authorization: { serverId: '00000000-0000-4000-8000-000000000001', principal: { id: 'owner', kind: 'human', roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true }, credential: { kind: 'session' } } }) }))
 let db: DatabaseSync, env: L4Env
 const serverId = '00000000-0000-4000-8000-000000000001'
 const getFile = vi.fn(), putFile = vi.fn(), deleteFile = vi.fn()

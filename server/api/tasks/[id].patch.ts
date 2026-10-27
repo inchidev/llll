@@ -1,6 +1,5 @@
 import { getServerId } from '../../../shared/server-id'
 import { z } from 'zod'
-import { Permission } from '../../../shared/permissions'
 import { cf } from '../../utils/cf'
 import { requireMember } from '../../utils/guards'
 import { updateTask } from '../../utils/task-service'
@@ -24,7 +23,7 @@ const bodySchema = z.object({
 }).refine(body => Object.keys(body).length > 0, 'No changes')
 
 export default defineEventHandler(async (event) => {
-  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.writeTasks)
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
