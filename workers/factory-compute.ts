@@ -145,7 +145,14 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       void computePoll(this.env, context.workspace.nodeId, { operation: 'heartbeat', ...claim }).then(() => this.ctx.storage.setAlarm(Date.now() + 15000)).catch(() => container.destroy()).catch(() => undefined)
     }, 3000)
     const deadline = setTimeout(() => { void container.destroy().catch(() => undefined) }, job.executionBudgetMs)
-    let stage = 'container_start'
+    const deliverReceipt = async (result: unknown) => {
+      const saved = computePollSchema.parse({ operation: 'result', ...claim, result })
+      if (saved.operation !== 'result') throw new Error('Invalid receipt')
+      await this.ctx.storage.put('receipt', saved)
+      await computePoll(this.env, context.workspace.nodeId, saved)
+      await this.ctx.storage.delete(['action', 'receipt', 'started'])
+    }
+    let stage = 'container_reset'
     try {
       if (context.request.operation === 'release') {
         if (checkpoint) await this.env.FACTORY_CODE.delete(repository)
@@ -154,12 +161,15 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       } else {
         if (container.running) await container.destroy()
         // Default policy enforces non-root permissions; this released image is reset for every operation.
+        stage = 'container_start'
         await container.start({ entrypoint: ['/bin/sleep', 'infinity'], enableInternet: false })
+        stage = 'container_ready'
         await container.setInactivityTimeout(1000)
         for (let attempt = 0; ; attempt++) {
-          try { const probe = await container.exec(['/usr/local/bin/node', '--version'], { user: '1000:1000', stdout: 'ignore', stderr: 'ignore' }); await probe.exitCode; break }
+          try { const probe = await container.exec(['/usr/local/bin/node', '--version'], { user: '1000:1000', stdout: 'ignore', stderr: 'ignore' }); if (await probe.exitCode !== 0) throw new Error('Container readiness check failed'); break }
           catch (error) { if (attempt >= 60) throw error; await scheduler.wait(500) }
         }
+        stage = 'container_image'
         const running = await container.inspect()
         if (!factoryImageAccepted(running?.image, capabilities.image)) throw new Error('Running container image differs from the approved digest')
         const phase = async (kind: 'source' | 'restore' | 'command' | 'checkpoint', remote?: string, token?: string) => {
@@ -208,13 +218,20 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       }
       result = { ...result, runtimeMs: Math.min(900000, Date.now() - started) }
       stage = 'receipt_delivery'
-      const saved = computePollSchema.parse({ operation: 'result', ...claim, result })
-      if (saved.operation !== 'result') throw new Error('Invalid receipt')
-      await this.ctx.storage.put('receipt', saved)
-      await computePoll(this.env, context.workspace.nodeId, saved)
-      await this.ctx.storage.delete(['action', 'receipt', 'started'])
+      await deliverReceipt(result)
     } catch (error) {
       if (await this.ctx.storage.get('receipt')) { await this.ctx.storage.setAlarm(Date.now() + 3000); return }
+      if (stage === 'container_start' || stage === 'container_ready') {
+        // Only fixed startup commands ran: no source capability, restore, user
+        // operation or checkpoint write was attempted. Keep the failed receipt
+        // durable without placing an uncertainty fence on acknowledged source.
+        try {
+          await deliverReceipt({ ok: false, exitCode: -1,
+            output: `Container startup failed (${stage}) before any workspace operation. The last acknowledged code is retained. Inspect provider availability and request a new operation after review; this action will not be replayed.`,
+            runtimeMs: Math.min(900000, Date.now() - started) })
+        } catch { await this.ctx.storage.setAlarm(Date.now() + 3000) }
+        return
+      }
       await this.env.DB.prepare("UPDATE factory_actions SET status='uncertain',result_json=? WHERE id=? AND status IN ('claimed','executing')")
         .bind(JSON.stringify({ message: 'Execution or durable code checkpoint could not be confirmed. The last acknowledged checkpoint is retained; inspect capacity, provider availability and interrupted effects. This command will not be replayed.', checkpoint: checkpoint?.sha ?? null,
           failureStage: stage, failureCode: error instanceof FactoryIoError ? error.code : 'execution_failed' }), actionId).run()

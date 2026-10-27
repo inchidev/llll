@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
 import { isolatedPreviewBindings, nativeServerPreviewOrigin } from './server-preview-config.mjs'
 import { compareVersions, parseVersion } from './release-policy.mjs'
+import { findD1Database } from './cloudflare-d1.mjs'
 import {
   pullRequestCandidate,
   verifyMergeParents,
@@ -79,9 +80,12 @@ const databaseName = process.env.LLLL_PREVIEW_DATABASE || `llll-server-pr-${prNu
 if (!new RegExp(`^llll-server-pr-${prNumber}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$`).test(databaseName))
   throw new Error('A per-PR Preview database must belong to this PR')
 async function ensureStagingResource(kind, list, create, name) {
-  let resource = (await api(kind === 'd1' ? '/d1/database?per_page=100' : kind === 'kv' ? '/storage/kv/namespaces?per_page=100' : '/r2/buckets?per_page=100'))
-  const items = resource.buckets || resource
-  resource = items.find((item) => item.name === name || item.title === name)
+  let resource
+  if (kind === 'd1') resource = await findD1Database(async path => ({ result: await api(path) }), name)
+  else {
+    const listed = await api(kind === 'kv' ? '/storage/kv/namespaces?per_page=100' : '/r2/buckets?per_page=100')
+    resource = (listed.buckets || listed).find(item => item.name === name || item.title === name)
+  }
   resource ||= await api(kind === 'd1' ? '/d1/database' : kind === 'kv' ? '/storage/kv/namespaces' : '/r2/buckets', 'POST', create)
   list.push(resource)
   return resource
