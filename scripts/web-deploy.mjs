@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { requireWorkersBuild } from './ci-only.mjs'
 import { pullRequestCandidate, verifyMergeParents } from './pull-request-ref.mjs'
 import { compareVersions } from './release-policy.mjs'
+import { findD1Database } from './cloudflare-d1.mjs'
 
 requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
@@ -55,12 +56,7 @@ if (mode === 'preview') {
   if (!pr) throw new Error('Preview requires the current head of a mergeable PR to main. Open or update the PR and retry the Build.')
 }
 const databaseName = mode === 'production' ? 'llll' : `llll-pr-${pr.number}`
-let database
-for (let page = 1; ; page++) {
-  const data = await api(`/d1/database?per_page=100&page=${page}`)
-  database = data.result.find(item => item.name === databaseName)
-  if (database || page >= (data.result_info?.total_pages || 1)) break
-}
+let database = await findD1Database(api, databaseName)
 if (!database && mode === 'production') throw new Error('Production D1 llll must already exist; provision or migrate it through the connected API before deploying')
 database ||= (await api('/d1/database', { name: databaseName })).result
 const site = production?.site || resolve(root, 'apps/site')
