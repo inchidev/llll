@@ -1,10 +1,10 @@
 # Lizard execution provider evaluation
 
-Date: 2026-10-27. Tracks [#365](https://github.com/inchidev/llll/issues/365). This is a bounded provider probe, not an L4 integration or a replacement for the local compute node.
+Initial probe: 2026-10-27. Compute follow-up: 2026-10-28 (Asia/Ho_Chi_Minh). Tracks [#365](https://github.com/inchidev/llll/issues/365). This is a bounded provider probe, not an L4 integration or a replacement for the local compute node.
 
 ## Decision
 
-Conditional go for a separate provider prototype; no go for making it the default execution environment yet. Authentication, a disposable Linux environment, public repository checkout and cleanup worked. The advertised Pi template was unavailable to this account/region, and the fallback base image lacked Node and Pi. Consequently no model ran, no L4 build/test completed, and no task-to-draft-PR acceptance is established.
+Conditional go for an optional L4 compute-provider prototype; no go for making it the default execution environment yet. The follow-up below demonstrated the existing Docker workspace image, loop filesystems and cgroup limits on a temporary Lizard VM; it did not complete an L4 Run. Authentication, a disposable Linux environment, public repository checkout and cleanup worked. In the initial probe the advertised Pi template was unavailable to this account/region and the fallback base image lacked Node and Pi. Guest dependencies were subsequently installed successfully. No model-backed L4 task or task-to-draft-PR acceptance is established.
 
 Keep Pi as L4's runtime and keep Server authorization, task state, source checkpoints and result acceptance in L4. The local compute node remains the working baseline. A future Lizard adapter must provide its own prepared toolchain, centrally bounded lifecycle and credential broker rather than transferring the provider management key into the guest.
 
@@ -48,7 +48,7 @@ No Boat token or VM was used. The Boat pricing URL in #365 was unavailable to th
 
 ## Before enabling the adapter
 
-1. Prepare and attest a Node 24 + Pi + Git toolchain, or confirm a usable Pi template through the live catalog; run a representative L4 task with actual inference credentials scoped to that task.
+1. Prepare the existing L4 compute daemon and its immutable workspace image, with Node 24, Docker and enforceable filesystem/cgroup limits. Pi remains embedded on the L4 Server; the VM needs no model or provider-management credentials. Run a representative L4 Run through the Server, its task permissions and the paired Node.
 2. Run the same checkout/build/test/artifact task on Lizard and the existing local node, then compare total setup, active, idle and retention costs.
 3. Exercise reconnect, streaming logs, explicit command cancellation, expiry during execution, failed pause and cleanup reconciliation. Verify a timeout never triggers blind replay.
 4. Verify non-root execution, private-network/cloud-metadata isolation, public package egress and scoped Git credentials. Firecracker isolation is the vendor's documented architecture, not a security audit performed here. [Sandbox overview](https://lizard.build/docs/sandboxes/)
@@ -56,3 +56,25 @@ No Boat token or VM was used. The Boat pricing URL in #365 was unavailable to th
 6. Enforce L4 project policies, initiator ceilings, aggregate concurrency, paid-compute permission and per-task budgets on every create/resume/fork path. Keep all Customer Server connections operator-owned and optional.
 
 No GitHub PR, issue, official deployment or release was changed by this evaluation.
+
+
+## Compute follow-up: 2026-10-28
+
+The user authorized installation of guest dependencies and a temporary Volume. A first 20 GB Volume, `fcv-Ud8m9DtL3vwqMTyh`, inherited `eu-west-lim-a`; sandbox creation then returned HTTP 403 because the account trial permits US regions only. That Volume was immediately deleted, and both resource lists were empty. Explicit region selection is necessary when defaults differ from account entitlement.
+
+A second 20 GB Volume, `fcv-Kk0zsTejJPC8U8di`, and Small sandbox `accuse-struggle-nakl` were created explicitly in `us-east-1`, with a 600-second absolute sandbox lifetime. The guest reported Alpine 3.24.1, root access, loop devices and approximately 18.5 GB free at `/workspace`. Installing Docker 29.9.2, Node 24.22.1 and filesystem tools succeeded. A 1 GiB file was allocated, formatted as ext4, mounted through a loop device with `nodev,nosuid`, verified with `findmnt`, and unmounted.
+
+Docker initially failed with `Devices cgroup isn't mounted`. The guest kernel exposed cgroup v2; mounting it normally at `/sys/fs/cgroup` enabled CPU, memory and PID controllers. Docker then started with its data directory on the temporary Volume. No unsafe runner, privileged task container or disabled resource limit was substituted.
+
+The existing `packages/compute-node/Dockerfile.workspace` built successfully from only the compute source files transferred from this checkout. Its local immutable image ID was `sha256:b762775dcdbbb2cc313606dfd65fd0474540aa579a30f98154ef97574bb93ba8`. A real container running as UID 1000 reported `cpu.max=100000 100000`, `memory.max=268435456`, and `pids.max=32` with a read-only root, dropped capabilities, no-new-privileges and no network. Docker warned that the kernel does not support swap limits; CPU, RAM and PID limits were present. This is runtime configuration evidence, not a full hostile-workload audit.
+
+The actual L4 daemon passed its own loop/filesystem startup probe with a configured 1 GiB task-disk capability. Its first pairing request reached the temporary origin but returned HTTP 404. At that point no L4 Node pairing or L4 Run had completed. The Server-side Pi runtime and model credentials remain outside the guest. Scripts and full command results are retained only in ignored `.deployment/lizard/eval/`, including `bootstrap-compute.sh`, `compute-probe.mjs`, `upload-compute.mjs` and `launch-compute.mjs`; no provider token is embedded in them.
+
+A persistent Volume can extend a trial Small sandbox beyond its 5 GB ordinary root disk; `/workspace` is its documented mount. Compute rates and Volume storage remain separate, and stopping a VM does not remove its Volume. The bootstrap therefore requires explicit Volume deletion after VM cleanup. [Volume contract](https://lizard.build/docs/sandboxes/volumes/), [current pricing](https://lizard.build/pricing).
+
+
+The local proxy itself was healthy, but its temporary quick-tunnel host returned 404 at the Cloudflare edge before reaching the proxy. This is a connection-test limitation, not evidence that the daemon, Lizard networking or L4 pairing endpoint failed. The user then redirected the implementation toward an operator-configured Lizard provider in L4 rather than further quick-tunnel troubleshooting. No L4 Run was claimed or completed.
+
+Cleanup completed at `2026-10-27T18:14:22.748Z` (UTC): `sandbox.kill()` returned true, the temporary Volume deletion succeeded, and subsequent project lists returned `sandboxes=[]` and `volumes=[]`. No snapshot, registry image, public guest port or persistent provider configuration was left. The create/probe/cleanup sequence lasted about 263 seconds; at the published Small rate this is approximately $0.0012 of compute, plus brief Volume storage. This is an estimate, not an invoice.
+
+The product integration still needs Server-owned provider credentials and a connection check, an optional Lizard provider selection for agents/Runs, and a provider lifecycle broker. That broker must create and expire the VM, install or restore an attested compute image, pair it with a reachable Server, export checkpoints, and reconcile/delete owned resources. The management key must stay outside task guests. The existing pull-based compute protocol can remain; inference and Pi stay on the Server. For a purely local Server, a deliberate narrow authenticated ingress or a separate provider transport is still needed. The discarded quick tunnel is not a shipped connectivity solution.

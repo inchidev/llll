@@ -5,6 +5,8 @@ import { openNodeState, serverOrigin } from './state-store.mjs'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
+const configuredDiskBytes = Number(process.env.LLLL_WORKSPACE_DISK_BYTES || 10737418240)
+if (![1073741824, 10737418240].includes(configuredDiskBytes)) throw new Error('LLLL_WORKSPACE_DISK_BYTES must be 1073741824 or 10737418240')
 if (!/^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$/u.test(image ?? '')) throw new Error('Set LLLL_WORKSPACE_IMAGE to an immutable registry digest')
 if (process.env.LLLL_SHARED_KERNEL_TRUSTED !== '1') throw new Error('Docker shares the host kernel. Confirm trusted-code use with LLLL_SHARED_KERNEL_TRUSTED=1; public untrusted tenants require a stronger provider')
 process.umask(0o077)
@@ -17,7 +19,7 @@ const probe = new LoopDiskStore(join(state,'probe-disks'),{bytes:33554432,maxDis
 await probe.initialize()
 const probeId = crypto.randomUUID()
 try { await probe.cleanup(); await probe.ensure(probeId,true) } finally { await probe.remove(probeId) }
-const capabilities = { diskBytes:10737418240,docker:true,durableDisk:true,isolation:'shared-kernel',image,maxParallel:1,protocol:1 }
+const capabilities = { diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,maxParallel:1,protocol:1 }
 const delay = ms => new Promise(resolveDelay => setTimeout(resolveDelay,ms))
 const docker = async (args,options={}) => {
   const result = await runProcess('docker',args,options)
