@@ -230,7 +230,7 @@ it('loads Factory with unchecked consent when browser storage is blocked', async
   const read = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => { throw new DOMException('Storage blocked', 'SecurityError') })
   try {
     const view = await render()
-    expect(view.text()).toContain('Cloudflare connected')
+    expect(view.text()).toContain('Reconnect Cloudflare')
     expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
     expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeDefined()
   } finally { read.mockRestore() }
