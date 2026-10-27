@@ -297,6 +297,62 @@ describe('channel read reconnect delivery', () => {
     channel.disconnect()
   })
 
+  it('guards reload while disconnected messages await acknowledgement, including failed delivery', async () => {
+    const browser = new EventTarget()
+    vi.stubGlobal('window', browser)
+    const channel = useChannelSocket(ref('channel-1'))
+    try {
+      await flush()
+      channel.send({ t: 'message.create', content: 'unsent', clientId: 'pending-1' })
+      const reload = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(reload)
+      expect(reload.defaultPrevented).toBe(true)
+      await vi.advanceTimersByTimeAsync(15000)
+      const afterFailure = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(afterFailure)
+      expect(afterFailure.defaultPrevented).toBe(true)
+      const socket = FakeWebSocket.instances[0]!
+      socket.open(); socket.message({ t: 'hello', channelId: 'channel-1' })
+      expect(socket.sent.map(JSON.parse).filter(message => message.t === 'message.create')).toEqual([{ t: 'message.create', content: 'unsent', clientId: 'pending-1' }])
+      socket.message({ t: 'ack', clientId: 'pending-1', id: 'message-1' })
+      const delivered = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(delivered)
+      expect(delivered.defaultPrevented).toBe(false)
+    } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
+  it('keeps the reload guard until every message is acknowledged and removes it on teardown', async () => {
+    const browser = new EventTarget()
+    vi.stubGlobal('window', browser)
+    const channel = useChannelSocket(ref('channel-1'))
+    try {
+      await flush()
+      const socket = FakeWebSocket.instances[0]!
+      socket.open(); socket.message({ t: 'hello', channelId: 'channel-1' })
+      for (const clientId of ['one', 'two']) channel.send({ t: 'message.create', content: clientId, clientId })
+      socket.message({ t: 'ack', clientId: 'one', id: 'message-1' })
+      const remaining = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(remaining)
+      expect(remaining.defaultPrevented).toBe(true)
+      channel.disconnect()
+      const closed = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(closed)
+      expect(closed.defaultPrevented).toBe(false)
+    } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
+  it('does not attach a reload guard for reads or typing without an unsent message', async () => {
+    const browser = new EventTarget(), added = vi.spyOn(browser, 'addEventListener')
+    vi.stubGlobal('window', browser)
+    const channel = useChannelSocket(ref('channel-1'))
+    try {
+      await flush()
+      channel.send({ t: 'typing', active: true })
+      channel.send({ t: 'read', messageId: 'message-1' })
+      expect(added.mock.calls.some(([type]) => type === 'beforeunload')).toBe(false)
+    } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
   it('catches up on messages sent while the socket was connecting', async () => {
     const author = { id: 'user-2', displayName: 'B', avatarR2Key: null }
     const cachedMessage = { id: 'm1', author, attachments: [], reactions: [], createdAt: '2026-09-28T10:01:00.000Z' }
