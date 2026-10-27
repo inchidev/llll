@@ -37,6 +37,19 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   let pendingRead: Extract<ClientMsg, { t: 'read' }> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   const deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let unloadGuardAttached = false
+  const beforeUnload = (event: BeforeUnloadEvent) => {
+    if (!outstanding.size) return
+    event.preventDefault()
+    event.returnValue = ''
+  }
+  function updateUnloadGuard() {
+    if (typeof window === 'undefined') return
+    const needed = outstanding.size > 0
+    if (needed && !unloadGuardAttached) window.addEventListener('beforeunload', beforeUnload)
+    if (!needed && unloadGuardAttached) window.removeEventListener('beforeunload', beforeUnload)
+    unloadGuardAttached = needed
+  }
 
   function queryClient(): QueryClient | undefined {
     return nuxt.$queryClient as QueryClient | undefined
@@ -238,6 +251,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             clearDeliveryTimer(parsed.clientId)
             acknowledge(parsed.clientId, parsed.id)
             outstanding.delete(parsed.clientId)
+            updateUnloadGuard()
             break
           case 'typing':
             presence.markTyping(id, parsed.userId, parsed.active)
@@ -338,6 +352,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   function send(msg: ClientMsg) {
     if (msg.t === 'message.create') {
       outstanding.set(msg.clientId, msg)
+      updateUnloadGuard()
       updateOptimisticMessage(msg.clientId, message => ({ ...message, deliveryState: 'sending' }))
       watchDelivery(msg.clientId)
     }
@@ -380,6 +395,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
     pending.splice(0)
     pendingRead = null
     outstanding.clear()
+    updateUnloadGuard()
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = null
     for (const timer of deliveryTimers.values()) clearTimeout(timer)
@@ -397,6 +413,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
     pending.splice(0)
     pendingRead = null
     outstanding.clear()
+    updateUnloadGuard()
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = null
     for (const timer of deliveryTimers.values()) clearTimeout(timer)

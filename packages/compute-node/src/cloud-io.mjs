@@ -1,10 +1,19 @@
 // Fixed image helper. No provider token ever enters the container.
-import { mkdir, readFile, writeFile, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runProcess } from './process.mjs'
 
 const root = '/workspace/repo'
+export async function readCodeInput(stream = process.stdin) {
+  const chunks = []; let size = 0
+  for await (const chunk of stream) {
+    size += chunk.length
+    if (size > 8000) throw new Error('Invalid storage request')
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks).toString()
+}
 const env = { HOME: '/tmp', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_SSL_CAINFO: '/etc/cloudflare/certs/cloudflare-containers-ca.crt' }
 const git = async (cwd, args, extra = {}) => {
   const result = await runProcess('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never', ...args], { cwd, env: { ...env, ...extra }, limit: 100000, timeoutMs: 120000 })
@@ -61,8 +70,7 @@ export async function codeState(input) {
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   try {
-    const input = await readFile('/dev/stdin', 'utf8')
-    if (Buffer.byteLength(input) > 8000) throw new Error('Invalid storage request')
+    const input = await readCodeInput()
     process.stdout.write(JSON.stringify(await codeState(JSON.parse(input))))
   } catch { process.stdout.write(JSON.stringify({ ok: false, message: 'Code checkpoint or restoration failed. The last acknowledged code is retained; inspect storage capacity and recovery before continuing.' })) }
 }
