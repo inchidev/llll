@@ -71,7 +71,7 @@ it('a production no-op exits successfully without Cloudflare credentials or depl
   const root = mkdtempSync(resolve(tmpdir(), 'llll-release-gate-'))
   temporary.push(root)
   mkdirSync(resolve(root, 'scripts'))
-  for (const name of ['web-deploy.mjs', 'ci-only.mjs', 'pull-request-ref.mjs', 'release-policy.mjs']) cpSync(resolve('scripts', name), resolve(root, 'scripts', name))
+  for (const name of ['web-deploy.mjs', 'cloudflare-d1.mjs', 'ci-only.mjs', 'pull-request-ref.mjs', 'release-policy.mjs']) cpSync(resolve('scripts', name), resolve(root, 'scripts', name))
   mkdirSync(resolve(root, '.deployment/released'), { recursive: true })
   writeFileSync(resolve(root, '.deployment/released/plan.json'), JSON.stringify({ skip: true, reason: 'No newer published release: production unchanged' }))
   const output = execFileSync(process.execPath, [resolve(root, 'scripts/web-deploy.mjs'), 'production'], { encoding: 'utf8', env: { CI: 'true', WORKERS_CI: '1', WORKERS_CI_BUILD_UUID: 'isolated-test', WORKERS_CI_BRANCH: 'main', PATH: '/no-deployment-tools' } })
