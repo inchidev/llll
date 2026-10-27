@@ -24,6 +24,7 @@ export type RunMandate = {
   rootRunId?: string
   parentRunId?: string
   rootDeadline?: string
+  chatRepositories?: Array<{ id: string; environmentId: string; version: number }>
   projectId?: string | null
   agentProjectPolicies?: ProjectPolicyGrant[]
   initiatorProjectPolicies?: ProjectPolicyGrant[]

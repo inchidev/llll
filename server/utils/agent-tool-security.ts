@@ -4,7 +4,7 @@ import { fail } from './cf'
 
 export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
 const controls = new Set(['get_current_time', 'search_tools', 'get_tool_details'])
-const reads = new Set(['get_delegated_run', 'list_project_agents', 'factory_status', 'factory_workspace', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
+const reads = new Set(['get_delegated_run', 'list_project_agents', 'list_public_project_repositories', 'inspect_public_project_repository', 'factory_status', 'factory_workspace', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
 const writes = new Set(['delegate_task', 'create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'create_document', 'update_document', 'create_reminder', 'cancel_schedule', 'publish_code_changes'])
 const external = new Set(['read_url', 'search_web', 'read_code_file', 'read_github_issue', 'read_github_pull_request'])
 /** Server-owned classification. Remote hints/descriptions and tool-name prefixes never grant authority. */
@@ -68,7 +68,15 @@ export function safeRunProgress(status: string): string {
   return status === 'queued' ? 'Queued' : status === 'tool' ? 'Using a tool' : status === 'waiting_approval' ? 'Review required' : 'Working'
 }
 export const PRIVATE_RUN_SUMMARY = 'Private result available to the initiating Member.'
-export function runReport(_env: L4Env, run: AgentRun): Promise<{ text: string; restricted: boolean }> {
-  // Model output is not an exact human-approved publication, including on an otherwise clean first Run.
-  return Promise.resolve({ restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` })
+export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: string; restricted: boolean }> {
+  const mandate = JSON.parse(run.mandateJson) as RunMandate
+  // Only conversation and explicitly public repository context may be shared
+  // automatically. Other tools can expose data outside this channel's audience.
+  if (!run.taskId && run.status === 'completed' && run.resultText && mandate.execution?.mode === 'role') {
+    const restricted = await env.DB.prepare(`SELECT 1 WHERE EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
+      OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE r.session_id=?
+        AND t.name NOT IN ('get_current_time','search_tools','get_tool_details','list_public_project_repositories','inspect_public_project_repository'))`).bind(run.sessionId, run.sessionId).first()
+    if (!restricted) return { restricted: false, text: run.resultText.slice(0, 12000) }
+  }
+  return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
 }

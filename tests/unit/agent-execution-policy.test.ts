@@ -46,3 +46,16 @@ it('keeps legacy mandates in review mode, and never grants unclassified tools', 
   expect(toolSecurityReason('unknown', false, 'role')).toBe('unclassified_tool')
   expect(toolSecurityReason('read_url', true, 'role')).toBeNull()
 })
+it('returns ordinary conversation answers in the thread rather than a private Run link', async () => {
+  const { run } = await f.run()
+  const { runReport } = await import('../../server/utils/agent-tool-security')
+  expect(await runReport(f.env, { ...run, status: 'completed', resultText: 'Привет! Вот ответ.' })).toMatchObject({ text: 'Привет! Вот ответ.', restricted: false })
+})
+it('keeps conversation results private after a restricted resource tool was used', async () => {
+  const { run } = await f.run()
+  f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'get_task','{}','{}','completed','{}',?)").run(run.id, 'private-read', new Date().toISOString())
+  const { runReport } = await import('../../server/utils/agent-tool-security')
+  const report = await runReport(f.env, { ...run, status: 'completed', resultText: 'Private task content' })
+  expect(report.restricted).toBe(true)
+  expect(report.text).not.toContain('Private task content')
+})

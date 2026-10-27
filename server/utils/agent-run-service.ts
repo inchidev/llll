@@ -188,12 +188,18 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (ceiling.depth !== (parentMandate.depth ?? 0) + 1 || (ceiling.depth ?? 0) > (parentMandate.execution?.maxDepth ?? 2) || ceiling.rootRunId !== (parentMandate.rootRunId ?? parent.id) || projectId !== parentMandate.projectId) fail(403, 'delegation_scope', 'Child work exceeds the parent mandate')
     await runAuthorization(env, parent)
   }
-  const restrictPolicies = (current: ProjectPolicyGrant[] = [], cap?: ProjectPolicyGrant[]) => current.filter(grant => grant.projectId === projectId && (!ceiling || cap?.some(saved => JSON.stringify(saved) === JSON.stringify(grant))))
+  const restrictPolicies = (current: ProjectPolicyGrant[] = [], cap?: ProjectPolicyGrant[]) => current.filter(grant => (!projectId || grant.projectId === projectId) && (!ceiling || cap?.some(saved => JSON.stringify(saved) === JSON.stringify(grant))))
   const mandate: RunMandate = { projectId, agentProjectPolicies: restrictPolicies(agent.principal.projectPolicies, ceiling?.agentProjectPolicies), initiatorProjectPolicies: restrictPolicies(actor.principal.projectPolicies, ceiling?.initiatorProjectPolicies), permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
     agentPermissions: agent.principal.permissions, agentResourceAccess: agent.principal.resourceAccess,
     computer, execution: ceiling ? ceiling.execution : executionPolicy, rootRunId: ceiling?.rootRunId ?? id, parentRunId: ceiling?.parentRunId, rootDeadline: ceiling?.rootDeadline,
     maxSteps: executionPolicy.maxSteps, maxModelCalls: executionPolicy.maxModelCalls,
     maxToolCalls: executionPolicy.maxToolCalls, maxTokens: executionPolicy.maxTokens }
+  if (!input.taskId && !ceiling) {
+    const repositories = await env.DB.prepare(`SELECT r.id,r.environment_id AS environmentId,e.version FROM project_repositories r
+      JOIN projects p ON p.id=r.project_id JOIN agent_environments e ON e.id=r.environment_id
+      WHERE p.archived_at IS NULL AND e.enabled=1 ORDER BY r.created_at LIMIT 25`).all<{ id: string; environmentId: string; version: number }>()
+    mandate.chatRepositories = repositories.results
+  }
   if (ceiling) {
     mandate.depth = ceiling.depth ?? 0
     mandate.permissions &= ceiling.permissions

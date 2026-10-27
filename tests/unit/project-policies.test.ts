@@ -28,6 +28,16 @@ it('seeds reusable policies without assigning or expanding anyone’s existing r
   expect(f.db.prepare('SELECT count(*) AS n FROM project_policy_assignments').get()!.n).toBe(0)
   expect((await f.actor(ids.member)).principal.permissions).toBe(MemberPermissions)
 })
+it('preserves each project grant in a conversation Run and revokes it when access changes', async () => {
+  const first = await assign(ids.agent, a)
+  await assign(ids.agent, b, 'reviewer')
+  const { run } = await f.run()
+  const auth = await runAuthorization(f.env, run)
+  expect(projectPermissionAllowed(auth, a, Permission.proposeCode)).toBe(true)
+  expect(projectPermissionAllowed(auth, b, Permission.proposeCode)).toBe(false)
+  await revokeProjectPolicy(f.env, await f.actor(), a, first.id)
+  await expect(runAuthorization(f.env, run)).rejects.toMatchObject({ statusCode: 403 })
+})
 it.each([ids.member, ids.agent])('keeps Developer A and Reviewer B separate for member %s', async memberId => {
   await assign(memberId, a); await assign(memberId, b, 'reviewer')
   const first = await task(a), second = await task(b), unscoped = await task(null)
