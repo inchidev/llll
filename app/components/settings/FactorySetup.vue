@@ -23,7 +23,7 @@ async function configure(enabled: boolean) {
       <template v-if="setup.data.value.placement === 'cloudflare'">
         <p class="text-sm text-muted">Optional Cloudflare Containers and Artifacts require Workers Paid and available provider access. Basic L4 works without them. R2 remains independent.</p>
         <p class="text-xs text-muted">{{ setup.data.value.costs }} Choose compute size, command time and process limits during provisioning. Each Task has a 500 MB retained Git-object budget and one operation runs at a time. No nested Docker. Idle compute is stopped after each checkpoint.</p>
-        <UButton v-if="!setup.data.value.resources && setup.data.value.connectUrl" :to="setup.data.value.connectUrl" external target="_blank" label="Enable compute node in Cloudflare" />
+        <UButton v-if="setup.data.value.connectUrl && (!setup.data.value.resources || setup.data.value.state === 'disabled')" :to="setup.data.value.connectUrl" external target="_blank" :label="setup.data.value.resources ? 'Review compute node provisioning' : 'Enable compute node in Cloudflare'" />
         <template v-if="setup.data.value.resources && ['disabled', 'paused'].includes(setup.data.value.state)">
           <UCheckbox v-model="acknowledged" label="I authorize compute, code storage and network usage in my Cloudflare account." />
           <UButton label="Activate compute node" :disabled="!acknowledged" :loading="busy" @click="configure(true)" />

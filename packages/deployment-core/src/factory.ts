@@ -4,6 +4,7 @@ import { readL4Server } from './servers.js'
 import { loadL4Release, releaseManifestUrl } from './release.js'
 import { createError } from './errors.js'
 import { factoryScriptContainer } from './factory-bindings.js'
+import { beginUnusedFactoryRepair } from './factory-repair.js'
 
 type FactoryAsset = { sha256: string; size: number }
 type FactoryRelease = { schemaVersion: number; version: string; manifestDigest: string; files: Record<string, FactoryAsset>; layers: { file: string; digest: string; size: number }[] }
@@ -73,9 +74,32 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const before = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
   const existing = before.bindings ?? []
   const boundPolicy = existing.find(binding => binding.name === 'FACTORY_POLICY')
-  if (boundPolicy && 'text' in boundPolicy && boundPolicy.text !== JSON.stringify(limits)) throw createError({ statusCode: 409, statusMessage: 'Existing Factory limits are bound to active Task authority. Pause and explicitly replace the provider before changing its policy.' })
   const boundImage = existing.find(binding => binding.name === 'FACTORY_IMAGE')
-  if (boundImage && 'text' in boundImage && typeof boundImage.text === 'string' && !boundImage.text.endsWith('@' + factory.manifestDigest)) throw createError({ statusCode: 409, statusMessage: 'Preserve/export existing Factory Task source before explicitly replacing its pinned image' })
+  const image = `registry.cloudflare.com/${accountId}/${workerName}-factory@${factory.manifestDigest}`
+  type Application = { id: string; name: string; scheduling_policy: string; configuration: { image: string; instance_type: string }; durable_objects?: { namespace_id: string } }
+  const name = `${workerName}-factory`
+  const applications = await cloudflareApi<Application[]>(accessToken, `/accounts/${accountId}/containers/applications`)
+  const previousApplication = applications.find(app => app.name === name)
+  const previousBinding = existing.find(binding => binding.name === 'FACTORY_COMPUTE')
+  if (previousApplication && (!previousBinding || !('namespace_id' in previousBinding) || previousApplication.durable_objects?.namespace_id !== previousBinding.namespace_id)) throw new Error('Factory application belongs to a different namespace; inspect its configuration before retrying')
+  if (previousApplication && previousApplication.scheduling_policy !== 'default') throw new Error('Existing Factory application scheduling policy differs; inspect its configuration before retrying')
+  const changed = (boundPolicy && 'text' in boundPolicy && boundPolicy.text !== JSON.stringify(limits))
+    || (boundImage && 'text' in boundImage && boundImage.text !== image)
+    || (previousApplication && (previousApplication.configuration.image !== image || previousApplication.configuration.instance_type !== size.instance_type))
+  let repair: Awaited<ReturnType<typeof beginUnusedFactoryRepair>> | undefined
+  const database = existing.find(binding => binding.name === 'DB' && binding.type === 'd1')
+  const query = async (sql: string, params: (string | number)[]) => {
+    if (!database || !('database_id' in database) || !database.database_id) throw new Error('Factory repair requires the installed Server database')
+    const result = await cloudflareApi<Array<{ success?: boolean; results?: { value: string }[] }>>(accessToken, `/accounts/${accountId}/d1/database/${database.database_id}/query`, { method: 'POST', body: JSON.stringify({ sql, params }) })
+    if (!result.length || result.some(row => row.success === false)) throw new Error('Factory repair database check failed')
+    return result.flatMap(row => row.results ?? [])
+  }
+  const incomplete = (boundImage || previousApplication || boundPolicy) && (await query("SELECT value FROM server_settings WHERE key='factory.provisioning'", [])).length > 0
+  if (changed || incomplete) {
+    if (!release.manifest.capabilities?.includes('factory-unused-repair-v1')) throw createError({ statusCode: 409, statusMessage: 'Update this Server to a release supporting unused Factory repair before replacing its pinned image or limits' })
+    repair = await beginUnusedFactoryRepair(query)
+  }
+  try {
   const credentials = await cloudflareApi<{ username: string; password: string }>(accessToken, `/accounts/${accountId}/containers/registries/registry.cloudflare.com/credentials`, { method: 'POST', body: JSON.stringify({ expiration_minutes: 15, permissions: ['push', 'pull'] }) })
   const authorization = 'Basic ' + btoa(`${credentials.username}:${credentials.password}`)
   const registry = `https://registry.cloudflare.com/v2/${accountId}/${workerName}-factory`
@@ -108,9 +132,10 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
     if (size !== expected.size || actual !== expected.sha256) throw new Error('Image layer checksum mismatch; unverified upload was not committed')
     const target = new URL(uploaded.headers.get('location') ?? location, registry); target.searchParams.set('digest', blob.digest)
     await registryRequest(target.toString(), { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' } })
+    await repair?.check()
   }
   await registryRequest(registry + '/manifests/' + factory.manifestDigest, { method: 'PUT', headers: { 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' }, body: manifestBytes })
-  const image = `registry.cloudflare.com/${accountId}/${workerName}-factory@${factory.manifestDigest}`
+  await repair?.check()
   const current = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
   const names = new Set(['FACTORY_COMPUTE', 'FACTORY_CODE', 'FACTORY_IMAGE', 'FACTORY_POLICY'])
   const bindings: Record<string, unknown>[] = (current.bindings ?? []).filter(binding => !names.has(binding.name)).map(binding => ({ type: 'inherit', name: binding.name }))
@@ -125,11 +150,24 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const deployed = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
   const binding = deployed.bindings?.find(binding => binding.name === 'FACTORY_COMPUTE')
   if (!binding || !('namespace_id' in binding) || !binding.namespace_id) throw new Error('Factory namespace is not ready; retry activation')
-  const name = `${workerName}-factory`
-  const applications = await cloudflareApi<{ id: string; name: string; scheduling_policy: string; configuration: { image: string; instance_type: string }; durable_objects?: { namespace_id: string } }[]>(accessToken, `/accounts/${accountId}/containers/applications`)
-  const application = applications.find(app => app.name === name)
+  const deployedApplications = await cloudflareApi<Application[]>(accessToken, `/accounts/${accountId}/containers/applications`)
+  const application = deployedApplications.find(app => app.name === name)
   if (application && application.durable_objects?.namespace_id !== binding.namespace_id) throw new Error('Factory application belongs to a different namespace; inspect it before retrying')
-  if (application && (application.configuration.image !== image || application.configuration.instance_type !== size.instance_type || application.scheduling_policy !== 'default')) throw new Error('Existing Factory application image, size or scheduling policy differs from the reviewed release. Pause and reconcile it before activation.')
+  if (application && (application.configuration.image !== image || application.configuration.instance_type !== size.instance_type || application.scheduling_policy !== 'default')) {
+    if (!repair || application.id !== previousApplication?.id || application.scheduling_policy !== 'default') throw new Error('Existing Factory application configuration changed; inspect it before activation')
+    await repair.check()
+    await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications/${application.id}/rollouts`, { method: 'POST', body: JSON.stringify({ description: 'L4 unused Factory repair', strategy: 'rolling', kind: 'full_auto', step_percentage: 100, target_configuration: { image, instance_type: size.instance_type } }) })
+    for (let attempt = 0; ; attempt++) {
+      await repair.check()
+      const settled = await cloudflareApi<Application>(accessToken, `/accounts/${accountId}/containers/applications/${application.id}`)
+      if (settled.durable_objects?.namespace_id !== binding.namespace_id || settled.scheduling_policy !== 'default') throw new Error('Factory application authority changed during rollout')
+      if (settled.configuration.image === image && settled.configuration.instance_type === size.instance_type) break
+      if (attempt >= 59) throw new Error('Factory image rollout is still pending. Retry provisioning once Cloudflare finishes.')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
   if (!application) await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications`, { method: 'POST', body: JSON.stringify({ name, configuration: { image, instance_type: size.instance_type }, instances: 0, max_instances: 1, scheduling_policy: 'default', durable_objects: { namespace_id: binding.namespace_id } }) })
+  await repair?.complete()
   return { state: 'provisioning', image, origin: server.origin, message: 'Optional Factory resources provisioned. Return to Server Settings → Repositories and activate Factory once provider resources are ready. No R2 migration or plan upgrade was performed.' }
+  } catch (error) { await repair?.failed().catch(() => undefined); throw error }
 }

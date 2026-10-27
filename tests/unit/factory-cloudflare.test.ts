@@ -10,6 +10,8 @@ import { FactoryComputeDurableObject } from '../../workers/factory-compute'
 import { factoryRepositoryName } from '../../shared/software-factory'
 import type { AgentRun } from '../../shared/agent-execution'
 import type { L4Env } from '../../workers/env'
+import { configureCloudflareFactory } from '../../server/utils/factory-setup'
+import { beginUnusedFactoryRepair } from '../../packages/deployment-core/src/factory-repair'
 
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class { constructor(protected ctx: unknown, protected env: unknown) {} },
@@ -173,7 +175,7 @@ async function provisioningFixture() {
     layers: [{ file: 'llll-workspace-layer-0.tar.gz', digest: 'sha256:' + sha(layer), size: Buffer.byteLength(layer) }] })
   const assets: Record<string, string> = { 'llll-factory.json': factory, 'llll-workspace-config.json': config, 'llll-workspace-layer-0.tar.gz': layer, 'llll-workspace-manifest.json': manifest }
   const expectedImage = `registry.cloudflare.com/${accountId}/${workerName}-factory@sha256:${sha(manifest)}`
-  const state = { tamper: '', redirectUpload: false, uploaded: false, application: null as null | Record<string, unknown>, existingImage: '', paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
+  const state = { tamper: '', redirectUpload: false, uploaded: false, application: null as null | Record<string, unknown>, existingImage: '', repairSupported: true, paidUnavailable: false, artifactsDenied: false, artifactsMissing: false }
   const calls: Array<{ path: string; init?: RequestInit }> = [], requests: Array<{ url: string; init?: RequestInit }> = []
   const api = vi.fn(async (_token: string, path: string, init?: RequestInit) => {
     calls.push({ path, init })
@@ -185,22 +187,33 @@ async function provisioningFixture() {
       return { name: workerName + '-factory' }
     }
     if (path.endsWith('/registries/registry.cloudflare.com/credentials')) return { username: 'v1', password: 'registry-secret' }
+    if (path.includes('/d1/database/')) {
+      const body = JSON.parse(String(init?.body))
+      return [{ success: true, results: f.db.prepare(body.sql).all(...(body.params || [])) }]
+    }
+    if (path.endsWith('/containers/applications/existing/rollouts') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body))
+      expect(body).toMatchObject({ strategy: 'rolling', kind: 'full_auto', step_percentage: 100 })
+      fixtureApplication().configuration = body.target_configuration
+      return state.application
+    }
+    if (path.endsWith('/containers/applications/existing')) return state.application
     if (path.includes('/workers/scripts/')) { state.uploaded = true; return {} }
     if (path.endsWith('/containers/applications')) return init?.method === 'POST' ? { id: 'application-id' } : state.application ? [state.application] : []
     throw new Error('Unexpected control-plane path ' + path)
   })
   const settings = vi.fn(async () => ({
     bindings: [
-      { type: 'd1', name: 'DB', id: 'existing-database' }, { type: 'secret_text', name: 'AUTH_SECRET' },
+      { type: 'd1', name: 'DB', database_id: 'existing-database' }, { type: 'secret_text', name: 'AUTH_SECRET' },
       { type: 'kv_namespace', name: 'TICKETS', namespace_id: 'existing-kv' }, { type: 'secret_text', name: 'GITHUB_AGENT_APP_PRIVATE_KEY' },
       ...(state.existingImage ? [{ type: 'plain_text', name: 'FACTORY_IMAGE', text: state.existingImage }] : []),
-      ...(state.uploaded ? [{ type: 'durable_object_namespace', name: 'FACTORY_COMPUTE', namespace_id: 'factory-namespace' }] : []),
+      ...(state.uploaded || state.existingImage ? [{ type: 'durable_object_namespace', name: 'FACTORY_COMPUTE', namespace_id: 'factory-namespace' }] : []),
     ], tags: ['llll-server'], annotations: { 'workers/tag': 'llll-0.2.13' }, containers: [{ class_name: 'AgentComputeDurableObject' }],
   }))
   vi.resetModules()
   vi.doMock('../../packages/deployment-core/src/cloudflare-client', () => ({ cloudflareApi: api, cloudflareClient: () => ({ workers: { scripts: { scriptAndVersionSettings: { get: settings } } } }) }))
   vi.doMock('../../packages/deployment-core/src/servers', () => ({ readL4Server: vi.fn(async () => ({ version: '0.2.13', origin: 'https://customer.example' })) }))
-  vi.doMock('../../packages/deployment-core/src/release', () => ({ releaseManifestUrl: () => base + 'llll-cloudflare-manifest.json', loadL4Release: async () => ({ manifest: { version: '0.2.13', compatibilityDate: '2026-10-26', compatibilityFlags: ['nodejs_compat'], factory: { url: base + 'llll-factory.json', sha256: sha(factory), size: Buffer.byteLength(factory) } }, worker: new TextEncoder().encode('published immutable module').buffer }) }))
+  vi.doMock('../../packages/deployment-core/src/release', () => ({ releaseManifestUrl: () => base + 'llll-cloudflare-manifest.json', loadL4Release: async () => ({ manifest: { version: '0.2.13', capabilities: state.repairSupported ? ['factory-unused-repair-v1'] : [], compatibilityDate: '2026-10-26', compatibilityFlags: ['nodejs_compat'], factory: { url: base + 'llll-factory.json', sha256: sha(factory), size: Buffer.byteLength(factory) } }, worker: new TextEncoder().encode('published immutable module').buffer }) }))
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
     const url = String(input); requests.push({ url, init })
     if (url.startsWith(base)) {
@@ -217,8 +230,86 @@ async function provisioningFixture() {
     throw new Error('Unexpected remote destination ' + url)
   }))
   const module = await import('../../packages/deployment-core/src/factory')
+  function fixtureApplication() { if (!state.application) throw new Error('Missing fixture application'); return state.application }
   return { enable: (consent = true) => module.enableL4Factory('browser-cloudflare-grant', accountId, workerName, consent), state, calls, requests, expectedImage }
 }
+
+it('repairs an old image only when Factory has never admitted a Node or Task source', async () => {
+  const fixture = await provisioningFixture()
+  f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes')
+  fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
+  fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: fixture.state.existingImage, instance_type: 'standard-1' }, scheduling_policy: 'default' }
+  await expect(fixture.enable()).resolves.toMatchObject({ image: fixture.expectedImage })
+  expect(fixture.state.application.configuration).toMatchObject({ image: fixture.expectedImage })
+  expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it.each(['node', 'source'])('preserves the pinned image when existing Factory %s authority remains', async kind => {
+  const fixture = await provisioningFixture()
+  fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
+  if (kind === 'node') f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces')
+  if (kind === 'source') f.db.exec("UPDATE compute_nodes SET capabilities_json=json_remove(capabilities_json,'$.provider')")
+  await expect(fixture.enable()).rejects.toMatchObject({ statusCode: 409 })
+  expect(fixture.state.uploaded).toBe(false)
+  expect(fixture.calls.some(call => call.path.endsWith('/registries/registry.cloudflare.com/credentials'))).toBe(false)
+})
+
+function unusedFactory() { f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes') }
+const repairQuery = async (sql: string, params: (string | number)[]) => f.db.prepare(sql).all(...params) as { value: string }[]
+
+it('serializes unused repair and fences a superseded installer', async () => {
+  unusedFactory()
+  const first = await beginUnusedFactoryRepair(repairQuery)
+  await expect(beginUnusedFactoryRepair(repairQuery)).rejects.toMatchObject({ statusCode: 409 })
+  f.db.prepare("UPDATE server_settings SET value=json_set(value,'$.expiresAt',0) WHERE key='factory.provisioning'").run()
+  const next = await beginUnusedFactoryRepair(repairQuery)
+  await expect(first.check()).rejects.toMatchObject({ statusCode: 409 })
+  await expect(first.complete()).rejects.toMatchObject({ statusCode: 409 })
+  await next.complete()
+})
+
+it('keeps failed provisioning closed to activation and allows a verified retry', async () => {
+  const fixture = await provisioningFixture()
+  unusedFactory(); fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
+  fixture.state.tamper = 'llll-workspace-layer-0.tar.gz'
+  await expect(fixture.enable()).rejects.toThrow('Image layer checksum mismatch')
+  expect(JSON.parse(String(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()!.value)).failed).toBe(1)
+  fixture.state.tamper = ''
+  await fixture.enable()
+  expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it('finishes a failed repair even when bindings and application already have the new image', async () => {
+  const fixture = await provisioningFixture()
+  unusedFactory(); fixture.state.existingImage = fixture.expectedImage
+  fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: fixture.expectedImage, instance_type: 'standard-1' }, scheduling_policy: 'default' }
+  await (await beginUnusedFactoryRepair(repairQuery)).failed()
+  await fixture.enable()
+  expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it('requires the installed immutable Server artifact to advertise repair activation fencing', async () => {
+  const fixture = await provisioningFixture()
+  unusedFactory(); fixture.state.existingImage = 'old-image'; fixture.state.repairSupported = false
+  await expect(fixture.enable()).rejects.toThrow('Update this Server')
+  expect(fixture.state.uploaded).toBe(false)
+  expect(f.db.prepare("SELECT value FROM server_settings WHERE key='factory.provisioning'").get()).toBeUndefined()
+})
+
+it.each(['before probe', 'during probe'])('blocks activation racing unused repair: %s', async phase => {
+  unusedFactory()
+  const probe = vi.fn(async () => {
+    if (phase === 'during probe') await beginUnusedFactoryRepair(repairQuery)
+    return Response.json({ ok: true })
+  })
+  f.env.FACTORY_IMAGE = image
+  f.env.FACTORY_COMPUTE = { getByName: () => ({ fetch: probe }) } as never
+  f.env.FACTORY_CODE = { create: async () => ({ token: 'probe-token' }), get: async () => ({ revokeToken: async () => {}, [Symbol.dispose]() {} }), delete: async () => {} } as never
+  if (phase === 'before probe') await beginUnusedFactoryRepair(repairQuery)
+  await expect(configureCloudflareFactory(f.env, await f.actor(), true)).rejects.toMatchObject({ statusCode: 409 })
+  expect(f.db.prepare('SELECT count(*) AS n FROM compute_nodes').get()!.n).toBe(0)
+  if (phase === 'before probe') expect(probe).not.toHaveBeenCalled()
+})
 
 it('paid provisioning requires explicit consent and stops before writes when provider access is unavailable', async () => {
   const fixture = await provisioningFixture()

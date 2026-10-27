@@ -328,7 +328,7 @@ onMounted(async () => {
   clock = setInterval(() => { now.value = Date.now() }, 1000)
   if (!updateMode.value) void loadServers()
   try {
-    const data = await $fetch<{ releases: { version: string; published_at: string }[] }>('/api/deploy/releases')
+    const data = await $fetch<{ releases: { version: string; published_at: string }[] }>('/api/deploy/releases', { cache: 'no-store' })
     versions.value = data.releases
     version.value = data.releases[0]?.version || ''
   } catch { releasesError.value = 'Could not load releases. Enter a published release version.' }
@@ -457,7 +457,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
             </li>
           </ol>
           <p v-if="update.backup" class="text-sm text-muted">{{ update.backup.verified ? 'Backup verified' : 'Backup uploaded' }} · {{ Math.max(1, Math.ceil(update.backup.sizeBytes / 1024)) }} KB</p>
-          <p v-if="update.deploymentStarted" class="text-sm text-muted">The new release has been uploaded. Keep this page open while Cloudflare verifies the Server.</p>
+          <p v-if="update.deploymentStarted && !update.done" class="text-sm text-muted">The new release has been uploaded. Keep this page open while Cloudflare verifies the Server.</p>
           <div class="flex flex-wrap gap-2">
             <UButton v-if="!update.done" label="Back up and update" icon="i-ph-cloud-arrow-up" :loading="updating" :disabled="!connected || updating" @click="runUpdate" />
             <UButton v-else :to="update.origin" external label="Open your Server" icon="i-ph-arrow-square-out" />
