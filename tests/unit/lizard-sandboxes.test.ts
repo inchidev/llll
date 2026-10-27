@@ -32,3 +32,11 @@ it('never deletes a VM belonging to a different workspace', async () => {
   await expect(deleteLizardSandbox(f.env, 'other-sandbox', 'b5949476-1a4e-4141-bfc6-a72a7751fd95')).rejects.toMatchObject({ statusCode: 403 })
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
+it('deletes only a VM carrying the exact workspace marker', async () => {
+  const workspaceId = 'b5949476-1a4e-4141-bfc6-a72a7751fd95'
+  let calls = 0
+  const fetcher = vi.fn(async () => ++calls === 1 ? Response.json({ metadata: { l4Workspace: workspaceId } }) : new Response(null, { status: 204 }))
+  vi.stubGlobal('fetch', fetcher)
+  expect(await deleteLizardSandbox(f.env, 'own-sandbox', workspaceId)).toEqual({ deleted: true })
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
