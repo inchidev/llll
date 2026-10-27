@@ -34,6 +34,7 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   requireComputeOwner(auth)
   if (!env.FACTORY_COMPUTE || !env.FACTORY_CODE || !env.FACTORY_IMAGE) fail(409, 'factory_resources_required', 'Authorize optional Containers and Artifacts through the installer first. Workers Paid is required; R2 is independent.')
   if (enabled) {
+    if (await env.DB.prepare("SELECT 1 FROM server_settings WHERE key='factory.provisioning'").first()) fail(409, 'factory_provisioning', 'Factory provisioning is incomplete. Resume it in the installer before activation.')
     const serverId = await getServerId(env.DB)
     let probe: Response
     try { probe = await env.FACTORY_COMPUTE.getByName(`probe:${serverId}`).fetch(new Request('http://factory/probe', { method: 'POST' })) }
@@ -69,8 +70,9 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   const nodeId = existing?.id ?? newId()
   if (existing && existing.capabilitiesJson !== JSON.stringify(capabilities)) fail(409, 'factory_image_changed', 'The Factory image changed. Preserve/export existing Task source and explicitly configure a new provider for new Tasks.')
   if (!existing && enabled) {
-    await env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
-      .bind(nodeId, 'Cloudflare Factory', await factoryHash(newId() + newId()), JSON.stringify(capabilities), nowIso(), auth.principal.id, nowIso()).run()
+    const inserted = await env.DB.prepare("INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM server_settings WHERE key='factory.provisioning') RETURNING id")
+      .bind(nodeId, 'Cloudflare Factory', await factoryHash(newId() + newId()), JSON.stringify(capabilities), nowIso(), auth.principal.id, nowIso()).first()
+    if (!inserted) fail(409, 'factory_provisioning', 'Factory provisioning changed during activation. Resume it in the installer before retrying.')
   } else if (existing) {
     await env.DB.batch([
       env.DB.prepare('UPDATE compute_nodes SET enabled=?,last_seen=? WHERE id=?').bind(enabled ? 1 : 0, nowIso(), nodeId),
