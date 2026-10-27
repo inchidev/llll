@@ -68,28 +68,11 @@ export function safeRunProgress(status: string): string {
   return status === 'queued' ? 'Queued' : status === 'tool' ? 'Using a tool' : status === 'waiting_approval' ? 'Review required' : 'Working'
 }
 export const PRIVATE_RUN_SUMMARY = 'Private result available to the initiating Member.'
-export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: string; restricted: boolean }> {
+export async function runReport(_env: L4Env, run: AgentRun): Promise<{ text: string; restricted: boolean }> {
   const mandate = JSON.parse(run.mandateJson) as RunMandate
-  // Only conversation and explicitly public repository context may be shared
-  // automatically. Other tools can expose data outside this channel's audience.
+  // The initiating Member chose this conversation as the destination for the answer.
   if (!run.taskId && run.status === 'completed' && run.resultText && mandate.execution?.mode === 'role') {
-    const restricted = await env.DB.prepare(`SELECT 1 WHERE EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
-      OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE r.session_id=?
-        AND t.name NOT IN ('get_current_time','search_tools','get_tool_details','list_public_project_repositories','inspect_public_project_repository'))`).bind(run.sessionId, run.sessionId).first()
-    if (!restricted) return { restricted: false, text: run.resultText.slice(0, 12000) }
-    // A two-person DM already has the same audience as the private Run.
-    const dm = await env.DB.prepare(`SELECT 1 FROM channels c LEFT JOIN channels parent ON parent.id=c.parent_id
-      JOIN channels root ON root.id=CASE WHEN c.type='thread' THEN parent.id ELSE c.id END
-      WHERE c.id=? AND root.type='dm'
-      AND (SELECT count(*) FROM channel_members WHERE channel_id=root.id)=2
-      AND EXISTS(SELECT 1 FROM channel_members WHERE channel_id=root.id AND user_id=?)
-      AND EXISTS(SELECT 1 FROM channel_members WHERE channel_id=root.id AND user_id=?)`).bind(run.channelId, run.initiatedBy, run.agentId).first()
-    if (dm) {
-      const unsafe = await env.DB.prepare(`SELECT 1 WHERE EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
-        OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE r.session_id=?
-          AND t.name NOT IN ('get_current_time','search_tools','get_tool_details','list_public_project_repositories','inspect_public_project_repository','list_private_project_repositories','inspect_private_project_repository','read_private_project_file'))`).bind(run.sessionId, run.sessionId).first()
-      if (!unsafe) return { restricted: false, text: run.resultText.slice(0, 12000) }
-    }
+    return { restricted: false, text: run.resultText.slice(0, 12000) }
   }
   return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
 }
