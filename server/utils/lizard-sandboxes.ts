@@ -20,11 +20,21 @@ export async function createLizardSandbox(env: L4Env, input: z.infer<typeof conf
   catch { fail(503, 'lizard_create_uncertain', 'Lizard returned an unrecognized VM response; inspect the provider before retrying') }
   return { sandboxId: parsed.sandboxId ?? parsed.id! }
 }
-/** The caller must verify this exact VM belongs to its workspace before deletion. */
-export async function deleteLizardSandbox(env: L4Env, id: string) {
+/** Delete only a VM that declares the exact workspace ownership marker we assigned. */
+export async function deleteLizardSandbox(env: L4Env, id: string, workspaceId: string) {
   const safeId = sandboxId.parse(id), credential = await lizardCredential(env)
+  z.string().uuid().parse(workspaceId)
   let response: Response
-  try { response = await fetch(endpoint + '/sandboxes/' + encodeURIComponent(safeId), { method: 'DELETE', headers: { 'X-API-Key': credential.apiKey }, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  const url = endpoint + '/sandboxes/' + encodeURIComponent(safeId), headers = { 'X-API-Key': credential.apiKey }
+  try { response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM ownership could not be checked') }
+  if (response.status === 404) return { deleted: true }
+  if (!response.ok) fail(503, 'lizard_delete_failed', 'Lizard VM ownership could not be checked')
+  let owner: { metadata?: Record<string, string> }
+  try { owner = z.object({ metadata: z.record(z.string(), z.string()).optional() }).parse(await response.json()) }
+  catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM ownership response was invalid') }
+  if (owner.metadata?.l4Workspace !== workspaceId) fail(403, 'lizard_delete_denied', 'Lizard VM belongs to a different workspace')
+  try { response = await fetch(url, { method: 'DELETE', headers, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM cleanup outcome is unknown; inspect the provider') }
   if (!response.ok && response.status !== 404) fail(503, 'lizard_delete_failed', 'Lizard VM cleanup failed')
   return { deleted: true }

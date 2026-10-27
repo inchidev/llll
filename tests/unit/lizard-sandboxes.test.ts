@@ -24,5 +24,11 @@ it('does not retry unknown outcomes and handles missing VMs during cleanup', asy
   await expect(createLizardSandbox(f.env, { workspaceId: 'b5949476-1a4e-4141-bfc6-a72a7751fd95', timeoutMs: 600000, region: 'us-east-1', size: 'small' })).rejects.toMatchObject({ statusCode: 503 })
   expect(fetcher).toHaveBeenCalledTimes(1)
   vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })))
-  expect(await deleteLizardSandbox(f.env, 'gone-sandbox')).toEqual({ deleted: true })
+  expect(await deleteLizardSandbox(f.env, 'gone-sandbox', 'b5949476-1a4e-4141-bfc6-a72a7751fd95')).toEqual({ deleted: true })
+})
+it('never deletes a VM belonging to a different workspace', async () => {
+  const fetcher = vi.fn(async () => Response.json({ metadata: { l4Workspace: 'another-workspace' } }))
+  vi.stubGlobal('fetch', fetcher)
+  await expect(deleteLizardSandbox(f.env, 'other-sandbox', 'b5949476-1a4e-4141-bfc6-a72a7751fd95')).rejects.toMatchObject({ statusCode: 403 })
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
