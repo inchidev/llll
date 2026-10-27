@@ -145,7 +145,7 @@ while(!stopping){
     const start=Date.now()
     let result
     try { const job=await poll({operation:'begin',...claim});job.id=claim.id;const limit=setTimeout(()=>controller.abort(),job.executionBudgetMs);try{result=await execute(job,controller)}finally{clearTimeout(limit);await revokeSource(job)} }
-    catch { result={ok:false,exitCode:-1,output:controller.signal.aborted?'Operation stopped after revocation, disconnect or expired lease':'Compute operation failed; inspect limits, source access and Node availability',runtimeMs:Math.min(180000,Date.now()-start)} }
+    catch(error) { result={ok:false,exitCode:-1,output:controller.signal.aborted?'Operation stopped after revocation, disconnect or expired lease':error instanceof Error && error.message==='Compute Node disk is full; free space or move Task storage to a larger disk'?error.message:'Compute operation failed; inspect limits, source access and Node availability',runtimeMs:Math.min(180000,Date.now()-start)} }
     finally {clearInterval(heartbeat);active=undefined}
     const receipt={operation:'result',...claim,result}
     // FULL-synchronous transaction commits before the network callback. If the

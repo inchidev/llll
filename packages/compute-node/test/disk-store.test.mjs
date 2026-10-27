@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoopDiskStore } from '../src/disk-store.mjs'
 
+test('reports storage exhaustion without exposing a raw host path',async()=>{
+  const store=new LoopDiskStore('/tmp/l4-test',{runner:async()=>({code:1,stdout:Buffer.alloc(0),stderr:Buffer.from('fallocate: /private/path: No space left on device')})})
+  await assert.rejects(store.command('fallocate',[]),error=>/disk is full/u.test(error.message)&&!error.message.includes('/private/path'))
+})
+
 test('hard disk provider allocates bounded files once, validates mounts and scopes cleanup',async()=>{
   const root=await mkdtemp(join(tmpdir(),'l4-disk-store-')),commands=[]
   let mounted=false,foreign=false

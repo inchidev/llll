@@ -13,7 +13,10 @@ export class LoopDiskStore {
   }
   async command(name,args) {
     const result=await this.runner(name,args,{timeoutMs:30000,limit:4000})
-    if(result.code!==0)throw new Error('Linux disk operation failed; configure loop devices, mount permissions and free capacity')
+    if(result.code!==0) {
+      if (/no space left on device|disk quota exceeded/iu.test(result.stderr.toString())) throw new Error('Compute Node disk is full; free space or move Task storage to a larger disk')
+      throw new Error('Linux disk operation failed; configure loop devices, mount permissions and free capacity')
+    }
     return result.stdout.toString().trim()
   }
   async initialize() {

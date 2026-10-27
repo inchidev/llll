@@ -47,6 +47,14 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   const auth = await loadAuthorizationContext(env, { principalId: run.agentId, credential: { kind: 'agent_runtime', id: run.id }, delegatedBy: run.initiatedBy })
   if (!auth || !auth.delegation) fail(403, 'run_revoked', 'Run authorization was revoked')
   const mandate = JSON.parse(run.mandateJson) as RunMandate
+  if (mandate.parentRunId) {
+    if (mandate.rootDeadline && mandate.rootDeadline <= nowIso()) fail(403, 'delegation_expired', 'The original execution window ended')
+    const parent = await findAgentRun(env, mandate.parentRunId)
+    if (!parent || parent.initiatedBy !== run.initiatedBy || ['failed', 'cancelled'].includes(parent.status)) fail(403, 'delegation_revoked', 'The parent mandate was stopped')
+    const parentMandate = JSON.parse(parent.mandateJson) as RunMandate
+    if (mandate.depth !== (parentMandate.depth ?? 0) + 1 || (mandate.depth ?? 0) > 16 || mandate.rootRunId !== (parentMandate.rootRunId ?? parent.id) || mandate.projectId !== parentMandate.projectId) fail(403, 'delegation_revoked', 'The delegation chain changed')
+    await runAuthorization(env, parent)
+  }
   const retainPolicies = (current: ProjectPolicyGrant[] = [], ceiling: ProjectPolicyGrant[] = []) => ceiling.map(saved => {
     const found = current.find(grant => grant.id === saved.id && grant.projectId === saved.projectId && grant.policyId === saved.policyId && grant.policyVersion === saved.policyVersion && grant.permissions === saved.permissions)
     if (!found) fail(403, 'run_revoked', 'Project access changed; start a new attempt')
@@ -91,6 +99,8 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
 }
 
 export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate): Promise<AgentRun> {
+  const { agentExecutionPolicy } = await import('./agent-execution-policy')
+  const executionPolicy = await agentExecutionPolicy(env)
   const input = runRequestSchema.parse(request)
   const requestedTask = input.taskId ? await getTask(env, actor, input.taskId) : null
   const requestedProjectId = requestedTask?.projectId ?? null
@@ -171,10 +181,19 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     .bind(sessionId, input.agentId, input.channelId, now, now).run()
   const session = await env.DB.prepare('SELECT id FROM agent_sessions WHERE agent_id=? AND channel_id=?').bind(input.agentId, input.channelId).first<{ id: string }>()
   const id = newId()
+  if (ceiling?.parentRunId) {
+    const parent = await findAgentRun(env, ceiling.parentRunId)
+    if (!parent || parent.initiatedBy !== actor.principal.id || parent.status !== 'running') fail(403, 'delegation_revoked', 'The parent run is no longer active')
+    const parentMandate = JSON.parse(parent.mandateJson) as RunMandate
+    if (ceiling.depth !== (parentMandate.depth ?? 0) + 1 || (ceiling.depth ?? 0) > (parentMandate.execution?.maxDepth ?? 2) || ceiling.rootRunId !== (parentMandate.rootRunId ?? parent.id) || projectId !== parentMandate.projectId) fail(403, 'delegation_scope', 'Child work exceeds the parent mandate')
+    await runAuthorization(env, parent)
+  }
   const restrictPolicies = (current: ProjectPolicyGrant[] = [], cap?: ProjectPolicyGrant[]) => current.filter(grant => grant.projectId === projectId && (!ceiling || cap?.some(saved => JSON.stringify(saved) === JSON.stringify(grant))))
   const mandate: RunMandate = { projectId, agentProjectPolicies: restrictPolicies(agent.principal.projectPolicies, ceiling?.agentProjectPolicies), initiatorProjectPolicies: restrictPolicies(actor.principal.projectPolicies, ceiling?.initiatorProjectPolicies), permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
     agentPermissions: agent.principal.permissions, agentResourceAccess: agent.principal.resourceAccess,
-    computer, maxSteps: 20, maxModelCalls: 20, maxToolCalls: 100, maxTokens: 64000 }
+    computer, execution: ceiling ? ceiling.execution : executionPolicy, rootRunId: ceiling?.rootRunId ?? id, parentRunId: ceiling?.parentRunId, rootDeadline: ceiling?.rootDeadline,
+    maxSteps: executionPolicy.maxSteps, maxModelCalls: executionPolicy.maxModelCalls,
+    maxToolCalls: executionPolicy.maxToolCalls, maxTokens: executionPolicy.maxTokens }
   if (ceiling) {
     mandate.depth = ceiling.depth ?? 0
     mandate.permissions &= ceiling.permissions
@@ -202,11 +221,13 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     mandate.environmentVersion = environment.version
   }
   const admitted = await env.DB.prepare(`INSERT INTO agent_runs (id,session_id,agent_id,channel_id,initiated_by,task_id,source_message_id,idempotency_key,status,prompt,model,instructions,mandate_json,environment_json,deadline,created_at,updated_at,last_error,result_message_id)
-    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<50
+    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_runs WHERE agent_id=? AND created_at>=?)<?
+    AND (? IS NULL OR (SELECT count(*) FROM agent_runs WHERE json_extract(mandate_json,'$.rootRunId')=?)<?)
     ON CONFLICT(agent_id,initiated_by,idempotency_key) DO NOTHING RETURNING id`)
     .bind(id, session!.id, input.agentId, input.channelId, actor.principal.id, input.taskId ?? null, input.sourceMessageId ?? null, input.idempotencyKey, admissionError ? 'failed' : 'queued',
       input.prompt, model, profile.instructions, JSON.stringify(mandate), environment ? JSON.stringify(environment) : null,
-      new Date(Date.now() + RUN_QUEUE_WAIT_MS).toISOString(), now, now, admissionError, admissionError ? newId() : null, input.agentId, new Date(Date.now() - 86400000).toISOString()).first<{ id: string }>()
+      new Date(Date.now() + RUN_QUEUE_WAIT_MS).toISOString(), now, now, admissionError, admissionError ? newId() : null, input.agentId, new Date(Date.now() - 86400000).toISOString(), executionPolicy.dailyRuns,
+      mandate.parentRunId ?? null, mandate.rootRunId!, (mandate.execution?.maxChildRuns ?? 0) + 1).first<{ id: string }>()
   if (!admitted) {
     const duplicate = await env.DB.prepare('SELECT id FROM agent_runs WHERE agent_id=? AND initiated_by=? AND idempotency_key=?').bind(input.agentId, actor.principal.id, input.idempotencyKey).first<{ id: string }>()
     if (duplicate) {

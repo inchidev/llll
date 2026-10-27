@@ -24,6 +24,7 @@ beforeEach(() => {
   db = new DatabaseSync(':memory:')
   db.exec('PRAGMA foreign_keys=ON')
   db.exec(INIT_SQL)
+  db.prepare('INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?)').run('agents.executionPolicy', JSON.stringify({ mode: 'review', maxSteps: 20, maxModelCalls: 20, maxToolCalls: 100, maxTokens: 64000 }), new Date().toISOString())
   db.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'${serverId}');
     INSERT INTO roles(id,key,name,permissions_bitmask,resource_access_json) VALUES
       ('owner-role','owner','Owner',0,'{}'),
@@ -145,12 +146,12 @@ describe('Pi run authorization', () => {
   it('bounds cumulative selected schemas through the existing Run ledger', async () => {
     const run = await createAgentRun(env, (await start())!, input())
     const insert = db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'get_tool_details','{}','{}','completed',?,'2026-10-21')")
-    for (let i = 0; i < 8; i++) insert.run(run.id, `loaded-${i}`, JSON.stringify({ tool: { name: `prior_${i}`, parameters: {} } }))
+    for (let i = 0; i < 24; i++) insert.run(run.id, `loaded-${i}`, JSON.stringify({ tool: { name: `prior_${i}`, parameters: {} } }))
     const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
     await expect(tools.call('get_tool_details', { name: 'list_tasks', purpose: 'One more tool' })).rejects.toMatchObject({ statusCode: 413 })
     // A prior large schema also prevents unbounded description/context growth.
     db.prepare("DELETE FROM agent_run_tools WHERE run_id=?").run(run.id)
-    insert.run(run.id, 'large', JSON.stringify({ tool: { name: 'prior_large', description: 'x'.repeat(32000), parameters: {} } }))
+    insert.run(run.id, 'large', JSON.stringify({ tool: { name: 'prior_large', description: 'x'.repeat(128000), parameters: {} } }))
     await expect(tools.call('get_tool_details', { name: 'list_tasks', purpose: 'One more tool' })).rejects.toMatchObject({ statusCode: 413 })
   })
 

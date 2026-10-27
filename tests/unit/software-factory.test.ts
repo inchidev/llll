@@ -22,6 +22,7 @@ let f:ReturnType<typeof mcpFixture>,run:AgentRun
 const action=async()=> (await listFactoryActions(f.env,run.id,ids.owner)).actions[0]!
 beforeEach(async()=>{
   f=mcpFixture()
+  f.db.prepare('INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?)').run('agents.executionPolicy',JSON.stringify({mode:'review'}),new Date().toISOString())
   f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS,ids.agentRole)
   f.db.prepare('INSERT INTO task_boards(id,name,created_by) VALUES(?,?,?)').run('factory-board','Factory',ids.owner)
   f.db.prepare("INSERT INTO tasks(id,board_id,title,assignee_id,created_by,status) VALUES(?,?,?,?,?,'ready')").run('factory-task','factory-board','Fix failing test',ids.agent,ids.owner)
@@ -358,4 +359,17 @@ it('refuses a remote pairing that impersonates the managed Cloudflare provider w
   await expect(pairComputeNode(f.env, code.token, forged as never)).rejects.toThrow()
   expect(f.db.prepare('SELECT count(*) AS total FROM compute_pairings').get()).toMatchObject({ total: 1 })
   expect(await pairComputeNode(f.env, code.token, capabilities)).toHaveProperty('nodeId')
+})
+
+it('executes an admitted role-authorized workspace without a per-operation approval and rechecks revocation',async()=>{
+  const mandate=JSON.parse(run.mandateJson)
+  mandate.execution.mode='role'
+  f.db.prepare('UPDATE agent_runs SET mandate_json=? WHERE id=?').run(JSON.stringify(mandate),run.id)
+  const result=await factoryToolCall(f.env,run.id,'autonomous-bootstrap',{operation:'bootstrap'})
+  expect(result).toMatchObject({factoryPending:true,status:'approved'})
+  expect(await action()).toMatchObject({ decidedBy: null, approvalMode: 'role' })
+  const claim=await computePoll(f.env,nodeId,{operation:'claim'})
+  expect(claim.job).toBeTruthy()
+  f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS & ~Permission.useComputer,ids.agentRole)
+  await expect(computePoll(f.env,nodeId,{operation:'begin',...claim.job!})).rejects.toMatchObject({statusCode:403})
 })

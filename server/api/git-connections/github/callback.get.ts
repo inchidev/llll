@@ -17,6 +17,10 @@ export default defineEventHandler(async event=>{
   if ((error as { statusCode?: number }).statusCode !== 401) throw error
   return sendRedirect(event, '/git-connections/github/complete?' + new URLSearchParams(input))
  }
- await completeGithubSetup(env,actor.authorization,input.code,input.state)
+ try { await completeGithubSetup(env,actor.authorization,input.code,input.state) }
+ catch (error) {
+  if ((error as { data?: { error?: { code?: string } } }).data?.error?.code !== 'git_setup_expired') throw error
+  return sendRedirect(event, '/git-connections/github/complete?' + new URLSearchParams({ ...input, expired: '1' }))
+ }
  return sendRedirect(event,`/server/${serverId}/settings?section=environments`)
 })

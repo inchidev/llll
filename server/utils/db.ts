@@ -25,6 +25,7 @@ import projectsSql from '../../drizzle/server-migrations/0021_projects.sql?raw'
 import gitConnectionsSql from '../../drizzle/server-migrations/0022_git_connections.sql?raw'
 import softwareFactorySql from '../../drizzle/server-migrations/0023_software_factory.sql?raw'
 import projectPoliciesSql from '../../drizzle/server-migrations/0024_project_policies.sql?raw'
+import taskDelegationSql from '../../drizzle/server-migrations/0025_task_delegation.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -73,6 +74,7 @@ export const INIT_SQL = d1ExecSql([
   gitConnectionsSql,
   softwareFactorySql,
   projectPoliciesSql,
+  taskDelegationSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

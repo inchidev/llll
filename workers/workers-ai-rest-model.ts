@@ -19,6 +19,7 @@ type GenerateOptions = {
   prompt: PromptMessage[]
   tools?: WorkersTool[]
   maxOutputTokens?: number
+  abortSignal?: AbortSignal
 }
 
 type ChatMessage = {
@@ -186,6 +187,7 @@ export function workersAiRestModel(env: CloudflareRestEnv, modelId: string): Lan
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        signal: options.abortSignal,
       })
     }
     catch {
@@ -193,7 +195,7 @@ export function workersAiRestModel(env: CloudflareRestEnv, modelId: string): Lan
     }
     const payload = await response.json().catch(() => null) as { success?: boolean, result?: unknown } | null
     if (!response.ok || payload?.success === false) {
-      throw new Error(cloudflareErrorMessage(payload, response.status, 'Workers AI'))
+      throw Object.assign(new Error(cloudflareErrorMessage(payload, response.status, 'Workers AI')), { statusCode: response.status })
     }
     const parsed = parseResult(payload?.result ?? payload)
     if (!parsed.text && !parsed.toolCalls.length) throw new Error('Workers AI returned no text')

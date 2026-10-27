@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ids, mcpFixture } from '../helpers/outbound-mcp'
-import { completeGithubSetup, disableGitConnection, githubConnectionCredentials, listGitConnections, prepareGithubSetup } from '../../server/utils/git-connections'
+import { completeGithubSetup, disableGitConnection, githubConnectionCredentials, listGitConnections, prepareGithubSetup, reopenGithubSetup } from '../../server/utils/git-connections'
 import { githubAgentClient } from '../../server/utils/github-agent-client'
 const pair=generateKeyPairSync('rsa',{modulusLength:2048}),pem=pair.privateKey.export({type:'pkcs1',format:'pem'}).toString()
 let f:ReturnType<typeof mcpFixture>
@@ -13,6 +13,20 @@ const exchange=()=>vi.fn(async(url:string|URL|Request,init?:RequestInit)=>{
  expect(String(url)).toBe('https://api.github.com/app-manifests/test-code/conversions');expect(init?.redirect).toBe('manual')
  expect(new Headers(init?.headers).has('Authorization')).toBe(false)
  return Response.json({id:4242,slug:'l4-code',pem,owner:{login:'inchidev'},client_secret:'never-store-me',webhook_secret:'never-store-me'})
+})
+it('does not include an unreachable webhook in a localhost manifest',async()=>{
+ f.env.PUBLIC_ORIGIN='http://localhost:3700'
+ const p=await prepare()
+ expect(p.manifest.redirect_url).toBe('http://localhost:3700/api/git-connections/github/callback')
+ expect(p.manifest).not.toHaveProperty('hook_attributes')
+})
+it('allows only the same owner to resume a recent, unconsumed setup',async()=>{
+ const p=await prepare(), token=state(p)
+ f.db.prepare("UPDATE git_setup_requests SET expires_at='2000-01-01T00:00:00.000Z'").run()
+ await expect(reopenGithubSetup(f.env,await f.actor(ids.member),token)).rejects.toMatchObject({statusCode:403})
+ await reopenGithubSetup(f.env,await f.actor(),token)
+ expect((await completeGithubSetup(f.env,await f.actor(),'test-code',token,exchange())).enabled).toBe(true)
+ await expect(reopenGithubSetup(f.env,await f.actor(),token)).rejects.toMatchObject({statusCode:409})
 })
 it('prepares an Owner-bound, expiring manifest from the configured origin without credentials',async()=>{
  const p=await prepare()

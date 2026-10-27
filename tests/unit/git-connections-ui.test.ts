@@ -31,8 +31,8 @@ beforeEach(() => {
 })
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals() })
 async function prepare() {
-  wrapper = mount(GitConnections, { global: { stubs: { UButton: Button, UInput: Input, UCheckbox: true, UFormField: { template: '<label><slot /></label>' }, UBadge: true, LayoutLoadError: true } } })
-  await wrapper.findAll('input')[1]!.setValue('qa-user')
+  wrapper = mount(GitConnections, { global: { stubs: { UButton: Button, UInput: Input, UCheckbox: true, UModal: { template: '<div><slot name="body" /></div>' }, UFormField: { template: '<label><slot /></label>' }, UBadge: true, LayoutLoadError: true } } })
+  await wrapper.findAll('input')[2]!.setValue('qa-user')
   await wrapper.get('form').trigger('submit')
   await flushPromises()
   return wrapper

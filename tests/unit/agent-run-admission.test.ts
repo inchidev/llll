@@ -9,6 +9,7 @@ beforeEach(() => {
   db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE channels(id TEXT PRIMARY KEY,parent_id TEXT);
     CREATE TABLE agent_sessions(id TEXT PRIMARY KEY,active_run_id TEXT);
+    CREATE TABLE agent_run_tools(run_id TEXT,name TEXT,status TEXT,result_json TEXT);
     CREATE TABLE agent_runs(id TEXT PRIMARY KEY,agent_id TEXT,channel_id TEXT,status TEXT,updated_at TEXT,deadline TEXT);
     INSERT INTO channels VALUES('dm',NULL),('thread-a','dm'),('thread-b','dm'),('other-dm',NULL);
     INSERT INTO agent_sessions VALUES('session-01',NULL),('session-02',NULL),('session-03',NULL);`)

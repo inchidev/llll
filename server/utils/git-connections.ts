@@ -38,10 +38,24 @@ export async function prepareGithubSetup(env: L4Env, actor: AuthorizationContext
     manifest: { name: input.name, url: origin.origin, redirect_url: `${origin.origin}/api/git-connections/github/callback`, public: false,
       description: 'L4 project code collaboration. Access is limited by selected repositories and L4 authorization.',
       setup_url: `${origin.origin}/server/${actor.serverId}/settings?section=environments`,
-      hook_attributes: { url: `${origin.origin}/api/git-connections/github/events`, active: false },
+      // No webhook is used: GitHub rejects localhost webhook URLs even when inactive.
+      // Omitting the webhook also avoids registering an unused public endpoint.
       default_permissions: { contents: 'write', pull_requests: 'write', issues: 'read', checks: 'read', statuses: 'read', actions: 'read', deployments: 'read', metadata: 'read' }, default_events: [] } }
 }
 const resultSchema = z.object({ id: z.number().int().positive(), slug: z.string().regex(/^[A-Za-z0-9-]+$/u), pem: z.string().min(100).max(20000), owner: z.object({ login: z.string() }) })
+/** Explicit owner recovery for an unconsumed state after a slow GitHub sign-in
+ * or approval. Never reopen an exchange whose outcome may be uncertain. */
+export async function reopenGithubSetup(env: L4Env, actor: AuthorizationContext, state: string) {
+  requireGitSetupOwner(actor)
+  if (!/^[a-f0-9]{64}$/u.test(state)) fail(400, 'git_setup_invalid', 'Invalid GitHub setup state')
+  let origin: string
+  try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'git_origin', 'Server origin changed') }
+  const now = nowIso()
+  const renewed = await env.DB.prepare("UPDATE git_setup_requests SET expires_at=? WHERE state_hash=? AND actor_id=? AND origin=? AND status='pending' AND created_at>? RETURNING state_hash")
+    .bind(new Date(Date.now() + 600000).toISOString(), await digest(state), actor.principal.id, origin, new Date(Date.now() - 86400000).toISOString()).first()
+  if (!renewed) fail(409, 'git_setup_expired', 'This setup cannot be resumed; start a new connection')
+  await writeAudit(env, { serverId: await getServerId(env.DB), actorId: actor.principal.id, action: 'git.connection.resume', targetType: 'server', targetId: actor.serverId, meta: { resumedAt: now } })
+}
 export async function completeGithubSetup(env: L4Env, actor: AuthorizationContext, code: string, state: string, transport: typeof fetch = fetch) {
   requireGitSetupOwner(actor)
   if (!/^[a-zA-Z0-9_-]{1,200}$/u.test(code) || !/^[a-f0-9]{64}$/u.test(state)) fail(400, 'git_setup_invalid', 'Invalid GitHub setup response')

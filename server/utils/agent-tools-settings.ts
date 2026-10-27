@@ -1,4 +1,6 @@
 import { toolSecurityReason } from './agent-tool-security'
+import { agentExecutionPolicy } from './agent-execution-policy'
+import { agentBrowserConfigured } from '../../workers/env'
 import { getServerId } from '../../shared/server-id'
 import { hasPermission, Permission } from '../../shared/permissions'
 import type { AuthorizationContext } from '../../shared/authorization'
@@ -15,6 +17,7 @@ function human(actor: AuthorizationContext) {
 const granted = (actor: AuthorizationContext, permission: number) => actor.principal.isOwner || hasPermission(actor.principal.permissions, permission)
 export async function toolsSettings(env: L4Env, actor: AuthorizationContext, agentId?: string): Promise<ToolsSettingsDTO> {
   human(actor)
+  const policy = await agentExecutionPolicy(env)
   if (actor.serverId !== await getServerId(env.DB)) fail(404, 'not_found', 'Server not found')
   if (![Permission.useAgents, Permission.manageAgents, Permission.useExternalTools].some(flag => granted(actor, flag))) fail(403, 'tools_denied', 'Your Role cannot inspect Agent tools')
   const agents = await env.DB.prepare("SELECT u.id,u.display_name AS name,u.role_id AS roleId,a.status FROM users u JOIN agents a ON a.user_id=u.id WHERE u.status='active' AND u.kind='agent' ORDER BY u.display_name LIMIT 200").all<ToolsSettingsDTO['agents'][number]>()
@@ -23,10 +26,10 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
   const result: ToolsSettingsDTO = { agents: agents.results, members, roles, mayConnect: granted(actor, Permission.useExternalTools), mayManageServer: actor.principal.isOwner, mayPreview: granted(actor, Permission.useAgents), mayAudit: granted(actor, Permission.useExternalTools),
     capabilities: [
       { name: 'Built-in Server tools', available: true, detail: 'Tasks, Data, documents and time. Current Agent and initiating Member Roles/resources govern every call.' },
-      { name: 'Read-only MCP', available: false, detail: 'Connections can be configured, but Agent calls require exact outbound review. Calls are unavailable until sensitive-action approvals are implemented.' },
-      { name: 'Public page reading', available: false, detail: 'Model-selected URLs and search queries require exact outbound review. Calls are unavailable until sensitive-action approvals are implemented.' },
+      { name: 'Read-only MCP', available: policy.mode === 'role', detail: 'Requires an explicitly shared connection, current tool schema and Use external tools for both parties. Review mode blocks outbound calls.' },
+      { name: 'Public page reading', available: policy.mode === 'role' && agentBrowserConfigured(env), detail: 'Requires Browse web for both parties and a browser provider. Public URLs only; private network and Server origins are blocked.' },
       { name: 'Computer execution', available: Boolean(env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)), detail: 'Requires a Task and Use computer for both parties. Repository access and Run limits apply.' },
-      { name: 'Repository proposals', available: false, detail: 'Repository content is untrusted. Publishing after reading it requires human review; approvals are currently unavailable.' },
+      { name: 'Repository proposals', available: policy.mode === 'role', detail: 'Requires Propose code changes in the task project, an admitted repository and current access for both parties. Publishes only to a working branch and draft PR.' },
       { name: 'External writes and approvals', available: false, detail: 'Unavailable until the approval policy is implemented. No approval or external write authority is granted here.' },
     ] }
   if (agentId) {
@@ -37,9 +40,9 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
     if (!auth) fail(404, 'not_found', 'Agent not found')
     const builtins = await agentTools(env, auth, () => {}).catalog()
     const external = await mcpToolExposure(env, auth)
-    result.preview = { agentId, tools: [...builtins, ...external].filter(tool => !toolSecurityReason(tool.name, true)), diagnostics: [
+    result.preview = { agentId, tools: [...builtins, ...external].filter(tool => !toolSecurityReason(tool.name, true, policy.mode)), diagnostics: [
       'Preview uses current Agent and your Role/resource grants. A Task, conversation, Run mandate and current connection revision can narrow access further.',
-      'Outbound calls and writes after untrusted input are hidden until exact human review is available. Missing grants do not disclose restricted connection identities.',
+      policy.mode === 'role' ? 'Granted tools execute autonomously within the admitted scope and budgets. Unknown tools remain blocked.' : 'Review mode blocks outbound calls and writes; workspace operations wait for approval.',
       'Task execution, schedules and repository/computer tools additionally require a suitable active Run.',
       ...[{flag:Permission.readTasks,label:'Read tasks'},{flag:Permission.writeTasks,label:'Write tasks'},{flag:Permission.readData,label:'Read Data'},{flag:Permission.browseWeb,label:'Browse web'},{flag:Permission.useComputer,label:'Use computer'}].flatMap(({flag,label}) => {
         const missing = [!hasPermission(auth.principal.permissions,flag) ? 'Agent Role' : '', !granted(actor,flag) ? 'your Role' : ''].filter(Boolean)

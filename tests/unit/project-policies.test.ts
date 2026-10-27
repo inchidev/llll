@@ -23,7 +23,7 @@ const task = async (projectId: string | null) => createTask(f.env, await f.actor
 
 it('seeds reusable policies without assigning or expanding anyone’s existing role', async () => {
   const policies = await listProjectPolicies(f.env)
-  expect(policies.map(p => p.name)).toEqual(['Coordinator', 'Developer', 'Reviewer'])
+  expect(policies.map(p => p.name)).toEqual(['Coordinator', 'Developer', 'Reviewer', 'Task coordinator'])
   expect(policies.every(p => (p.permissions & ~ProjectPolicyPermissions) === 0)).toBe(true)
   expect(f.db.prepare('SELECT count(*) AS n FROM project_policy_assignments').get()!.n).toBe(0)
   expect((await f.actor(ids.member)).principal.permissions).toBe(MemberPermissions)

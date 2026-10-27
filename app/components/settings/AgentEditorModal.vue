@@ -4,8 +4,8 @@ import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
 import { Permission, PermissionGrants, MemberPermissions } from '~~/shared/permissions'
-import { agentRoleSummary, TaskAgentGrants, TaskAgentPermissions, FactoryAgentPermissions } from '~~/shared/agent-roles'
-import { resourceAccessWithin } from '~~/shared/resource-access'
+import { agentRoleSummary } from '~~/shared/agent-roles'
+import { agentTemplates } from '~~/shared/agent-templates'
 import type { AgentDTO, RoleDTO } from '~~/shared/types'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
@@ -19,12 +19,9 @@ function defaultModel() {
   // The Server resolves an empty model to its default provider profile.
   return ''
 }
-const { can, mine } = useRoleGrants()
+const { can } = useRoleGrants()
 const roleId = ref('member')
 const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: computed(() => open.value && can(Permission.manageRoles)) })
-const creatingRole = ref(false)
-const canUseFactoryRole = computed(() => can(Permission.manageRoles) && PermissionGrants.filter(grant => (FactoryAgentPermissions & grant.flag) === grant.flag).every(grant => can(grant.flag)))
-const canUseTaskRole = computed(() => can(Permission.manageRoles) && TaskAgentGrants.every(grant => can(grant.flag)))
 const selectedRole = computed(() => roles.data.value?.roles.find(role => role.id === roleId.value || (roleId.value === 'member' && role.key === 'member')))
 const selectedPermissions = computed(() => selectedRole.value?.permissions ?? (roleId.value === 'member' ? MemberPermissions : null))
 const selectedSummary = computed(() => selectedPermissions.value === null ? '' : agentRoleSummary({ permissions: selectedPermissions.value }))
@@ -38,25 +35,8 @@ const roleItems = computed(() => [
   { value: memberRoleId.value, label: 'Member' },
   ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.key === 'admin' ? 'Admin' : role.name, description: agentRoleSummary(role) })),
 ])
-async function useTaskRole(factory = false) {
-  if (!(factory ? canUseFactoryRole.value : canUseTaskRole.value) || busy.value) return
-  const permissions = factory ? FactoryAgentPermissions : TaskAgentPermissions, name = factory ? 'Developer agent' : 'Task agent'
-  const existing = roles.data.value?.roles.find(role => role.name === name && role.permissions === permissions && resourceAccessWithin(role.resourceAccess ?? {}, mine?.value?.role.resourceAccess))
-  if (existing) { roleId.value = existing.id; return }
-  creatingRole.value = true
-  try {
-    const result = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
-      method: 'POST',
-      body: { name, permissions, resourceAccess: mine?.value?.role.resourceAccess ?? {} },
-    })
-    await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
-    roleId.value = result.role.id
-  } catch (error) {
-    toast.add({ title: errorMessage(error), color: 'error' })
-  } finally { creatingRole.value = false }
-}
 const saving = ref(false)
-const busy = computed(() => saving.value || creatingRole.value)
+const busy = computed(() => saving.value)
 const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
 
@@ -262,14 +242,10 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <LayoutLoadError v-if="roles.error.value" message="Roles did not load." :retry="roles.refetch" inline />
         <p v-if="selectedSummary" class="mt-2 text-sm text-muted">{{ selectedSummary }}</p>
         <p v-if="selectedGrants" class="mt-1 text-xs text-muted">Permissions: {{ selectedGrants }}.</p>
-        <UButton v-if="canUseFactoryRole" class="mt-2" label="Use developer agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(true)" />
-        <p v-if="canUseFactoryRole" class="text-xs text-muted">This role grants Read projects, Read tasks, Execute assigned tasks, Send messages, Use a computer and Propose code changes within your selected resource scopes. Each coding operation still needs human review.</p>
-        <template v-if="canUseTaskRole">
-          <UButton class="mt-2" label="Use task agent role" color="neutral" variant="soft" :loading="creatingRole" :disabled="busy || roles.isPending.value || roles.isError.value" @click="useTaskRole(false)" />
-          <p class="mt-1 text-xs text-muted">Creates or selects a role with Read tasks, Create and update tasks, Execute assigned tasks and Send messages. New roles inherit your resource limits and grant no administration or computer tools. Save the agent to apply the selection.</p>
-        </template>
+        <p class="mt-2 text-xs text-muted">Grant project work through a policy in Projects → Access. One agent can be Developer in one project and Reviewer in another. Templates do not change permissions.</p>
       </UFormField>
       <p v-else-if="isNew" class="text-sm text-muted">New agents start with the Member role. Ask someone with Manage roles to grant task execution and reporting permissions.</p>
+      <UFormField label="Start from a template" help="Replaces profile instructions only. Assign the recommended policy separately in the project."><div class="flex flex-wrap gap-2"><UButton v-for="template in agentTemplates" :key="template.id" :label="template.name" color="neutral" variant="outline" :title="`Recommended project policy: ${template.policy}`" @click="form.instructions = template.instructions" /></div></UFormField>
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />
       </UFormField>
@@ -281,7 +257,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 
 
       <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="open = false" />
-      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="creatingRole || (isNew && (providers.isPending.value || modelRequired))" />
+      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && (providers.isPending.value || modelRequired)" />
       </div>
     </UForm>
     </template>

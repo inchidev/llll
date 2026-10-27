@@ -5,7 +5,7 @@ import type { AuthorizationContext } from './authorization'
 
 export const ProjectPolicyPermissions = Permission.readProjects | Permission.readTasks | Permission.writeTasks
   | Permission.executeTasks | Permission.useComputer | Permission.proposeCode | Permission.browseWeb
-  | Permission.useAgents | Permission.approveAgentActions
+  | Permission.useAgents | Permission.approveAgentActions | Permission.delegateTasks
 export const ProjectPolicyGrants = PermissionGrants.filter(grant => (ProjectPolicyPermissions & grant.flag) === grant.flag)
 export const projectPolicySchema = z.object({
   name: z.string().trim().min(1).max(80), description: z.string().trim().max(2000).default(''),

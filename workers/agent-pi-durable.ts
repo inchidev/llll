@@ -120,7 +120,8 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
         throw new Error(message)
       }
 
-        if (definition.name !== 'factory_workspace' || JSON.parse(output).factoryPending !== true) break
+        const progress = JSON.parse(output) as { factoryPending?: boolean; delegationPending?: boolean }
+        if (!(definition.name === 'factory_workspace' && progress.factoryPending === true) && !(definition.name === 'delegate_task' && progress.delegationPending === true)) break
         await new Promise<void>((resolve, reject) => {
           const signal = context.abortSignal ?? host.signal
           if (signal?.aborted) { reject(new Error('Run cancelled')); return }

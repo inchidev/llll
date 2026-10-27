@@ -5,6 +5,7 @@ import type { UserKind } from './types'
 import { projectPermissionAllowed, ProjectPolicyPermissions, type ProjectPolicyGrant } from './project-access'
 
 export const ServerAction = {
+  delegateTasks: 'tasks:delegate',
   useExternalTools: 'tools:read',
   useComputer: 'computer:use',
   proposeCode: 'code:propose',
@@ -59,6 +60,7 @@ export type AuthorizationContext = {
 type ActionRule = { permission: PermissionFlag; scope?: McpScope }
 
 const ACTION_RULES: Record<ServerAction, ActionRule> = {
+  [ServerAction.delegateTasks]: { permission: Permission.delegateTasks },
   [ServerAction.useExternalTools]: { permission: Permission.useExternalTools },
   [ServerAction.useComputer]: { permission: Permission.useComputer },
   [ServerAction.proposeCode]: { permission: Permission.proposeCode },

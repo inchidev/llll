@@ -54,7 +54,6 @@ const taskRunProblem = computed(() => {
   if (!task) return 'Choose a task to run.'
   if (task.archivedAt) return 'Restore this task before starting its agent.'
   if (taskDirty.value) return 'Save your task changes before starting the agent.'
-  if (!task.channelId && !task.discussionChannelId && !can(Permission.writeTasks, task.projectId)) return 'Ask a task manager to open its discussion before starting the agent.'
   const agent = agents.value.find(item => item.id === task.assigneeId)
   if (agent?.status === 'paused') return 'Resume the assigned agent in Agents before starting this task.'
   if (!agent || agent.status !== 'active') return 'Assign an active agent to this task.'

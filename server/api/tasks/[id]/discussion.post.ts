@@ -3,10 +3,10 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { channels, taskNumbers, tasks } from '../../../../drizzle/schema'
 import { newId, nowIso } from '../../../../shared/ids'
 import { Permission } from '../../../../shared/permissions'
-import { cf } from '../../../utils/cf'
+import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { requireMember } from '../../../utils/guards'
-import { requireTask } from '../../../utils/task-policy'
+import { requireTask, taskPermissionAllowed } from '../../../utils/task-policy'
 
 /**
  * Returns the task's discussion channel, creating it on first use. It is an
@@ -17,7 +17,8 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const task = await requireTask(env, getRouterParam(event, 'id')!, actor.authorization, Permission.writeTasks)
+  const task = await requireTask(env, getRouterParam(event, 'id')!, actor.authorization)
+  if (!taskPermissionAllowed(actor.authorization, task, Permission.writeTasks) && !taskPermissionAllowed(actor.authorization, task, Permission.executeTasks)) fail(403, 'task_denied', 'Write tasks or Execute assigned tasks is required to prepare a discussion')
   if (task.discussionChannelId) return { channelId: task.discussionChannelId }
 
   const number = (await db.select({ number: taskNumbers.number }).from(taskNumbers)

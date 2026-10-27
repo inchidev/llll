@@ -19,8 +19,9 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
   <SettingsHeader title="Agents" description="Manage the teammates people can message and work with.">
     <template #actions><UButton :class="{ invisible: tab !== 'agents' }" :tabindex="tab === 'agents' ? undefined : -1" icon="i-ph-plus" label="Create agent" @click="edit()" /></template>
   </SettingsHeader>
-  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
-  <SettingsAgentProviderSettings v-if="tab === 'providers'" :server-id="serverId" :is-owner="isOwner" />
+  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Execution', value: 'execution', icon: 'i-ph-play-circle' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
+  <SettingsAgentExecutionSettings v-if="tab === 'execution' && isOwner" :server-id="serverId" />
+  <SettingsAgentProviderSettings v-else-if="tab === 'providers'" :server-id="serverId" :is-owner="isOwner" />
   <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" @navigate="emit('navigate')" />
   <template v-else>
   <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search agents" aria-label="Search agents" class="w-full" />

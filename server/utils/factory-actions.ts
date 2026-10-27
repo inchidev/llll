@@ -8,10 +8,12 @@ import { findAgentRun } from './agent-run-service'
 import { requireRunReader, markUntrustedContext } from './agent-tool-security'
 import { fail } from './cf'
 import { getTask } from './task-service'
+import { authorize, ServerAction } from '../../shared/authorization'
+import type { RunMandate } from '../../shared/agent-execution'
 
 export type ActionRow = { id: string; workspaceId: string; runId: string; callId: string; digest: string; requestJson: string; policyJson: string; status: string; expiresAt: string; decidedBy: string | null; decidedAt: string | null; resultJson: string | null; createdAt: string; leaseToken: string | null; leaseUntil: string | null }
 export const actionColumns = 'id,workspace_id AS workspaceId,run_id AS runId,call_id AS callId,digest,request_json AS requestJson,policy_json AS policyJson,status,expires_at AS expiresAt,decided_by AS decidedBy,decided_at AS decidedAt,result_json AS resultJson,created_at AS createdAt,lease_token AS leaseToken,lease_until AS leaseUntil'
-export const visibleAction = (row: ActionRow): FactoryAction => ({ computeLimits: { cpu: JSON.parse(row.policyJson).compute.cpu ?? 1, memoryMiB: JSON.parse(row.policyJson).compute.memoryMiB ?? 1024, processes: JSON.parse(row.policyJson).compute.processLimit ?? 128, timeoutMs: JSON.parse(row.policyJson).compute.timeoutMs ?? 120000 }, diskBytes: JSON.parse(row.policyJson).compute.diskBytes, computeImage: JSON.parse(row.policyJson).compute.image, workspaceRevision: JSON.parse(row.policyJson).workspaceRevision, id: row.id, workspaceId: row.workspaceId, runId: row.runId, digest: row.digest, request: factoryRequest.parse(JSON.parse(row.requestJson)), status: row.status, expiresAt: row.expiresAt, decidedAt: row.decidedAt, decidedBy: row.decidedBy, result: row.resultJson ? JSON.parse(row.resultJson) : null, createdAt: row.createdAt })
+export const visibleAction = (row: ActionRow): FactoryAction => ({ approvalMode: JSON.parse(row.policyJson).approvalMode ?? 'review', computeLimits: { cpu: JSON.parse(row.policyJson).compute.cpu ?? 1, memoryMiB: JSON.parse(row.policyJson).compute.memoryMiB ?? 1024, processes: JSON.parse(row.policyJson).compute.processLimit ?? 128, timeoutMs: JSON.parse(row.policyJson).compute.timeoutMs ?? 120000 }, diskBytes: JSON.parse(row.policyJson).compute.diskBytes, computeImage: JSON.parse(row.policyJson).compute.image, workspaceRevision: JSON.parse(row.policyJson).workspaceRevision, id: row.id, workspaceId: row.workspaceId, runId: row.runId, digest: row.digest, request: factoryRequest.parse(JSON.parse(row.requestJson)), status: row.status, expiresAt: row.expiresAt, decidedAt: row.decidedAt, decidedBy: row.decidedBy, result: row.resultJson ? JSON.parse(row.resultJson) : null, createdAt: row.createdAt })
 export async function expireFactoryActions(env: L4Env) {
   await env.DB.batch([
     env.DB.prepare("UPDATE factory_actions SET status='expired' WHERE status IN ('pending','approved') AND expires_at<=?").bind(nowIso()),
@@ -22,6 +24,7 @@ export async function expireFactoryActions(env: L4Env) {
 export async function authorizeFactoryAction(env: L4Env, row: ActionRow, actorId?: string) {
   const request = factoryRequest.parse(JSON.parse(row.requestJson))
   const context = await factoryAuthority(env, row.runId, actorId, request.operation === 'publish')
+  if (request.operation === 'exec' && request.networkHosts.length) authorize(context.auth, ServerAction.browseWeb)
   const workspace = await env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE id=?`).bind(row.workspaceId).first<FactoryWorkspace>()
   const savedPolicy = JSON.parse(row.policyJson)
   if (!workspace || workspace.channelId !== context.run.channelId || workspace.taskId !== context.run.taskId || workspace.agentId !== context.run.agentId || workspace.initiatedBy !== context.run.initiatedBy
@@ -30,10 +33,14 @@ export async function authorizeFactoryAction(env: L4Env, row: ActionRow, actorId
   if (request.operation === 'publish' && (!workspace.snapshotJson || await factoryHash(workspace.snapshotJson) !== request.snapshotDigest)) fail(409, 'factory_snapshot_changed', 'Review the new snapshot before publication')
   return { ...context, workspace, request }
 }
-/** This tool only records an immutable request. Every effect is separately claimed by an authorized human decision. */
+/** Every effect has an immutable receipt, current authorization and a single claim.
+ * New role-authorized mandates preapprove operations; legacy/review mandates wait. */
 export async function factoryToolCall(env: L4Env, runId: string, callId: string, input: unknown) {
   const request = parseFactoryToolInput(input)
   const context = await factoryAuthority(env, runId, undefined, request.operation === 'publish')
+  if (request.operation === 'exec' && request.networkHosts.length) authorize(context.auth, ServerAction.browseWeb)
+  const execution = (JSON.parse(context.run.mandateJson) as RunMandate).execution
+  const automatic = execution?.mode === 'role'
   if (request.operation === 'exec' && request.timeoutMs > ('timeoutMs' in context.capabilities ? context.capabilities.timeoutMs : 120000)) fail(400, 'factory_timeout', 'Command timeout exceeds this provider’s configured execution limit')
   await markUntrustedContext(env, context.run)
   await expireFactoryActions(env)
@@ -44,12 +51,12 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     await authorizeFactoryAction(env, row)
     if (['completed','failed'].includes(row.status) && row.resultJson) return JSON.parse(row.resultJson)
     if (!['pending', 'approved', 'claimed', 'executing'].includes(row.status)) return { factoryPending: false, actionId: row.id, status: row.status, message: 'This action did not complete. Inspect its outcome; it will not be replayed.' }
-    if (row.status === 'approved') await dispatchCloudflareFactory(env, row.id, row.workspaceId, (await factoryWorkspace(env, context)).nodeId)
+    if (row.status === 'approved' && request.operation !== 'publish') await dispatchCloudflareFactory(env, row.id, row.workspaceId, (await factoryWorkspace(env, context)).nodeId)
     return { factoryPending: true, actionId: row.id, status: row.status, reviewUrl: `/runs/${runId}` }
   }
   const workspace = await factoryWorkspace(env, context)
-  if (!['release','suspend'].includes(request.operation) && (workspace.commands >= 50 || workspace.runtimeMs >= 3600000 || workspace.publicationCount >= 10)) fail(429, 'factory_budget', 'Task workspace action, runtime or publication limit reached')
-  if (request.operation === 'exec' && workspace.runtimeMs + request.timeoutMs > 3600000) fail(429, 'factory_budget', 'Command exceeds the remaining Task runtime budget')
+  if (!['release','suspend'].includes(request.operation) && (workspace.commands >= (execution?.workspaceActions ?? 50) || workspace.runtimeMs >= (execution?.workspaceRuntimeMs ?? 3600000) || workspace.publicationCount >= (execution?.workspacePublications ?? 10))) fail(429, 'factory_budget', 'Task workspace action, runtime or publication limit reached')
+  if (request.operation === 'exec' && workspace.runtimeMs + request.timeoutMs > (execution?.workspaceRuntimeMs ?? 3600000)) fail(429, 'factory_budget', 'Command exceeds the remaining Task runtime budget')
   if (request.operation !== 'bootstrap' && request.operation !== 'release' && workspace.status !== 'ready') fail(409, 'workspace_unavailable', 'Bootstrap the workspace first')
   if (request.operation === 'bootstrap' && !['new', 'released'].includes(workspace.status)) fail(409, 'workspace_exists', 'The workspace already has a pinned checkout')
   if (request.operation === 'publish') {
@@ -58,19 +65,25 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     factorySnapshot.parse(JSON.parse(workspace.snapshotJson))
   }
   const id = newId(), expiresAt = new Date(Math.min(Date.parse(context.run.deadline), Date.now() + 15 * 60000)).toISOString()
-  const policy = JSON.stringify({ auth: context.auth, compute: context.capabilities, workspaceRevision: workspace.commands })
+  const policy = JSON.stringify({ auth: context.auth, compute: context.capabilities, workspaceRevision: workspace.commands, approvalMode: automatic ? 'role' : 'review' })
   const digest = await factoryHash(JSON.stringify({ id, workspaceId: workspace.id, runId, callId, request, policy, environment: context.environment, expiresAt }))
   const inserted = await env.DB.prepare(`INSERT INTO factory_actions(id,workspace_id,run_id,call_id,digest,request_json,policy_json,status,expires_at,created_at)
-    SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE (SELECT count(*) FROM factory_actions WHERE workspace_id=?)<100 ON CONFLICT DO NOTHING RETURNING id`)
-    .bind(id, workspace.id, runId, callId, digest, encoded, policy, expiresAt, nowIso(), workspace.id).first()
+    SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE (SELECT count(*) FROM factory_actions WHERE workspace_id=?)<? ON CONFLICT DO NOTHING RETURNING id`)
+    .bind(id, workspace.id, runId, callId, digest, encoded, policy, expiresAt, nowIso(), workspace.id, execution?.workspaceActions ?? 100).first()
   if (!inserted) {
     const existing = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE run_id=? AND call_id=?`).bind(runId, callId).first<ActionRow>()
     if (existing && existing.requestJson === encoded) return { factoryPending: true, actionId: existing.id, status: existing.status, reviewUrl: `/runs/${runId}` }
     fail(409, 'factory_pending', 'Review the existing action before requesting another operation')
   }
-  await env.DB.prepare("UPDATE tasks SET factory_state='approval_pending' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId).run()
-  await patchAgentTurn(env, runId, { status: 'waiting_approval', detail: 'Review required' })
+  if (automatic) await env.DB.prepare("UPDATE factory_actions SET status='approved',decided_by=NULL,decided_at=? WHERE id=? AND status='pending'").bind(nowIso(), id).run()
+  await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(automatic ? 'queued' : 'approval_pending', context.run.taskId, context.run.agentId).run()
+  await patchAgentTurn(env, runId, automatic ? { status: 'tool', detail: 'Using a tool' } : { status: 'waiting_approval', detail: 'Review required' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
+  if (automatic && request.operation !== 'publish') await dispatchCloudflareFactory(env, id, workspace.id, workspace.nodeId)
+  if (automatic && request.operation === 'publish') {
+    const { executeFactoryPublication } = await import('./factory-github')
+    await executeFactoryPublication(env, id)
+  }
   row = (await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(id).first<ActionRow>())!
   return { factoryPending: true, actionId: row.id, status: row.status, reviewUrl: `/runs/${runId}` }
 }

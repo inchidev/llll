@@ -9,7 +9,7 @@ afterEach(()=>{f.db.close();vi.unstubAllGlobals()})
 it('previews only current Agent/initiator grants without creating executable Runs or decrypting credentials',async()=>{
  const connection=await f.connect(f.input({credential:'synthetic-ui-secret'}))
  const result=await toolsSettings(f.env,await f.actor(),ids.agent)
- expect(result.preview?.tools.some(t=>t.provenance?.connectionId===connection.id)).toBe(false)
+ expect(result.preview?.tools.some(t=>t.provenance?.connectionId===connection.id)).toBe(true)
  expect(JSON.stringify(result)).not.toContain('synthetic-ui-secret')
  expect(f.db.prepare('SELECT count(*) AS n FROM agent_runs').get()!.n).toBe(0)
  expect(f.db.prepare('SELECT count(*) AS n FROM agent_run_tools').get()!.n).toBe(0)
@@ -18,7 +18,7 @@ it('previews only current Agent/initiator grants without creating executable Run
 it('hides an unshared integration even from Owner in the Agent exposure preview',async()=>{
  const c=await f.connect(f.input({grants:{agentIds:[ids.agent],memberIds:[ids.member],roleIds:[]}}))
  expect((await toolsSettings(f.env,await f.actor(),ids.agent)).preview?.tools.some(t=>t.provenance?.connectionId===c.id)).toBe(false)
- expect((await toolsSettings(f.env,await f.actor(ids.member),ids.agent)).preview?.tools.some(t=>t.provenance?.connectionId===c.id)).toBe(false)
+ expect((await toolsSettings(f.env,await f.actor(ids.member),ids.agent)).preview?.tools.some(t=>t.provenance?.connectionId===c.id)).toBe(true)
 })
 it('removes disabled and revoked tools from a previously available preview',async()=>{
  const c=await f.connect()
