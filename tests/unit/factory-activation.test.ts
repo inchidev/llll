@@ -77,6 +77,39 @@ it('describes VPS Factory cost as host capacity', async () => {
   fixture.db.close()
 })
 
+it('returns a retryable activation error when the container RPC fails', async () => {
+  const fixture = mcpFixture()
+  const create = vi.fn()
+  Object.assign(fixture.env, {
+    FACTORY_IMAGE: image, FACTORY_POLICY: policy,
+    FACTORY_COMPUTE: { getByName: () => ({ fetch: async () => { throw new Error('Durable Object unavailable') } }) },
+    FACTORY_CODE: { create },
+  })
+  await expect(configureCloudflareFactory(fixture.env, await fixture.actor(), true)).rejects.toMatchObject({ statusCode: 503, data: { error: { code: 'factory_provisioning' } } })
+  expect(create).not.toHaveBeenCalled()
+  expect(fixture.db.prepare('SELECT count(*) AS count FROM compute_nodes').get()).toMatchObject({ count: 0 })
+  fixture.db.close()
+})
+
+it.each([false, true])('disposes the Artifacts probe handle and cleans up after revocation (failure: %s)', async failure => {
+  const fixture = mcpFixture()
+  const dispose = vi.fn(), remove = vi.fn(async () => {})
+  const revoke = vi.fn(async () => { if (failure) throw new Error('Token revocation unavailable'); return true })
+  Object.assign(fixture.env, {
+    FACTORY_IMAGE: image, FACTORY_POLICY: policy,
+    FACTORY_COMPUTE: { getByName: () => ({ fetch: async () => Response.json({ ready: true }) }) },
+    FACTORY_CODE: { create: async () => ({ token: 'probe-token' }), get: async () => ({ revokeToken: revoke, [Symbol.dispose]: dispose }), delete: remove },
+  })
+  const activation = configureCloudflareFactory(fixture.env, await fixture.actor(), true)
+  if (failure) await expect(activation).rejects.toMatchObject({ statusCode: 502 })
+  else expect(await activation).toMatchObject({ state: 'ready' })
+  expect(revoke).toHaveBeenCalledWith('probe-token')
+  expect(dispose).toHaveBeenCalledOnce()
+  expect(remove).toHaveBeenCalledOnce()
+  expect(fixture.db.prepare('SELECT count(*) AS count FROM compute_nodes').get()).toMatchObject({ count: failure ? 0 : 1 })
+  fixture.db.close()
+})
+
 it('turns a container start failure into a probe response instead of an uncaught Worker error', async () => {
   const fixture = mcpFixture()
   const running = { value: false }

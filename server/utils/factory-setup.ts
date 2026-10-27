@@ -35,7 +35,9 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   if (!env.FACTORY_COMPUTE || !env.FACTORY_CODE || !env.FACTORY_IMAGE) fail(409, 'factory_resources_required', 'Authorize optional Containers and Artifacts through the installer first. Workers Paid is required; R2 is independent.')
   if (enabled) {
     const serverId = await getServerId(env.DB)
-    const probe = await env.FACTORY_COMPUTE.getByName(`probe:${serverId}`).fetch(new Request('http://factory/probe', { method: 'POST' }))
+    let probe: Response
+    try { probe = await env.FACTORY_COMPUTE.getByName(`probe:${serverId}`).fetch(new Request('http://factory/probe', { method: 'POST' })) }
+    catch { fail(503, 'factory_provisioning', 'Container resources are still provisioning or unavailable. Retry activation after checking provider access.') }
     if (!probe.ok) {
       let detail = ''
       try {
@@ -52,7 +54,8 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
       let repository: Awaited<ReturnType<NonNullable<L4Env['FACTORY_CODE']>['get']>> | undefined
       try { repository = await env.FACTORY_CODE.get(name) }
       catch { await new Promise(resolve => setTimeout(resolve, 50)); repository = await env.FACTORY_CODE.get(name) }
-      await repository.revokeToken(token)
+      using handle = repository
+      await handle.revokeToken(token)
     } catch (error) {
       if (error && typeof error === 'object' && 'statusCode' in error) throw error
       const message = error instanceof Error && error.message ? error.message : 'Artifacts request failed'

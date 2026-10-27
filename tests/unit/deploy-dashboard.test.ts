@@ -225,6 +225,17 @@ it('asks for Factory consent again when the checkbox was not kept', async () => 
   expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeUndefined()
 })
 
+it('loads Factory with unchecked consent when browser storage is blocked', async () => {
+  vi.stubGlobal('useRoute', () => ({ params: {}, query: { factory: '1', account, worker: 'llll-worker' } }))
+  const read = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => { throw new DOMException('Storage blocked', 'SecurityError') })
+  try {
+    const view = await render()
+    expect(view.text()).toContain('Cloudflare connected')
+    expect((view.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect(view.findAll('button').find(button => button.text() === 'Provision Factory')?.attributes('disabled')).toBeDefined()
+  } finally { read.mockRestore() }
+})
+
 it('shows why the Cloudflare connection could not be loaded', async () => {
   api.mockImplementation(async (path: string) => {
     if (path === '/api/deploy/config') return { oauth: true }

@@ -80,7 +80,8 @@ const factoryConsentKey = computed(() => `llll-factory-consent:${String(route.qu
 const factoryConsent = ref(false), factoryConnected = ref(false)
 function restoreFactoryConsent() {
   if (typeof sessionStorage === 'undefined') return
-  factoryConsent.value = sessionStorage.getItem(factoryConsentKey.value) === '1'
+  try { factoryConsent.value = sessionStorage.getItem(factoryConsentKey.value) === '1' }
+  catch { factoryConsent.value = false }
 }
 watch(factoryConsent, value => {
   if (typeof sessionStorage === 'undefined') return
