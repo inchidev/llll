@@ -14,6 +14,7 @@ import { createTable, createTableSchema } from './table-service'
 import { readCodeFile, readCodeSchema, readCodeTree, publishCodeProposal, codeProposalChecks } from './agent-code-service'
 import { codeProposalSchema } from '../../shared/code-environments'
 import { createSchedule, listSchedules, cancelSchedule } from './schedule-service'
+import { scheduleStatusFilters } from '../../shared/schedules'
 import { createAgentRun, findAgentRun, runAuthorization } from './agent-run-service'
 import { loadAuthorizationContext } from './authorization'
 import type { AgentRun, RunMandate, RuntimeTool } from '../../shared/agent-execution'
@@ -117,7 +118,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       content: z.string().trim().min(1).max(12000), firstAt: z.string().datetime({ offset: true }), timezone: z.string().min(1), recurrence: z.enum(['once', 'daily', 'weekly']).default('once'),
     }), 'Create a reminder in this conversation, at an explicit timestamp and IANA timezone. Confirm ambiguous times with the person first.', async input =>
       createSchedule(env, authorization, { ...input, channelId: run.channelId, kind: 'reminder' }))
-    add('list_schedules', ServerAction.manageSchedules, z.object({}), 'List your visible reminders and recurring work.', async () => ({ schedules: await listSchedules(env, authorization) }))
+    add('list_schedules', ServerAction.manageSchedules, z.object({ status: z.enum(scheduleStatusFilters).default('current'), cursor: z.string().max(200).optional() }), 'List your reminders and recurring work: current (active, paused or blocked, with the reason) by default, or history.', async input => listSchedules(env, authorization, input))
     add('cancel_schedule', ServerAction.manageSchedules, z.object({ scheduleId: z.string().min(1) }), 'Cancel one of your reminders or recurring mandates.', async ({ scheduleId }) => { await cancelSchedule(env, authorization, scheduleId); return { cancelled: true } })
   }
   if (run?.environmentJson && (JSON.parse(run.mandateJson) as RunMandate).computer) {

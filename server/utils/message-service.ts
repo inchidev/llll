@@ -12,7 +12,7 @@ import { getDb } from './db'
 import { auditStatement, hydrateMessages, toPublicUser } from './messages'
 import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import type { ServerMembership as Membership } from './channel-access'
-import { messageNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
+import { messageNotificationStatement, reminderNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
 import { channelLastMessageTimes, channelUnreadCounts } from '../../workers/unread'
@@ -174,7 +174,8 @@ export async function readChannelMessages(env: L4Env, member: Membership, channe
   return { frozen: access.frozen, messages: dtos, rootMessage: rootMessage ?? null, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
 }
 
-export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void, deliveryId?: string, notifyAgents = true) {
+export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void, deliveryId?: string,
+  { notifyAgents = true, remindUserId }: { notifyAgents?: boolean; remindUserId?: string } = {}) {
   authorizeMcpCredential(actor.authorization, 'messages:write')
   const member = await requireChannelAccessForMember(env, actor, channelId, Permission.sendMessages, 'POST')
   const body = sendMessageSchema.parse(input)
@@ -232,6 +233,11 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     mentions: mentionIds,
     attachmentCount: attachmentRows.length,
   })
+  // A scheduled reminder is authored by the person it reminds: keep it unread and notify them too.
+  const remindSelf = remindUserId === member.user.id
+  const reminder = remindUserId
+    ? await reminderNotificationStatement(env, { id, channelId, author: member.user, content: body.content, mentions: mentionIds, attachmentCount: attachmentRows.length }, remindUserId)
+    : null
   const audit = actor.authorization.credential.kind === 'mcp'
     ? await auditStatement(env, { serverId: member.serverId, actorId: member.user.id, action: 'message.create',
         targetType: 'message', targetId: id, meta: { channelId, mentions: mentionIds }, authorization: actor.authorization })
@@ -246,15 +252,16 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     ...mentionIds.map((userId) => env.DB.prepare(
       'INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)',
     ).bind(id, userId)),
-    env.DB.prepare(
+    ...(remindSelf ? [] : [env.DB.prepare(
       `INSERT INTO channel_reads (channel_id, user_id, last_read_message_id, updated_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(channel_id, user_id) DO UPDATE
        SET last_read_message_id = excluded.last_read_message_id, updated_at = excluded.updated_at
        WHERE channel_reads.last_read_message_id IS NULL
           OR channel_reads.last_read_message_id < excluded.last_read_message_id`,
-    ).bind(channelId, member.user.id, id, created),
+    ).bind(channelId, member.user.id, id, created)]),
     ...(notification ? [notification] : []),
+    ...(reminder ? [reminder] : []),
     ...(audit ? [audit] : []),
   ])
   schedule(signalNotificationOutbox(env))
@@ -264,8 +271,8 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     author: member.user,
     content: body.content,
     attachmentCount: attachmentRows.length,
-  }))
-  schedule(signalChannelRead(env, member.user.id, channelId, id))
+  }, remindUserId ? [remindUserId] : []))
+  if (!remindSelf) schedule(signalChannelRead(env, member.user.id, channelId, id))
   const db = getDb(env.DB)
   const row = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
   const [dto] = await hydrateMessages(env, [row], member.user.id)
