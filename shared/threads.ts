@@ -2,7 +2,7 @@ import { humanizeMentions } from './mentions'
 const MAX_THREAD_TITLE_LENGTH = 80
 
 export function threadTitle(content: string, filenames: string[] = [], names: Record<string, string> = {}): string {
-  const normalized = humanizeMentions(content, names).replace(/<@[0-9a-f-]{36}>/giu, '@Member').trim().replace(/\s+/g, ' ')
+  const normalized = humanizeMentions(content, names).replace(/<@&[0-9a-f-]{36}>/giu, '@Role').replace(/<@[0-9a-f-]{36}>/giu, '@Member').trim().replace(/\s+/g, ' ')
   if (normalized) {
     return normalized.length > MAX_THREAD_TITLE_LENGTH
       ? `${normalized.slice(0, MAX_THREAD_TITLE_LENGTH - 1).trimEnd()}…`

@@ -29,6 +29,8 @@ type NotificationMessage = {
   author: PublicUser
   content: string
   mentions: string[]
+  /** Members reached through a role mention, already limited to people who can read the conversation. */
+  roleMentions?: string[]
   attachmentCount: number
   /** An edit notifies only the Members it newly mentions; DM participants heard the send. */
   edit?: boolean
@@ -100,7 +102,6 @@ async function liveRecipients(env: L4Env, channel: ChannelRow, actorId: string):
 function outboxStatement(env: L4Env, spec: NotificationSpec): D1PreparedStatement | null {
   const recipientIds = [...new Set(spec.recipientIds)]
   if (!recipientIds.length) return null
-  const placeholders = recipientIds.map(() => '?').join(',')
   const now = new Date().toISOString()
   return env.DB.prepare(
     `INSERT OR IGNORE INTO notification_outbox (
@@ -109,7 +110,7 @@ function outboxStatement(env: L4Env, spec: NotificationSpec): D1PreparedStatemen
      )
      SELECT ?, ps.id, ps.user_id, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NULL, ?
      FROM push_subscriptions ps
-     WHERE ps.user_id IN (${placeholders})`,
+     WHERE ps.user_id IN (SELECT value FROM json_each(?))`,
   ).bind(
     spec.eventId,
     spec.kind,
@@ -117,7 +118,8 @@ function outboxStatement(env: L4Env, spec: NotificationSpec): D1PreparedStatemen
     JSON.stringify(spec.payload),
     now,
     now,
-    ...recipientIds,
+    // One JSON array keeps a role mention's hundreds of recipients under D1's bound-parameter limit.
+    JSON.stringify(recipientIds),
   )
 }
 
@@ -129,7 +131,7 @@ export async function messageNotificationStatement(env: L4Env, message: Notifica
   if (dm && message.edit) return null
   const recipientIds = dm
     ? await activeDmRecipients(env, root.id, message.author.id)
-    : await accessibleMentions(env, root, message.author.id, message.mentions)
+    : [...await accessibleMentions(env, root, message.author.id, message.mentions), ...(message.roleMentions ?? [])]
   if (!recipientIds.length) return null
   const kind: NotificationKind = dm ? 'dm_message' : 'mention'
   const title = dm ? message.author.displayName : `${message.author.displayName} mentioned you in #${root.name}`

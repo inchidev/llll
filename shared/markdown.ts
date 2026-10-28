@@ -74,6 +74,10 @@ function inline(src: string): string {
     /&lt;@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})&gt;/gi,
     (_m, id: string) => hold(`<span class="mention" data-user-id="${id}">@${id}</span>`),
   )
+  out = out.replace(
+    /&lt;@&amp;([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})&gt;/gi,
+    (_m, id: string) => hold(`<span class="mention" data-role-id="${id}">@Role</span>`),
+  )
 
   out = out.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">$1</span>')
   out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
@@ -162,6 +166,10 @@ export function renderMarkdown(src: string, names?: Record<string, string>): str
       const name = names[id.toLowerCase()] ?? names[id]
       if (!name) return full
       return `<span class="mention" data-user-id="${id}">@${escapeHtml(name)}</span>`
+    })
+    out = out.replace(/<span class="mention" data-role-id="([^"]+)">@Role<\/span>/g, (full, id: string) => {
+      const name = names[`&${id.toLowerCase()}`] ?? names[`&${id}`]
+      return name ? `<span class="mention" data-role-id="${id}">@${escapeHtml(name)}</span>` : full
     })
   }
   return out

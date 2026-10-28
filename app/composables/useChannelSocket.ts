@@ -82,6 +82,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
                 ...msg,
                 attachments: m.attachments,
                 mentions: m.mentions,
+                roleMentions: m.roleMentions,
                 reactions: m.reactions,
                 pin: m.pin,
                 threadId: m.threadId,

@@ -1,7 +1,7 @@
 import { and, desc, eq, like, lt } from 'drizzle-orm'
 import { z } from 'zod'
 import { messages, users } from '../../drizzle/schema'
-import { extractMentionIds } from '../../shared/mentions'
+import { extractMentionIds, roleDisplayName } from '../../shared/mentions'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
 import { canViewAgentMembers } from '../../shared/project-access'
@@ -17,6 +17,7 @@ import { messageNotificationStatement, reminderNotificationStatement, signalNoti
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
 import { persistMessageEdit } from '../../workers/message-edits'
+import { roleMentionRecipients, roleMentionStatement } from '../../workers/role-mentions'
 import { channelLastMessageTimes, channelUnreadCounts } from '../../workers/unread'
 import { removeMessageData } from '../../shared/file-cleanup'
 import { threadTitle } from '../../shared/threads'
@@ -166,6 +167,18 @@ export async function listMessageMembers(env: L4Env, member: Membership, input: 
     nextCursor: rows.length > limit ? page.at(-1)?.id ?? null : null }
 }
 
+/** Roles the member may mention, with the token that mentions each. Agents are never reached through a Role. */
+export async function listMentionRoles(env: L4Env, member: Membership) {
+  authorizeMcpCredential(member.authorization, 'messages:read')
+  const anyRole = member.isOwner || hasPermission(member.perms, Permission.manageChannels)
+  const rows = await env.DB.prepare(`SELECT r.id, r.key, r.name, r.mentionable,
+      (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id AND u.status = 'active' AND u.kind = 'human') AS memberCount
+    FROM roles r WHERE ? OR r.mentionable = 1 ORDER BY r.position, r.id`)
+    .bind(anyRole ? 1 : 0).all<{ id: string; key: string; name: string; mentionable: number; memberCount: number }>()
+  return { roles: (rows.results ?? []).map(role => ({ id: role.id, name: roleDisplayName(role), mentionable: Boolean(role.mentionable),
+    memberCount: Number(role.memberCount), mentionToken: `<@&${role.id}>` })) }
+}
+
 export async function readChannelMessages(env: L4Env, member: Membership, channelId: string, input: { limit?: number; cursor?: string | null } = {}) {
   authorizeMcpCredential(member.authorization, 'messages:read')
   const access = await requireChannelAccessForMember(env, member, channelId)
@@ -237,12 +250,15 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
 
   const id = deliveryId ?? newId()
   const created = nowIso()
+  const roleMentions = await roleMentionRecipients(env, { channelId, authorId: member.user.id, content: body.content, mentions: mentionIds })
+  const roleRows = roleMentionStatement(env, id, roleMentions)
   const notification = await messageNotificationStatement(env, {
     id,
     channelId,
     author: member.user,
     content: body.content,
     mentions: mentionIds,
+    roleMentions: roleMentions.map(mention => mention.userId),
     attachmentCount: attachmentRows.length,
   })
   // A scheduled reminder is authored by the person it reminds: keep it unread and notify them too.
@@ -264,6 +280,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     ...mentionIds.map((userId) => env.DB.prepare(
       'INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)',
     ).bind(id, userId)),
+    ...(roleRows ? [roleRows] : []),
     ...(remindSelf ? [] : [env.DB.prepare(
       `INSERT INTO channel_reads (channel_id, user_id, last_read_message_id, updated_at)
        VALUES (?, ?, ?, ?)
@@ -378,11 +395,11 @@ export async function editChannelMessage(env: L4Env, actor: Membership, messageI
         .bind(...requestedMentions).all<{ id: string }>()).results ?? []).map(mention => mention.id)
     : []
   // The same edit path as the interface: only newly added mentions are notified and invoke Agents.
-  const added = await persistMessageEdit(env, { id: messageId, channelId: row.channelId, author: member.user, content, mentions: mentionIds, editedAt: nowIso() })
+  const { added, notified } = await persistMessageEdit(env, { id: messageId, channelId: row.channelId, author: member.user, content, mentions: mentionIds, editedAt: nowIso() })
   const audit = await auditMcpWrite(env, actor, 'message.update', 'message', messageId, { channelId: row.channelId, mentions: mentionIds })
   if (audit) await audit.run()
+  if (notified.length) schedule(signalNotificationOutbox(env))
   if (added.length) {
-    schedule(signalNotificationOutbox(env))
     schedule(signalAgentsForMessage(env, { messageId, channelId: row.channelId, authorId: member.user.id, authorName: member.user.displayName, content, mentionIds: added, edit: true }))
   }
   const [dto] = await hydrateMessages(env, [await loadMessage(env, messageId)], member.user.id)

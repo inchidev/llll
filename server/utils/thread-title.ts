@@ -1,4 +1,4 @@
-import { extractMentionIds } from '../../shared/mentions'
+import { extractMentionIds, extractRoleMentionIds, roleDisplayName } from '../../shared/mentions'
 import { threadTitle } from '../../shared/threads'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
@@ -9,9 +9,16 @@ import { asRpc } from './cf'
 /** Resolve only names referenced by an already authorized root message. */
 export async function messageThreadTitle(db: D1Database, content: string, filenames: string[] = []): Promise<string> {
   const ids = extractMentionIds(content).slice(0, 50)
-  if (!ids.length) return threadTitle(content, filenames)
-  const rows = await db.prepare(`SELECT id,display_name as name FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<{ id: string; name: string }>()
-  return threadTitle(content, filenames, Object.fromEntries(rows.results.map(row => [row.id, row.name])))
+  const roleIds = extractRoleMentionIds(content).slice(0, 50)
+  if (!ids.length && !roleIds.length) return threadTitle(content, filenames)
+  const [rows, roleRows] = await Promise.all([
+    ids.length ? db.prepare(`SELECT id,display_name as name FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<{ id: string; name: string }>() : { results: [] },
+    roleIds.length ? db.prepare('SELECT id,key,name FROM roles WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(roleIds)).all<{ id: string; key: string; name: string }>() : { results: [] },
+  ])
+  return threadTitle(content, filenames, Object.fromEntries([
+    ...rows.results.map(row => [row.id, row.name]),
+    ...roleRows.results.map(row => [`&${row.id}`, roleDisplayName(row)]),
+  ]))
 }
 
 /** Enrich only a newly created title; never block admission or overwrite a later rename. */

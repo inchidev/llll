@@ -35,6 +35,7 @@ export default defineEventHandler(async (event) => {
     resourceAccessJson: '{}',
     position: Math.max(...existing.map(item => item.position), 0) + 1,
     isSystem: false,
+    mentionable: false,
     createdAt,
     updatedAt: createdAt,
   }

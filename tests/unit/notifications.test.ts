@@ -111,7 +111,7 @@ describe('notification recipients', () => {
 
     expect(statement).toBeTruthy()
     expect(fake.db.statements[1]!.args).toEqual(['mentioned'])
-    expect(statement.args.at(-1)).toBe('mentioned')
+    expect(JSON.parse(String(statement.args.at(-1)))).toEqual(['mentioned'])
     expect(JSON.parse(String(statement.args[3]))).toMatchObject({ url: '/channels/channel', tag: 'message:message' })
   })
 
@@ -138,7 +138,7 @@ describe('notification recipients', () => {
       id: 'message', channelId: 'thread', author: actor, content: '', mentions: ['other-a'], attachmentCount: 1,
     }) as unknown as FakeStatement
 
-    expect(statement.args.slice(-2)).toEqual(['other-a', 'other-b'])
+    expect(JSON.parse(String(statement.args.at(-1)))).toEqual(['other-a', 'other-b'])
     expect(JSON.parse(String(statement.args[3]))).toMatchObject({
       title: 'Alice',
       body: 'Sent an attachment',
@@ -155,7 +155,7 @@ describe('notification recipients', () => {
 
     expect(fake.db.statements[1]!.sql).toContain(`kind = 'human'`)
     expect(fake.db.statements[1]!.args).toEqual(['actor'])
-    expect(statement.args.at(-1)).toBe('other')
+    expect(JSON.parse(String(statement.args.at(-1)))).toEqual(['other'])
     expect(JSON.parse(String(statement.args[3]))).toMatchObject({
       title: 'Alice is live in #general',
       tag: 'live:meeting',

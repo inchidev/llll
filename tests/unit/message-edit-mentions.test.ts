@@ -95,11 +95,11 @@ describe('mentions added by editing', () => {
   })
 
   it('does not notify or re-address DM participants on an edit', async () => {
-    const added = await persistMessageEdit(state.env!, {
+    const result = await persistMessageEdit(state.env!, {
       id: 'dm-message', channelId: 'dm-001', author: { id: ids.author, kind: 'human', displayName: 'Author', avatarR2Key: null },
       content: 'Hello again', mentions: [], editedAt: '2026-10-24',
     })
-    expect(added).toEqual([])
+    expect(result).toEqual({ added: [], notified: [] })
     await signalAgentsForMessage(state.env!, { messageId: 'dm-message', channelId: 'dm-001', authorId: ids.author, authorName: 'Author', content: 'Hello again', mentionIds: [], edit: true })
     expect(received).not.toHaveBeenCalled()
     expect(outbox()).toEqual([ids.reader])

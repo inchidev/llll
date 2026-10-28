@@ -291,6 +291,7 @@ export const roles = sqliteTable('roles', {
   resourceAccessJson: text('resource_access_json').notNull().default('{}'),
   position: integer('position').notNull().default(0),
   isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
+  mentionable: integer('mentionable', { mode: 'boolean' }).notNull().default(false),
   ...isoTimestamps(),
 })
 
@@ -617,6 +618,8 @@ export const messagePins = sqliteTable('message_pins', {
 export const messageMentions = sqliteTable('message_mentions', {
   messageId: text('message_id').notNull().references(() => messages.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  /** The Role this mention reached the Member through; null for a direct mention. */
+  roleId: text('role_id'),
 }, table => [
   primaryKey({ columns: [table.messageId, table.userId] }),
   index('message_mentions_user_id_idx').on(table.userId),

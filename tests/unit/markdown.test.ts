@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from '../../shared/markdown'
-import { activeTrigger, extractMentionIds, applyMentionTokens, humanizeMentions } from '../../shared/mentions'
+import { activeTrigger, extractMentionIds, extractRoleMentionIds, applyMentionTokens, humanizeMentions, mentionRoles } from '../../shared/mentions'
 
 describe('markdown', () => {
   it('escapes html', () => {
@@ -53,6 +53,46 @@ describe('mentions', () => {
     const id = '01900000-0000-7000-8000-000000000001'
     expect(humanizeMentions(`hi <@${id}> and <@01900000-0000-7000-8000-000000000009>`, { [id]: 'Ada Lovelace' }))
       .toBe('hi @Ada Lovelace and <@01900000-0000-7000-8000-000000000009>')
+  })
+
+  it('keeps role tokens apart from member tokens', () => {
+    const member = '01900000-0000-7000-8000-000000000001'
+    const role = '01900000-0000-7000-8000-0000000000aa'
+    expect(extractMentionIds(`<@${member}> <@&${role}>`)).toEqual([member])
+    expect(extractRoleMentionIds(`<@${member}> <@&${role}> <@&${role.toUpperCase()}>`)).toEqual([role])
+  })
+
+  it('tokenizes @Role, leaving a name a Role shares with a Member or another Role as text', () => {
+    const ada = '01900000-0000-7000-8000-000000000001'
+    const design = '01900000-0000-7000-8000-0000000000aa'
+    const ops = '01900000-0000-7000-8000-0000000000bb'
+    const twin = '01900000-0000-7000-8000-0000000000cc'
+    const members = [{ id: ada, displayName: 'Ada' }]
+    expect(applyMentionTokens('@Design and @design team, ping @Ada', members, [{ id: design, name: 'Design' }]))
+      .toBe(`<@&${design}> and <@&${design}> team, ping <@${ada}>`)
+    expect(applyMentionTokens('@Design Ops review', members, [{ id: design, name: 'Design' }, { id: ops, name: 'Design Ops' }]))
+      .toBe(`<@&${ops}> review`)
+    expect(applyMentionTokens('@Ada and @Ops', members, [{ id: ops, name: 'Ada' }, { id: twin, name: 'ops' }, { id: design, name: 'OPS' }]))
+      .toBe('@Ada and @Ops')
+  })
+
+  it('offers mentionable Roles, or every Role to someone who may mention any', () => {
+    const members = [
+      { role: { id: 'r-member', key: 'member', name: 'member' } },
+      { role: { id: 'r-design', key: 'custom:r-design', name: 'Design', mentionable: true } },
+      { role: { id: 'r-design', key: 'custom:r-design', name: 'Design', mentionable: true } },
+    ]
+    expect(mentionRoles(members, false)).toEqual([{ id: 'r-design', name: 'Design' }])
+    expect(mentionRoles(members, true)).toEqual([{ id: 'r-member', name: 'Member' }, { id: 'r-design', name: 'Design' }])
+  })
+
+  it('names and renders role mentions like member mentions', () => {
+    const member = '01900000-0000-7000-8000-000000000001'
+    const role = '01900000-0000-7000-8000-0000000000aa'
+    const names = { [member]: 'Ada', [`&${role}`]: 'Design <team>' }
+    expect(humanizeMentions(`<@&${role}> and <@${member}>`, names)).toBe('@Design <team> and @Ada')
+    expect(renderMarkdown(`hi <@&${role}>`, names)).toContain(`<span class="mention" data-role-id="${role}">@Design &lt;team&gt;</span>`)
+    expect(renderMarkdown(`hi <@&${role}>`)).toContain(`<span class="mention" data-role-id="${role}">@Role</span>`)
   })
 
   it('finds the mention or emoji being typed at the caret', () => {

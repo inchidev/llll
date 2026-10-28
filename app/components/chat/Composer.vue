@@ -2,7 +2,8 @@
 import type { ClientMsg, MemberDTO, MessageDTO } from '~~/shared/types'
 import { formatAudioDuration } from '~~/shared/audio'
 import { claimComposerSubmission, type ComposerSubmission } from '~~/shared/composer'
-import { activeTrigger, applyMentionTokens, humanizeMentions } from '~~/shared/mentions'
+import { activeTrigger, applyMentionTokens, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
+import { Permission } from '~~/shared/permissions'
 import { replaceShortcodes, searchEmoji } from '~~/shared/emoji'
 import { MAX_ATTACHMENT_BYTES } from '~~/shared/mime'
 import { formatBytes } from '~~/shared/format'
@@ -57,9 +58,15 @@ const draft = computed({
 const replyToId = computed(() => ui.composerState(props.channelId).replyToId)
 const names = computed(() => {
   const map: Record<string, string> = {}
-  for (const m of props.members) map[m.user.id] = m.nickname || m.user.displayName
+  for (const m of props.members) {
+    map[m.user.id] = m.nickname || m.user.displayName
+    map[`&${m.role.id}`] = roleDisplayName(m.role)
+  }
   return map
 })
+const viewer = usePermissions(() => props.members)
+// Only Roles this Member may mention are offered; the server ignores the rest.
+const roles = computed(() => mentionRoles(props.members, viewer.can(Permission.manageChannels)))
 
 type Page = { messages: MessageDTO[]; nextCursor: string | null }
 
@@ -158,7 +165,7 @@ function removeFile(i: number) {
 
 /* ------------------------------------------------------------------ autocomplete */
 
-type Suggestion = { key: string; label: string; detail?: string; insert: string; member?: MemberDTO; emoji?: string }
+type Suggestion = { key: string; label: string; detail?: string; insert: string; member?: MemberDTO; role?: boolean; emoji?: string }
 
 const caret = ref(0)
 const suggestionIndex = ref(0)
@@ -189,7 +196,12 @@ const suggestions = computed<Suggestion[]>(() => {
     }))
   }
   const needle = active.query.toLowerCase()
-  return props.members
+  // Roles appear once something is typed, after the matching Members.
+  const roleMatches = needle
+    ? roles.value.filter(role => role.name.toLowerCase().includes(needle)).slice(0, 3)
+      .map(role => ({ key: `&${role.id}`, label: role.name, detail: 'Role', insert: `@${role.name}`, role: true }))
+    : []
+  const members = props.members
     .map((member) => {
       const display = member.user.displayName.toLowerCase()
       const nick = member.nickname?.toLowerCase() ?? ''
@@ -202,7 +214,7 @@ const suggestions = computed<Suggestion[]>(() => {
     // You can mention yourself, as in Discord, but everyone else comes first.
     .map(item => ({ ...item, rank: item.member.user.id === session.user?.id ? item.rank + 2 : item.rank }))
     .sort((a, b) => a.rank - b.rank || (a.member.nickname || a.member.user.displayName).localeCompare(b.member.nickname || b.member.user.displayName))
-    .slice(0, 8)
+    .slice(0, 8 - roleMatches.length)
     .map(({ member }) => ({
       key: member.user.id,
       label: member.nickname || member.user.displayName,
@@ -210,6 +222,7 @@ const suggestions = computed<Suggestion[]>(() => {
       insert: `@${member.nickname || member.user.displayName}`,
       member,
     }))
+  return [...members, ...roleMatches]
 })
 
 watch(suggestions, () => { suggestionIndex.value = 0 })
@@ -371,7 +384,7 @@ async function submit() {
   if (!submission) return
 
   const members = props.members.map((m) => ({ id: m.user.id, displayName: m.user.displayName, nickname: m.nickname }))
-  const content = replaceShortcodes(applyMentionTokens(submission.draft, members)).trim()
+  const content = replaceShortcodes(applyMentionTokens(submission.draft, members, roles.value)).trim()
   if (!content && !submission.files.length) return
 
   const clientId = newId()
@@ -461,7 +474,7 @@ defineExpose({ addFiles, focus })
       :aria-label="trigger?.kind === 'emoji' ? 'Emoji matching' : 'Members matching'"
     >
       <p class="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-        {{ trigger?.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members' }}
+        {{ trigger?.kind === 'emoji' ? `Emoji matching :${trigger.query}` : roles.length ? 'Members and roles' : 'Members' }}
       </p>
       <button
         v-for="(item, index) in suggestions"
@@ -475,6 +488,7 @@ defineExpose({ addFiles, focus })
         @mousedown.prevent="accept(item)"
       >
         <UserAvatar v-if="item.member" :user="item.member.user" size="2xs" />
+        <UIcon v-else-if="item.role" name="i-ph-users-three" class="size-5 shrink-0 text-muted" />
         <span v-else-if="item.emoji" class="w-5 text-center text-lg leading-none">{{ item.emoji }}</span>
         <span class="truncate font-medium">{{ item.label }}</span>
         <span v-if="item.detail" class="truncate text-xs text-muted">{{ item.detail }}</span>

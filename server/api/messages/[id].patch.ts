@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
     ).bind(...requestedMentions).all<{ id: string }>()
     mentionIds = (rows.results ?? []).map((mention) => mention.id)
   }
-  const added = await persistMessageEdit(env, { id, channelId: row.channelId, author: member.user, content: body.content, mentions: mentionIds, editedAt })
+  const { added, notified } = await persistMessageEdit(env, { id, channelId: row.channelId, author: member.user, content: body.content, mentions: mentionIds, editedAt })
   const updated = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
   const [dto] = await hydrateMessages(env, [updated], member.user.id)
   try {
@@ -46,8 +46,8 @@ export default defineEventHandler(async (event) => {
     await stub.fanout({ t: 'message.update', message: { ...dto!, reactions: dto!.reactions.map(reaction => ({ ...reaction, me: false })) } })
   }
   catch { /* ignore */ }
+  if (notified.length) waitUntil(signalNotificationOutbox(env))
   if (added.length) {
-    waitUntil(signalNotificationOutbox(env))
     waitUntil(signalAgentsForMessage(env, {
       messageId: id,
       channelId: row.channelId,

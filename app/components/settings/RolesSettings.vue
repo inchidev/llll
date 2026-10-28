@@ -157,6 +157,25 @@ async function saveRole() {
   }
 }
 
+// Built-in Roles follow the policy rule: only the Owner changes them.
+const mentionReadOnly = computed(() => !selectedRole.value || !canManage.value || (selectedRole.value.isSystem && !isOwner.value))
+const mentionSaving = ref(false)
+async function setMentionable(mentionable: boolean) {
+  const role = selectedRole.value
+  if (!role || mentionReadOnly.value) return
+  mentionSaving.value = true
+  try {
+    await api(`/api/servers/${props.serverId}/roles/${role.id}`, { method: 'PATCH', body: { mentionable } })
+    await refreshRoles()
+  }
+  catch (err) {
+    toast.add({ title: errorMessage(err), color: 'error' })
+  }
+  finally {
+    mentionSaving.value = false
+  }
+}
+
 async function deleteRole() {
   const role = selectedRole.value
   if (!role) return
@@ -281,6 +300,9 @@ watch(addMemberId, async (userId) => {
       <div v-if="tab === 'display'" class="mt-6 space-y-6">
         <UFormField label="Role name" :help="readOnly ? undefined : 'Shown in the member list and role pickers.'">
           <UInput v-model="roleName" class="w-full max-w-md" :disabled="readOnly" maxlength="40" />
+        </UFormField>
+        <UFormField label="Allow anyone to mention this role" description="A mention notifies everyone with this role who can read the conversation. The Owner and members with Manage channels can always mention it.">
+          <USwitch :model-value="Boolean(selectedRole.mentionable)" :disabled="mentionReadOnly || mentionSaving" :loading="mentionSaving" aria-label="Allow anyone to mention this role" @update:model-value="setMentionable(Boolean($event))" />
         </UFormField>
         <div v-if="!selectedRole.isSystem && canManage" class="rounded-lg border border-error/30 p-4">
           <p class="text-sm font-medium text-highlighted">Delete role</p>

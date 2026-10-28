@@ -130,6 +130,7 @@ describe('L4 MCP server', () => {
       'update_task',
       'list_channels',
       'list_members',
+      'list_roles',
       'list_messages',
       'send_message',
       'search_messages',
