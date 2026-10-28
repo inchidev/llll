@@ -33,7 +33,7 @@ try {
   assert.equal((await mf.dispatchFetch(origin + '/')).status, 200)
   const home = await mf.dispatchFetch(origin + '/servers/')
   assert.equal(home.status, 200)
-  assert.match(await home.text(), /<title>My servers · L4<\/title>/, 'My servers must load directly without the legacy installer redirect')
+  assert.match(await home.text(), /<title>My Servers · L4<\/title>/, 'My servers must load directly without the legacy installer redirect')
   const deepLink = await mf.dispatchFetch(origin + '/00000000-0000-4000-8000-000000000001/channels/general')
   assert.equal(deepLink.status, 200)
   assert.equal(await deepLink.text(), await readFile(resolve(publicDir, '200.html'), 'utf8'), 'Server deep links must use the client-only shell entry, not the landing page')
