@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { channelCategories, channelMembers, channels } from '../../../../drizzle/schema'
+import { and, notInArray, sql } from 'drizzle-orm'
+import { channelCategories, channels } from '../../../../drizzle/schema'
 import { channelLastMessageTimes, channelUnreadCounts, sidebarThreads } from '../../../../workers/unread'
 import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
@@ -12,15 +12,13 @@ export default defineEventHandler(async (event) => {
   const member = await requireMember(event, serverId)
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const privateAccess = await db.select({ channelId: channelMembers.channelId }).from(channelMembers).where(eq(channelMembers.userId, member.user.id))
-  const privateIds = new Set(privateAccess.map(row => row.channelId))
-  const mailboxRows = await env.DB.prepare('SELECT channel_id as channelId FROM email_mailboxes').all<{ channelId: string }>()
-  const mailboxIds = new Set((mailboxRows.results ?? []).map(row => row.channelId))
-  // Task discussions live inside their task, not in the channel list.
-  const discussionRows = await env.DB.prepare('SELECT discussion_channel_id as channelId FROM tasks WHERE discussion_channel_id IS NOT NULL').all<{ channelId: string }>()
-  const hiddenIds = new Set([...mailboxIds, ...(discussionRows.results ?? []).map(row => row.channelId)])
-  const list = (await db.select().from(channels).orderBy(channels.position))
-    .filter((ch) => !hiddenIds.has(ch.id) && ch.type !== 'dm' && ch.type !== 'thread' && (ch.visibility === 'server' || privateIds.has(ch.id)))
+  // DMs, threads and mailboxes have their own navigation; task discussions live inside their task.
+  const list = await db.select().from(channels).where(and(
+    notInArray(channels.type, ['dm', 'thread']),
+    sql`(${channels.visibility} = 'server' OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = ${channels.id} AND cm.user_id = ${member.user.id}))`,
+    sql`NOT EXISTS (SELECT 1 FROM email_mailboxes mb WHERE mb.channel_id = ${channels.id})`,
+    sql`NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = ${channels.id})`,
+  )).orderBy(channels.position)
   const [unread, threads, lastMessages] = await Promise.all([
     channelUnreadCounts(env.DB, member.user.id, list.map(channel => channel.id)),
     sidebarThreads(env.DB, member.user.id, list.map(channel => channel.id)),

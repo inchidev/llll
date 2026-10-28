@@ -128,13 +128,25 @@ const searchReady = computed(() => ownsSearch.value
   && searchSettled.value
   && hasSearchableTerm.value)
 
+const { serverId } = useServer()
+const serverSearch = computed(() => ui.searchScope === 'server' && Boolean(serverId.value))
+const searchScopes = [
+  { label: 'This conversation', value: 'conversation' },
+  { label: 'Whole server', value: 'server' },
+]
 const searchQ = useInfiniteQuery({
-  queryKey: computed(() => ['message-search', props.channelId, searchTerm.value]),
+  // Server-wide results span conversations whose access can change, so they are never cached.
+  queryKey: computed(() => serverSearch.value
+    ? ['message-search', 'server', serverId.value, searchTerm.value]
+    : ['message-search', props.channelId, searchTerm.value]),
   initialPageParam: undefined as string | undefined,
-  queryFn: ({ pageParam }) => api<MessageSearchResponse>(`/api/channels/${props.channelId}/search`, {
+  queryFn: ({ pageParam }) => api<MessageSearchResponse>(serverSearch.value
+    ? `/api/servers/${serverId.value}/search`
+    : `/api/channels/${props.channelId}/search`, {
     query: { q: searchTerm.value, cursor: pageParam, limit: 20 },
   }),
   getNextPageParam: last => last.nextCursor ?? undefined,
+  gcTime: computed(() => serverSearch.value ? 0 : 5 * 60 * 1000),
   enabled: searchReady,
 })
 
@@ -570,8 +582,7 @@ async function focusMessage(id: string) {
 async function goToResult(hit: MessageSearchHitDTO) {
   ui.searchOpen = false
   if (hit.channel.id !== props.channelId) {
-    const path = hit.channel.parentId ? channelPath(hit.channel.parentId, hit.channel.id) : channelPath(hit.channel.id)
-    await navigateTo(`${path}?message=${hit.id}`)
+    await navigateTo(`${hit.channel.path}?message=${encodeURIComponent(hit.id)}`)
     return
   }
   await focusMessage(hit.id)
@@ -712,10 +723,11 @@ defineExpose({ focusMessage })
             v-model="ui.searchQuery"
             icon="i-ph-magnifying-glass"
             size="xl"
-            placeholder="Search messages"
+            :placeholder="ui.searchScope === 'server' ? 'Search all conversations' : 'Search this conversation'"
             autofocus
             class="w-full"
           />
+          <UTabs v-model="ui.searchScope" :items="searchScopes" :content="false" size="xs" variant="link" class="mt-2" />
           <div v-if="ui.searchQuery.trim()" class="mt-2 max-h-96 overflow-y-auto">
             <div v-if="searchLoading" class="p-3">
               <LayoutSkeleton variant="rows" :rows="3" />
@@ -734,6 +746,10 @@ defineExpose({ focusMessage })
                 <span class="min-w-0 flex-1">
                   <span class="flex items-center gap-2 text-xs">
                     <strong class="truncate text-highlighted">{{ message.author.displayName }}</strong>
+                    <span v-if="message.channel.id !== channelId" class="flex min-w-0 items-center gap-1 text-muted">
+                      <UIcon :name="message.channel.type === 'thread' ? 'i-ph-chat-circle-text' : message.channel.type === 'dm' ? 'i-ph-user' : 'i-ph-hash'" class="size-3 shrink-0" />
+                      <span class="truncate">{{ message.channel.type === 'thread' ? `${message.channel.title} › ${message.channel.name}` : message.channel.title }}</span>
+                    </span>
                     <time class="shrink-0 text-muted">{{ formatMessageTime(message.createdAt) }}</time>
                   </span>
                   <span class="block truncate text-sm text-muted">{{ humanizeMentions(message.content, names) }}</span>

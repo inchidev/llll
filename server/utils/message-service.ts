@@ -15,8 +15,13 @@ import type { ServerMembership as Membership } from './channel-access'
 import { messageNotificationStatement, reminderNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
+import { persistMessageEdit } from '../../workers/message-edits'
 import { channelLastMessageTimes, channelUnreadCounts } from '../../workers/unread'
 import { removeMessageData } from '../../shared/file-cleanup'
+import { threadTitle } from '../../shared/threads'
+import { openPairDm } from './dms'
+import { canManageMessagePins, fanoutMessagePin, INSERT_MESSAGE_PIN_SQL, loadMessagePin } from './message-pins'
+import { searchServerMessages, type ServerSearchInput } from './message-search'
 
 export type RateRule = { key: string; limit: number; windowMs: number }
 
@@ -25,6 +30,11 @@ export const messageSendRate = (userId: string): RateRule => ({ key: `user:${use
 export const reactionRate = (userId: string): RateRule => ({ key: `user:${userId}:reaction`, limit: 30, windowMs: 10_000 })
 export const uploadRate = (userId: string): RateRule => ({ key: `user:${userId}:upload`, limit: 40, windowMs: 10 * 60_000 })
 export const UPLOAD_BYTES_PER_HOUR = 250 * 1024 * 1024
+
+// One emoji: a keycap, a flag, or pictographs joined by ZWJ with optional variation selectors, skin tones and tags.
+const EMOJI_PART = String.raw`\p{Extended_Pictographic}️?\p{Emoji_Modifier}?[\u{E0020}-\u{E007F}]*`
+const EMOJI = new RegExp(String.raw`^(?:\p{Regional_Indicator}{2}|[#*0-9]️?⃣|${EMOJI_PART}(?:‍${EMOJI_PART})*)$`, 'u')
+export const reactionEmojiSchema = z.string().min(1).max(16).regex(EMOJI, 'Not an emoji')
 
 /** Only a runtime without the binding (plain `nuxt dev`) skips limits; a limiter error propagates. */
 export async function takeRate(env: L4Env, rule: RateRule): Promise<boolean> {
@@ -50,7 +60,8 @@ export function messageDeleteRole(authorId: string, actorId: string, access: { p
 export async function removeChannelMessage(env: L4Env, input: { id: string; channelId: string; authorId: string; actorId: string; serverId: string; moderator: boolean; authorization?: AuthorizationContext }) {
   const pin = await env.DB.prepare('SELECT message_id FROM message_pins WHERE message_id = ?').bind(input.id).first()
   await removeMessageData(env, input.id, nowIso())
-  if (input.moderator) {
+  // Moderation is always audited; so is every MCP write, like sends.
+  if (input.moderator || input.authorization?.credential.kind === 'mcp') {
     await (await auditStatement(env, { serverId: input.serverId, actorId: input.actorId, action: 'message.delete', targetType: 'message',
       targetId: input.id, meta: { channelId: input.channelId, authorId: input.authorId }, authorization: input.authorization })).run()
   }
@@ -291,4 +302,157 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     mode: body.agentMode,
   }))
   return { message: dto }
+}
+
+export async function searchChannelMessages(env: L4Env, member: Membership, input: ServerSearchInput) {
+  authorizeMcpCredential(member.authorization, 'messages:read')
+  return searchServerMessages(env, member, input)
+}
+
+/** Threads of one accessible conversation, newest first. Read one with readChannelMessages. */
+export async function listChannelThreads(env: L4Env, member: Membership, channelId: string, input: { limit?: number; cursor?: string } = {}) {
+  authorizeMcpCredential(member.authorization, 'messages:read')
+  const access = await requireChannelAccessForMember(env, member, channelId)
+  if (access.channel.type === 'thread') fail(400, 'bad_request', 'Threads cannot hold threads')
+  const limit = Math.max(1, Math.min(input.limit ?? 25, 50))
+  const rows = await env.DB.prepare(
+    `SELECT t.id, t.name, t.parent_message_id AS parentMessageId, t.created_at AS createdAt,
+       root.author_id AS rootAuthorId, root.content AS rootContent, root.deleted_at AS rootDeletedAt,
+       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = t.id AND m.deleted_at IS NULL) AS replyCount,
+       (SELECT m.created_at FROM messages m WHERE m.channel_id = t.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 1) AS lastReplyAt
+     FROM channels t LEFT JOIN messages root ON root.id = t.parent_message_id
+     WHERE t.parent_id = ? AND t.type = 'thread' AND (? IS NULL OR t.id < ?)
+     ORDER BY t.id DESC LIMIT ?`,
+  ).bind(channelId, input.cursor ?? null, input.cursor ?? null, limit + 1).all<{
+    id: string; name: string; parentMessageId: string | null; createdAt: string; rootAuthorId: string | null
+    rootContent: string | null; rootDeletedAt: string | null; replyCount: number; lastReplyAt: string | null
+  }>()
+  const page = (rows.results ?? []).slice(0, limit)
+  return {
+    threads: page.map(row => ({
+      id: row.id,
+      title: row.name || threadTitle(row.rootDeletedAt ? '' : row.rootContent ?? ''),
+      parentMessageId: row.parentMessageId,
+      rootMessage: row.parentMessageId
+        ? { id: row.parentMessageId, authorId: row.rootAuthorId, content: row.rootDeletedAt ? '' : (row.rootContent ?? '').slice(0, 180), deleted: Boolean(row.rootDeletedAt) }
+        : null,
+      replyCount: Number(row.replyCount),
+      lastReplyAt: row.lastReplyAt,
+      createdAt: row.createdAt,
+    })),
+    nextCursor: (rows.results?.length ?? 0) > limit ? page.at(-1)?.id ?? null : null,
+  }
+}
+
+async function loadMessage(env: L4Env, messageId: string) {
+  const row = (await getDb(env.DB).select().from(messages).where(eq(messages.id, messageId)).limit(1))[0]
+  if (!row) fail(404, 'not_found', 'Message not found')
+  return row
+}
+
+async function auditMcpWrite(env: L4Env, actor: Membership, action: string, targetType: string, targetId: string, meta: Record<string, unknown>) {
+  if (actor.authorization.credential.kind !== 'mcp') return null
+  return auditStatement(env, { serverId: actor.serverId, actorId: actor.user.id, action, targetType, targetId, meta, authorization: actor.authorization })
+}
+
+async function fanoutChannel(env: L4Env, channelId: string, event: unknown) {
+  try {
+    await asRpc<{ fanout: (msg: unknown) => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${channelId}`)).fanout(event)
+  }
+  catch { /* local without DO */ }
+}
+
+/** Same rules as PATCH /api/messages/:id: only the author, with send permission in that conversation. */
+export async function editChannelMessage(env: L4Env, actor: Membership, messageId: string, input: { content: string }, schedule: (promise: Promise<unknown>) => void = () => {}) {
+  authorizeMcpCredential(actor.authorization, 'messages:write')
+  const content = z.string().min(1).max(2000).parse(input.content)
+  if (!content.trim()) fail(400, 'bad_request', 'Empty message')
+  const row = await loadMessage(env, messageId)
+  if (row.deletedAt) fail(409, 'deleted', 'Message was deleted')
+  const member = await requireChannelAccessForMember(env, actor, row.channelId, Permission.sendMessages, 'PATCH')
+  if (row.authorId !== member.user.id) fail(403, 'forbidden', 'Not your message')
+  const requestedMentions = extractMentionIds(content)
+  const mentionIds = requestedMentions.length
+    ? ((await env.DB.prepare(`SELECT id FROM users WHERE id IN (${requestedMentions.map(() => '?').join(',')}) AND status = 'active'`)
+        .bind(...requestedMentions).all<{ id: string }>()).results ?? []).map(mention => mention.id)
+    : []
+  // The same edit path as the interface: only newly added mentions are notified and invoke Agents.
+  const added = await persistMessageEdit(env, { id: messageId, channelId: row.channelId, author: member.user, content, mentions: mentionIds, editedAt: nowIso() })
+  const audit = await auditMcpWrite(env, actor, 'message.update', 'message', messageId, { channelId: row.channelId, mentions: mentionIds })
+  if (audit) await audit.run()
+  if (added.length) {
+    schedule(signalNotificationOutbox(env))
+    schedule(signalAgentsForMessage(env, { messageId, channelId: row.channelId, authorId: member.user.id, authorName: member.user.displayName, content, mentionIds: added, edit: true }))
+  }
+  const [dto] = await hydrateMessages(env, [await loadMessage(env, messageId)], member.user.id)
+  // The broadcast copy carries no viewer; each client keeps its own reaction highlight.
+  await fanoutChannel(env, row.channelId, { t: 'message.update', message: { ...dto!, reactions: dto!.reactions.map(reaction => ({ ...reaction, me: false })) } })
+  return { message: dto }
+}
+
+/** Idempotent add or remove of the member's own reaction; the interface toggles the same row. */
+export async function setMessageReaction(env: L4Env, actor: Membership, messageId: string, input: { emoji: string; remove?: boolean }) {
+  authorizeMcpCredential(actor.authorization, 'messages:write')
+  const parsed = reactionEmojiSchema.safeParse(input.emoji)
+  if (!parsed.success) fail(400, 'bad_request', 'Not an emoji')
+  const emoji = parsed.data
+  const row = await loadMessage(env, messageId)
+  const member = await requireChannelAccessForMember(env, actor, row.channelId, undefined, 'POST')
+  if (row.deletedAt) fail(409, 'deleted', 'Message was deleted')
+  await requireRate(env, reactionRate(member.user.id), 'Too many reactions. Slow down.')
+  const op = input.remove ? 'remove' as const : 'add' as const
+  const result = op === 'add'
+    ? await env.DB.prepare('INSERT OR IGNORE INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)')
+        .bind(messageId, member.user.id, emoji, nowIso()).run()
+    : await env.DB.prepare('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?')
+        .bind(messageId, member.user.id, emoji).run()
+  const changed = (result.meta.changes ?? 0) > 0
+  if (changed) {
+    await (await auditMcpWrite(env, actor, `message.reaction.${op}`, 'message', messageId, { channelId: row.channelId, emoji }))?.run()
+    await fanoutChannel(env, row.channelId, { t: 'reaction', messageId, emoji, userId: member.user.id, op })
+  }
+  return { op, changed }
+}
+
+/** Same rules as PUT/DELETE /api/messages/:id/pin. */
+export async function setMessagePin(env: L4Env, actor: Membership, messageId: string, input: { pinned: boolean }) {
+  authorizeMcpCredential(actor.authorization, 'messages:write')
+  const row = await loadMessage(env, messageId)
+  const access = await requireChannelAccessForMember(env, actor, row.channelId, undefined, input.pinned ? 'PUT' : 'DELETE')
+  if (!canManageMessagePins(access)) fail(403, 'forbidden', 'Missing permission')
+  if (!input.pinned) {
+    const removed = ((await env.DB.prepare('DELETE FROM message_pins WHERE message_id = ?').bind(messageId).run()).meta.changes ?? 0) > 0
+    if (removed) {
+      await (await auditMcpWrite(env, actor, 'message.unpin', 'message', messageId, { channelId: row.channelId }))?.run()
+      await fanoutMessagePin(env, row.channelId, messageId, null)
+    }
+    return { pin: null, changed: removed }
+  }
+  if (row.deletedAt) fail(409, 'deleted', 'Message was deleted')
+  const created = ((await env.DB.prepare(INSERT_MESSAGE_PIN_SQL).bind(messageId, access.user.id, nowIso()).run()).meta.changes ?? 0) > 0
+  const pin = await loadMessagePin(env, messageId)
+  if (!pin) fail(409, 'conflict', 'Message could not be pinned')
+  if (created) {
+    await (await auditMcpWrite(env, actor, 'message.pin', 'message', messageId, { channelId: row.channelId }))?.run()
+    await fanoutMessagePin(env, row.channelId, messageId, pin)
+  }
+  return { pin, changed: created }
+}
+
+/** Open (or unhide) the 1:1 DM with another member, as POST /api/dms does. */
+export async function openDirectMessage(env: L4Env, actor: Membership, userId: string) {
+  authorizeMcpCredential(actor.authorization, 'messages:write')
+  // A delegated Agent's DMs stay private from the human administering its token.
+  if (actor.authorization.delegation) fail(403, 'forbidden', 'Delegated Agent connections cannot open direct messages')
+  if (userId === actor.user.id) fail(400, 'bad_request', 'Cannot DM yourself')
+  const other = (await getDb(env.DB).select().from(users).where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1))[0]
+  if (!other) fail(404, 'not_found', 'Member not found')
+  if (other.kind === 'agent' && !actor.isOwner && !hasPermission(actor.perms, Permission.useAgents)) {
+    fail(403, 'forbidden', 'Use agents permission is required to add an Agent')
+  }
+  const id = await openPairDm(env, actor.user.id, userId)
+  await (await auditMcpWrite(env, actor, 'dm.open', 'channel', id, { userId }))?.run()
+  const access = await requireChannelAccessForMember(env, actor, id)
+  return { channel: { id, type: access.channel.type, participants: access.participants, frozen: access.frozen,
+    canSend: !access.frozen && hasPermission(access.perms, Permission.sendMessages) } }
 }

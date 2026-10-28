@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { MessageSearchHitDTO, MessageSearchResponse } from '../../../../shared/types'
+import type { MessageSearchResponse } from '../../../../shared/types'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
 import {
@@ -7,6 +7,8 @@ import {
   encodeMessageSearchCursor,
   messageSearchExpression,
   SEARCH_MESSAGES_SQL,
+  searchHit,
+  type SearchRow,
 } from '../../../utils/message-search'
 
 const querySchema = z.object({
@@ -15,24 +17,13 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
 
-type SearchRow = {
-  id: string
-  channelId: string
-  authorId: string
-  content: string
-  editedAt: string | null
-  createdAt: string
-  authorKind: 'human' | 'agent'
-  authorDisplayName: string
-  authorAvatarR2Key: string | null
-}
-
 export default defineEventHandler(async (event): Promise<MessageSearchResponse> => {
   const channelId = getRouterParam(event, 'id')!
   const parsed = querySchema.safeParse(getQuery(event))
   if (!parsed.success) fail(400, 'bad_request', parsed.error.issues[0]?.message ?? 'Invalid search query')
 
-  // Authorization happens before the FTS query. Threads inherit their parent access.
+  // Authorization happens before the FTS query. Threads inherit their parent access,
+  // so a conversation's search also covers its threads.
   const access = await requireChannelAccess(event, channelId)
   const expression = messageSearchExpression(parsed.data.q)
   if (!expression) fail(400, 'bad_request', 'Search query must contain a letter or number')
@@ -57,30 +48,10 @@ export default defineEventHandler(async (event): Promise<MessageSearchResponse> 
   const rows = result.results ?? []
   const hasMore = rows.length > pageSize
   const page = hasMore ? rows.slice(0, pageSize) : rows
-  const channel = {
-    id: access.channel.id,
-    name: access.channel.name,
-    type: access.channel.type,
-    parentId: access.channel.parentId,
-    parentMessageId: access.channel.parentMessageId,
-  }
-  const hits: MessageSearchHitDTO[] = page.map(row => ({
-    id: row.id,
-    channel,
-    author: {
-      id: row.authorId,
-      kind: row.authorKind,
-      displayName: row.authorDisplayName,
-      avatarR2Key: row.authorAvatarR2Key,
-    },
-    content: row.content,
-    editedAt: row.editedAt,
-    createdAt: row.createdAt,
-  }))
   const last = page.at(-1)
 
   return {
-    hits,
+    hits: page.map(row => searchHit(row, access, access.user.id)),
     nextCursor: hasMore && last
       ? encodeMessageSearchCursor({ createdAt: last.createdAt, id: last.id }, scope)
       : null,

@@ -548,6 +548,7 @@ export const messages = sqliteTable('messages', {
 }, table => [
   index('messages_channel_created_idx').on(table.channelId, table.createdAt, table.id),
   index('messages_author_id_idx').on(table.authorId),
+  index('messages_live_channel_id_idx').on(table.channelId, table.id).where(sql`${table.deletedAt} is null`),
 ])
 
 export const channelReads = sqliteTable('channel_reads', {

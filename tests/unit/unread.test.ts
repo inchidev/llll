@@ -1,18 +1,19 @@
+import { readFileSync } from 'node:fs'
 import { d1 } from '../helpers/sqlite-d1'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { channelLastMessageTimes, channelUnreadCountSql, channelUnreadCountsSql, channelUnreadSql, recentThreadsSql } from '../../workers/unread'
+import { channelLastMessageTimes, channelUnreadCountsSql, channelUnreadSql, recentThreadsSql, UNREAD_COUNT_CAP } from '../../workers/unread'
 
 let db: DatabaseSync
 
 function hasUnread(userId: string, channelId: string): boolean {
-  const row = db.prepare(channelUnreadSql).get(channelId, channelId, userId, channelId) as { unread: number }
+  const row = db.prepare(channelUnreadSql).get(userId, channelId) as { unread: number }
   return row.unread === 1
 }
 
 function unreadCount(userId: string, channelId: string): number {
-  const row = db.prepare(channelUnreadCountSql).get(userId, channelId, channelId, channelId) as { unread_count: number }
-  return row.unread_count
+  const row = db.prepare(channelUnreadCountsSql(1)).get(userId, channelId) as { unread_count: number } | undefined
+  return row?.unread_count ?? 0
 }
 
 beforeEach(() => {
@@ -168,13 +169,13 @@ describe('recent threads for the navigation', () => {
 
   it('shows a newly created agent thread while its reply is still queued', () => {
     tdb.exec("INSERT INTO channels VALUES ('queued', 'thread', 'channel-1', 'Waiting for the agent', '2026-09-27T10:00:00.000Z')")
-    const rows = tdb.prepare(recentThreadsSql).all('user-1', '2026-09-20T00:00:00.000Z')
+    const rows = tdb.prepare(recentThreadsSql(1)).all('user-1', '2026-09-20T00:00:00.000Z', 'channel-1')
     expect(rows).toContainEqual(expect.objectContaining({ id: 'queued', unreadCount: 0, lastMessageAt: '2026-09-27T10:00:00.000Z' }))
   })
 
   it('excludes deleted replies from navigation counts and last activity', async () => {
     tdb.exec("UPDATE messages SET deleted_at = '2026-09-28' WHERE id = 'm4'")
-    const rows = tdb.prepare(recentThreadsSql).all('user-1', '2026-09-20T00:00:00.000Z')
+    const rows = tdb.prepare(recentThreadsSql(1)).all('user-1', '2026-09-20T00:00:00.000Z', 'channel-1')
     expect(rows.map(row => row.id)).toEqual(['recent'])
     expect(await channelLastMessageTimes(d1(tdb), ['channel-1', 'absent'])).toEqual(new Map([['channel-1', '2026-09-27T10:00:00.000Z']]))
     tdb.exec("UPDATE messages SET deleted_at = '2026-09-28'")
@@ -182,10 +183,49 @@ describe('recent threads for the navigation', () => {
   })
 
   it('keeps recently active threads and older ones with unread replies the member has opened', () => {
-    const rows = tdb.prepare(recentThreadsSql).all('user-1', '2026-09-20T00:00:00.000Z') as Array<{ id: string, unreadCount: number, title: string }>
+    const rows = tdb.prepare(recentThreadsSql(1)).all('user-1', '2026-09-20T00:00:00.000Z', 'channel-1') as Array<{ id: string, unreadCount: number, title: string }>
     const byId = Object.fromEntries(rows.map(row => [row.id, row]))
     expect(Object.keys(byId).sort()).toEqual(['recent', 'stale-unread'])
     expect(byId['stale-unread']).toMatchObject({ title: 'Stale but unread', unreadCount: 1, opened: 1 })
     expect(byId.recent).toMatchObject({ unreadCount: 0, opened: 0 })
+  })
+})
+
+describe('bounded unread counts', () => {
+  let bdb: DatabaseSync
+  beforeEach(() => {
+    bdb = new DatabaseSync(':memory:')
+    bdb.exec(`
+      CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
+      CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z', deleted_at TEXT);
+      CREATE TABLE channel_reads (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read_message_id TEXT, PRIMARY KEY (channel_id, user_id));
+      CREATE INDEX messages_channel_created_idx ON messages (channel_id, created_at, id);
+    `)
+    bdb.exec(readFileSync(new URL('../../drizzle/server-migrations/0029_chat_search.sql', import.meta.url), 'utf8'))
+  })
+  afterEach(() => bdb.close())
+
+  it('caps a long unread history and seeks the live-message index', () => {
+    bdb.exec("INSERT INTO channels(id,type) VALUES ('busy','text'); INSERT INTO channels(id,type,parent_id) VALUES ('thread','thread','busy')")
+    const insert = bdb.prepare('INSERT INTO messages(id,channel_id) VALUES (?,?)')
+    for (let index = 0; index < 250; index += 1) insert.run(`m${String(index).padStart(4, '0')}`, index % 2 ? 'thread' : 'busy')
+    bdb.exec("INSERT INTO channel_reads VALUES ('thread','user-1','m0000')")
+    expect(bdb.prepare(channelUnreadCountsSql(1)).get('user-1', 'busy')).toEqual({ channel_id: 'busy', unread_count: UNREAD_COUNT_CAP })
+    const plan = JSON.stringify(bdb.prepare(`EXPLAIN QUERY PLAN ${channelUnreadCountsSql(1)}`).all('user-1', 'busy'))
+    expect(plan).toContain('messages_live_channel_id_idx')
+    expect(plan).not.toMatch(/SCAN m\b/)
+  })
+
+  it('reads threads of the requested parents only', async () => {
+    bdb.exec(`
+      INSERT INTO channels(id,type,parent_id,name) VALUES ('visible','text',NULL,''),('hidden','text',NULL,''),
+        ('t-visible','thread','visible','Visible'),('t-hidden','thread','hidden','Hidden');
+      INSERT INTO messages(id,channel_id,created_at) VALUES ('m1','t-visible','2026-09-27T00:00:00.000Z'),('m2','t-hidden','2026-09-27T00:00:00.000Z');
+    `)
+    const rows = bdb.prepare(recentThreadsSql(1)).all('user-1', '2026-09-20T00:00:00.000Z', 'visible') as Array<{ id: string }>
+    expect(rows.map(row => row.id)).toEqual(['t-visible'])
+    expect(await channelLastMessageTimes(d1(bdb), ['visible', 'hidden'])).toEqual(new Map([
+      ['visible', '2026-09-27T00:00:00.000Z'], ['hidden', '2026-09-27T00:00:00.000Z'],
+    ]))
   })
 })
