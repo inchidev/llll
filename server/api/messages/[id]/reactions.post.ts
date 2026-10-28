@@ -7,14 +7,10 @@ import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { fanoutDm } from '../../../utils/dms'
 import { parseBody } from '../../../utils/validate'
-import { reactionRate, requireRate } from '../../../utils/message-service'
-
-// One emoji: a keycap, a flag, or pictographs joined by ZWJ with optional variation selectors, skin tones and tags.
-const PART = String.raw`\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?[\u{E0020}-\u{E007F}]*`
-const EMOJI = new RegExp(String.raw`^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|${PART}(?:\u200D${PART})*)$`, 'u')
+import { reactionEmojiSchema, reactionRate, requireRate } from '../../../utils/message-service'
 
 const bodySchema = z.object({
-  emoji: z.string().min(1).max(16).regex(EMOJI, 'Not an emoji'),
+  emoji: reactionEmojiSchema,
 })
 
 export default defineEventHandler(async (event) => {

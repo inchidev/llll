@@ -6,7 +6,11 @@ import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
 import type { L4Env } from '../../workers/env'
-import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from '../../server/utils/message-service'
+import {
+  deleteChannelMessage, editChannelMessage, listChannelThreads, listMessageChannels, listMessageMembers, openDirectMessage,
+  readChannelMessages, requireMessageMember, searchChannelMessages, sendChannelMessage, setMessagePin, setMessageReaction,
+} from '../../server/utils/message-service'
+import { SEARCH_MESSAGES_SQL } from '../../server/utils/message-search'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const agentId = '00000000-0000-4000-8000-000000000002'
@@ -238,5 +242,111 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     await expect(send('mailbox-chat')).resolves.toHaveProperty('message.author.id', 'member-user')
     sqlite.exec("DELETE FROM email_mailbox_access WHERE channel_id='mailbox-chat'")
     await expect(read('mailbox-chat')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('Server-wide search and MCP chat actions', () => {
+  const member = async (auth = context()) => requireMessageMember(env, auth, 'messages:write')
+  function seedSearch() {
+    sqlite.exec(`
+      INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES ('public-root','public-chat','other-user','Topic','2026-10-21T00:00:00Z');
+      INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES ('public-thread','Plans','thread','server','public-chat','public-root');
+      INSERT INTO channels(id,name,type,visibility) VALUES ('mailbox-chat','Inbox','text','server');
+      INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES ('domain-1','zone-1','example.com','community.example.com');
+      INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES ('mailbox-chat','domain-1','inbox','Inbox');
+      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('mailbox-chat','member-user','send');
+      INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES
+        ('hit-public','public-chat','other-user','Launch checklist','2026-10-22T00:00:01Z'),
+        ('hit-thread','public-thread','other-user','Launch in the thread','2026-10-22T00:00:02Z'),
+        ('hit-private','private-chat','other-user','Launch secret','2026-10-22T00:00:03Z'),
+        ('hit-private-thread','private-thread','other-user','Launch private reply','2026-10-22T00:00:04Z'),
+        ('hit-dm','member-dm','other-user','Launch between us','2026-10-22T00:00:05Z'),
+        ('hit-agent','agent-dm','${agentId}','Launch from the agent','2026-10-22T00:00:06Z'),
+        ('hit-mail','mailbox-chat','other-user','Launch email','2026-10-22T00:00:07Z');
+    `)
+  }
+
+  it('searches every readable channel, thread and DM with thread-aware links', async () => {
+    seedSearch()
+    const result = await searchChannelMessages(env, await member(), { q: 'launch' })
+    expect(result.hits.map(hit => hit.id)).toEqual(['hit-dm', 'hit-thread', 'hit-public'])
+    expect(result.hits.find(hit => hit.id === 'hit-thread')?.channel).toMatchObject({ title: 'Public', name: 'Plans', path: '/channels/public-chat/threads/public-thread' })
+    expect(result.hits.find(hit => hit.id === 'hit-dm')?.channel).toMatchObject({ title: 'Other', path: '/channels/member-dm' })
+
+    const agentAuth = context(agentId)
+    agentAuth.principal = { ...agentAuth.principal, kind: 'agent', isOwner: false }
+    const agentHits = await searchChannelMessages(env, await member(agentAuth), { q: 'launch' })
+    expect(agentHits.hits.find(hit => hit.id === 'hit-agent')?.channel.path).toBe('/agents/agent-dm')
+    agentAuth.delegation = { by: 'owner-user', isOwner: true, permissions: Permission.mcpConnect }
+    expect((await searchChannelMessages(env, await member(agentAuth), { q: 'launch' })).hits.map(hit => hit.id)).not.toContain('hit-agent')
+
+    sqlite.exec("INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES ('private-chat','member-user','2026-10-21')")
+    const scoped = await searchChannelMessages(env, await member(), { q: 'launch', channelId: 'private-chat' })
+    expect(scoped.hits.map(hit => hit.id)).toEqual(['hit-private-thread', 'hit-private'])
+    const first = await searchChannelMessages(env, await member(), { q: 'launch', limit: 1 })
+    expect(first.hits.map(hit => hit.id)).toEqual(['hit-dm'])
+    const next = await searchChannelMessages(env, await member(), { q: 'launch', limit: 1, cursor: first.nextCursor })
+    expect(next.hits.map(hit => hit.id)).toEqual(['hit-private-thread'])
+    await expect(searchChannelMessages(env, await member(), { q: 'launch', cursor: next.nextCursor, channelId: 'public-chat' })).rejects.toMatchObject({ statusCode: 400 })
+    await expect(searchChannelMessages(env, await requireMessageMember(env, context('member-user', ['messages:write']), 'messages:write'), { q: 'launch' })).rejects.toThrow('messages:read scope')
+  })
+
+  it('searches a conversation together with its threads', () => {
+    seedSearch()
+    const rows = sqlite.prepare(SEARCH_MESSAGES_SQL).all('"launch"*', 'public-chat', 0, '', '', '', 10) as Array<{ id: string, rootId: string }>
+    expect(rows.map(row => row.id)).toEqual(['hit-thread', 'hit-public'])
+    expect(rows.every(row => row.rootId === 'public-chat')).toBe(true)
+    const thread = sqlite.prepare(SEARCH_MESSAGES_SQL).all('"launch"*', 'public-thread', 0, '', '', '', 10) as Array<{ id: string }>
+    expect(thread.map(row => row.id)).toEqual(['hit-thread'])
+  })
+
+  it('lists threads of an accessible conversation only', async () => {
+    seedSearch()
+    const listed = await listChannelThreads(env, await member(), 'public-chat')
+    expect(listed.threads).toEqual([expect.objectContaining({ id: 'public-thread', title: 'Plans', replyCount: 1, rootMessage: expect.objectContaining({ id: 'public-root', content: 'Topic' }) })])
+    await expect(listChannelThreads(env, await member(), 'private-chat')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('edits and deletes only the caller’s own messages with audit attribution', async () => {
+    const { message } = await send('public-chat', 'Draft')
+    await expect(editChannelMessage(env, await member(context('other-user')), message.id, { content: 'Hijack' })).rejects.toMatchObject({ statusCode: 403 })
+    const edited = await editChannelMessage(env, await member(), message.id, { content: `Final <@${recipientId}>` })
+    expect(edited.message).toMatchObject({ content: `Final <@${recipientId}>`, mentions: [recipientId] })
+    expect(edited.message.editedAt).toBeTruthy()
+    expect(fanout).toHaveBeenCalledWith(expect.objectContaining({ t: 'message.update' }))
+    const audit = sqlite.prepare("SELECT actor_id,meta_json FROM audit_log WHERE action='message.update'").get()!
+    expect(JSON.parse(String(audit.meta_json))).toMatchObject({ credentialId: 'oauth-connection', mentions: [recipientId] })
+
+    await expect(deleteChannelMessage(env, await member(context('other-user')), message.id)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(deleteChannelMessage(env, await member(), message.id)).resolves.toEqual({ ok: true })
+    expect(sqlite.prepare('SELECT content,deleted_at FROM messages WHERE id=?').get(message.id)).toMatchObject({ content: '' })
+    expect(fanout).toHaveBeenCalledWith({ t: 'message.delete', id: message.id })
+    await expect(deleteChannelMessage(env, await member(), message.id)).resolves.toEqual({ ok: true })
+    await expect(editChannelMessage(env, await member(), message.id, { content: 'Again' })).rejects.toMatchObject({ statusCode: 409 })
+    expect(sqlite.prepare("SELECT count(*) AS n FROM audit_log WHERE action='message.delete'").get()?.n).toBe(1)
+  })
+
+  it('reacts idempotently and pins with the interface rules', async () => {
+    sqlite.exec("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES ('m-public','public-chat','other-user','Hello','2026-10-22'),('m-dm','member-dm','other-user','Hi','2026-10-22')")
+    expect(await setMessageReaction(env, await member(), 'm-public', { emoji: '👍' })).toEqual({ op: 'add', changed: true })
+    expect(await setMessageReaction(env, await member(), 'm-public', { emoji: '👍' })).toEqual({ op: 'add', changed: false })
+    expect(await setMessageReaction(env, await member(), 'm-public', { emoji: '👍', remove: true })).toEqual({ op: 'remove', changed: true })
+    await expect(setMessageReaction(env, await member(), 'thread-root', { emoji: '👍' })).rejects.toMatchObject({ statusCode: 404 })
+    await expect(setMessagePin(env, await member(), 'm-public', { pinned: true })).rejects.toMatchObject({ statusCode: 403 })
+    const pinned = await setMessagePin(env, await member(), 'm-dm', { pinned: true })
+    expect(pinned).toMatchObject({ changed: true, pin: { pinnedBy: { id: 'member-user' } } })
+    expect(await setMessagePin(env, await member(), 'm-dm', { pinned: false })).toEqual({ pin: null, changed: true })
+  })
+
+  it('opens 1:1 DMs like the interface and keeps delegated Agent DMs private', async () => {
+    expect((await openDirectMessage(env, await member(), 'other-user')).channel).toMatchObject({ id: 'member-dm', canSend: true })
+    await expect(openDirectMessage(env, await member(), agentId)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(openDirectMessage(env, await member(), 'member-user')).rejects.toMatchObject({ statusCode: 400 })
+    const opened = await openDirectMessage(env, await member(context('owner-user')), recipientId)
+    expect(opened.channel.participants.map(user => user.id).sort()).toEqual(['00000000-0000-4000-8000-000000000004', 'owner-user'])
+    const auth = context(agentId)
+    auth.principal = { ...auth.principal, kind: 'agent', isOwner: false }
+    auth.delegation = { by: 'owner-user', isOwner: true, permissions: Permission.mcpConnect }
+    await expect(openDirectMessage(env, await member(auth), 'member-user')).rejects.toMatchObject({ statusCode: 403 })
   })
 })

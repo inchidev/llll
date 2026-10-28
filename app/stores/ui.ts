@@ -63,6 +63,8 @@ export const useUiStore = defineStore('ui', () => {
   const dmFrozen = ref(false)
   const searchQuery = ref('')
   const searchOpen = ref(false)
+  /** The header search covers the open conversation or every conversation on the Server. */
+  const searchScope = ref<'conversation' | 'server'>('conversation')
   const memberTab = ref<'all' | 'online'>('all')
   const channelPaneWidth = import.meta.client
     ? useSafeLocalStorage('df:channel-pane-width', 240)
@@ -156,6 +158,7 @@ export const useUiStore = defineStore('ui', () => {
     dmFrozen,
     searchQuery,
     searchOpen,
+    searchScope,
     memberTab,
     channelPaneWidth,
     rightPanelWidth,

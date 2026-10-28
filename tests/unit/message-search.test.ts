@@ -45,9 +45,9 @@ describe('message search cursor', () => {
 
 describe('message search SQL', () => {
   it('scopes before ordering and paginates with a stable timestamp/id tuple', () => {
-    expect(SEARCH_MESSAGES_SQL).toContain('messages.channel_id = ?')
+    expect(SEARCH_MESSAGES_SQL).toContain('(messages.channel_id = ?2 OR root.id = ?2)')
     expect(SEARCH_MESSAGES_SQL).toContain('messages.deleted_at IS NULL')
-    expect(SEARCH_MESSAGES_SQL).toContain('messages.created_at = ? AND messages.id < ?')
+    expect(SEARCH_MESSAGES_SQL).toContain('messages.created_at = ?5 AND messages.id < ?6')
     expect(SEARCH_MESSAGES_SQL).toContain('ORDER BY messages.created_at DESC, messages.id DESC')
   })
 

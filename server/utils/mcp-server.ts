@@ -7,7 +7,12 @@ import type { L4Env } from '../../workers/env'
 import { createDocument, getDocument, listAuthorizedDataResources, updateDocument } from './document-service'
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
-import { listMessageChannels, listMessageMembers, readChannelMessages, requireMessageMember, sendChannelMessage } from './message-service'
+import {
+  deleteChannelMessage, editChannelMessage, listChannelThreads, listMessageChannels, listMessageMembers, openDirectMessage,
+  readChannelMessages, requireMessageMember, searchChannelMessages, sendChannelMessage, setMessagePin, setMessageReaction,
+} from './message-service'
+import { isStoredAvatarKey } from '../../shared/avatar'
+import { retryDeletedFiles } from '../../shared/file-cleanup'
 import { createRecord, createRecordSchema, readRecordsSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
 import { createTable, createTableSchema } from './table-service'
 
@@ -15,10 +20,28 @@ type McpServerContext = {
   env: L4Env
   principal: McpPrincipal
   schedule: (promise: Promise<unknown>) => void
+  /** Public origin for absolute links such as avatars. */
+  origin?: string
 }
 
-function result(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] }
+/**
+ * MCP output never carries storage object keys. A member's picture becomes a
+ * Server avatar URL (or null), other `*R2Key` fields are dropped.
+ */
+export function mcpOutput(value: unknown, origin = ''): unknown {
+  if (Array.isArray(value)) return value.map(item => mcpOutput(item, origin))
+  if (!value || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  const output: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(record)) {
+    if (key === 'avatarR2Key') {
+      if (typeof record.id === 'string') {
+        output.avatarUrl = isStoredAvatarKey(item as string | null) ? `${origin}/api/users/${encodeURIComponent(record.id)}/avatar` : null
+      }
+    }
+    else if (!key.endsWith('R2Key')) output[key] = mcpOutput(item, origin)
+  }
+  return output
 }
 
 const dueAtSchema = z.string().refine(value => !Number.isNaN(Date.parse(value)), 'Invalid due date').nullable()
@@ -37,8 +60,9 @@ export function serveMcpRequest(request: Request, context: McpServerContext): Pr
   return createMcpHandler(() => createL4McpServer(context)).fetch(request)
 }
 
-export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
+export function createL4McpServer({ env, principal, schedule, origin = '' }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
+  const result = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(mcpOutput(value, origin), null, 2) }] })
   if (!toolPaused('list_tables')) server.registerTool('list_tables', {
     description: 'Discover authorized table IDs, names, fields and views before reading records. Requires data:read.',
     inputSchema: {},
@@ -198,6 +222,57 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async ({ channelId, ...input }) => result(await sendChannelMessage(env, await requireMessageMember(env, principal.authorization, 'messages:write'), channelId, input, schedule)))
+
+  const reader = () => requireMessageMember(env, principal.authorization, 'messages:read')
+  const writer = () => requireMessageMember(env, principal.authorization, 'messages:write')
+  const writeAnnotations = (destructiveHint: boolean, idempotentHint: boolean) => ({ readOnlyHint: false, destructiveHint, idempotentHint, openWorldHint: false })
+
+  server.registerTool('search_messages', {
+    description: 'Full-text search, newest first, across every chat, DM and thread you can read in the interface (mailboxes and task discussions excluded). Words match as prefixes; all must match. Narrow with channelId (a conversation and its threads, or one thread) and authorId. Each hit has its channel and the path that opens it. Page with nextCursor.',
+    inputSchema: { query: z.string().trim().min(1).max(120), channelId: z.string().min(8).optional(), authorId: z.string().min(8).optional(),
+      limit: z.number().int().min(1).max(50).default(20), cursor: z.string().min(1).max(2048).optional() },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ query, ...input }) => result(await searchChannelMessages(env, await reader(), { q: query, ...input })))
+
+  server.registerTool('list_threads', {
+    description: 'List threads of one accessible chat or DM, newest first, with their original message and reply count. Read a thread with list_messages using its id; reply with send_message. Page with nextCursor.',
+    inputSchema: { ...pageSchema, channelId: z.string().min(8) },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ channelId, ...input }) => result(await listChannelThreads(env, await reader(), channelId, input)))
+
+  server.registerTool('edit_message', {
+    description: 'Replace the content of a message you sent. Same rules as the interface: only your own messages, with send permission in that conversation. <@member-id> tokens are mentions.',
+    inputSchema: { messageId: z.string().min(8), content: z.string().min(1).max(2000) },
+    annotations: writeAnnotations(false, true),
+  }, async ({ messageId, content }) => result(await editChannelMessage(env, await writer(), messageId, { content })))
+
+  server.registerTool('delete_message', {
+    description: 'Delete a message with its attachments and pin, for everyone in the conversation. Same rules as the interface: your own messages, or any message in a server channel when you can manage channels. This cannot be undone.',
+    inputSchema: { messageId: z.string().min(8) },
+    annotations: writeAnnotations(true, true),
+  }, async ({ messageId }) => {
+    const deleted = await deleteChannelMessage(env, await writer(), messageId)
+    schedule(retryDeletedFiles(env))
+    return result(deleted)
+  })
+
+  server.registerTool('react_message', {
+    description: 'Add your emoji reaction to a message in an accessible conversation, or remove it with remove=true. Repeating the same call changes nothing.',
+    inputSchema: { messageId: z.string().min(8), emoji: z.string().min(1).max(16), remove: z.boolean().default(false) },
+    annotations: writeAnnotations(false, true),
+  }, async ({ messageId, ...input }) => result(await setMessageReaction(env, await writer(), messageId, input)))
+
+  server.registerTool('pin_message', {
+    description: 'Pin a message, or unpin it with pinned=false. Channels require the manage channels permission; DM participants can pin while the DM is active.',
+    inputSchema: { messageId: z.string().min(8), pinned: z.boolean().default(true) },
+    annotations: writeAnnotations(false, true),
+  }, async ({ messageId, pinned }) => result(await setMessagePin(env, await writer(), messageId, { pinned })))
+
+  server.registerTool('open_dm', {
+    description: 'Open your 1:1 direct message with a member from list_members, creating it if needed, and return its channel ID for send_message. Opening a DM with an Agent requires the use agents permission.',
+    inputSchema: { userId: z.string().min(8) },
+    annotations: writeAnnotations(false, true),
+  }, async ({ userId }) => result(await openDirectMessage(env, await writer(), userId)))
 
   return server
 }

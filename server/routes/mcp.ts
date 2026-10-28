@@ -20,5 +20,5 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  return serveMcpRequest(request, { env, principal, schedule: waitUntil })
+  return serveMcpRequest(request, { env, principal, schedule: waitUntil, origin })
 })

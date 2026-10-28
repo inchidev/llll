@@ -457,6 +457,10 @@ export type MessageSearchChannelDTO = {
   type: ChannelType
   parentId: string | null
   parentMessageId: string | null
+  /** The channel name or DM title; for a thread, its parent conversation's. */
+  title: string
+  /** App path of the conversation or thread holding the hit. */
+  path: string
 }
 
 export type MessageSearchHitDTO = {

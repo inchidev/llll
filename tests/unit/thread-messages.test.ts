@@ -37,6 +37,7 @@ beforeEach(() => {
     useUiStore: () => ({ searchQuery: '', searchOpen: false, threadId: 'thread', composerState: () => ({ editingId: null }) }),
     usePrefsStore: () => ({ compact: false, recentEmoji: [] }),
     useToast: () => ({ add: vi.fn() }),
+    useServer: () => ({ serverId: ref('server') }),
     useRouter: () => ({ currentRoute: ref({ path: '/agents/parent', params: {}, query: {} }) }),
   })) vi.stubGlobal(name, value)
 })
