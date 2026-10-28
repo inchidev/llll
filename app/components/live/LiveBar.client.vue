@@ -14,7 +14,7 @@ const emit = defineEmits<{
 const live = useLiveStore()
 const { leave } = useLiveSession(() => props.channelId, { leaveOnUnmount: false })
 const state = computed(() => live.stateFor(props.channelId))
-const joinedHere = computed(() => live.connection === 'connected' && live.currentChannelId === props.channelId)
+const joinedHere = computed(() => live.inRoom && live.currentChannelId === props.channelId)
 const names = computed(() => Object.fromEntries(props.members.map(member => [member.user.id, member.nickname || member.user.displayName])))
 const users = computed(() => Object.fromEntries(props.members.map(member => [member.user.id, member.user])))
 const { serverUrl } = useApi()
@@ -30,7 +30,7 @@ function avatarOf(id: string) {
     <UIcon :name="state?.kind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" class="size-4 shrink-0 text-success" />
     <div class="min-w-0 flex-1">
       <p class="truncate text-xs font-semibold text-success">
-        {{ joinedHere ? 'Connected' : state?.ringing ? 'Ringing…' : liveInProgressLabel(state?.kind ?? 'live') }}
+        {{ joinedHere ? (live.connection === 'reconnecting' ? 'Reconnecting…' : 'Connected') : state?.ringing ? 'Ringing…' : liveInProgressLabel(state?.kind ?? 'live') }}
       </p>
       <UAvatarGroup v-if="state?.participantIds.length" size="3xs" class="mt-1">
         <UAvatar
@@ -58,6 +58,6 @@ function avatarOf(id: string) {
       </template>
       <UButton v-else-if="state?.active" size="xs" :icon="state.kind === 'call' ? 'i-ph-phone' : 'i-ph-waveform'" :label="liveJoinLabel(state.kind)" @click="emit('join')" />
     </div>
-    <UAlert v-if="live.error && joinedHere" color="error" :title="live.error" class="max-w-xs" />
+    <UAlert v-if="live.error && joinedHere" color="error" :title="live.errorTitle || 'Live problem'" :description="live.error" class="max-w-xs" />
   </div>
 </template>

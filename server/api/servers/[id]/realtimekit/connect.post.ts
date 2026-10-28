@@ -9,6 +9,7 @@ import {
   loadRealtimeKitConfig,
   RealtimeKitHttpError,
   REALTIMEKIT_SECRET_SCOPE,
+  realtimekitConfigured,
   realtimekitSettingsAdminDto,
   testRealtimeKitConnection,
   type RealtimeKitAccount,
@@ -18,6 +19,7 @@ import { authSecret } from '../../../../utils/auth-config'
 import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { requireMember } from '../../../../utils/guards'
+import { closeLiveRooms } from '../../../../utils/live'
 import { writeAudit } from '../../../../utils/messages'
 import { parseBody } from '../../../../utils/validate'
 
@@ -43,6 +45,12 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
   const current = await loadRealtimeKitConfig(env)
   if (current.source === 'deployment') fail(400, 'managed_by_deployment', 'RealtimeKit is managed by the deployment')
 
+  // Live reads the saved token with AUTH_SECRET alone, so never encrypt it with
+  // the localhost development fallback that nothing could decrypt later.
+  if (!env.AUTH_SECRET?.trim()) {
+    fail(409, 'auth_secret_required', 'Set AUTH_SECRET for this Server before connecting RealtimeKit; the token is encrypted with it. Locally, run pnpm env:init or pnpm dev:stack.')
+  }
+
   const apiToken = body.apiToken || (current.secretReadable ? current.apiToken : '')
   if (!apiToken) fail(400, 'api_token_required', 'Paste a Cloudflare API token to connect')
 
@@ -63,7 +71,13 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
     fail(502, 'realtimekit_connection_failed', error instanceof Error ? error.message : 'RealtimeKit connection failed')
   }
 
-  const encrypted = await encryptSecret(authSecret(env, origin.origin), REALTIMEKIT_SECRET_SCOPE, apiToken)
+  const encrypted = await encryptSecret(authSecret(env), REALTIMEKIT_SECRET_SCOPE, apiToken)
+  // Rooms started in another app, or through the REST fallback, could not be
+  // ended once this connection takes over, so end them while they still can be.
+  const sameApp = realtimekitConfigured(current)
+    && current.accountId === connection.accountId
+    && current.appId === connection.appId
+  if (!sameApp) await closeLiveRooms(env)
   const db = getDb(env.DB)
   const timestamp = nowIso()
   const values = {

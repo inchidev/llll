@@ -177,6 +177,7 @@ it('does not provision on leave or end, including a missing remote meeting', asy
   const room = await media(); requests = []
   apps = []
   await room.removeParticipants('gone', ['participant-1'])
-  await expect(room.endMeeting('gone')).rejects.toMatchObject({ status: 404 })
+  // The meeting is unreachable once its app is gone, so there is nothing left to end.
+  await expect(room.endMeeting('gone')).resolves.toBeUndefined()
   expect(provisioningRequests()).toHaveLength(0)
 })

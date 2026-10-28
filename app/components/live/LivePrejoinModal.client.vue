@@ -2,6 +2,7 @@
 import type { LiveKind } from '~~/shared/types'
 import { liveJoinLabel, liveStartLabel } from '~~/shared/live'
 import type { LiveJoinOptions } from '../../composables/useLiveSession'
+import { liveMediaProblem, type LiveProblem } from '../../utils/live-errors'
 
 const props = defineProps<{
   open: boolean
@@ -22,7 +23,7 @@ const preview = useTemplateRef<HTMLVideoElement>('preview')
 const audio = ref(!live.muted)
 const video = ref(false)
 const loading = ref(false)
-const error = ref<string | null>(null)
+const error = ref<LiveProblem | null>(null)
 const audioInputId = ref('')
 const videoInputId = ref('')
 const audioOutputId = ref('')
@@ -76,7 +77,8 @@ async function startPreview() {
     await refreshDevices()
   }
   catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Camera or microphone is unavailable'
+    const control = audio.value && video.value ? 'devices' : audio.value ? 'microphone' : 'camera'
+    error.value = liveMediaProblem(control, cause)
     await refreshDevices()
   }
   finally {
@@ -156,8 +158,8 @@ function confirm() {
           </div>
         </div>
       </div>
-      <UAlert v-if="error" color="warning" variant="subtle" class="mt-4" title="Check browser permissions" :description="error" />
-      <UAlert v-if="live.error" color="error" variant="subtle" class="mt-4" title="Could not connect" :description="live.error" />
+      <UAlert v-if="error" color="warning" variant="subtle" class="mt-4" :title="error.title" :description="error.message" />
+      <UAlert v-if="live.error" color="error" variant="subtle" class="mt-4" :title="live.errorTitle || 'Could not connect'" :description="live.error" />
     </template>
     <template #footer>
       <UButton color="neutral" variant="ghost" label="Cancel" @click="emit('update:open', false)" />

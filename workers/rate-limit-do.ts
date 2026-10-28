@@ -14,4 +14,12 @@ export class RateLimitDurableObject extends DurableObject<L4Env> {
     await this.ctx.storage.put('t', fresh)
     return true
   }
+
+  /** Return the most recent token for an attempt that did not happen. */
+  async giveBack(): Promise<void> {
+    const times = (await this.ctx.storage.get<number[]>('t')) ?? []
+    if (!times.length) return
+    times.pop()
+    await this.ctx.storage.put('t', times)
+  }
 }

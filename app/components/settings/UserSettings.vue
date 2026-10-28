@@ -543,6 +543,13 @@ async function logout() {
         <UFormField v-if="outputs.length" label="Output Device">
           <USelect v-model="outputId" :items="outputs" class="w-full" />
         </UFormField>
+        <div class="flex items-start justify-between gap-6">
+          <div>
+            <p class="font-medium text-highlighted">Ring for incoming calls</p>
+            <p class="text-sm text-muted mt-1">Play a ringtone and vibrate, where supported, while a call is ringing.</p>
+          </div>
+          <USwitch v-model="prefs.callRingtone" aria-label="Ring for incoming calls" />
+        </div>
       </div>
     </template>
 

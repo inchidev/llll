@@ -135,7 +135,7 @@ const liveActionHint = computed(() => {
   if (roomActive.value || canStartLive.value) return liveActionLabel.value
   return frozen.value ? 'You can no longer call in this Direct Message' : 'Your role cannot start live sessions here'
 })
-const joinedHere = computed(() => live.connection === 'connected' && live.currentChannelId === channelId.value)
+const joinedHere = computed(() => live.inRoom && live.currentChannelId === channelId.value)
 const showStage = computed(() => joinedHere.value && live.expanded)
 // Mirrors the server's host rule: the starter, or someone who manages this Channel.
 // Mirrors the server's moderation rule: Manage channels after channel overrides, never in DMs.
@@ -145,6 +145,8 @@ const canEndLive = computed(() => Boolean(
   && (live.state.startedBy === session.user?.id
     || (!isDm.value && hasPermission(effectivePermissions.value, Permission.manageChannels))),
 ))
+// Hosts may also mute and remove people; both people in a 1:1 Call are hosts.
+const isLiveHost = computed(() => Boolean(live.state?.active && (live.state.kind === 'call' || canEndLive.value)))
 
 function openPrejoin() {
   live.error = null
@@ -442,6 +444,7 @@ defineShortcuts({
       <LiveStage
         v-if="showStage"
         :can-end="canEndLive"
+        :can-moderate="isLiveHost"
         @leave="leave"
         @end="endLive"
       />

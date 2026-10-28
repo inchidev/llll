@@ -22,12 +22,15 @@ import { signalLiveChanged } from './live-events'
 import {
   emptyLive,
   isLiveHost,
+  LIVE_END_RETRY_LIMIT,
   LIVE_PRESENCE_TTL_MS,
   LIVE_RING_TIMEOUT_MS,
+  liveEndRetryDelayMs,
   liveFailure,
   liveGraceMs,
   normalizeLive,
   type LiveEndResult,
+  type LiveEndRetry,
   type LiveJoinResult,
 } from './live-room'
 import { signalChannelActivity, signalChannelRead } from './channel-activity'
@@ -41,6 +44,7 @@ import { authorizedSockets } from './socket-access'
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60_000
 
 type Sock = { userId: string; user: PublicUser; sessionId?: string }
+type StartLimiter = { take: (n: number, w: number) => Promise<boolean>, giveBack: () => Promise<void> }
 type Authz = { serverId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
 
 const createSchema = z.object({
@@ -326,9 +330,12 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return normalizeLive(await this.ctx.storage.get('live'))
   }
 
-  /** Join the room, starting it first when it is idle and the member may start one. */
-  async joinLive(user: PublicUser): Promise<LiveJoinResult> {
-    return this.liveInOrder(() => this.joinLiveNow(user))
+  /**
+   * Join the room, starting it first when it is idle and the member may start one.
+   * A reconnect names the meeting it dropped from and never starts a new room.
+   */
+  async joinLive(user: PublicUser, opts: { meetingId?: string } = {}): Promise<LiveJoinResult> {
+    return this.liveInOrder(() => this.joinLiveNow(user, opts))
   }
 
   async leaveLive(userId: string): Promise<LiveState> {
@@ -354,6 +361,48 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         return liveFailure('forbidden', 'Only the person who started it or a channel manager can end this live session')
       }
       return { ok: true as const, live: await this.endLiveNow({}) }
+    })
+  }
+
+  /**
+   * End the room without a host, because the server's RealtimeKit connection
+   * is being removed or replaced and its meeting would become unreachable.
+   */
+  async closeLive(): Promise<LiveState> {
+    return this.liveInOrder(async () => {
+      const live = await this.getLive()
+      if (!live.active) return live
+      return this.endLiveNow({})
+    })
+  }
+
+  /**
+   * A host removes someone from the room. They leave the media session and
+   * their token is revoked; they may join again while they can open the
+   * conversation. A Call has no one else to remove, so it is hung up instead.
+   */
+  async removeLiveParticipant(hostId: string, userId: string): Promise<LiveEndResult> {
+    return this.liveInOrder(async () => {
+      const live = await this.getLive()
+      if (!live.active || !live.meetingId) return liveFailure('not_found', 'No live session')
+      if (live.kind === 'call') return liveFailure('forbidden', 'Hang up to end a call')
+      if (hostId === userId) return liveFailure('forbidden', 'Leave the live session instead')
+      const authz = await this.loadAuthz(hostId)
+      if (!authz || !isLiveHost(live, hostId, { directMessage: isDmType(authz.type), perms: authz.perms })) {
+        return liveFailure('forbidden', 'Only the person who started it or a channel manager can remove participants')
+      }
+      const seats = await this.liveSeats()
+      const seat = seats[userId]
+      if (!seat) return liveFailure('not_found', 'They are no longer in the live session')
+      const media = await liveMedia(this.env)
+      if (!media) return liveFailure('realtimekit_unconfigured', 'Live needs RealtimeKit')
+      try {
+        await media.removeParticipants(live.meetingId, [seat.participantId])
+      }
+      catch {
+        return liveFailure('realtimekit_failed', 'RealtimeKit could not remove them from the live session')
+      }
+      return { ok: true as const, live: await this.vacateLiveSeat(live, userId, seats) }
     })
   }
 
@@ -724,7 +773,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     this.ctx.waitUntil(signalChannelRead(this.env, sock.userId, this.channelId(), cursor))
   }
 
-  private async joinLiveNow(user: PublicUser): Promise<LiveJoinResult> {
+  private async joinLiveNow(user: PublicUser, opts: { meetingId?: string }): Promise<LiveJoinResult> {
     const authz = await this.loadAuthz(user.id)
     if (!authz) return liveFailure('not_found', 'Conversation not found')
     if (authz.mailbox) return liveFailure('forbidden', 'Live sessions are unavailable for mailboxes')
@@ -739,11 +788,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const directMessage = isDmType(authz.type)
     let live = await this.getLive()
     const starting = !live.active || !live.meetingId
+    if (opts.meetingId && (starting || live.meetingId !== opts.meetingId)) {
+      return liveFailure('not_found', 'The live session has ended')
+    }
+    let limiter: StartLimiter | null = null
     if (starting) {
       if (!hasPermission(authz.perms, Permission.startLive)) {
         return liveFailure('forbidden', 'Your role cannot start live sessions here. You can join once someone else starts one.')
       }
-      const limiter = asRpc<{ take: (n: number, w: number) => Promise<boolean> }>(this.env.RATE_LIMIT_DO.getByName(`user:${user.id}:live`))
+      limiter = asRpc<StartLimiter>(this.env.RATE_LIMIT_DO.getByName(`user:${user.id}:live`))
       if (!await limiter.take(10, 60 * 60 * 1000)) return liveFailure('rate_limited', 'Too many live sessions started. Try again later.')
       const kind = liveKindFor(directMessage && await this.directMessageSize() === 2)
       try {
@@ -751,6 +804,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         live = { active: true, meetingId: meeting.id, participantIds: [], startedBy: user.id, startedAt: nowIso(), kind, ringing: kind === 'call' }
       }
       catch {
+        // A start that RealtimeKit refused does not count against the limit.
+        this.ctx.waitUntil(limiter.giveBack().catch(() => {}))
         return liveFailure('realtimekit_failed', 'RealtimeKit could not start the live session')
       }
     }
@@ -762,7 +817,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       participant = await media.addParticipant(meetingId, { name: user.displayName, customId: user.id, host })
     }
     catch {
-      if (starting) this.ctx.waitUntil(media.endMeeting(meetingId).catch(() => {}))
+      if (starting) {
+        this.ctx.waitUntil(media.endMeeting(meetingId).catch(() => {}))
+        if (limiter) this.ctx.waitUntil(limiter.giveBack().catch(() => {}))
+      }
       return liveFailure('realtimekit_failed', 'RealtimeKit could not add you to the live session')
     }
 
@@ -806,14 +864,19 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (!seat && !live.participantIds.includes(userId)) return live
     // Hanging up ends a Call for both people.
     if (live.kind === 'call' && seat) return this.endLiveNow({})
-    const { [userId]: _seat, ...remainingSeats } = seats
-    const { [userId]: _presence, ...presence } = await this.livePresence()
-    live.participantIds = live.participantIds.filter(id => id !== userId)
-    await this.ctx.storage.put({ livePresence: presence, liveSeats: remainingSeats })
     if (seat) {
       const media = await liveMedia(this.env)
       if (media) this.ctx.waitUntil(media.removeParticipants(live.meetingId, [seat.participantId]).catch(() => {}))
     }
+    return this.vacateLiveSeat(live, userId, seats)
+  }
+
+  /** Forget one person's seat and presence after they left or were removed. */
+  private async vacateLiveSeat(live: LiveState, userId: string, seats: Record<string, { participantId: string }>): Promise<LiveState> {
+    const { [userId]: _seat, ...remainingSeats } = seats
+    const { [userId]: _presence, ...presence } = await this.livePresence()
+    live.participantIds = live.participantIds.filter(id => id !== userId)
+    await this.ctx.storage.put({ livePresence: presence, liveSeats: remainingSeats })
     if (!live.participantIds.length) await this.scheduleCleanup(liveGraceMs(live.kind, await this.isDirectMessage()))
     await this.setLive(live)
     await this.refreshAlarm()
@@ -821,10 +884,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return live
   }
 
+  /**
+   * The room always ends here, even when RealtimeKit cannot be reached or its
+   * meeting is gone. A failed remote end is retried a few times by the alarm.
+   */
   private async endLiveNow(opts: { outcome?: 'declined' | 'unanswered' }): Promise<LiveState> {
     const current = await this.getLive()
-    const media = await liveMedia(this.env)
-    if (current.meetingId && media) await media.endMeeting(current.meetingId)
+    if (current.meetingId && !await this.endMeetingRemotely(current.meetingId)) {
+      await this.retryEndMeeting({ meetingId: current.meetingId, attempts: 1, at: Date.now() + liveEndRetryDelayMs(1) })
+    }
     const live: LiveState = { ...emptyLive(), kind: current.kind }
     await this.setLive(live)
     await this.ctx.storage.delete(['livePresence', 'liveCleanupAt', 'liveSeats', 'liveRingUntil'])
@@ -834,8 +902,50 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return live
   }
 
+  /** True when the meeting ended or there is no media plane left to end it in. */
+  private async endMeetingRemotely(meetingId: string): Promise<boolean> {
+    try {
+      const media = await liveMedia(this.env)
+      if (media) await media.endMeeting(meetingId)
+      return true
+    }
+    catch (error) {
+      console.warn('live.end_meeting_failed', { channelId: this.channelId(), error: error instanceof Error ? error.message : String(error) })
+      return false
+    }
+  }
+
+  private async liveEndRetries(): Promise<LiveEndRetry[]> {
+    return await this.ctx.storage.get<LiveEndRetry[]>('liveEndRetries') ?? []
+  }
+
+  private async retryEndMeeting(retry: LiveEndRetry) {
+    const retries = (await this.liveEndRetries()).filter(item => item.meetingId !== retry.meetingId)
+    await this.ctx.storage.put('liveEndRetries', [...retries, retry])
+  }
+
+  /** Retry ending remote meetings of rooms that already ended here, with bounded attempts. */
+  private async retryDueMeetingEnds(now: number) {
+    const retries = await this.liveEndRetries()
+    if (!retries.some(item => item.at <= now)) return
+    const remaining: LiveEndRetry[] = []
+    for (const item of retries) {
+      if (item.at > now) {
+        remaining.push(item)
+        continue
+      }
+      if (await this.endMeetingRemotely(item.meetingId)) continue
+      const attempts = item.attempts + 1
+      if (attempts < LIVE_END_RETRY_LIMIT) remaining.push({ ...item, attempts, at: now + liveEndRetryDelayMs(attempts) })
+      else console.warn('live.end_meeting_abandoned', { channelId: this.channelId(), attempts })
+    }
+    if (remaining.length) await this.ctx.storage.put('liveEndRetries', remaining)
+    else await this.ctx.storage.delete('liveEndRetries')
+  }
+
   private async liveAlarm() {
     const now = Date.now()
+    await this.retryDueMeetingEnds(now)
     const live = await this.getLive()
     const ringUntil = await this.ctx.storage.get<number>('liveRingUntil')
     if (live.active && live.ringing && ringUntil && ringUntil <= now) {
@@ -1166,7 +1276,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const ringUntil = await this.ctx.storage.get<number>('liveRingUntil')
     const presence = Object.values(await this.livePresence())
     const presenceAt = presence.length ? Math.min(...presence) : undefined
-    const candidates = [cleanupAt, ringUntil, presenceAt]
+    const retries = (await this.liveEndRetries()).map(item => item.at)
+    const retryAt = retries.length ? Math.min(...retries) : undefined
+    const candidates = [cleanupAt, ringUntil, presenceAt, retryAt]
       .filter((value): value is number => typeof value === 'number')
     if (candidates.length) await this.ctx.storage.setAlarm(Math.max(Date.now(), Math.min(...candidates)))
     else await this.ctx.storage.deleteAlarm()

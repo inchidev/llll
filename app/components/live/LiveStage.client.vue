@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import type { RTKParticipant } from '@cloudflare/realtimekit'
 import { liveTitle } from '~~/shared/live'
+import { LIVE_SELF_MEDIA_KEY } from '../../stores/live'
 
 defineProps<{
   canEnd: boolean
+  /** Hosts may mute and remove other people. */
+  canModerate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +19,10 @@ const participants = computed(() => [
   ...(live.selfParticipant ? [{ participant: live.selfParticipant, self: true }] : []),
   ...live.remoteParticipants.map(participant => ({ participant, self: false })),
 ])
+const muteLabel = computed(() => live.muted ? 'Unmute' : 'Mute')
+const cameraLabel = computed(() => live.camera ? 'Turn camera off' : 'Turn camera on')
+const deafenLabel = computed(() => live.deafened ? 'Undeafen' : 'Deafen')
+const screenLabel = computed(() => live.screenSharing ? 'Stop sharing' : 'Share screen')
 </script>
 
 <template>
@@ -33,57 +41,75 @@ const participants = computed(() => [
     <div class="grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-2 overflow-y-auto p-3 sm:grid-cols-2 xl:grid-cols-3">
       <LiveVideoTile
         v-for="item in participants"
-        :key="item.self ? 'self' : item.participant.id"
+        :key="item.self ? LIVE_SELF_MEDIA_KEY : item.participant.id"
         :participant="item.participant"
         :self="item.self"
         :active="!item.self && live.activeSpeakerId === item.participant.id"
-        :revision="live.mediaRevision"
+        :revision="live.mediaRevisionOf(item.self ? LIVE_SELF_MEDIA_KEY : item.participant.id)"
+        :can-mute="canModerate && !item.self"
+        :can-remove="canModerate && !item.self && live.currentKind !== 'call'"
+        @mute="live.muteParticipant(item.participant as RTKParticipant)"
+        @remove="live.removeParticipant(item.participant as RTKParticipant)"
       />
     </div>
 
-    <UAlert v-if="live.error" color="error" variant="subtle" class="mx-3 mb-2 shrink-0" title="Live connection problem" :description="live.error" />
+    <UAlert
+      v-if="live.connection === 'reconnecting'"
+      color="warning"
+      variant="subtle"
+      icon="i-ph-circle-notch"
+      class="mx-3 mb-2 shrink-0"
+      title="Reconnecting…"
+      description="The live connection dropped. Your microphone and camera settings are kept."
+      role="status"
+    />
+    <UAlert v-else-if="live.error" color="error" variant="subtle" class="mx-3 mb-2 shrink-0" :title="live.errorTitle || 'Live problem'" :description="live.error" />
 
     <footer class="flex shrink-0 items-center justify-center gap-2 border-t border-default bg-default/95 px-3 py-3">
-      <UTooltip :text="live.muted ? 'Unmute' : 'Mute'">
+      <UTooltip :text="muteLabel">
         <UButton
           square
           size="lg"
           :icon="live.muted ? 'i-ph-microphone-slash' : 'i-ph-microphone'"
           :color="live.muted ? 'error' : 'neutral'"
           :variant="live.muted ? 'soft' : 'outline'"
+          :aria-label="muteLabel"
           :aria-pressed="live.muted"
           @click="live.toggleMute()"
         />
       </UTooltip>
-      <UTooltip :text="live.camera ? 'Turn camera off' : 'Turn camera on'">
+      <UTooltip :text="cameraLabel">
         <UButton
           square
           size="lg"
           :icon="live.camera ? 'i-ph-video-camera' : 'i-ph-video-camera-slash'"
           :color="live.camera ? 'primary' : 'neutral'"
           :variant="live.camera ? 'soft' : 'outline'"
+          :aria-label="cameraLabel"
           :aria-pressed="live.camera"
           @click="live.toggleCamera()"
         />
       </UTooltip>
-      <UTooltip :text="live.deafened ? 'Undeafen' : 'Deafen'">
+      <UTooltip :text="deafenLabel">
         <UButton
           square
           size="lg"
           :icon="live.deafened ? 'i-ph-headphones-slash' : 'i-ph-headphones'"
           :color="live.deafened ? 'error' : 'neutral'"
           :variant="live.deafened ? 'soft' : 'outline'"
+          :aria-label="deafenLabel"
           :aria-pressed="live.deafened"
           @click="live.toggleDeafen()"
         />
       </UTooltip>
-      <UTooltip :text="live.screenSharing ? 'Stop sharing' : 'Share screen'">
+      <UTooltip :text="screenLabel">
         <UButton
           square
           size="lg"
           icon="i-ph-monitor-arrow-up"
           :color="live.screenSharing ? 'primary' : 'neutral'"
           :variant="live.screenSharing ? 'soft' : 'outline'"
+          :aria-label="screenLabel"
           :aria-pressed="live.screenSharing"
           @click="live.toggleScreenShare()"
         />

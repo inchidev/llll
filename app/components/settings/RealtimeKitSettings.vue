@@ -170,7 +170,7 @@ onMounted(load)
         color="error"
         variant="subtle"
         title="The saved token can no longer be read"
-        description="AUTH_SECRET changed since Live was connected. Paste a token to reconnect."
+        description="AUTH_SECRET is missing or changed since Live was connected. Restore the Server's AUTH_SECRET, or paste a token to reconnect."
       />
       <UAlert
         v-else-if="connected && realtimekit.sharedPreset"
