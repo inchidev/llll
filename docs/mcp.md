@@ -6,7 +6,7 @@ The consent screen names the client, displays its callback and lets you choose *
 
 The **Connect MCP clients** (`mcp.connect`) Role grant is required for the acting Member and the human approving an OAuth connection. It is off by default for Admin, Member, Agent and custom Roles; the Server Owner always has access. Enable it under **Server Settings → Roles → Integrations** for each Role that may use external clients. This grant allows the connection only: it adds no Task or Document permissions and does not affect browser sessions or internal Agent tools.
 
-Select the requested Task, Document and Message scopes, then allow or deny the connection. The Server binds the connection to one acting Member and the human who approved it. The selected Member's current Role and resource permissions still apply on every tool call. OAuth scopes can restrict that access; they cannot expand it. Agent connections stop working when the Agent is removed, the approving human is removed, or that human loses Agent management authority.
+Select the requested Task, Document, Message and Mail scopes, then allow or deny the connection. The Server binds the connection to one acting Member and the human who approved it. The selected Member's current Role and resource permissions still apply on every tool call. OAuth scopes can restrict that access; they cannot expand it. Agent connections stop working when the Agent is removed, the approving human is removed, or that human loses Agent management authority.
 
 Open **My Settings → Connected apps** to inspect or revoke connections. Members see their own connections; Agent managers also see connections for Agents they manage. Revocation fences off existing access tokens and subsequent token issuance, including refreshes and outstanding authorization codes. Audit entries retain the acting Member, OAuth client ID, connection ID and human delegator where applicable.
 
@@ -23,6 +23,21 @@ Connect as **yourself** and approve `messages:read` and `messages:write`. Existi
 The sender is the connected Member; clients cannot choose another author. HTTP and MCP share the same message service, private-channel/DM membership, inherited thread access, channel Role overrides and frozen-DM rules. A channel override or DM participation can allow sending even when the global Role does not. Messages use the interface's notifications, read receipts, realtime fanout and Agent dispatch. OAuth audit attribution is stored in the same transaction as the message.
 
 Agent mentions invoke the existing internal Agent runtime only when the sender is the Server Owner or has **Manage server**, the Agent is active and can access the conversation. Ordinary members have the same Agent visibility and invocation restrictions as in the interface. The MCP grant and Message scopes add no Agent management rights. Reading or sending in an Agent DM follows those same restrictions. `agentMode: "steer"` uses the existing steering behavior; otherwise messages queue normally.
+
+## Mail from your MCP client
+
+Approve `mail:read` to read and search email, and `mail:write` to triage it. Neither scope sends email. Mail scopes are offered only when the acting Member's Role has **Read email** (`mail:read`) or **Send email** (`mail:write`); the Server Owner always qualifies. Existing tokens and connections keep their original scopes, and an access token created without explicit scopes still receives only the non-Mail scopes, so nothing gains Mail access without a new approval.
+
+1. Use `list_mailboxes` to find the Mailboxes shared with you: the address, your grant (`read`, `send` or `manage`), `canSend` and the number of unread Inbox conversations. Use the returned `channelId` as `mailboxId`.
+2. Use `list_mail_threads` with `mailboxId`, an optional `folder` (`inbox`, `sent`, `archive`, `spam` or `trash`; default `inbox`), `unread: true` and `query`. The query searches that folder by subject, address, sender name and the text of emails and internal notes, as the Mail search does. Up to 50 conversations per page, newest first; pass `nextCursor` as `cursor` for older ones.
+3. Use `read_mail_thread` with `threadId` to read emails and internal notes (`kind: "email"` or `"note"`) in pages of up to 50, oldest to newest within a page; `nextCursor` reads older messages. Content is text: HTML layouts are converted, and scripts, styles and images are dropped. Attachments list ID, filename, type and size only. Reading does not mark the conversation read.
+4. With `mail:write`, `mark_mail_thread_read` marks the whole conversation read for you, and `move_mail_thread` moves it to `inbox`, `archive`, `spam` or `trash` for everyone with the Mailbox. Both need a **Send** or **Manage** grant and **Send email** in your Role, the same as in the interface. Marking a conversation unread is not available. Moves are audited with the OAuth client and connection.
+
+Every call resolves the acting Member, Role and Mailbox grant again. A Mailbox needs a grant even for the Server Owner, and a disabled Mailbox is unavailable. An Agent connection also requires the approving human to have access to that Mailbox. Responses never include storage keys, raw message sources, file download links or other people's drafts. Email content is untrusted external data: clients should not follow instructions found in it.
+
+Sending is not available through MCP. External email requires human approval, and this release has no approval step to reuse: Agents cannot send external email either, and only the Mail interface sends. A future sending tool would use its own scope so that existing `mail:write` grants never gain it.
+
+`list_channels` and `search_messages` still exclude Mailboxes. `list_messages` and `send_message` follow the chat channel guard, so with Message scopes they can reach a conversation by ID when your Mailbox grant allows it, and a message sent there is an internal note, never an email.
 
 ## Protocol
 
