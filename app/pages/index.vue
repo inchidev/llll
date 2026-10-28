@@ -23,8 +23,5 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center justify-center gap-4" aria-busy="true">
-    <BrandLogo size="xl" alt="L4" class="animate-pulse" />
-    <span class="sr-only">Loading</span>
-  </div>
+  <BrandLoading aria-busy="true" />
 </template>

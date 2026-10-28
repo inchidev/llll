@@ -12,8 +12,8 @@ useHead({ title: computed(() => path.value === '/servers' ? 'My Servers · L4' :
       <Shell v-show="shell" />
       <!-- The Shell renders only in the browser; show the same mark as the Client's loading screen meanwhile. -->
       <template #fallback>
-        <div v-if="shell" role="status" class="flex h-dvh items-center justify-center bg-default">
-          <BrandMark class="size-12 animate-pulse text-highlighted" /><span class="sr-only">Opening L4</span>
+        <div v-if="shell" role="status" class="flex h-dvh items-center justify-center bg-black text-white">
+          <BrandMark class="size-12 animate-pulse" /><span class="sr-only">Opening L4</span>
         </div>
       </template>
     </ClientOnly>

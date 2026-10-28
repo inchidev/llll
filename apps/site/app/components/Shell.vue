@@ -197,18 +197,18 @@ async function mountServer() {
           <h1 class="text-lg font-semibold">Finish setting up your Server</h1><p class="max-w-md text-sm text-muted">Choose your owner password on the Server’s own website. This page will open its Client when setup is complete.</p>
           <UButton :to="shell.ownerSetupUrl(shell.selected.value)" external target="_blank" rel="noopener" label="Finish setup on your Server" />
         </div>
-        <div v-else-if="!showNavigation && shell.selected.value && !shell.ready.value[shell.selected.value]" role="status" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-default p-6 text-center">
-          <!-- Same mark, size and place as the Client's own loading screen, so the hand-off does not flicker. -->
-          <BrandMark v-if="!frameSlow" class="size-12 animate-pulse text-highlighted" />
+        <div v-else-if="!showNavigation && shell.selected.value && !shell.ready.value[shell.selected.value]" role="status" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 p-6 text-center" :class="frameSlow ? 'bg-default' : 'bg-black text-white'">
+          <!-- Same mark, size, colours and timing as the Client's own loading screen, so the hand-off does not flicker. -->
+          <BrandMark v-if="!frameSlow" class="size-12 animate-pulse" />
           <span v-if="!frameSlow" class="sr-only">Opening your Server…</span>
           <template v-else><p class="text-sm text-muted">The Server is taking longer to open.</p><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /></template>
         </div>
         <div
           v-if="checkingAddress"
           role="status"
-          class="flex h-full items-center justify-center bg-default"
+          class="flex h-full items-center justify-center bg-black text-white"
         >
-          <BrandMark class="size-12 animate-pulse text-highlighted" />
+          <BrandMark class="size-12 animate-pulse" />
           <span class="sr-only">Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…</span>
         </div>
         <div
