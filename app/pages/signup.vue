@@ -100,7 +100,7 @@ async function signUpWith(provider: Exclude<AuthLoginMethod, 'email'>) {
     const next = inviteCode.value ? `/invite/${encodeURIComponent(inviteCode.value)}` : '/'
     const callbackURL = new URL(next, window.location.origin).toString()
     const errorPath = inviteCode.value ? `/signup?invite=${encodeURIComponent(inviteCode.value)}` : '/signup'
-    const response = await $fetch<{ url?: string | null }>('/api/auth/social', {
+    const response = await plainFetch<{ url?: string | null }>('/api/auth/social', {
       method: 'POST',
       body: {
         provider,

@@ -16,7 +16,7 @@ const busy = ref(false)
 onMounted(async () => {
   await session.refresh()
   try {
-    const res = await $fetch<{ invite: InvitePreviewDTO }>(`/api/invites/${code.value}`)
+    const res = await plainFetch<{ invite: InvitePreviewDTO }>(`/api/invites/${code.value}`)
     invite.value = res.invite
   }
   catch (err) {
@@ -39,7 +39,7 @@ async function accept() {
   }
   busy.value = true
   try {
-    const res = await $fetch<{ serverId: string; channelId: string | null }>(`/api/invites/${code.value}/accept`, { method: 'POST' })
+    const res = await plainFetch<{ serverId: string; channelId: string | null }>(`/api/invites/${code.value}/accept`, { method: 'POST' })
     await navigateTo(res.channelId ? channelPath(res.channelId) : '/channels')
   }
   catch (err) {

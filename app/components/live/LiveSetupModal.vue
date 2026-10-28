@@ -7,7 +7,7 @@ const nav = useNavActions()
 const { serverId } = useServer()
 const members = useQuery({
   queryKey: computed(() => ['members', serverId.value]),
-  queryFn: () => $fetch<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
+  queryFn: () => plainFetch<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
   enabled: computed(() => ui.liveSetupOpen && Boolean(serverId.value)),
 })
 const { mine } = usePermissions(() => members.data.value?.members)

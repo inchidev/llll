@@ -78,7 +78,7 @@ async function signInWith(provider: Exclude<AuthLoginMethod, 'email'>) {
     const errorCallbackURL = native
       ? serverUrl('/login')
       : `${window.location.origin}/login`
-    const res = await $fetch<{ url?: string | null }>('/api/auth/social', {
+    const res = await plainFetch<{ url?: string | null }>('/api/auth/social', {
       method: 'POST',
       body: {
         provider,

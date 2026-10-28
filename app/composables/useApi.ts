@@ -1,13 +1,20 @@
 import { resolveServerWebSocketUrl } from '~~/shared/client-router'
 
+/** Plain fetch options: per-route inference across every API route exceeds TypeScript's instantiation depth here. */
+type ApiOptions = Parameters<typeof $fetch.create>[0]
+
+/** `$fetch` (or the given fetcher) typed by the caller instead of by route. */
+export function plainFetch<T>(url: string, opts?: ApiOptions, fetcher: unknown = $fetch): Promise<T> {
+  return (fetcher as (url: string, opts?: ApiOptions) => Promise<T>)(url, opts)
+}
+
 export function useApi() {
   const connections = useServers()
   const { native, activeOrigin } = useClientServers()
   const config = useRuntimeConfig()
 
-  async function api<T>(url: string, opts?: Parameters<typeof $fetch>[1]) {
-    const fetcher = import.meta.client && native ? globalThis.$fetch : $fetch
-    return await fetcher<T>(url, opts)
+  async function api<T>(url: string, opts?: ApiOptions) {
+    return await plainFetch<T>(url, opts, import.meta.client && native ? globalThis.$fetch : $fetch)
   }
 
   function serverUrl(value: string) {

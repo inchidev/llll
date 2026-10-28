@@ -45,7 +45,7 @@ export function usePushNotifications() {
   }
 
   async function loadConfig() {
-    config = await $fetch<PushConfig>('/api/push/config')
+    config = await plainFetch<PushConfig>('/api/push/config')
     return config
   }
 
@@ -114,7 +114,7 @@ export function usePushNotifications() {
       }
       const body = subscriptionJson(subscription)
       if (!body) throw new Error('Browser returned an incomplete push subscription')
-      await $fetch('/api/push/subscriptions', { method: 'PUT', body })
+      await plainFetch('/api/push/subscriptions', { method: 'PUT', body })
       status.value = 'subscribed'
     }
     catch (cause) {
@@ -148,7 +148,7 @@ export function usePushNotifications() {
       const subscription = await (await registration()).pushManager.getSubscription()
       if (subscription) {
         try {
-          await $fetch('/api/push/subscriptions', { method: 'DELETE', body: { endpoint: subscription.endpoint } })
+          await plainFetch('/api/push/subscriptions', { method: 'DELETE', body: { endpoint: subscription.endpoint } })
         }
         finally {
           await subscription.unsubscribe()

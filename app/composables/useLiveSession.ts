@@ -39,7 +39,7 @@ export function useLiveSession(
   /** End the room for everyone. Only hosts can; the server checks. */
   async function end() {
     const id = toValue(channelId)
-    const response = await $fetch<{ live: LiveState }>(`/api/channels/${id}/live`, { method: 'DELETE' })
+    const response = await plainFetch<{ live: LiveState }>(`/api/channels/${id}/live`, { method: 'DELETE' })
     await live.hangup(false)
     live.setState(id, response.live)
   }
