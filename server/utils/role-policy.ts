@@ -17,6 +17,7 @@ export function toRoleDto(role: RoleRow, serverId: string, memberCount = 0): Rol
     resourceAccess: parseResourceAccess(role.resourceAccessJson),
     position: role.position,
     isSystem: role.isSystem,
+    mentionable: role.mentionable,
     memberCount,
   }
 }

@@ -15,7 +15,8 @@ import { parseBody } from '../../../../utils/validate'
 
 const bodySchema = z.object({
   name: z.string().trim().min(1).max(40).optional(),
-}).strict().refine(body => body.name !== undefined, 'No role changes supplied')
+  mentionable: z.boolean().optional(),
+}).strict().refine(body => body.name !== undefined || body.mentionable !== undefined, 'No role changes supplied')
 
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
@@ -26,7 +27,8 @@ export default defineEventHandler(async (event) => {
   const db = getDb(env.DB)
   const role = (await db.select().from(roles).where(eq(roles.id, roleId)).limit(1))[0]
   if (!role) fail(404, 'not_found', 'Role not found')
-  if (role.isSystem) fail(403, 'forbidden', 'System roles cannot be changed')
+  // A built-in Role keeps its name; like its policies, only the Owner decides who may mention it.
+  if (role.isSystem && (body.name !== undefined || !actor.isOwner)) fail(403, 'forbidden', 'System roles cannot be changed')
   assertRoleManageable(actor, role)
   const permissions = role.permissionsBitmask
   assertGrantScope(actor, permissions)
@@ -40,12 +42,14 @@ export default defineEventHandler(async (event) => {
   const updated = {
     ...role,
     name: body.name ?? role.name,
+    mentionable: body.mentionable ?? role.mentionable,
     permissionsBitmask: permissions,
     resourceAccessJson: role.resourceAccessJson,
     updatedAt: nowIso(),
   }
   await db.update(roles).set({
     name: updated.name,
+    mentionable: updated.mentionable,
     updatedAt: updated.updatedAt,
   }).where(eq(roles.id, role.id))
   await writeAudit(env, {
@@ -54,7 +58,7 @@ export default defineEventHandler(async (event) => {
     action: 'role.update',
     targetType: 'role',
     targetId: role.id,
-    meta: { name: updated.name, permissions: updated.permissionsBitmask },
+    meta: { name: updated.name, permissions: updated.permissionsBitmask, mentionable: updated.mentionable },
   })
   waitUntil(signalMembersChanged(env, serverId))
   waitUntil(revalidateLiveRooms(env))

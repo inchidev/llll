@@ -36,6 +36,7 @@ import {
 import { signalChannelActivity, signalChannelRead } from './channel-activity'
 import { signalAgentsForMessage } from './agent-ingress'
 import { persistMessageEdit } from './message-edits'
+import { mentionedRoleIds, roleMentionRecipients, roleMentionStatement, type RoleMention } from './role-mentions'
 import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
@@ -548,6 +549,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const id = newId()
     const createdAt = nowIso()
     const mentions = await this.validMentions(extractMentionIds(body.content))
+    const roleMentions = await roleMentionRecipients(this.env, { channelId: this.channelId(), authorId: sock.userId, content: body.content, mentions })
     const attachmentIds = [...new Set(body.attachmentIds ?? [])]
     if (attachmentIds.length !== (body.attachmentIds?.length ?? 0)) {
       fail('bad_request', 'Duplicate attachment')
@@ -592,6 +594,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       content: body.content,
       replyTo,
       mentions,
+      roleMentions: mentionedRoleIds(roleMentions),
       attachments,
       reactions: [],
       pin: null,
@@ -602,7 +605,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       clientId: body.clientId,
     }
 
-    await this.persistMessage(dto, body.replyToId ?? null)
+    await this.persistMessage(dto, body.replyToId ?? null, roleMentions)
     this.ctx.waitUntil(signalNotificationOutbox(this.env))
     this.ctx.waitUntil(signalChannelActivity(this.env, {
       id,
@@ -700,11 +703,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (row.deleted_at) return
     const editedAt = nowIso()
     const mentions = await this.validMentions(extractMentionIds(body.content))
-    const added = await persistMessageEdit(this.env, { id: body.id, channelId: this.channelId(), author: sock.user, content: body.content, mentions, editedAt })
+    const { added, notified } = await persistMessageEdit(this.env, { id: body.id, channelId: this.channelId(), author: sock.user, content: body.content, mentions, editedAt })
     const dto = await this.loadMessage(body.id)
     if (dto) await this.broadcast({ t: 'message.update', message: dto })
+    if (notified.length) this.ctx.waitUntil(signalNotificationOutbox(this.env))
     if (added.length) {
-      this.ctx.waitUntil(signalNotificationOutbox(this.env))
       this.ctx.waitUntil(signalAgentsForMessage(this.env, {
         messageId: body.id,
         channelId: this.channelId(),
@@ -1106,15 +1109,17 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return (rows.results ?? []).map((r) => ({ id: r.id, kind: r.kind, displayName: r.display_name, avatarR2Key: r.avatar_r2_key }))
   }
 
-  private async persistMessage(dto: MessageDTO, replyToId: string | null) {
+  private async persistMessage(dto: MessageDTO, replyToId: string | null, roleMentions: RoleMention[] = []) {
     const notification = await messageNotificationStatement(this.env, {
       id: dto.id,
       channelId: dto.channelId,
       author: dto.author,
       content: dto.content,
       mentions: dto.mentions,
+      roleMentions: roleMentions.map(mention => mention.userId),
       attachmentCount: dto.attachments.length,
     })
+    const roleRows = roleMentionStatement(this.env, dto.id, roleMentions)
     const statements = [
       this.env.DB.prepare(
         'INSERT INTO messages (id, channel_id, author_id, content, reply_to_id, edited_at, deleted_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)',
@@ -1125,6 +1130,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       ...dto.mentions.map((uid) => this.env.DB.prepare(
         'INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)',
       ).bind(dto.id, uid)),
+      ...(roleRows ? [roleRows] : []),
       this.env.DB.prepare(
         `INSERT INTO channel_reads (channel_id, user_id, last_read_message_id, updated_at)
          VALUES (?, ?, ?, ?)
@@ -1195,7 +1201,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       avatar_r2_key: string | null
     }>()
     if (!row) return null
-    const mentionRows = await this.env.DB.prepare('SELECT user_id FROM message_mentions WHERE message_id = ?').bind(id).all<{ user_id: string }>()
+    const mentionRows = await this.env.DB.prepare('SELECT user_id FROM message_mentions WHERE message_id = ? AND role_id IS NULL').bind(id).all<{ user_id: string }>()
+    const roleRows = await this.env.DB.prepare('SELECT DISTINCT role_id FROM message_mentions WHERE message_id = ? AND role_id IS NOT NULL').bind(id).all<{ role_id: string }>()
     const attRows = await this.env.DB.prepare(
       'SELECT id, r2_key, filename, content_type, size_bytes, width, height FROM attachments WHERE message_id = ?',
     ).bind(id).all<{
@@ -1226,6 +1233,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       content: row.deleted_at ? '' : row.content,
       replyTo: null,
       mentions: (mentionRows.results ?? []).map((r) => r.user_id),
+      roleMentions: (roleRows.results ?? []).map((r) => r.role_id),
       attachments: (row.deleted_at ? [] : attRows.results ?? []).map((a) => ({
         id: a.id,
         filename: a.filename,

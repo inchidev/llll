@@ -1,5 +1,5 @@
 import { getServerId } from '../../shared/server-id'
-import { inArray } from 'drizzle-orm'
+import { and, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { attachments, channels, messageMentions, messagePins, messageReactions, messages, users } from '../../drizzle/schema'
 import type { AttachmentDTO, MessageDTO, MessagePinDTO, PublicUser, ReactionDTO } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
@@ -34,10 +34,13 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
   const replyIds = rows.map((r) => r.replyToId).filter((x): x is string => Boolean(x))
 
   // Every lookup depends only on the page's ids, so they share one round trip.
-  const [pinRows, authorRows, mentionRows, attRows, replyRows, reactionRows, threadRows] = await Promise.all([
+  const [pinRows, authorRows, mentionRows, roleMentionRows, attRows, replyRows, reactionRows, threadRows] = await Promise.all([
     db.select().from(messagePins).where(inArray(messagePins.messageId, ids)),
     db.select().from(users).where(inArray(users.id, authorIds)),
-    db.select().from(messageMentions).where(inArray(messageMentions.messageId, ids)),
+    db.select().from(messageMentions).where(and(inArray(messageMentions.messageId, ids), isNull(messageMentions.roleId))),
+    // A role mention has a row per Member it reached; the message needs only its Roles.
+    db.selectDistinct({ messageId: messageMentions.messageId, roleId: messageMentions.roleId }).from(messageMentions)
+      .where(and(inArray(messageMentions.messageId, ids), isNotNull(messageMentions.roleId))),
     db.select().from(attachments).where(inArray(attachments.messageId, [...new Set([...ids, ...replyIds])])),
     replyIds.length ? db.select().from(messages).where(inArray(messages.id, replyIds)) : Promise.resolve([]),
     db.select().from(messageReactions).where(inArray(messageReactions.messageId, ids)),
@@ -61,6 +64,9 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     list.push(m.userId)
     mentions.set(m.messageId, list)
   }
+
+  const roleMentions = new Map<string, string[]>()
+  for (const m of roleMentionRows) roleMentions.set(m.messageId, [...roleMentions.get(m.messageId) ?? [], m.roleId!])
 
   const atts = new Map<string, AttachmentDTO[]>()
   for (const a of attRows) {
@@ -109,6 +115,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     content: row.deletedAt ? '' : row.content,
     replyTo: row.replyToId ? replies.get(row.replyToId) ?? null : null,
     mentions: mentions.get(row.id) ?? [],
+    roleMentions: roleMentions.get(row.id) ?? [],
     attachments: row.deletedAt ? [] : atts.get(row.id) ?? [],
     reactions: reactionMap.get(row.id) ?? [],
     pin: pins.get(row.id) ?? null,

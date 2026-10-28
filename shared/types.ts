@@ -456,7 +456,10 @@ export type MessageDTO = {
   author: PublicUser
   content: string
   replyTo: ReplyPreviewDTO | null
+  /** Members mentioned directly. */
   mentions: string[]
+  /** Roles whose mention reached at least one Member. */
+  roleMentions?: string[]
   attachments: AttachmentDTO[]
   reactions: ReactionDTO[]
   pin: MessagePinDTO | null
@@ -609,6 +612,8 @@ export type RoleDTO = {
   permissions: number
   position: number
   isSystem: boolean
+  /** Anyone may mention it; otherwise only the Owner and Members with Manage channels can. */
+  mentionable?: boolean
   memberCount?: number
   policyCount?: number
 }

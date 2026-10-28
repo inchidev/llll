@@ -55,6 +55,7 @@ export default defineEventHandler(async (event) => {
         ...(canViewRoleDetails || r.user.id === actor.user.id ? { resourceAccess: parseResourceAccess(r.role.resourceAccessJson) } : {}),
         position: r.role.position,
         isSystem: r.role.isSystem,
+        mentionable: r.role.mentionable,
       },
       nickname: r.nickname,
       status: statusMap.get(r.user.id) ?? 'offline',

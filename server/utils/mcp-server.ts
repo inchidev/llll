@@ -8,7 +8,7 @@ import { createDocument, getDocument, listAuthorizedDataResources, updateDocumen
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, getTask, listTasks, updateTask } from './task-service'
 import {
-  deleteChannelMessage, editChannelMessage, listChannelThreads, listMessageChannels, listMessageMembers, openDirectMessage,
+  deleteChannelMessage, editChannelMessage, listChannelThreads, listMentionRoles, listMessageChannels, listMessageMembers, openDirectMessage,
   readChannelMessages, requireMessageMember, searchChannelMessages, sendChannelMessage, setMessagePin, setMessageReaction,
 } from './message-service'
 import { isStoredAvatarKey } from '../../shared/avatar'
@@ -210,6 +210,12 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async (input) => result(await listMessageMembers(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
 
+  server.registerTool('list_roles', {
+    description: 'List the Roles you may mention: mentionable Roles, or every Role for the Server Owner and members with Manage channels. Paste a returned mentionToken (<@&role-id>) into send_message content to notify the people with that Role who can read the conversation, up to 500. Role mentions never invoke Agents.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => result(await listMentionRoles(env, await requireMessageMember(env, principal.authorization, 'messages:read'))))
+
   server.registerTool('list_messages', {
     description: 'Read one accessible chat or thread, oldest to newest within each page. Use nextCursor to read older pages. Reading does not mark messages as read. Deleted message bodies are omitted.',
     inputSchema: { ...pageSchema, channelId: z.string().min(8) },
@@ -217,7 +223,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ channelId, ...input }) => result(await readChannelMessages(env, await requireMessageMember(env, principal.authorization, 'messages:read'), channelId, input)))
 
   server.registerTool('send_message', {
-    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
+    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members, or <@&role-id> tokens from list_roles to notify a Role. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
     inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

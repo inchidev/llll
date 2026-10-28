@@ -54,7 +54,7 @@ it('uses the same authorized audience for push outbox recipients', async () => {
     return statement
   }
   await liveNotificationStatement(env, 'discussion', 'meeting', { id: 'owner', kind: 'human', displayName: 'Owner', avatarR2Key: null }, 'live')
-  expect(recipients).toEqual(['reader'])
+  expect(recipients).toEqual([JSON.stringify(['reader'])])
 })
 it('inherits private membership for thread Live events without an Owner bypass', async () => {
   await signalLiveChanged(env, 'thread', live)

@@ -4,10 +4,11 @@ import type { InfiniteData } from '@tanstack/vue-query'
 import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { ChannelThreadDTO, MemberDTO, MessageContextResponse, MessageDTO, MessagePinDTO, MessageSearchHitDTO, MessageSearchResponse, TaskSourceLinkDTO } from '~~/shared/types'
 import { formatDayLabel, formatFullDateTime, formatMessageTime, sameDay } from '~~/shared/format'
-import { applyMentionTokens, extractMentionIds, humanizeMentions } from '~~/shared/mentions'
+import { applyMentionTokens, extractMentionIds, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
 import { replaceShortcodes } from '~~/shared/emoji'
 import { channelPath } from '~~/shared/paths'
 import { nowIso } from '~~/shared/ids'
+import { Permission } from '~~/shared/permissions'
 import { mergeMessageContext, type MessagePage } from '~/utils/message-cache'
 import { applyReactionChange } from '~/utils/message-reactions'
 import { useVirtualizer } from '@tanstack/vue-virtual'
@@ -180,11 +181,16 @@ const searchEmpty = computed(() => Boolean(
 
 const names = computed(() => {
   const map: Record<string, string> = {}
-  for (const m of props.members) map[m.user.id] = m.nickname || m.user.displayName
+  for (const m of props.members) {
+    map[m.user.id] = m.nickname || m.user.displayName
+    map[`&${m.role.id}`] = roleDisplayName(m.role)
+  }
   return map
 })
 const membersById = computed(() => new Map(props.members.map(member => [member.user.id, member])))
 const mentionables = computed(() => props.members.map(m => ({ id: m.user.id, displayName: m.user.displayName, nickname: m.nickname })))
+const viewer = usePermissions(() => props.members)
+const roleMentionables = computed(() => mentionRoles(props.members, viewer.can(Permission.manageChannels)))
 const editingId = computed(() => ui.composerState(props.channelId).editingId)
 
 function compactWith(curr: MessageDTO, prev?: MessageDTO) {
@@ -199,7 +205,8 @@ function compactWith(curr: MessageDTO, prev?: MessageDTO) {
 function mentionsMe(message: MessageDTO) {
   const me = session.user?.id
   if (!me || message.author.id === me) return false
-  return message.mentions.includes(me) || message.replyTo?.authorId === me
+  const role = viewer.mine.value?.role.id
+  return message.mentions.includes(me) || Boolean(role && message.roleMentions?.includes(role)) || message.replyTo?.authorId === me
 }
 
 /* ------------------------------------------------------------------ scrolling */
@@ -399,7 +406,7 @@ function startEdit(message: MessageDTO) {
 
 async function saveEdit(message: MessageDTO) {
   const draft = ui.composerState(props.channelId).editDraft
-  const content = replaceShortcodes(applyMentionTokens(draft, mentionables.value)).trim()
+  const content = replaceShortcodes(applyMentionTokens(draft, mentionables.value, roleMentionables.value)).trim()
   if (!content && !message.attachments.length) {
     // An emptied message is a delete, as in Discord; ask first.
     ui.cancelEditing(props.channelId)
