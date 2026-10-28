@@ -36,8 +36,10 @@ export async function mcpConsentSubjects(env: L4Env, actorId: string) {
     ...row,
     // Reading chats needs membership; send permission may come from a channel
     // override or DM participation even when the global role cannot send.
+    // Mail scopes follow the email policy; each Mailbox grant is checked on every call.
     scopes: MCP_SCOPES.filter(scope => scope.startsWith('messages:') || hasPermission(row.id === actor.ownerId ? ALL_PERMISSIONS : row.permissions,
-      scope === 'data:manage' ? Permission.manageDatabases : scope.startsWith('tasks:') ? (scope.endsWith(':read') ? Permission.readTasks : Permission.writeTasks) : (scope.endsWith(':read') ? Permission.readData : Permission.writeData))),
+      scope === 'data:manage' ? Permission.manageDatabases : scope.startsWith('mail:') ? (scope.endsWith(':read') ? Permission.readMail : Permission.sendMail)
+        : scope.startsWith('tasks:') ? (scope.endsWith(':read') ? Permission.readTasks : Permission.writeTasks) : (scope.endsWith(':read') ? Permission.readData : Permission.writeData))),
   }))
 }
 

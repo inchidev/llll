@@ -139,8 +139,8 @@ export async function authenticateMcpRequest(
 }
 
 export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void {
-  if (scope === 'messages:read' || scope === 'messages:write') {
-    // Chat role overrides and DM permissions are checked by message-service.
+  if (scope.startsWith('messages:') || scope.startsWith('mail:')) {
+    // Chat role overrides, DM permissions and Mailbox grants are checked by message-service and mail-service.
     authorizeMcpCredential(principal.authorization, scope)
     return
   }

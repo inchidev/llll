@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useClipboard } from '@vueuse/core'
 import { pausedMcpScopes } from '~~/shared/features'
-import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '~~/shared/mcp'
+import { MCP_DEFAULT_TOKEN_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '~~/shared/mcp'
 import type { MemberDTO } from '~~/shared/types'
 import { formatDateTime } from '~~/shared/format'
 
@@ -14,7 +14,7 @@ const queryClient = useQueryClient()
 const { copy } = useClipboard()
 const name = ref('Codex')
 const subjectId = ref<string>()
-const scopes = ref<McpScope[]>(MCP_SCOPES.filter(scope => !pausedMcpScopes.has(scope)))
+const scopes = ref<McpScope[]>(MCP_DEFAULT_TOKEN_SCOPES.filter(scope => !pausedMcpScopes.has(scope)))
 const created = shallowRef<CreatedMcpAccessTokenDTO | null>(null)
 const revokeTarget = shallowRef<McpAccessTokenDTO | null>(null)
 
@@ -37,6 +37,8 @@ const scopeOptions: Array<{ value: McpScope; label: string }> = [
   { value: 'tasks:write', label: 'Write tasks' },
   { value: 'messages:read', label: 'Read accessible chats and messages' },
   { value: 'messages:write', label: 'Send messages and mentions' },
+  { value: 'mail:read', label: 'Read and search shared Mailboxes' },
+  { value: 'mail:write', label: 'Mark email read and move conversations' },
 ]
 
 const createToken = useMutation({

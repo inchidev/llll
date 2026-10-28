@@ -1,6 +1,6 @@
 import { getServerId } from '../../../../shared/server-id'
 import { z } from 'zod'
-import { MCP_SCOPES } from '../../../../shared/mcp'
+import { MCP_DEFAULT_TOKEN_SCOPES, MCP_SCOPES } from '../../../../shared/mcp'
 import { cf, fail } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
 import { issueMcpAccessToken } from '../../../utils/mcp-access'
@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     createdBy: actor.user.id,
     subjectId: body.subjectId ?? actor.user.id,
     name: body.name,
-    scopes: body.scopes ?? [...MCP_SCOPES],
+    scopes: body.scopes ?? [...MCP_DEFAULT_TOKEN_SCOPES],
   })
   await writeAudit(env, {
     serverId,

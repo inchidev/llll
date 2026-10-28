@@ -10,9 +10,14 @@ export const MCP_SCOPES = [
   'documents:write',
   'messages:read',
   'messages:write',
+  'mail:read',
+  'mail:write',
 ] as const
 
 export type McpScope = typeof MCP_SCOPES[number]
+
+/** Mail is opt-in: a token created without explicit scopes keeps the set it had before Mail scopes existed. */
+export const MCP_DEFAULT_TOKEN_SCOPES: McpScope[] = MCP_SCOPES.filter(scope => !scope.startsWith('mail:'))
 
 export const MCP_SCOPE_LABELS: Record<McpScope, string> = {
   'data:manage': 'Create and configure tables',
@@ -24,6 +29,8 @@ export const MCP_SCOPE_LABELS: Record<McpScope, string> = {
   'documents:write': 'Create and update documents',
   'messages:read': 'Read accessible chats, messages and members',
   'messages:write': 'Send messages and mention members in accessible chats',
+  'mail:read': 'Read and search email in Mailboxes shared with you',
+  'mail:write': 'Mark email read and move conversations between folders (does not send email)',
 }
 
 export type McpConnectionDTO = {
