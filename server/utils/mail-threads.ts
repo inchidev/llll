@@ -30,12 +30,32 @@ function folderQuery(folder: MailFolder): { filter: string; sortAt: string } {
   return { filter: `t.status = '${folder}'`, sortAt: 't.last_message_at' }
 }
 
+/** Search text for a folder: trimmed, lowercased and bounded. Empty means no search. */
+export function mailSearchTerm(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const term = value.trim().toLowerCase().slice(0, 200)
+  return term || null
+}
+
+/**
+ * Conversations matching a search: the subject, an address or sender name, or the
+ * text of any email or internal note in it. The caller has checked mailbox access.
+ */
+const searchFilter = `(? IS NULL
+  OR instr(lower(t.subject), ?) > 0
+  OR instr(lower(t.participants_json), ?) > 0
+  OR EXISTS (SELECT 1 FROM email_messages em WHERE em.thread_channel_id = t.channel_id
+    AND (instr(lower(coalesce(em.from_name, '')), ?) > 0 OR instr(lower(em.from_address), ?) > 0))
+  OR EXISTS (SELECT 1 FROM messages m WHERE (m.channel_id = t.channel_id OR m.id = c.parent_message_id)
+    AND m.deleted_at IS NULL AND instr(lower(m.content), ?) > 0))`
+
 export async function listMailThreads(
   env: L4Env,
-  input: { mailboxId: string; userId: string; folder: MailFolder; before?: unknown },
+  input: { mailboxId: string; userId: string; folder: MailFolder; before?: unknown; search?: string | null },
 ): Promise<MailThreadPageDTO> {
   const { filter, sortAt } = folderQuery(input.folder)
   const cursor = parseMailCursor(input.before)
+  const search = mailSearchTerm(input.search)
   // The preview is the conversation's latest reply, or the message that started
   // it, which lives in the mailbox. Two lookups keep both on their indexes.
   const rows = await env.DB.prepare(
@@ -54,13 +74,13 @@ export async function listMailThreads(
        )
        LEFT JOIN email_messages pe ON pe.message_id = p.id
        LEFT JOIN channel_reads r ON r.channel_id = t.channel_id AND r.user_id = ?
-       WHERE t.mailbox_channel_id = ? AND ${filter}
+       WHERE t.mailbox_channel_id = ? AND ${filter} AND ${searchFilter}
      )
      WHERE lastMessageAt IS NOT NULL
        AND (? IS NULL OR lastMessageAt < ? OR (lastMessageAt = ? AND channelId < ?))
      ORDER BY lastMessageAt DESC, channelId DESC LIMIT ?`,
   ).bind(
-    input.userId, input.mailboxId,
+    input.userId, input.mailboxId, ...Array.from({ length: 6 }, () => search),
     cursor?.at ?? null, cursor?.at ?? null, cursor?.at ?? null, cursor?.id ?? null,
     MAIL_THREAD_PAGE_SIZE + 1,
   ).all<Parameters<typeof mailThreadDto>[0]>()

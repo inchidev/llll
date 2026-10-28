@@ -50,6 +50,8 @@ export type CreateTaskInput = {
   environmentId?: string | null
   labelIds: string[]
   dependencyIds: string[]
+  /** The chat message this task comes from; the caller has checked the creator can read it. */
+  source?: { channelId: string; messageId: string } | null
 }
 
 export type UpdateTaskInput = {
@@ -145,6 +147,8 @@ export async function createTask(
     resultDetails: null,
     lastError: null,
     archivedAt: null,
+    sourceChannelId: input.source?.channelId ?? null,
+    sourceMessageId: input.source?.messageId ?? null,
     createdAt: now,
     updatedAt: now,
   }
@@ -153,7 +157,7 @@ export async function createTask(
     ...[...new Set(input.labelIds)].map(labelId => db.insert(taskLabelLinks).values({ taskId: id, labelId })),
     ...[...new Set(input.dependencyIds)].map(dependsOnTaskId => db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId, createdAt: now })),
   ])
-  await writeAudit(env, { serverId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId }, authorization })
+  await writeAudit(env, { serverId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId, ...(input.source ? { sourceChannelId: input.source.channelId, sourceMessageId: input.source.messageId } : {}) }, authorization })
   schedule(signalTasksChanged(env, boardId, id))
   return filterTaskDependencies(env, authorization, (await loadTaskDetail(env, id))!)
 }

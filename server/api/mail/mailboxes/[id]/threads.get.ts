@@ -10,5 +10,6 @@ export default defineEventHandler(async (event): Promise<MailThreadPageDTO> => {
   const query = getQuery(event)
   // `status` is the folder: a thread status, or Sent.
   const folder = isMailFolder(query.status) ? query.status : 'inbox'
-  return listMailThreads(cf(event).env, { mailboxId: access.mailboxId, userId: access.user.id, folder, before: query.before })
+  // `q` searches this folder of this mailbox only; access was checked above.
+  return listMailThreads(cf(event).env, { mailboxId: access.mailboxId, userId: access.user.id, folder, before: query.before, search: typeof query.q === 'string' ? query.q : null })
 })

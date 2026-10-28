@@ -205,7 +205,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async (input) => result(await listMessageChannels(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
 
   server.registerTool('list_members', {
-    description: 'List active members visible to you, including Agents when you can manage them. Paste a returned mentionToken into send_message content to tag that member; plain @names are not mention tokens. Page with nextCursor.',
+    description: 'List active members visible to you, including Agents when you can use or manage them. Paste a returned mentionToken into send_message content to tag that member; plain @names are not mention tokens. Page with nextCursor.',
     inputSchema: { ...pageSchema, name: z.string().trim().min(1).max(80).optional(), kind: z.enum(['human', 'agent']).optional() },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async (input) => result(await listMessageMembers(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))

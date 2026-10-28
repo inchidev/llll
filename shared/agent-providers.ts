@@ -6,7 +6,8 @@ export const providerNames: Record<AgentProviderId, string> = { openrouter: 'Ope
 export const agentConnectionId = z.string().regex(/^[a-z0-9-]{1,64}$/u)
 export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160), label: z.string().max(200).optional(), tools: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
 export const agentProviderSchema = z.object({
-  kind: z.enum(agentProviderIds).optional(), name: z.string().trim().min(1).max(80).optional(),
+  // An empty connection name falls back to the provider name; the field shows that name rather than a placeholder.
+  kind: z.enum(agentProviderIds).optional(), name: z.string().trim().max(80, 'Connection name must be 80 characters or fewer').optional(),
   enabled: z.boolean(), webSearch: z.boolean().default(false),
   apiKey: z.string().trim().min(1).max(4000).optional(), models: z.array(agentModelSchema).max(200),
 })

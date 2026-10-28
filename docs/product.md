@@ -39,6 +39,10 @@ Inbox is the first rail section and the one place to catch up. It lists only wha
 
 The rail badge counts approvals and mentions only, so standing work does not keep it lit. Unread mail is listed per Mailbox; individual Email Conversations stay in Mail.
 
+Mail sends a push notification for each new email that lands in a Mailbox's Inbox to every human who holds a grant on that Mailbox and Read or Send email (or is the Owner); the grant is checked again at delivery. Mail filed as Spam or Trash stays quiet. Each Mail folder can be searched by subject, address, sender name and the text of emails and internal notes. New emails and replies support Cc and Bcc (Bcc stays out of the conversation's participants), and Forward opens a new email quoting the original. Forwarding does not copy attachments; outbound attachments, HTML composition, drafts and signatures are not supported yet.
+
+Messages in Channels, Direct Messages and Threads offer **Create task**. It opens the Task form prefilled from the message, and the saved Task links back to it. The message then shows the Task to anyone who can read that Task; people who cannot read the source conversation see only that the Task came from a message. Deleting the message keeps the Task and shows the source as deleted.
+
 ## Deployment boundary
 
 The normal topology is an independent Server with an optional Shell. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; the Server owns local identity and routing. See [the architecture decision](adr/0003-server-schema-lineage.md).

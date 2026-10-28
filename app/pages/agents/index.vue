@@ -17,7 +17,7 @@ const editorOpen = ref(false)
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
-    <LayoutPageHeader title="Agents" icon="i-ph-robot"><template #actions><UButton v-if="can(Permission.manageAgents)" label="Create agent" icon="i-ph-plus" @click="nav.createAgentOpen.value = true" /></template></LayoutPageHeader>
+    <LayoutPageHeader title="Agents" icon="i-ph-robot"><template #actions><UButton to="/runs" label="Runs" icon="i-ph-list-bullets" color="neutral" variant="ghost" /><UButton v-if="can(Permission.manageAgents)" label="Create agent" icon="i-ph-plus" @click="nav.createAgentOpen.value = true" /></template></LayoutPageHeader>
     <main class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-8">
       <div class="mx-auto max-w-3xl">
         <h2 class="text-xl font-semibold text-highlighted">Work with an agent</h2><p class="mt-1 text-sm text-muted">Start a private conversation with an agent in this Server.</p>

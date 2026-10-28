@@ -38,7 +38,9 @@ const roleItems = computed(() => [
   ...(roles.data.value?.roles ?? []).filter(role => !['owner', 'member'].includes(role.key)).map(role => ({ value: role.id, label: role.key === 'admin' ? 'Admin' : role.name, description: agentRoleSummary(role) })),
 ])
 const saving = ref(false)
-const busy = computed(() => saving.value)
+const deleting = ref(false)
+const confirmDelete = ref(false)
+const busy = computed(() => saving.value || deleting.value)
 const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
 
@@ -113,6 +115,27 @@ watch([open, () => props.agent], ([visible, agent]) => {
   if (agent) selectAgent(agent)
   else createAgent()
 }, { immediate: true })
+
+/** Deleting keeps messages, Runs and audit history; it stops all new work as this Agent. */
+async function deleteAgent() {
+  const agent = selectedAgent.value
+  if (!agent || deleting.value) return
+  deleting.value = true
+  try {
+    const result = await api<{ cancelledRuns: number; unassignedTasks: number }>(`/api/servers/${props.serverId}/agents/${agent.id}`, { method: 'DELETE' })
+    confirmDelete.value = false
+    open.value = false
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['boards', props.serverId] }),
+    ])
+    const stopped = [result.cancelledRuns ? `${result.cancelledRuns} run${result.cancelledRuns === 1 ? '' : 's'} stopped` : '', result.unassignedTasks ? `${result.unassignedTasks} task${result.unassignedTasks === 1 ? '' : 's'} unassigned` : ''].filter(Boolean).join(', ')
+    toast.add({ title: `${agent.displayName} deleted`, description: stopped || undefined, color: 'success' })
+  }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { deleting.value = false }
+}
 
 async function saveAgent(event: FormSubmitEvent<AgentForm>) {
   if (busy.value) return
@@ -258,10 +281,22 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 
 
 
-      <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="open = false" />
+      <div class="flex justify-end gap-2"><UButton v-if="selectedAgent && can(Permission.manageAgents)" label="Delete agent" color="error" variant="ghost" icon="i-ph-trash" class="me-auto" :disabled="busy" @click="confirmDelete = true" /><UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="open = false" />
       <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && (providers.isPending.value || modelRequired)" />
       </div>
     </UForm>
     </template>
   </SettingsEditor>
+  <UModal v-model:open="confirmDelete" :title="`Delete ${selectedAgent?.displayName || 'agent'}?`" :dismissible="!deleting">
+    <template #body>
+      <div class="space-y-2 text-sm text-muted">
+        <p>The agent leaves this Server and stops all work: queued and running Runs are cancelled, its Schedules stop and its MCP connections are revoked. Open Tasks assigned to it become unassigned.</p>
+        <p>Its messages, Direct Messages, Run history and audit entries stay. This cannot be undone.</p>
+      </div>
+    </template>
+    <template #footer>
+      <UButton label="Cancel" color="neutral" variant="ghost" :disabled="deleting" @click="confirmDelete = false" />
+      <UButton label="Delete agent" color="error" :loading="deleting" @click="deleteAgent" />
+    </template>
+  </UModal>
 </template>

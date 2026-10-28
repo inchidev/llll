@@ -3,6 +3,7 @@ export default defineNuxtPlugin(async () => {
   const { api, native, serverOrigin } = useApi()
   if (session.ready) return
   if (import.meta.client && native && !serverOrigin.value) return
-  const fetcher = import.meta.client && native ? api : asSessionFetcher(useRequestFetch())
+  // Typed separately: inferring one union of both route-typed fetchers exceeds TypeScript's instantiation depth.
+  const fetcher = import.meta.client && native ? asSessionFetcher(api) : asSessionFetcher(useRequestFetch() as unknown)
   await session.refresh(fetcher)
 })

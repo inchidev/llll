@@ -16,7 +16,7 @@ Connect as **yourself** and approve `messages:read` and `messages:write`. Existi
 
 1. Use `list_channels` to find accessible chat channels, DMs and threads. Results include IDs, DM participants, frozen state and whether you can send. Email mailboxes and task discussions stay in their own navigation and are not included in this listing.
 2. Use `list_messages` with `channelId` to read up to 50 messages per page. Each page is chronological; `nextCursor` reads older messages. Reading does not mark the conversation as read. Deleted bodies stay redacted.
-3. Use `list_members` to find a participant or Agent and its `mentionToken`, such as `<@00000000-0000-4000-8000-000000000002>`.
+3. Use `list_members` to find a participant or Agent and its `mentionToken`, such as `<@00000000-0000-4000-8000-000000000002>`. Agents are listed when you can use or manage them (Use agents or Manage agents in your Role, or Use agents in a Project policy), the same rule as the interface's member list.
 4. Call `send_message` with `channelId` and `content` (up to 2,000 characters). Include mention tokens in the content to tag members. `replyToId` must belong to the same channel. Every call sends a new message, so do not retry an uncertain send blindly.
 
 The sender is the connected Member; clients cannot choose another author. HTTP and MCP share the same message service, private-channel/DM membership, inherited thread access, channel Role overrides and frozen-DM rules. A channel override or DM participation can allow sending even when the global Role does not. Messages use the interface's notifications, read receipts, realtime fanout and Agent dispatch. OAuth audit attribution is stored in the same transaction as the message.

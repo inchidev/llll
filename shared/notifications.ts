@@ -1,4 +1,4 @@
-export const notificationKinds = ['mention', 'dm_message', 'live_started'] as const
+export const notificationKinds = ['mention', 'dm_message', 'live_started', 'mail'] as const
 
 export type NotificationKind = typeof notificationKinds[number]
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
-import type { ChannelThreadDTO, MemberDTO, MessageDTO } from '~~/shared/types'
+import type { ChannelThreadDTO, MemberDTO, MessageDTO, TaskSourceLinkDTO } from '~~/shared/types'
 import { formatFullDateTime, formatMessageTime, formatTime } from '~~/shared/format'
 import { emojiName, isJumboEmoji } from '~~/shared/emoji'
 import AttachmentGallery from '~/features/attachments/components/AttachmentGallery.vue'
@@ -8,6 +8,8 @@ import AttachmentGallery from '~/features/attachments/components/AttachmentGalle
 const props = defineProps<{
   message: MessageDTO
   thread?: ChannelThreadDTO
+  /** Tasks created from this message that the viewer can read. */
+  taskLinks?: TaskSourceLinkDTO[]
   names: Record<string, string>
   member?: MemberDTO
   mine: boolean
@@ -237,6 +239,12 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             <ChatEmojiPicker @select="react" />
           </template>
         </UPopover>
+      </div>
+      <div v-if="taskLinks?.length && !contextOnly" class="mt-1 flex flex-wrap gap-1.5">
+        <NuxtLink v-for="link in taskLinks" :key="link.taskId" :to="`/tasks?task=${link.number}`" class="inline-flex max-w-full items-center gap-1 rounded-md border border-default bg-elevated px-2 py-0.5 text-xs text-muted hover:border-accented hover:text-default">
+          <UIcon name="i-ph-kanban" class="size-3.5 shrink-0" />
+          <span class="truncate">Task #{{ link.number }} · {{ link.title }}</span>
+        </NuxtLink>
       </div>
       <div v-if="message.threadId && !contextOnly" class="relative mt-1 max-w-xl ps-6">
         <!-- Connector: drops from under the message and curves into the card's middle. -->

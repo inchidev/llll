@@ -7,6 +7,7 @@ import { sniffMime } from '../shared/mime'
 import { plainMailBody } from '../shared/mail-content'
 import type { L4Env } from './env'
 import { signalMailChanged } from './mail-events'
+import { mailNotificationStatement, signalNotificationOutbox } from './notifications'
 
 type MailboxRow = {
   channelId: string
@@ -261,6 +262,18 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   }
   catch {
     // The email is stored; open mail views still pick it up on their next refresh.
+  }
+  try {
+    // Mail filed as Spam or Trash stays quiet, like the Inbox folder that would not list it.
+    const listed = await env.DB.prepare("SELECT 1 AS inbox FROM email_threads WHERE channel_id = ? AND status = 'inbox'").bind(threadChannelId).first()
+    const push = listed ? await mailNotificationStatement(env, { messageId, mailboxId: mailbox.channelId, threadId: threadChannelId, subject, fromName: from.name || null, fromAddress: from.address, content: body }) : null
+    if (push) {
+      await push.run()
+      await signalNotificationOutbox(env)
+    }
+  }
+  catch {
+    // Push is optional; the email is stored and listed either way.
   }
   return { accepted: true }
 }

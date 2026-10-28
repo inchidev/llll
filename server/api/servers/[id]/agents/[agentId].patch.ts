@@ -12,6 +12,7 @@ import { parseBody } from '../../../../utils/validate'
 import { assertRoleAssignable, assertRoleManageable } from '../../../../utils/role-policy'
 import { revalidateLiveRooms } from '../../../../utils/live'
 import { signalMembersChanged } from '../../../../../workers/member-events'
+import { assertAgentModelSupportsTools } from '../../../../utils/agent-model-options'
 import { assertAgentNameAvailable } from '../../../../utils/member-names'
 
 const bodySchema = z.object({
@@ -48,6 +49,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     assertRoleAssignable(actor, nextRole)
   }
   if (body.displayName !== undefined && body.displayName !== current.user.displayName) await assertAgentNameAvailable(env, body.displayName, agentId)
+  if (body.model !== undefined && body.model !== current.profile.model) await assertAgentModelSupportsTools(env, body.model)
   const roleId = body.roleId ?? current.user.roleId
   const roleChanged = roleId !== current.user.roleId
   const harness = 'pi'

@@ -10,6 +10,7 @@ import type {
   TaskDetailDTO,
   TaskLabelDTO,
   TaskDTO,
+  TaskMessageDraftDTO,
   TaskPriority,
   TaskStatus,
 } from '~~/shared/types'
@@ -28,6 +29,9 @@ const startingRun = ref(false)
 async function runTask(task: TaskDetailDTO) {
   if (startingRun.value || !task.assigneeId) return
   startingRun.value = true
+  // Starting from the task dialog: if it is closed (Escape) while the Run is admitted,
+  // stay on the board instead of navigating away from where the person now is.
+  const openedFrom = selectedTaskId.value
   try {
     let channelId = task.channelId || task.discussionChannelId
     if (!channelId) {
@@ -40,6 +44,10 @@ async function runTask(task: TaskDetailDTO) {
       agentId: task.assigneeId, taskId: task.id, channelId,
       prompt: `${task.title}\n\n${task.description}`, idempotencyKey: crypto.randomUUID(),
     } })
+    if (openedFrom && selectedTaskId.value !== openedFrom) {
+      toast.add({ title: 'Agent run started', color: 'success', actions: [{ label: 'Open run', onClick: () => { void navigateTo(`/runs/${result.run.id}`) } }] })
+      return
+    }
     await navigateTo(`/runs/${result.run.id}`)
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { startingRun.value = false }
@@ -76,9 +84,13 @@ const selectedBoardId = computed({
   get: () => String(route.query.board || '') || null,
   set: value => void navigateTo(boardPath(value, showArchived.value)),
 })
+/**
+ * The open task is `?task=` on the board. Closing it (including Escape on a deep link)
+ * always lands on this board with the rest of the query intact, never on another page.
+ */
 const selectedTaskId = computed({
   get: () => String(route.query.task || '') || null,
-  set: value => void navigateTo({ query: { ...route.query, task: value || undefined } }),
+  set: value => void navigateTo({ path: '/tasks', query: { ...route.query, task: value || undefined } }),
 })
 const taskSearch = ref('')
 const showBoardForm = ref(false)
@@ -404,7 +416,29 @@ function deleteBoard() {
 function openCreateTask() {
   Object.assign(newTask, { title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
   newTask.projectId = String(route.query.project || '') || null
+  sourceDraft.value = null
   showTaskForm.value = true
+}
+
+/** "Create task" on a chat message opens `/tasks?fromMessage=<id>`: the form is prefilled from it. */
+const sourceDraft = shallowRef<TaskMessageDraftDTO | null>(null)
+watch(() => route.query.fromMessage, async (messageId) => {
+  if (typeof messageId !== 'string' || !messageId) return
+  try {
+    const { draft } = await api<{ draft: TaskMessageDraftDTO }>(`/api/messages/${messageId}/task-draft`)
+    openCreateTask()
+    Object.assign(newTask, { title: draft.title, description: draft.description })
+    sourceDraft.value = draft
+  }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { void navigateTo({ path: '/tasks', query: { ...route.query, fromMessage: undefined } }, { replace: true }) }
+}, { immediate: true })
+
+function changeNewTaskBoard(value: string | number | undefined) {
+  if (!value || value === activeBoard.value?.id) return
+  // Labels and dependencies belong to a board.
+  newTask.labelIds = []; newTask.dependencyIds = []
+  selectedBoardId.value = String(value)
 }
 
 async function createTask(runAfter = false) {
@@ -414,9 +448,10 @@ async function createTask(runAfter = false) {
   const ok = await mutate(async () => {
     const res = await api<{ task: TaskDetailDTO }>(`/api/boards/${boardId}/tasks`, {
       method: 'POST',
-      body: { ...newTask, dueAt: toIso(newTask.dueAt) },
+      body: { ...newTask, dueAt: toIso(newTask.dueAt), sourceMessageId: sourceDraft.value?.messageId },
     })
     created = res.task
+    if (sourceDraft.value) void qc.invalidateQueries({ queryKey: ['task-links'] })
     const { checklist: _checklist, attachments: _attachments, ...task } = res.task
     qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', serverId.value, false] }, old => old
       ? { boards: old.boards.map(board => board.id === boardId ? { ...board, tasks: [...board.tasks, task] } : board) }
@@ -658,6 +693,8 @@ const boardMenu = computed(() => [[
     <UModal v-model:open="showTaskForm" title="Create task" :ui="{ content: 'sm:max-w-2xl' }">
       <template #body>
         <div class="grid gap-4 sm:grid-cols-2">
+          <p v-if="sourceDraft" class="flex items-center gap-2 text-sm text-muted sm:col-span-2"><UIcon name="i-ph-chat-circle-text" class="size-4 shrink-0" />From a message{{ sourceDraft.authorName ? ` by ${sourceDraft.authorName}` : '' }} in {{ sourceDraft.channelName }}. The task links back to it.</p>
+          <UFormField v-if="sourceDraft" label="Board" class="sm:col-span-2"><USelect :model-value="activeBoard?.id" :items="boardOptions" class="w-full" @update:model-value="changeNewTaskBoard" /></UFormField>
           <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
           <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
@@ -718,6 +755,14 @@ const boardMenu = computed(() => [[
         <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
         <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
         <fieldset v-else-if="selectedTask" :disabled="!can(Permission.writeTasks, selectedTask.projectId)" class="space-y-8 min-w-0">
+          <section v-if="selectedTask.source" class="rounded-lg border border-default p-3 text-sm" aria-label="Task source">
+            <template v-if="selectedTask.source.state === 'available'">
+              <p class="text-muted">Created from a message{{ selectedTask.source.authorName ? ` by ${selectedTask.source.authorName}` : '' }} in <ULink :to="selectedTask.source.path" class="text-primary">{{ selectedTask.source.channelName }}</ULink></p>
+              <p class="mt-1 line-clamp-3 text-default">{{ selectedTask.source.excerpt }}</p>
+            </template>
+            <p v-else-if="selectedTask.source.state === 'deleted'" class="text-muted">Created from a message in <ULink :to="selectedTask.source.path" class="text-primary">{{ selectedTask.source.channelName }}</ULink>. The message was deleted.</p>
+            <p v-else class="text-muted">Created from a message in a conversation you cannot open.</p>
+          </section>
           <section class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Title" class="sm:col-span-2"><UInput v-model="editTask.title" class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
             <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="editTask.description" :rows="5" autoresize class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { newId, nowIso } from '../../../../../shared/ids'
 import type { MailMessageDTO, MailThreadDTO } from '../../../../../shared/types'
-import { mergeMailAddresses } from '../../../../../shared/mail'
+import { MAIL_LIMITS, outboundRecipients } from '../../../../../shared/mail'
 import { requireMailboxPermission, requireMailSendLimit } from '../../../../utils/server-mail'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
@@ -13,6 +13,8 @@ import { signalMailChanged } from '../../../../../workers/mail-events'
 
 const schema = z.object({
   to: z.array(z.string().trim().email().max(254)).min(1).max(50),
+  cc: z.array(z.string().trim().email().max(254)).max(50).default([]),
+  bcc: z.array(z.string().trim().email().max(254)).max(50).default([]),
   subject: z.string().trim().min(1).max(500).transform(value => value.replace(/[\r\n]+/gu, ' ').trim()),
   content: z.string().trim().min(1).max(100_000),
   /** Set by the client for each email, so retrying one is not emailed twice. */
@@ -37,8 +39,9 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
        FROM email_mailboxes mb JOIN email_domains d ON d.id = mb.domain_id WHERE mb.channel_id = ?`,
     ).bind(mailboxId).first<{ address: string; displayName: string }>()
     if (!mailbox) fail(404, 'not_found', 'Mailbox not found')
-    const recipients = mergeMailAddresses(body.to).filter(value => value !== mailbox.address)
+    const { to: recipients, cc, bcc, total } = outboundRecipients(body, mailbox.address)
     if (!recipients.length) fail(400, 'bad_request', 'Enter at least one external recipient')
+    if (total > MAIL_LIMITS.addresses) fail(400, 'bad_request', `An email can have at most ${MAIL_LIMITS.addresses} recipients`)
     const created = nowIso()
     messageId = newId()
     threadId = newId()
@@ -55,13 +58,14 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
         env.DB.prepare(
           `INSERT INTO email_threads (channel_id, mailbox_channel_id, subject, status, participants_json, last_message_at, created_at, updated_at)
            VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?)`,
-        ).bind(threadId, mailboxId, body.subject, JSON.stringify(recipients), created, created, created),
+        // Bcc recipients stay out of the conversation's visible participants.
+        ).bind(threadId, mailboxId, body.subject, JSON.stringify([...recipients, ...cc]), created, created, created),
         env.DB.prepare(
           `INSERT INTO email_messages
            (message_id, thread_channel_id, mailbox_channel_id, direction, from_address, from_name, to_json, cc_json, bcc_json,
             rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at)
-           VALUES (?, ?, ?, 'outbound', ?, ?, ?, '[]', '[]', NULL, NULL, '[]', 'pending', NULL, ?, ?)`,
-        ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), body.clientId ?? null, created),
+           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, NULL, NULL, '[]', 'pending', NULL, ?, ?)`,
+        ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), JSON.stringify(cc), JSON.stringify(bcc), body.clientId ?? null, created),
       ])
     }
     catch (error) {

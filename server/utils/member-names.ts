@@ -11,6 +11,18 @@ export async function assertAgentNameAvailable(env: L4Env, displayName: string, 
   if (taken) fail(409, 'name_taken', 'Another member already uses this name. Choose a distinct name for the agent.')
 }
 
+/**
+ * The reverse rule: a person cannot take an active Agent's name, or their messages
+ * would read as the Agent's. People may still share names with each other.
+ */
+export async function assertHumanNameAvailable(env: L4Env, displayName: string, userId: string) {
+  const name = displayName.trim().toLowerCase()
+  const taken = await env.DB.prepare(`SELECT 1 AS taken FROM users WHERE kind='agent' AND status<>'removed' AND id<>?
+    AND (lower(trim(display_name))=? OR lower(trim(COALESCE(nickname,'')))=?) LIMIT 1`)
+    .bind(userId, name, name).first<{ taken: number }>()
+  if (taken) fail(409, 'name_taken', 'An agent already uses this name. Choose a different display name.')
+}
+
 /** Replaces `<@id>` tokens with `@Name`, as people see them in chat. Unknown IDs stay as tokens. */
 export async function readableMentions(env: L4Env, texts: string[]): Promise<string[]> {
   const ids = [...new Set(texts.flatMap(extractMentionIds))]

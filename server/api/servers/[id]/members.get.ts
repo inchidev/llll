@@ -6,7 +6,7 @@ import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { toPublicUser } from '../../../utils/messages'
 import { loadProjectPolicies } from '../../../utils/project-policies'
-import { anyProjectPermission, projectPermissionAllowed } from '../../../../shared/project-access'
+import { canViewAgentMembers, projectPermissionAllowed } from '../../../../shared/project-access'
 import { parseResourceAccess } from '../../../../shared/resource-access'
 
 export default defineEventHandler(async (event) => {
@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const canViewRoleDetails = actor.isOwner
     || hasPermission(actor.perms, Permission.manageRoles)
     || hasPermission(actor.perms, Permission.manageChannels)
-  const canViewAgents = actor.isOwner || (hasPermission(actor.perms, Permission.useAgents) || hasPermission(actor.perms, Permission.manageAgents)) || anyProjectPermission(actor.authorization, Permission.useAgents)
+  const canViewAgents = canViewAgentMembers(actor.authorization)
 
   const rows = await db.select({
     user: users,
