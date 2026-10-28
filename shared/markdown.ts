@@ -91,6 +91,9 @@ function inline(src: string): string {
   return out.replace(SLOT, (_m, index: string) => slots[Number(index)] ?? '')
 }
 
+/** One line of inline formatting (emphasis, code, links), escaped. Used by mail composition. */
+export { inline as renderInlineMarkdown }
+
 export function renderMarkdown(src: string, names?: Record<string, string>): string {
   const fences: string[] = []
   // `>>> ` quotes everything after it, like Discord.

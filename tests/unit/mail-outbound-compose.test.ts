@@ -304,3 +304,35 @@ describe('drafts', () => {
     expect(sqlite.prepare('SELECT count(*) AS n FROM mail_drafts').get()).toEqual({ n: 0 })
   })
 })
+
+describe('formatted email', () => {
+  it('sends sanitized HTML with a text alternative and shows the text in the conversation', async () => {
+    state.body = { to: ['customer@example.net'], subject: 'Quote', content: 'Hi **Ann**\n\n<script>x</script> [terms](https://example.com/terms)', format: 'markdown' }
+    const { message, thread } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    const sent = send.mock.calls[0]![0] as { html: string; text: string }
+    expect(sent.html).toContain('<p>Hi <strong>Ann</strong></p>')
+    expect(sent.html).toContain('&lt;script&gt;x&lt;/script&gt;')
+    expect(sent.html).not.toContain('<script>')
+    expect(sent.text).toBe('Hi Ann\n\n<script>x</script> terms [https://example.com/terms]')
+    expect(message.content).toBe(sent.text)
+    expect(message.email.format).toBe('markdown')
+    expect(thread.preview).toBe(sent.text)
+    expect(sqlite.prepare('SELECT content FROM messages').get()).toEqual({ content: state.body.content })
+  })
+
+  it('keeps plain text mail as typed, without an HTML part', async () => {
+    state.body = { to: ['customer@example.net'], subject: 'Plain', content: 'Use **stars** and <b>tags</b> literally' }
+    const { message } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    expect(send.mock.calls[0]![0]).not.toHaveProperty('html')
+    expect(send.mock.calls[0]![0].text).toBe(state.body.content)
+    expect(message.content).toBe(state.body.content)
+  })
+
+  it('formats a reply the same way', async () => {
+    state.body = { to: ['customer@example.net'], subject: 'Quote', content: 'Hello' }
+    const { threadId } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    state.body = { to: ['customer@example.net'], content: '- one\n- two', format: 'markdown' }
+    await call('../../server/api/mail/threads/[id]/reply.post', threadId)
+    expect(send.mock.calls[1]![0]).toMatchObject({ text: ' * one\n * two', html: expect.stringContaining('<ul><li>one</li><li>two</li></ul>') })
+  })
+})

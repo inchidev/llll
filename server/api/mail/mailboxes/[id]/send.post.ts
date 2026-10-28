@@ -20,6 +20,8 @@ const schema = z.object({
   bcc: z.array(z.string().trim().email().max(254)).max(50).default([]),
   subject: z.string().trim().min(1).max(500).transform(value => value.replace(/[\r\n]+/gu, ' ').trim()),
   content: z.string().trim().min(1).max(100_000),
+  /** `markdown` sends sanitized HTML with a text/plain alternative. */
+  format: z.enum(['text', 'markdown']).default('text'),
   /** Your own uploads from this mailbox, attached in this order. */
   attachmentIds: z.array(z.string().trim().min(1).max(80)).max(MAIL_OUTBOUND_LIMITS.attachments).default([]),
   /** The draft this email was written in; it is removed once the email is saved. */
@@ -73,9 +75,9 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
         env.DB.prepare(
           `INSERT INTO email_messages
            (message_id, thread_channel_id, mailbox_channel_id, direction, from_address, from_name, to_json, cc_json, bcc_json,
-            rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at)
-           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, NULL, NULL, '[]', 'pending', NULL, ?, ?)`,
-        ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), JSON.stringify(cc), JSON.stringify(bcc), body.clientId ?? null, created),
+            rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at, body_format)
+           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, NULL, NULL, '[]', 'pending', NULL, ?, ?, ?)`,
+        ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), JSON.stringify(cc), JSON.stringify(bcc), body.clientId ?? null, created, body.format),
         ...attachMailStatements(env, files, messageId, mailboxId),
         ...draftStatements,
       ])

@@ -48,6 +48,11 @@ const composeBcc = ref('')
 const composeCopies = ref(false)
 const composeFiles = ref<AttachmentDTO[]>([])
 const replyFiles = ref<AttachmentDTO[]>([])
+/** Formatted mail is written in Markdown and sent as sanitized HTML with a text part. */
+const composeFormat = ref<'text' | 'markdown'>('text')
+const replyFormat = ref<'text' | 'markdown'>('text')
+const composeField = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
+const replyField = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 const uploadingFiles = ref(0)
 /** Searches the open folder of this mailbox. */
 const searchInput = ref('')
@@ -153,10 +158,10 @@ function replyDraftBody(threadId: string): MailDraftBody | null {
   if (!draft.value.trim() && !replyFiles.value.length) return null
   return {
     threadId, to: typedAddresses(replyTo.value), cc: typedAddresses(replyCc.value), bcc: typedAddresses(replyBcc.value),
-    subject: '', content: draft.value, format: 'text', attachmentIds: replyFiles.value.map(file => file.id),
+    subject: '', content: draft.value, format: replyFormat.value, attachmentIds: replyFiles.value.map(file => file.id),
   }
 }
-watch([draft, replyTo, replyCc, replyBcc, replyFiles], () => {
+watch([draft, replyTo, replyCc, replyBcc, replyFiles, replyFormat], () => {
   const threadId = activeThreadId.value
   if (!threadId || !canSend.value || composerMode.value !== 'reply') return
   if (replyDraftBody(threadId) || replySaver.savedId.value) replySaver.schedule(() => replyDraftBody(threadId))
@@ -170,6 +175,7 @@ function restoreReplyDraft() {
   composerMode.value = 'reply'
   draft.value = saved.content
   replyFiles.value = saved.attachments
+  replyFormat.value = saved.format
   if (saved.to.length) { replyTo.value = saved.to.join(', '); replyToEdited.value = true }
   replyCc.value = saved.cc.join(', ')
   replyBcc.value = saved.bcc.join(', ')
@@ -201,6 +207,7 @@ watch(activeThreadId, () => {
   replyBcc.value = ''
   replyCopies.value = false
   replyFiles.value = []
+  replyFormat.value = 'text'
   restoreReplyDraft()
 })
 watch(folder, () => { searchInput.value = '' })
@@ -278,7 +285,10 @@ async function send() {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
       body: mode === 'reply'
-        ? { content, clientId: key, to: replyAddresses.value, cc: addressesIn(replyCc.value), bcc: addressesIn(replyBcc.value), attachmentIds: files.map(file => file.id), draftId: draftId ?? undefined }
+        ? {
+            content, format: replyFormat.value, clientId: key, to: replyAddresses.value, cc: addressesIn(replyCc.value), bcc: addressesIn(replyBcc.value),
+            attachmentIds: files.map(file => file.id), draftId: draftId ?? undefined,
+          }
         : { content },
     })
     replyKey.value = newRequestKey()
@@ -357,7 +367,7 @@ async function compose() {
     const result = await api<{ threadId: string; thread: MailThreadDTO; message: MailMessageDTO }>(`/api/mail/mailboxes/${mailboxId}/send`, {
       method: 'POST',
       body: {
-        to, cc: addressesIn(composeCc.value), bcc: addressesIn(composeBcc.value), subject: composeSubject.value.trim(), content: composeBody.value.trim(),
+        to, cc: addressesIn(composeCc.value), bcc: addressesIn(composeBcc.value), subject: composeSubject.value.trim(), content: composeBody.value.trim(), format: composeFormat.value,
         attachmentIds: composeFiles.value.map(file => file.id), draftId: draftId ?? undefined, clientId: composeKey.value,
       },
     })
@@ -388,6 +398,7 @@ async function forward(message: MailMessageDTO) {
   composeSubject.value = forwarded.subject
   composeBody.value = forwarded.body
   composeFiles.value = []
+  composeFormat.value = 'text'
   composeKey.value = newRequestKey()
   nav.composeOpen.value = true
   if (!message.attachments.length) return
@@ -407,10 +418,10 @@ function composeDraftBody(): MailDraftBody | null {
   const empty = !composeTo.value.trim() && !composeCc.value.trim() && !composeBcc.value.trim() && !composeSubject.value.trim() && !composeBody.value.trim() && !composeFiles.value.length
   return empty ? null : {
     threadId: null, to: typedAddresses(composeTo.value), cc: typedAddresses(composeCc.value), bcc: typedAddresses(composeBcc.value),
-    subject: composeSubject.value, content: composeBody.value, format: 'text', attachmentIds: composeFiles.value.map(file => file.id),
+    subject: composeSubject.value, content: composeBody.value, format: composeFormat.value, attachmentIds: composeFiles.value.map(file => file.id),
   }
 }
-watch([composeTo, composeCc, composeBcc, composeSubject, composeBody, composeFiles], () => {
+watch([composeTo, composeCc, composeBcc, composeSubject, composeBody, composeFiles, composeFormat], () => {
   if (nav.composeOpen.value && canSend.value) composeSaver.schedule(composeDraftBody)
 })
 function clearCompose() {
@@ -421,6 +432,7 @@ function clearCompose() {
   composeBody.value = ''
   composeCopies.value = false
   composeFiles.value = []
+  composeFormat.value = 'text'
 }
 /** Closing the new email keeps it in Drafts; the next one starts empty. */
 watch(() => nav.composeOpen.value, (open) => {
@@ -441,6 +453,7 @@ function openDraft(item: MailDraftDTO) {
   composeSubject.value = item.subject
   composeBody.value = item.content
   composeFiles.value = item.attachments
+  composeFormat.value = item.format
   composeKey.value = newRequestKey()
   nav.composeOpen.value = true
 }
@@ -633,7 +646,8 @@ const deliveryBadge = {
               <UFormField label="Cc"><UInput v-model="replyCc" class="w-full" /></UFormField>
               <UFormField label="Bcc" hint="Hidden from other recipients"><UInput v-model="replyBcc" class="w-full" /></UFormField>
             </div>
-            <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
+            <MailFormatBar v-if="composerMode === 'reply'" v-model="draft" v-model:format="replyFormat" :field="replyField" class="mb-1" />
+            <UTextarea ref="replyField" v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
             <div class="mt-2 flex items-start justify-between gap-2">
               <MailAttachments v-if="composerMode === 'reply' && activeMailboxId" v-model="replyFiles" v-model:uploading="uploadingFiles" :mailbox-id="activeMailboxId" :available="filesAvailable" class="min-w-0" />
               <UButton v-if="composerMode === 'reply' && (replySaver.savedId.value || draft.trim())" label="Discard" size="sm" color="neutral" variant="ghost" class="ms-auto shrink-0" @click="discardReply" />
@@ -664,7 +678,10 @@ const deliveryBadge = {
             <UFormField label="Bcc" hint="Hidden from other recipients"><UInput v-model="composeBcc" class="w-full" /></UFormField>
           </template>
           <UFormField label="Subject"><UInput v-model="composeSubject" class="w-full" /></UFormField>
-          <UFormField label="Message"><UTextarea v-model="composeBody" :rows="8" class="w-full" /></UFormField>
+          <UFormField label="Message">
+            <MailFormatBar v-model="composeBody" v-model:format="composeFormat" :field="composeField" class="mb-1" />
+            <UTextarea ref="composeField" v-model="composeBody" :rows="8" class="w-full" />
+          </UFormField>
           <MailAttachments v-if="activeMailboxId" v-model="composeFiles" v-model:uploading="uploadingFiles" :mailbox-id="activeMailboxId" :available="filesAvailable" />
         </div>
       </template>

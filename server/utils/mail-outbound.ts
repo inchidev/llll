@@ -2,6 +2,7 @@ import type { L4Env } from '../../workers/env'
 import { sendServerEmail, type ServerEmailAttachment } from '../../workers/mail-transport'
 import { fileStorage } from '../../shared/file-storage'
 import { MAIL_FILES_UNAVAILABLE, mailFilesAvailable } from '../../shared/mail-attachments'
+import { mailHtmlText, mailMarkdownHtml } from '../../shared/mail-html'
 import { mailAddressList, mailReplyRecipients, mailDeliveryUncertain } from '../../shared/mail'
 
 type OutboundRow = {
@@ -21,6 +22,7 @@ type OutboundRow = {
   createdAt: string
   content: string
   subject: string
+  bodyFormat: 'text' | 'markdown'
 }
 
 /** A single-line, bounded summary of a transport error, kept for the sender to see. */
@@ -41,7 +43,7 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
        em.from_address as fromAddress, em.from_name as fromName, em.to_json as toJson, em.cc_json as ccJson, em.bcc_json as bccJson,
        em.in_reply_to as inReplyTo, em.references_json as referencesJson,
        em.delivery_status as deliveryStatus, em.delivery_attempts as deliveryAttempts,
-       em.delivery_started_at as deliveryStartedAt, em.created_at as createdAt,
+       em.delivery_started_at as deliveryStartedAt, em.created_at as createdAt, em.body_format as bodyFormat,
        m.content, t.subject
      FROM email_messages em
      JOIN messages m ON m.id = em.message_id
@@ -65,13 +67,15 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
   let result: Awaited<ReturnType<typeof sendServerEmail>>
   try {
     const attachments = await outboundAttachments(env, messageId)
+    const html = row.bodyFormat === 'markdown' ? mailMarkdownHtml(row.content) : null
     result = await sendServerEmail(env, {
       from: row.fromName ? { email: row.fromAddress, name: row.fromName } : row.fromAddress,
       to: mailAddressList(row.toJson),
       ...(mailAddressList(row.ccJson).length ? { cc: mailAddressList(row.ccJson) } : {}),
       ...(mailAddressList(row.bccJson).length ? { bcc: mailAddressList(row.bccJson) } : {}),
       subject: isReply && !/^re:/iu.test(row.subject) ? `Re: ${row.subject}` : row.subject,
-      text: row.content,
+      // Formatted mail always carries a text/plain alternative.
+      ...(html ? { html, text: mailHtmlText(html) } : { text: row.content }),
       ...(attachments.length ? { attachments } : {}),
       headers: {
         ...(isRfcMessageId(row.inReplyTo) ? { 'In-Reply-To': row.inReplyTo } : {}),

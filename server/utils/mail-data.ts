@@ -4,6 +4,7 @@ import type { L4Env } from '../../workers/env'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO } from '../../shared/types'
 import { mailAddressList, mailDeliveryUncertain } from '../../shared/mail'
 import { readableMailContent } from '../../shared/mail-content'
+import { mailMarkdownText } from '../../shared/mail-html'
 import { getDb } from './db'
 import { hydrateMessages } from './messages'
 
@@ -19,7 +20,8 @@ export async function hydrateMailMessages(env: L4Env, rows: Array<typeof message
     const email = byId.get(message.id)
     return {
       ...message,
-      content: email?.direction === 'inbound' ? readableMailContent(message.content) : message.content,
+      // Mail is shown as text: inbound HTML and formatted outbound mail alike, then escaped by the view.
+      content: email?.direction === 'inbound' ? readableMailContent(message.content) : email?.bodyFormat === 'markdown' ? mailMarkdownText(message.content) : message.content,
       author: email?.direction === 'inbound'
         ? { ...message.author, displayName: email.fromName || email.fromAddress }
         : message.author,
@@ -35,6 +37,7 @@ export async function hydrateMailMessages(env: L4Env, rows: Array<typeof message
             deliveryStatus: email.deliveryStatus,
             deliveryError: email.deliveryError,
             deliveryUncertain: mailDeliveryUncertain(email),
+            format: email.bodyFormat,
           }
         : null,
     }
@@ -56,6 +59,7 @@ type ThreadRow = {
   lastMessageAt: string
   preview?: string
   previewInbound?: number | boolean
+  previewMarkdown?: number | boolean
   unread?: number
 }
 
@@ -66,7 +70,7 @@ export function mailThreadDto(row: ThreadRow): MailThreadDTO {
     subject: row.subject,
     status: row.status,
     participants: mailAddressList(row.participantsJson),
-    preview: (row.previewInbound ? readableMailContent(row.preview ?? '') : row.preview ?? '').slice(0, 240),
+    preview: (row.previewInbound ? readableMailContent(row.preview ?? '') : row.previewMarkdown ? mailMarkdownText((row.preview ?? '').slice(0, 2_000)) : row.preview ?? '').slice(0, 240),
     lastMessageAt: row.lastMessageAt,
     unread: Boolean(row.unread),
   }

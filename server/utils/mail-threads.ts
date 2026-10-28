@@ -63,7 +63,7 @@ export async function listMailThreads(
     `SELECT * FROM (
        SELECT t.channel_id as channelId, t.mailbox_channel_id as mailboxChannelId, t.subject, t.status,
          t.participants_json as participantsJson, ${sortAt} as lastMessageAt,
-         coalesce(p.content, '') as preview, pe.direction = 'inbound' as previewInbound,
+         coalesce(p.content, '') as preview, pe.direction = 'inbound' as previewInbound, pe.body_format = 'markdown' as previewMarkdown,
          CASE WHEN r.last_read_message_id IS NULL OR r.last_read_message_id <
            (SELECT max(em.message_id) FROM email_messages em WHERE em.thread_channel_id = t.channel_id AND em.direction = 'inbound')
            THEN 1 ELSE 0 END as unread
