@@ -356,7 +356,7 @@ export const agentTurns = sqliteTable('agent_turns', {
 export const serverSchema = sqliteTable('server_schema', {
   id: integer('id').primaryKey().default(1),
   version: text('version').notNull(),
-}, table => [check('server_schema_id_check', sql`${table.id} = 1`), check('server_schema_version_check', sql`${table.version} = 'server-v1'`)])
+}, table => [check('server_schema_id_check', sql`${table.id} = 1`), check('server_schema_version_check', sql`${table.version} = 'server-v2'`)])
 
 /** Private update journal; membership and Server content remain independent. */
 export const serverUpdateControl = sqliteTable('server_update_control', {

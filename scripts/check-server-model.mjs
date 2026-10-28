@@ -14,7 +14,7 @@ const codingWorkspaceSources = new Set([
   'server/utils/factory-actions.ts', 'server/utils/factory-authority.ts', 'server/utils/factory-github.ts',
   'server/utils/factory-status.ts', 'server/utils/github-agent-client.ts',
   'shared/software-factory.ts', 'shared/workspace-provider.ts', 'workers/agent-pi-durable.ts',
-  'drizzle/server-migrations/0023_software_factory.sql', 'drizzle/server-migrations/0024_project_policies.sql',
+  'drizzle/server-migrations/0000_server_baseline.sql',
   // Task workspaces on Lizard and Cloudflare compute, their execution limits, and the
   // Inbox approvals that review workspace actions.
   'server/utils/lizard-control.ts', 'server/utils/lizard-sandboxes.ts', 'server/utils/lizard-transport.ts', 'server/utils/lizard-volumes.ts',

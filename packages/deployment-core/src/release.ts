@@ -18,7 +18,7 @@ async function fetchVerifiedAsset(asset: ReleaseAsset, manifestUrl: string, fetc
 
 function assertManifest(value: unknown): asserts value is InstallerReleaseManifest {
   const manifest = value as Partial<InstallerReleaseManifest> | null
-  if (!manifest || manifest.schemaVersion !== 1 || !manifest.capabilities?.includes('llll-server-schema-v1') || !manifest.version || !manifest.worker || !manifest.assets || !Array.isArray(manifest.durableObjects)) {
+  if (!manifest || manifest.schemaVersion !== 1 || !manifest.capabilities?.includes('llll-server-schema-v2') || !manifest.version || !manifest.worker || !manifest.assets || !Array.isArray(manifest.durableObjects)) {
     installerError(502, 'L4 release manifest is invalid')
   }
 }

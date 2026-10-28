@@ -74,9 +74,20 @@ function migrationFilesAt(revision, directory) {
     .split('\n').filter(path => path.endsWith('.sql')).map(path => basename(path))
 }
 
+/** The schema marker a baseline seeds, e.g. server-v2; null for chains without one. */
+export function schemaLineage(baselineSql) {
+  return /INSERT INTO `?server_schema`?[^;]*'(server-v\d+)'/u.exec(baselineSql)?.[1] ?? null
+}
+
 function verifyImmutableHistory(baseRevision, currentMigrations, directory) {
   execFileSync('git', ['merge-base', '--is-ancestor', baseRevision, 'HEAD'], { cwd: root, stdio: 'ignore' })
   const previous = validateMigrationFileNames(migrationFilesAt(baseRevision, directory))
+  // A new lineage replaces the previous chain with a fresh baseline; only its own files are immutable.
+  if (previous.length && currentMigrations.length) {
+    const before = schemaLineage(execFileSync('git', ['show', `${baseRevision}:${directory}/${previous[0].fileName}`], { cwd: root, encoding: 'utf8' }))
+    const after = schemaLineage(readFileSync(join(root, directory, currentMigrations[0].fileName), 'utf8'))
+    if (before && after && before !== after) return
+  }
   for (const migration of previous) {
     const before = execFileSync('git', ['show', `${baseRevision}:${directory}/${migration.fileName}`], { cwd: root })
     const after = readFileSync(join(root, directory, migration.fileName))

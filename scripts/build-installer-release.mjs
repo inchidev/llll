@@ -93,7 +93,7 @@ const manifest = {
   releasedAt: new Date().toISOString(),
   compatibilityDate: '2026-09-28',
   compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
-  capabilities: ['cloudflare-access-auth', 'optional-r2', 'basic-kv-storage-v1', 'server-mail-v1', 'llll-server-schema-v1', 'factory-unused-repair-v1'],
+  capabilities: ['cloudflare-access-auth', 'optional-r2', 'basic-kv-storage-v1', 'server-mail-v1', 'llll-server-schema-v2', 'factory-unused-repair-v1'],
   worker: {
     url: `${releaseBaseUrl}/${workerName}`,
     sha256: digest('sha256', worker),

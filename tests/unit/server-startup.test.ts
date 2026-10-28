@@ -42,7 +42,7 @@ describe('Server startup', () => {
   })
 
   it('retries after a failed start without failing the request', async () => {
-    ensureMigrated.mockRejectedValueOnce(new Error('requires a fresh server-v1 database'))
+    ensureMigrated.mockRejectedValueOnce(new Error('requires a fresh server-v2 database'))
     const db = database()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(await ensureServerStarted(event({ DB: db }))).toBe(false)

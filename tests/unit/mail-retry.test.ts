@@ -5,7 +5,6 @@ import { d1 } from '../helpers/sqlite-d1'
 import type { L4Env } from '../../workers/env'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { deliverOutboundEmail } from '../../server/utils/mail-outbound'
-import migration from '../../drizzle/server-migrations/0015_mail_delivery.sql?raw'
 
 const state = vi.hoisted(() => ({ env: null as L4Env | null, confirmed: false, canSend: true, path: 'conversation', bodyId: 'reply-0001' }))
 vi.mock('../../server/utils/cf', async original => ({ ...await original<typeof import('../../server/utils/cf')>(), cf: () => ({ env: state.env!, waitUntil: (promise: Promise<unknown>) => promise }) }))
@@ -91,19 +90,6 @@ describe('uncertain mail recovery', () => {
     finish({ messageId: '<late@example.com>' })
     await first
     expect(sqlite.prepare('SELECT delivery_attempts, provider_message_id FROM email_messages').get()).toEqual({ delivery_attempts: 2, provider_message_id: '<receipt@example.com>' })
-  })
-  it('upgrades a populated database without losing Mail and clears synthetic IDs', () => {
-    const previous = new DatabaseSync(':memory:')
-    try {
-      previous.exec(INIT_SQL.slice(0, INIT_SQL.indexOf('ALTER TABLE email_messages ADD COLUMN provider_message_id')))
-      previous.exec(fixture)
-      previous.exec("UPDATE email_messages SET rfc_message_id = 'cloudflare:recipient@example.net'")
-      previous.exec(migration)
-      expect(previous.prepare('SELECT rfc_message_id, provider_message_id, reply_to_json, delivery_attempts FROM email_messages').get()).toEqual({
-        rfc_message_id: null, provider_message_id: 'cloudflare:recipient@example.net', reply_to_json: '[]', delivery_attempts: 1,
-      })
-      expect(previous.prepare('SELECT count(*) as n FROM messages').get()).toEqual({ n: 2 })
-    } finally { previous.close() }
   })
 })
 

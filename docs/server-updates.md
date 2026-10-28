@@ -16,7 +16,7 @@ No Cloudflare account API token is stored on the Server. The account is billed d
 The official installer performs the update in phases. Each phase is a separate browser request, so reloading or closing the page does not lose the saved operation; reopen the launch URL from Settings to continue.
 
 1. **Fresh consent.** The installer asks the Owner for Cloudflare OAuth consent at update time. The grant is encrypted inside the bounded, browser-bound installer session. The Server receives only its one-job backup capability.
-2. **Release verification.** The installer reads the release's `SHA256SUMS`, verifies the Cloudflare manifest hash and `llll-server-schema-v1` capability, and lets `updateL4` verify every module and asset hash again before upload.
+2. **Release verification.** The installer reads the release's `SHA256SUMS`, verifies the Cloudflare manifest hash and `llll-server-schema-v2` capability, and lets `updateL4` verify every module and asset hash again before upload.
 3. **Verified backup.** The installer claims the saved request with its own executor ID and calls the Server's backup endpoint. The Server streams its logical D1 export and live files to the deployment's separate `BACKUPS` bucket. The installer then reads the **persisted** object from R2 and checks:
    - the archive's SHA-256 and the total byte count against the receipt;
    - every tar header, entry size and checksum, with bounded memory;

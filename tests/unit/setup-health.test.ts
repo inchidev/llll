@@ -21,7 +21,7 @@ function database(state: State) {
     prepare(query: string) {
       sql.push(query)
       const first = async () => {
-        if (query.includes('server_schema')) return { version: 'server-v1' }
+        if (query.includes('server_schema')) return { version: 'server-v2' }
         if (query.includes('COUNT(*)')) return { c: state.ready ? 7 : 0 }
         if (query.includes('FROM server_setup')) return state.setup ? { email: 'owner@example.com', token_hash: 'x', server_name: 'HQ' } : null
         if (query.includes('FROM server')) return state.ready ? { id: 'server' } : null

@@ -25,7 +25,7 @@ it('lists complete published releases and rejects malformed versions', async () 
       input.endsWith('/llll-cloudflare-manifest.json')
         ? Response.json({
             version: '0.1.0-alpha.3',
-            capabilities: ['llll-server-schema-v1'],
+            capabilities: ['llll-server-schema-v2'],
           })
         : Response.json([
             release,
@@ -42,7 +42,7 @@ it('uses the public release feed when the shared GitHub REST quota is exhausted'
     if (input.includes('api.github.com')) return new Response('', { status: 403 })
     if (input.endsWith('/releases.atom')) return new Response(`<feed><entry><id>tag:github.com,2008:Repository/1424308136/v0.1.0-alpha.4</id><title>L4 &amp; community</title><updated>2026-10-18T17:00:00Z</updated></entry><entry><id>invalid/../../other</id></entry></feed>`)
     if (input.endsWith('/SHA256SUMS')) return new Response(`${'a'.repeat(64)}  llll-deployment.json\n${'b'.repeat(64)}  llll-cloudflare-manifest.json\n`)
-    return Response.json({ version: '0.1.0-alpha.4', capabilities: ['llll-server-schema-v1'] })
+    return Response.json({ version: '0.1.0-alpha.4', capabilities: ['llll-server-schema-v2'] })
   })
   vi.stubGlobal('fetch', fetcher)
   expect(await listReleases()).toEqual([{ version: 'v0.1.0-alpha.4', name: 'L4 & community', published_at: '2026-10-18T17:00:00Z', notes_url: 'https://github.com/inchidev/llll/releases/tag/v0.1.0-alpha.4' }])
@@ -54,7 +54,7 @@ it('does not offer feed releases with incomplete assets or a mismatched manifest
     if (input.endsWith('/releases.atom')) return new Response('<feed><entry><id>repo/v0.1.0-alpha.4</id></entry><entry><id>repo/v0.1.0-alpha.5</id></entry></feed>')
     if (input.includes('/v0.1.0-alpha.4/')) return new Response(`${'a'.repeat(64)}  llll-cloudflare-manifest.json\n`)
     if (input.endsWith('/SHA256SUMS')) return new Response(`${'a'.repeat(64)}  llll-deployment.json\n${'b'.repeat(64)}  llll-cloudflare-manifest.json\n`)
-    return Response.json({ version: '0.1.0-alpha.4', capabilities: ['llll-server-schema-v1'] })
+    return Response.json({ version: '0.1.0-alpha.4', capabilities: ['llll-server-schema-v2'] })
   }))
   expect(await listReleases()).toEqual([])
 })

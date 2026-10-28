@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateBootstrapRegistry, validateMigrationFileNames } from '../../scripts/check-migrations.mjs'
+import { schemaLineage, validateBootstrapRegistry, validateMigrationFileNames } from '../../scripts/check-migrations.mjs'
 
 describe('migration policy', () => {
   it('accepts one contiguous migration for every number', () => {
@@ -49,4 +49,10 @@ export const INIT_SQL = d1ExecSql([
     expect(() => validateBootstrapRegistry(valid.replace('  channelsSql,\n', ''), migrations))
       .toThrow('INIT_SQL must include every imported migration exactly once and in order')
   })
+})
+
+it('reads the schema lineage a baseline seeds, so a new lineage can replace the previous chain', () => {
+  expect(schemaLineage("INSERT INTO `server_schema` (`id`, `version`) VALUES (1, 'server-v2');")).toBe('server-v2')
+  expect(schemaLineage("INSERT INTO server_schema(id,version) VALUES(1,'server-v1');")).toBe('server-v1')
+  expect(schemaLineage('CREATE TABLE web (id TEXT);')).toBeNull()
 })

@@ -160,7 +160,7 @@ describe('web update executor', () => {
   })
 
   it('verifies the published manifest against SHA256SUMS before an update', async () => {
-    const manifest = JSON.stringify({ version: '0.2.6', capabilities: ['llll-server-schema-v1'] })
+    const manifest = JSON.stringify({ version: '0.2.6', capabilities: ['llll-server-schema-v2'] })
     const hash = createHash('sha256').update(manifest).digest('hex')
     vi.stubGlobal('fetch', vi.fn(async (input: string) => input.endsWith('/SHA256SUMS')
       ? new Response(`${hash}  llll-cloudflare-manifest.json\n`)
@@ -171,7 +171,7 @@ describe('web update executor', () => {
   it('rejects a manifest that does not match the published checksum', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string) => input.endsWith('/SHA256SUMS')
       ? new Response(`${'0'.repeat(64)}  llll-cloudflare-manifest.json\n`)
-      : new Response(JSON.stringify({ version: '0.2.6', capabilities: ['llll-server-schema-v1'] }))))
+      : new Response(JSON.stringify({ version: '0.2.6', capabilities: ['llll-server-schema-v2'] }))))
     await expect(verifyRelease('0.2.6')).rejects.toThrow('checksum')
   })
 

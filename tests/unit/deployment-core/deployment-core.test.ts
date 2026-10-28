@@ -134,7 +134,7 @@ describe('published installer core integration', () => {
       releasedAt: '2026-09-20T00:00:00.000Z',
       compatibilityDate: '2026-09-02',
       compatibilityFlags: ['nodejs_compat'],
-      capabilities: ['llll-server-schema-v1'],
+      capabilities: ['llll-server-schema-v2'],
       worker: { url: './llll-worker.mjs', sha256: await digest(worker), size: worker.byteLength },
       assets: { url: './llll-assets.json', sha256: await digest(assets), size: assets.byteLength },
       durableObjects: [],

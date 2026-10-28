@@ -16,7 +16,7 @@ it('bootstraps a fresh database once and accepts its explicit schema marker', as
     await expect(ensureMigrated(db)).resolves.toBe(true)
     await expect(ensureMigrated(db)).resolves.toBe(true)
     expect(exec).toHaveBeenCalledTimes(1)
-    expect(sqlite.prepare('SELECT version FROM server_schema').get()).toMatchObject({ version: 'server-v1' })
+    expect(sqlite.prepare('SELECT version FROM server_schema').get()).toMatchObject({ version: 'server-v2' })
     expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   }
   finally { sqlite.close() }
@@ -27,7 +27,7 @@ it('refuses a populated database without the schema marker without changing it',
   try {
     sqlite.exec("CREATE TABLE accounts(id TEXT); INSERT INTO accounts VALUES('preserve')")
     const { db, exec } = binding(sqlite)
-    await expect(ensureMigrated(db)).rejects.toThrow('fresh server-v1 database')
+    await expect(ensureMigrated(db)).rejects.toThrow('fresh server-v2 database')
     expect(exec).not.toHaveBeenCalled()
     expect(sqlite.prepare('SELECT * FROM accounts').all()).toEqual([{ id: 'preserve' }])
     expect(sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table'").get()).toMatchObject({ n: 1 })

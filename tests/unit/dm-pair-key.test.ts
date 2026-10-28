@@ -1,5 +1,4 @@
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { dmPairKey, findPairDm, openPairDm } from '../../server/utils/dms'
@@ -57,26 +56,5 @@ describe('1:1 DM pair key', () => {
     expect(sqlite.prepare('SELECT dm_pair_key AS key FROM channels WHERE id=?').get('legacy-pair')).toMatchObject({ key: 'aaa-0001:bbb-0001' })
     const created = await openPairDm(env, 'aaa-0001', 'ccc-0001')
     expect(created).not.toBe('shrunk-group')
-  })
-})
-
-describe('0028 chat lifecycle migration', () => {
-  it('keys the oldest DM of each pair and leaves duplicates and groups unkeyed', () => {
-    const legacy = new DatabaseSync(':memory:')
-    try {
-      const sql = INIT_SQL.slice(0, INIT_SQL.indexOf('ALTER TABLE channels ADD COLUMN dm_pair_key'))
-      legacy.exec(sql)
-      legacy.exec(`INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('role','member','Member',112); INSERT INTO users(id,kind,display_name,status,joined_at,role_id) VALUES('a','human','A','active','2026-01-01','role'),('b','human','B','active','2026-01-01','role'),('c','human','C','active','2026-01-01','role');
-        INSERT INTO channels(id,name,type,visibility,dm_kind,created_at) VALUES
-          ('newer','dm','dm','private','pair','2026-02-01'),('older','dm','dm','private','pair','2026-01-01'),
-          ('other','dm','dm','private','pair','2026-01-01'),('group','Team','dm','private','group','2026-01-01');
-        INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES
-          ('newer','b','2026-01-01'),('newer','a','2026-01-01'),('older','a','2026-01-01'),('older','b','2026-01-01'),
-          ('other','a','2026-01-01'),('other','c','2026-01-01'),('group','a','2026-01-01'),('group','b','2026-01-01');`)
-      legacy.exec(readFileSync(new URL('../../drizzle/server-migrations/0028_chat_lifecycle.sql', import.meta.url), 'utf8'))
-      expect(legacy.prepare('SELECT id, dm_pair_key AS key FROM channels ORDER BY id').all()).toEqual([
-        { id: 'group', key: null }, { id: 'newer', key: null }, { id: 'older', key: 'a:b' }, { id: 'other', key: 'a:c' },
-      ])
-    } finally { legacy.close() }
   })
 })

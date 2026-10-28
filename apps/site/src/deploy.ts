@@ -178,7 +178,7 @@ export async function listReleases(token?: string): Promise<ReleaseInfo[]> {
           capabilities?: string[]
         }
         return manifest.version === info.version.slice(1) &&
-          manifest.capabilities?.includes('llll-server-schema-v1')
+          manifest.capabilities?.includes('llll-server-schema-v2')
           ? info
           : null
       } catch {

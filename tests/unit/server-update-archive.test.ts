@@ -10,7 +10,7 @@ it('restores the persisted SQL archive and validates file payloads before deploy
   const directory = await mkdtemp(resolve(tmpdir(), 'l4-archive-test-'))
   const now = new Date()
   const fileBytes = 'private attachment'
-  const schema = ['server', 'server_identity', 'auth_users', 'auth_accounts', 'users', 'roles', 'channels', 'messages'].map(name => `CREATE TABLE ${name}(id TEXT PRIMARY KEY); INSERT INTO ${name} VALUES('server-id');`).join('\n') + "CREATE TABLE server_schema(version TEXT);INSERT INTO server_schema VALUES('server-v1');"
+  const schema = ['server', 'server_identity', 'auth_users', 'auth_accounts', 'users', 'roles', 'channels', 'messages'].map(name => `CREATE TABLE ${name}(id TEXT PRIMARY KEY); INSERT INTO ${name} VALUES('server-id');`).join('\n') + "CREATE TABLE server_schema(version TEXT);INSERT INTO server_schema VALUES('server-v2');"
   async function archive(etag: string) {
     const entries = [
       textEntry('database/000000-schema.sql', schema, now),

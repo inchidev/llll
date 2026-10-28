@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { d1 } from '../helpers/sqlite-d1'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -201,7 +200,7 @@ describe('bounded unread counts', () => {
       CREATE TABLE channel_reads (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read_message_id TEXT, PRIMARY KEY (channel_id, user_id));
       CREATE INDEX messages_channel_created_idx ON messages (channel_id, created_at, id);
     `)
-    bdb.exec(readFileSync(new URL('../../drizzle/server-migrations/0029_chat_search.sql', import.meta.url), 'utf8'))
+    bdb.exec('CREATE INDEX messages_live_channel_id_idx ON messages (channel_id, id) WHERE deleted_at IS NULL')
   })
   afterEach(() => bdb.close())
 

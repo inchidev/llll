@@ -37,7 +37,7 @@ encryption secrets to resolve build failures.
   identities must be explicitly linked; matching email addresses grants no access.
 - Enforce authorization on the Server, including HTTP, realtime, MCP and agent
   paths. Add meaningful regression coverage for changed access rules.
-- Append schema migrations within `server-v1`; create one with
+- Append schema migrations within `server-v2`; create one with
   `pnpm db:migration:create`. Never edit merged SQL or published tags/assets.
 - Keep backups separate from live file buckets. Preserve unrelated work and
   use synthetic Accounts/data for verification.

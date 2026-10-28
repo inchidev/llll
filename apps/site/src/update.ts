@@ -598,7 +598,7 @@ export async function verifyRelease(version: string) {
   }
   if (
     manifest.version !== target ||
-    !manifest.capabilities?.includes('llll-server-schema-v1')
+    !manifest.capabilities?.includes('llll-server-schema-v2')
   )
     throw new Error('The release cannot update this Server')
 }

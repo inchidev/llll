@@ -1,5 +1,4 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { findPairDm } from '../../server/utils/dms'
@@ -92,43 +91,4 @@ describe('DMs have exactly two participants', () => {
     const create = (await import('../../server/api/dms/index.post')).default
     await expect(create(event as never)).rejects.toMatchObject({ statusCode: 403 })
   })
-})
-
-describe('DM privacy migration', () => {
-  it('classifies existing groups without inventing a privileged creator', () => {
-    const legacy = new DatabaseSync(':memory:')
-    try {
-      legacy.exec(`
-        CREATE TABLE users(id TEXT PRIMARY KEY);
-        CREATE TABLE channels(id TEXT PRIMARY KEY, type TEXT NOT NULL);
-        CREATE TABLE channel_members(channel_id TEXT, user_id TEXT);
-        INSERT INTO channels VALUES ('pair','dm'),('group','dm'),('text','text');
-        INSERT INTO channel_members VALUES ('pair','a'),('pair','b'),('group','a'),('group','b'),('group','c');
-      `)
-      legacy.exec(readFileSync(new URL('../../drizzle/server-migrations/0011_dm_privacy.sql', import.meta.url), 'utf8'))
-      expect(legacy.prepare("SELECT dm_kind, dm_owner_id FROM channels WHERE id = 'pair'").get()).toMatchObject({ dm_kind: 'pair', dm_owner_id: null })
-      expect(legacy.prepare("SELECT dm_kind, dm_owner_id FROM channels WHERE id = 'group'").get()).toMatchObject({ dm_kind: 'group', dm_owner_id: null })
-    } finally { legacy.close() }
-  })
-})
-
-it('keeps SQL compatible with the old Worker, then converts a legacy group only on new Worker activation', async () => {
-  const legacy = new DatabaseSync(':memory:')
-  try {
-    legacy.exec(INIT_SQL.slice(0, INIT_SQL.indexOf('CREATE TABLE file_objects')))
-    legacy.exec(`INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('role','member','Member',112); INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('a','human','A','active','role','2026-01-01'),('b','human','B','active','role','2026-01-01'),('c','human','C','active','role','2026-01-01');
-      INSERT INTO channels(id,name,type,visibility,dm_kind,dm_owner_id) VALUES('old-group','Team','dm','private','group','a');
-      INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES('old-group','a','2026-01-01'),('old-group','b','2026-01-01'),('old-group','c','2026-01-01');
-      INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('history','old-group','a','Keep me','2026-01-01');
-      INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('old-thread','Thread','thread','private','old-group','history');`)
-    legacy.exec(readFileSync(new URL('../../drizzle/server-migrations/0012_server_storage_and_channels.sql', import.meta.url), 'utf8'))
-    expect(legacy.prepare('SELECT type FROM channels WHERE id=?').get('old-group')?.type).toBe('dm')
-    const { ensureMigrated } = await import('../../server/utils/db')
-    const { d1: database } = await import('../helpers/sqlite-d1')
-    await ensureMigrated(database(legacy))
-    expect(legacy.prepare('SELECT id,type,visibility,created_by FROM channels WHERE id=?').get('old-group')).toMatchObject({ id: 'old-group', type: 'text', visibility: 'private', created_by: 'a' })
-    expect(legacy.prepare('SELECT parent_id FROM channels WHERE id=?').get('old-thread')?.parent_id).toBe('old-group')
-    expect(legacy.prepare('SELECT content FROM messages WHERE id=?').get('history')?.content).toBe('Keep me')
-    expect(legacy.prepare('SELECT count(*) AS n FROM channel_members WHERE channel_id=?').get('old-group')?.n).toBe(3)
-  } finally { legacy.close() }
 })

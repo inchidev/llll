@@ -1,5 +1,4 @@
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createUpdateStore } from '../../shared/server-update-store'
 import { changeUpdateRecord } from '../../shared/server-updates'
@@ -7,7 +6,7 @@ import { changeUpdateRecord } from '../../shared/server-updates'
 it('uses the same atomic SQL for first creation and stale-revision rejection across two clients', async () => {
   const database = new DatabaseSync(':memory:')
   try {
-    database.exec(readFileSync(new URL('../../drizzle/server-migrations/0001_server_updates.sql', import.meta.url), 'utf8'))
+    database.exec('CREATE TABLE server_update_control (id integer PRIMARY KEY NOT NULL, revision integer NOT NULL, payload text NOT NULL, CHECK (id = 1))')
     const client = () => createUpdateStore(async (sql, params) => database.prepare(sql).all(...params) as { payload: string; revision: number }[])
     const owner = client(), build = client()
     const first = await owner.read(), duplicate = await build.read()

@@ -1,6 +1,6 @@
 # Deployment artifacts
 
-One release contains Server, Shell/site, client assets, Docs and matching migration chains. Deployment bundle and release provenance use schema version 3. The Server manifest declares `llll-server-schema-v1`; older formats are not install targets.
+One release contains Server, Shell/site, client assets, Docs and matching migration chains. Deployment bundle and release provenance use schema version 3. The Server manifest declares `llll-server-schema-v2`; older formats are not install targets.
 
 | Asset | Purpose |
 | --- | --- |

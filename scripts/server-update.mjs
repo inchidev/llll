@@ -54,7 +54,7 @@ export async function verifyUpdateArchive(path, receipt, serverId) {
     for (const name of [...entries.keys()].filter(n => /^database\/.*\.sql$/.test(n)).sort()) restored.exec(await text(name))
     restored.exec('COMMIT;')
     assert.equal(restored.prepare('SELECT id FROM server').get().id, serverId)
-    assert.equal(restored.prepare('SELECT version FROM server_schema').get().version, 'server-v1')
+    assert.equal(restored.prepare('SELECT version FROM server_schema').get().version, 'server-v2')
     assert.deepEqual(restored.prepare('PRAGMA foreign_key_check').all(), [])
     const objects = []
     for (const name of entries.keys()) if (/^r2\/.*\.json$/.test(name)) {
