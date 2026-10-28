@@ -17,9 +17,12 @@ const activeMailboxId = computed(() => String(route.params.mailbox || ''))
 const activeFolder = computed(() => String(route.params.folder || 'inbox'))
 const activeMailbox = computed(() => mailboxes.value.find(mailbox => mailbox.channelId === activeMailboxId.value) ?? null)
 const canCompose = computed(() => activeMailbox.value?.permission === 'send' || activeMailbox.value?.permission === 'manage')
+/** Drafts belong to people who can send from the mailbox. */
+const folders = computed(() => MAIL_FOLDERS.filter(folder => folder !== 'drafts' || canCompose.value))
 
 const folderMeta: Record<string, { label: string; icon: string }> = {
   inbox: { label: 'Inbox', icon: 'i-ph-tray' },
+  drafts: { label: 'Drafts', icon: 'i-ph-note-pencil' },
   sent: { label: 'Sent', icon: 'i-ph-paper-plane-tilt' },
   archive: { label: 'Archive', icon: 'i-ph-archive' },
   spam: { label: 'Spam', icon: 'i-ph-warning' },
@@ -68,7 +71,7 @@ async function compose() {
         </LayoutNavRow>
 
         <ul v-if="mailbox.channelId === activeMailboxId" class="ms-4 border-s border-default ps-2">
-          <li v-for="folder in MAIL_FOLDERS" :key="folder">
+          <li v-for="folder in folders" :key="folder">
             <LayoutNavRow
               :to="mailPath(mailbox.channelId, folder)"
               :active="folder === activeFolder"

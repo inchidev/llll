@@ -335,6 +335,23 @@ export type MailMessageDTO = MessageDTO & {
   }
 }
 
+/** An email being written, visible only to its author. A reply draft has a `threadId`. */
+export type MailDraftDTO = {
+  id: string
+  mailboxChannelId: string
+  threadId: string | null
+  /** The conversation's subject, for a reply draft. */
+  threadSubject: string | null
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  content: string
+  format: 'text' | 'markdown'
+  attachments: AttachmentDTO[]
+  updatedAt: string
+}
+
 export type MailThreadPageDTO = {
   threads: MailThreadDTO[]
   /** Pass as `before` to load older conversations; null when there are none. */

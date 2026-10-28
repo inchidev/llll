@@ -13,10 +13,11 @@ export function channelPath(channel: string | ChannelRef, threadId?: string): st
   return threadId ? `${path}/threads/${threadId}` : path
 }
 
-/** A thread status, or Sent: every conversation you have sent email in. */
-export type MailFolder = 'inbox' | 'sent' | 'archive' | 'spam' | 'trash'
+/** A thread status, Sent: every conversation you have sent email in, or Drafts: your unsent email. */
+export type MailFolder = 'inbox' | 'drafts' | 'sent' | 'archive' | 'spam' | 'trash'
+export type MailThreadFolder = Exclude<MailFolder, 'drafts'>
 
-export const MAIL_FOLDERS: MailFolder[] = ['inbox', 'sent', 'archive', 'spam', 'trash']
+export const MAIL_FOLDERS: MailFolder[] = ['inbox', 'drafts', 'sent', 'archive', 'spam', 'trash']
 
 export function isMailFolder(value: unknown): value is MailFolder {
   return typeof value === 'string' && (MAIL_FOLDERS as string[]).includes(value)

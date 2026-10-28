@@ -9,6 +9,7 @@ import { loadMailMessage, mailThreadDto } from '../../../../utils/mail-data'
 import { deliverOutboundEmail } from '../../../../utils/mail-outbound'
 import { findOutboundRequest, isUniqueViolation } from '../../../../utils/mail-requests'
 import { attachMailStatements, isAttachmentTaken, pendingMailAttachments } from '../../../../utils/mail-attachments'
+import { deleteMailDraftStatements, findMailDraft } from '../../../../utils/mail-drafts'
 import { MAIL_OUTBOUND_LIMITS } from '../../../../../shared/mail-attachments'
 import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
@@ -21,6 +22,8 @@ const schema = z.object({
   content: z.string().trim().min(1).max(100_000),
   /** Your own uploads from this mailbox, attached in this order. */
   attachmentIds: z.array(z.string().trim().min(1).max(80)).max(MAIL_OUTBOUND_LIMITS.attachments).default([]),
+  /** The draft this email was written in; it is removed once the email is saved. */
+  draftId: z.string().trim().min(1).max(80).optional(),
   /** Set by the client for each email, so retrying one is not emailed twice. */
   clientId: z.string().trim().min(8).max(80).optional(),
 })
@@ -47,6 +50,8 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
     if (!recipients.length) fail(400, 'bad_request', 'Enter at least one external recipient')
     if (total > MAIL_LIMITS.addresses) fail(400, 'bad_request', `An email can have at most ${MAIL_LIMITS.addresses} recipients`)
     const files = await pendingMailAttachments(env, { mailboxId, userId: access.user.id, ids: body.attachmentIds })
+    const draft = body.draftId ? await findMailDraft(env, mailboxId, access.user.id, body.draftId) : null
+    const draftStatements = draft && !draft.threadId ? deleteMailDraftStatements(env, draft, access.user.id, body.attachmentIds) : []
     const created = nowIso()
     messageId = newId()
     threadId = newId()
@@ -72,6 +77,7 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
            VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, NULL, NULL, '[]', 'pending', NULL, ?, ?)`,
         ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), JSON.stringify(cc), JSON.stringify(bcc), body.clientId ?? null, created),
         ...attachMailStatements(env, files, messageId, mailboxId),
+        ...draftStatements,
       ])
     }
     catch (error) {

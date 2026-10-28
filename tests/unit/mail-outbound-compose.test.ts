@@ -187,7 +187,7 @@ describe('sending attachments', () => {
     expect(send).not.toHaveBeenCalled()
     files.objects.set('restored', pdf)
     sqlite.prepare("UPDATE attachments SET r2_key = 'restored'").run()
-    send.mockReset(); send.mockResolvedValue({ messageId: '<retried@example.com>' })
+    send.mockClear(); send.mockResolvedValueOnce({ messageId: '<retried@example.com>' })
     await deliverOutboundEmail(env, message.id)
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -222,5 +222,85 @@ describe('forwarding attachments', () => {
     sqlite.exec("UPDATE messages SET deleted_at = '2026-09-29' WHERE id = 'm1'")
     state.body = { forwardAttachmentId: 'a1' }
     await expect(call('../../server/api/mail/mailboxes/[id]/attachments.post', 'support')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('drafts', () => {
+  const save = (body: Record<string, unknown>, mailbox = 'support') => { state.body = body; return call('../../server/api/mail/mailboxes/[id]/drafts.put', mailbox) }
+  const list = async (mailbox = 'support') => (await call('../../server/api/mail/mailboxes/[id]/drafts.get', mailbox)).drafts as Array<Record<string, unknown>>
+  const attachmentIds = () => sqlite.prepare('SELECT id FROM attachments').all().map(row => row.id)
+
+  it('autosaves a new email, keeps unfinished addresses, and updates the same draft', async () => {
+    const file = await upload(pdf, 'invoice.pdf')
+    const { draft } = await save({ to: ['customer@exa'], subject: 'Quote\nline', content: 'First', attachmentIds: [file.id] })
+    expect(draft).toMatchObject({ threadId: null, to: ['customer@exa'], subject: 'Quote line', content: 'First', format: 'text' })
+    expect(draft.attachments.map((item: { id: string }) => item.id)).toEqual([file.id])
+    const { draft: again } = await save({ id: draft.id, to: ['customer@example.net'], subject: 'Quote', content: 'Second', format: 'markdown', attachmentIds: [file.id] })
+    expect(again).toMatchObject({ id: draft.id, content: 'Second', format: 'markdown' })
+    expect(await list()).toHaveLength(1)
+  })
+
+  it('keeps one reply draft per conversation and refuses a conversation from another mailbox', async () => {
+    state.body = { to: ['customer@example.net'], subject: 'Quote', content: 'Hello' }
+    const { threadId } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    const first = (await save({ threadId, content: 'Thanks' })).draft
+    const second = (await save({ threadId, content: 'Thanks again' })).draft
+    expect(second.id).toBe(first.id)
+    expect(await list()).toEqual([expect.objectContaining({ threadId, threadSubject: 'Quote', content: 'Thanks again' })])
+    await expect(save({ threadId, content: 'Wrong mailbox' }, 'sales')).rejects.toMatchObject({ statusCode: 404 })
+    await expect(save({ id: first.id, content: 'No conversation' })).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it('is private to its author and drops files that are not theirs', async () => {
+    const file = await upload(pdf, 'invoice.pdf')
+    const { draft } = await save({ subject: 'Private', content: 'Mine' })
+    state.userId = 'other'
+    expect(await list()).toEqual([])
+    await expect(save({ id: draft.id, content: 'Taken over' })).rejects.toMatchObject({ statusCode: 404 })
+    state.body = { draftId: draft.id }
+    await expect(call('../../server/api/mail/mailboxes/[id]/drafts.delete', 'support')).rejects.toMatchObject({ statusCode: 404 })
+    const { draft: theirs } = await save({ content: 'Using your file', attachmentIds: [file.id] })
+    expect(theirs.attachments).toEqual([])
+    state.userId = 'owner'
+    expect(await list()).toEqual([expect.objectContaining({ id: draft.id, content: 'Mine' })])
+  })
+
+  it('sends from a draft, removing the draft and any file left off the email', async () => {
+    const kept = await upload(pdf, 'invoice.pdf')
+    const dropped = await upload(Buffer.from('old notes'), 'notes.txt')
+    const { draft } = await save({ to: ['customer@example.net'], subject: 'Quote', content: 'Attached', attachmentIds: [kept.id, dropped.id] })
+    state.body = { to: ['customer@example.net'], subject: 'Quote', content: 'Attached', attachmentIds: [kept.id], draftId: draft.id }
+    const { message } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    expect(await list()).toEqual([])
+    expect(sqlite.prepare('SELECT id, message_id AS m FROM attachments').all()).toEqual([{ id: kept.id, m: message.id }])
+  })
+
+  it('sends a reply from its draft', async () => {
+    state.body = { to: ['customer@example.net'], subject: 'Quote', content: 'Hello' }
+    const { threadId } = await call('../../server/api/mail/mailboxes/[id]/send.post', 'support')
+    const { draft } = await save({ threadId, to: ['customer@example.net'], content: 'Reply text' })
+    state.body = { to: ['customer@example.net'], content: 'Reply text', draftId: draft.id }
+    await call('../../server/api/mail/threads/[id]/reply.post', threadId)
+    expect(await list()).toEqual([])
+  })
+
+  it('discards a draft with its uploads, and leaves stale uploads on drafts alone', async () => {
+    const onDraft = await upload(pdf, 'invoice.pdf')
+    const loose = await upload(Buffer.from('forgotten'), 'loose.txt')
+    const { draft } = await save({ content: 'Later', attachmentIds: [onDraft.id] })
+    sqlite.prepare("UPDATE attachments SET created_at = '2026-01-01T00:00:00.000Z'").run()
+    await upload(Buffer.from('fresh'), 'fresh.txt')
+    expect(attachmentIds()).not.toContain(loose.id)
+    expect(attachmentIds()).toContain(onDraft.id)
+    state.body = { draftId: draft.id }
+    await call('../../server/api/mail/mailboxes/[id]/drafts.delete', 'support')
+    expect(await list()).toEqual([])
+    expect(attachmentIds()).not.toContain(onDraft.id)
+  })
+
+  it('goes with its mailbox', async () => {
+    await save({ content: 'Draft' })
+    sqlite.exec("DELETE FROM channels WHERE id = 'support'")
+    expect(sqlite.prepare('SELECT count(*) AS n FROM mail_drafts').get()).toEqual({ n: 0 })
   })
 })

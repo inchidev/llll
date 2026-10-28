@@ -1,5 +1,5 @@
 import type { MailThreadPageDTO } from '../../shared/types'
-import type { MailFolder } from '../../shared/paths'
+import type { MailThreadFolder } from '../../shared/paths'
 import type { L4Env } from '../../workers/env'
 import { mailThreadDto } from './mail-data'
 
@@ -24,7 +24,7 @@ const lastSent = `(SELECT max(em.created_at) FROM email_messages em WHERE em.thr
  *   whatever folder it is in except Spam and Trash.
  * - Archive, Spam, Trash: conversations moved there.
  */
-function folderQuery(folder: MailFolder): { filter: string; sortAt: string } {
+function folderQuery(folder: MailThreadFolder): { filter: string; sortAt: string } {
   if (folder === 'sent') return { filter: `t.status NOT IN ('spam', 'trash')`, sortAt: lastSent }
   if (folder === 'inbox') return { filter: `t.status = 'inbox' AND ${hasInbound}`, sortAt: 't.last_message_at' }
   return { filter: `t.status = '${folder}'`, sortAt: 't.last_message_at' }
@@ -51,7 +51,7 @@ const searchFilter = `(? IS NULL
 
 export async function listMailThreads(
   env: L4Env,
-  input: { mailboxId: string; userId: string; folder: MailFolder; before?: unknown; search?: string | null; unreadOnly?: boolean; limit?: number },
+  input: { mailboxId: string; userId: string; folder: MailThreadFolder; before?: unknown; search?: string | null; unreadOnly?: boolean; limit?: number },
 ): Promise<MailThreadPageDTO> {
   const { filter, sortAt } = folderQuery(input.folder)
   const limit = Math.max(1, Math.min(Math.floor(input.limit ?? MAIL_THREAD_PAGE_SIZE), MAIL_THREAD_PAGE_SIZE))

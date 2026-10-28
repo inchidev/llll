@@ -116,6 +116,7 @@ export function discardMailUploadStatements(env: L4Env, ids: string[], userId: s
 export async function sweepMailUploads(env: L4Env, mailboxId: string, userId: string): Promise<void> {
   const stale = (await env.DB.prepare(
     `SELECT a.id FROM attachments a WHERE a.channel_id = ? AND a.uploader_id = ? AND a.message_id IS NULL AND a.created_at < ?
+       AND NOT EXISTS (SELECT 1 FROM mail_drafts d, json_each(d.attachment_ids_json) j WHERE d.author_id = a.uploader_id AND d.mailbox_channel_id = a.channel_id AND j.value = a.id)
      LIMIT 100`,
   ).bind(mailboxId, userId, new Date(Date.now() - MAIL_UPLOAD_TTL_MS).toISOString()).all<{ id: string }>()).results ?? []
   if (stale.length) await env.DB.batch(discardMailUploadStatements(env, stale.map(row => row.id), userId))
