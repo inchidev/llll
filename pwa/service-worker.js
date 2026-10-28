@@ -11,6 +11,8 @@ self.addEventListener('install', event => {
       for (const path of ASSETS) {
         const response = await fetch(new Request(path, { cache: 'reload', credentials: 'omit' }))
         if (!response.ok || response.redirected) throw new Error('Public asset unavailable: ' + path)
+        // A shell without the Worker's policy would serve every page unprotected.
+        if (path === '/app-shell' && !response.headers.get('Content-Security-Policy')?.includes('frame-ancestors')) throw new Error('App shell is missing its Content-Security-Policy')
         await cache.put(path, response)
       }
     } catch (error) { await caches.delete(CACHE); throw error }
@@ -34,8 +36,11 @@ self.addEventListener('fetch', event => {
   // No auth, APIs, signed downloads, cross-origin data, queries or mutations.
   if (request.method !== 'GET' || url.origin !== self.location.origin || (url.pathname.startsWith('/api/') || url.pathname.startsWith('/s/') || url.pathname.startsWith('/.well-known/')) || request.headers.has('Authorization')) return
   if (request.mode === 'navigate') {
-    // Serve one consistent client generation, including offline deep links.
-    event.respondWith(caches.open(CACHE).then(cache => cache.match('/app-shell.html')).then(response => response || fetch(request)))
+    // The MCP consent page forbids framing entirely; only the Worker sends that policy.
+    if (url.pathname.startsWith('/mcp/')) return
+    // Serve one consistent client generation, including offline deep links. The shell was
+    // fetched from the Worker, so it carries this Server's CSP and frame-ancestors.
+    event.respondWith(caches.open(CACHE).then(cache => cache.match('/app-shell')).then(response => response || fetch(request)))
     return
   }
   if (url.search || (!PUBLIC.has(url.pathname) && !url.pathname.startsWith('/_nuxt/'))) return

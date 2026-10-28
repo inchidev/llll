@@ -45,15 +45,14 @@ async function assets(request) {
     '.output/public',
     '.' + decodeURIComponent(url.pathname),
   )
-  if (!path.startsWith(resolve(root, '.output/public') + '/'))
-    path = resolve(root, '.output/public/index.html')
+  // Like Cloudflare Static Assets with html_handling none: documents come from the Worker.
+  if (!path.startsWith(resolve(root, '.output/public') + '/')) return new Response('Not found', { status: 404 })
   let data
-  let extension = extname(path)
+  const extension = extname(path)
   try {
     data = await readFile(path)
   } catch {
-    data = await readFile(resolve(root, '.output/public/index.html'))
-    extension = '.html'
+    return new Response('Not found', { status: 404 })
   }
   return new Response(data, {
     headers: {
