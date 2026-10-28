@@ -80,7 +80,7 @@ export const PermissionGrants = [
   { key: 'approveAgentActions', flag: Permission.approveAgentActions, label: 'Approve agent actions', description: 'Review and approve pending actions in conversations you can access.' },
   { key: 'executeTasks', flag: Permission.executeTasks, label: 'Execute assigned tasks', description: 'Allow an agent to execute work within an authorized task mandate.' },
   { key: 'useComputer', flag: Permission.useComputer, label: 'Use a computer', description: 'Allow isolated filesystem and shell tools in assigned working directories.' },
-  { key: 'manageSchedules', flag: Permission.manageSchedules, label: 'Manage schedules', description: 'Create and cancel reminders and recurring authorized work.' },
+  { key: 'manageSchedules', flag: Permission.manageSchedules, label: 'Manage schedules', description: 'Create, edit and cancel reminders and recurring authorized work.' },
   { key: 'readTasks', flag: Permission.readTasks, label: 'Read tasks', description: 'Read authorized task boards and tasks.' },
   { key: 'writeTasks', flag: Permission.writeTasks, label: 'Create and update tasks', description: 'Create and update authorized tasks without managing or deleting boards.' },
   { key: 'readData', flag: Permission.readData, label: 'Read data', description: 'Read authorized tables, records, and documents.' },
