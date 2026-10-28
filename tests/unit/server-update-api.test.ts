@@ -4,14 +4,14 @@ import type { H3Event } from 'h3'
 const context = vi.hoisted(() => ({ body: {} as Record<string, unknown>, owner: true, stored: null as string | null, revision: 0, env: {} as Record<string, unknown> }))
 vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: context.owner, user: { id: 'owner' } }) }))
 vi.mock('../../server/utils/messages', () => ({ writeAudit: vi.fn(async () => {}) }))
-vi.mock('../../server/utils/releases', () => ({ llllReleases: vi.fn(async () => [{ tagName: 'v0.3.0' }]) }))
+vi.mock('../../server/utils/releases', () => ({ llllReleases: vi.fn(async () => [{ tagName: 'v99.0.0' }]) }))
 vi.mock('../../server/utils/cf', () => ({
   fail: (statusCode: number, code: string, message: string) => { throw Object.assign(Error(message), { statusCode, code }) },
   cf: () => ({ env: context.env }),
 }))
 const requestId = '22222222-2222-4222-8222-222222222222'
 beforeEach(() => {
-  context.body = { requestId, release: 'v0.3.0' }; context.owner = true; context.stored = null; context.revision = 0
+  context.body = { requestId, release: 'v99.0.0' }; context.owner = true; context.stored = null; context.revision = 0
   context.env = {
     DB: { withSession: () => ({ prepare: (sql: string) => ({ bind: (...params: (string | number)[]) => ({
       all: async () => {
@@ -49,7 +49,7 @@ it('accepts only an owner-selected newer published release and keeps capabilitie
 it('rejects non-owners, downgrades and unpublished targets', async () => {
   context.owner = false; await expect(request()).rejects.toMatchObject({ statusCode: 403 })
   context.owner = true; context.body.release = 'v0.2.5'; await expect(request()).rejects.toMatchObject({ statusCode: 400 })
-  context.body.release = 'v0.3.1'; await expect(request()).rejects.toMatchObject({ statusCode: 400 })
+  context.body.release = 'v99.0.1'; await expect(request()).rejects.toMatchObject({ statusCode: 400 })
   expect(context.stored).toBeNull()
 })
 it('returns the official installer launch URL and lets the owner resume or cancel a queued request', async () => {
@@ -74,7 +74,7 @@ it('returns the official installer launch URL and lets the owner resume or cance
 it('refuses a resume when the request is already claimed and refuses updates without the installer grant', async () => {
   context.env.ACCOUNT_ID = ''
   context.env.LLLL_RUNTIME = 'celld'
-  context.body = { requestId, release: 'v0.3.0' }
+  context.body = { requestId, release: 'v99.0.0' }
   await expect(request()).rejects.toMatchObject({ statusCode: 409 })
 })
 
