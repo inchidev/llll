@@ -45,11 +45,13 @@ export async function testGitConnections({api,runtimes,ids}){
  const signIn=await api('alpha',callback,{actor:'anonymous',expected:302,redirect:'manual'})
  assert.equal(signIn.response.headers.get('Location'),'/git-connections/github/complete?code=test-code&state='+state)
  await api('alpha',callback,{actor:'alpha-member',expected:403})
- await api('beta',callback,{expected:409})
+ // A foreign or spent state never completes setup; the person is sent to start again.
+ const expired=`/git-connections/github/complete?code=test-code&state=${state}&expired=1`
+ assert.equal((await api('beta',callback,{expected:302,redirect:'manual'})).response.headers.get('Location'),expired)
  const done=await api('alpha',callback,{expected:302,redirect:'manual'})
  assert.equal(done.response.headers.get('Referrer-Policy'),'no-referrer')
  assert.equal(done.response.headers.get('Location'),`/server/${ids.alpha}/settings?section=environments`)
- await api('alpha',callback,{expected:409})
+ assert.equal((await api('alpha',callback,{expected:302,redirect:'manual'})).response.headers.get('Location'),expired)
  const listed=(await api('alpha',root)).payload,connection=listed.connections.find(c=>c.name===input.name)
  assert.ok(connection);assert.equal(JSON.stringify(listed).includes('PRIVATE KEY'),false)
  const stored=(await db.prepare('SELECT credential_json AS credential FROM git_connections WHERE id=?').bind(connection.id).first()).credential

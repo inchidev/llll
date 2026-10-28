@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 /** Hit the real gateway with an isolated runtime capability; no provider call is allowed. */
 export async function testAgentBudget({ api, runtimes, ids, signingSecret, channelId }) {
   const root = `/api/servers/${ids.alpha}`
   const db = await runtimes.alpha.getD1Database('DB')
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Budget fixture role', permissions: Permission.sendMessages } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'Budget fixture role', permissions: Permission.sendMessages })
   const agent = (await api('alpha', root + '/agents', { method: 'POST', body: { displayName: 'Budget fixture', roleId: role.id } })).payload.agent
   const owner = (await db.prepare('SELECT owner_id FROM server').first()).owner_id
   const sessionId = crypto.randomUUID(), runId = crypto.randomUUID(), now = new Date().toISOString()

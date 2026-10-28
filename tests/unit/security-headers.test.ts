@@ -31,6 +31,10 @@ describe('inline script hashes', () => {
     expect(await inlineScriptHashes(html)).toEqual([sha(importMap), sha(colorMode), sha(config)])
   })
 
+  it('ends a script at any end tag a browser accepts', async () => {
+    expect(await inlineScriptHashes('<script>a()</script\t\n bar><script>b()</SCRIPT >')).toEqual([sha('a()'), sha('b()')])
+  })
+
   it('ignores external and JSON data scripts', async () => {
     expect(await inlineScriptHashes('<script src="/a.js"></script><script type="application/json">{}</script>')).toEqual([])
   })

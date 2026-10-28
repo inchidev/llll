@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { ALL_PERMISSIONS, Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 export async function testRunPublication({ api, runtimes, ids, channelId }) {
   const db = await runtimes.alpha.getD1Database('DB'), root = `/api/servers/${ids.alpha}`
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Publication fixture', permissions: Permission.sendMessages } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'Publication fixture', permissions: Permission.sendMessages })
   const agent = (await api('alpha', root + '/agents', { method: 'POST', body: { displayName: 'Publication fixture', roleId: role.id } })).payload.agent
   const owner = (await db.prepare('SELECT owner_id FROM server').first()).owner_id
   const runId = crypto.randomUUID(), sessionId = crypto.randomUUID(), now = new Date().toISOString(), text = 'Private publication sentinel: <script>untrusted payload</script>.'

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 export async function testProjects({ api, runtimes, ids, memberId }) {
  const root = `/api/servers/${ids.alpha}`, db = await runtimes.alpha.getD1Database('DB')
  await api('alpha', root+'/projects', { actor: 'anonymous', expected: 401 })
@@ -8,7 +9,7 @@ export async function testProjects({ api, runtimes, ids, memberId }) {
  const project = (await api('alpha', root+'/projects', { method: 'POST', body: { name: 'Factory A', description: 'Private project metadata' } })).payload.project
  const other = (await api('alpha', root+'/projects', { method: 'POST', body: { name: 'Factory B' } })).payload.project
  const endpoint = `/api/projects/${project.id}`
- const role = (await api('alpha', root+'/roles', { method: 'POST', body: { name: 'Project reader', permissions: Permission.readProjects|Permission.readTasks|Permission.writeTasks|Permission.sendMessages, resourceAccess: { projects: [project.id] } } })).payload.role
+ const role = await createFixtureRole({ api, runtimes, ids }, { name: 'Project reader', permissions: Permission.readProjects|Permission.readTasks|Permission.writeTasks|Permission.sendMessages, resourceAccess: { projects: [project.id] } })
  const original = (await db.prepare('SELECT role_id AS role FROM users WHERE id=?').bind(memberId).first()).role
  await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(role.id,memberId).run()
  try {
@@ -36,7 +37,8 @@ export async function testProjects({ api, runtimes, ids, memberId }) {
   const discussion = (await api('alpha',`/api/tasks/${task.id}/discussion`,{actor:'alpha-member',method:'POST',body:{}})).payload.channelId
   await api('alpha',`/api/channels/${discussion}/messages`,{actor:'alpha-member'})
   await db.prepare('UPDATE roles SET resource_access_json=? WHERE id=?').bind('{"projects":[]}',role.id).run()
-  await api('alpha',`/api/channels/${discussion}/messages`,{actor:'alpha-member',expected:403})
+  // Without the Task, its discussion is hidden rather than refused.
+  await api('alpha',`/api/channels/${discussion}/messages`,{actor:'alpha-member',expected:404})
   await api('alpha',`/api/tasks/${task.id}`,{actor:'alpha-member',expected:403})
   const archived = (await api('alpha',endpoint,{method:'PATCH',body:{version:project.version,archived:true}})).payload.project
   await api('alpha',endpoint,{method:'PATCH',body:{version:project.version,name:'Stale'},expected:409})

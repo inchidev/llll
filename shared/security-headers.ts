@@ -55,7 +55,7 @@ export function strictTransportSecurity(url: URL, forwardedProto: string | null 
 /** Script element types that a browser executes, so CSP `script-src` governs them. */
 const EXECUTABLE_SCRIPT_TYPES = new Set(['', 'text/javascript', 'application/javascript', 'module', 'importmap', 'speculationrules'])
 
-const INLINE_SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi
+const INLINE_SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi
 const TYPE_ATTRIBUTE = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i
 const SRC_ATTRIBUTE = /\bsrc\s*=/i
 

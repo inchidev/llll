@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 export async function testGadgetAuthorization({ api, runtimes, ids, memberId }) {
   const root = `/api/servers/${ids.alpha}`
@@ -8,7 +9,7 @@ export async function testGadgetAuthorization({ api, runtimes, ids, memberId }) 
   const owner = await db.prepare('SELECT owner_id FROM server').first()
   const allowedId = crypto.randomUUID(), privateId = crypto.randomUUID()
   await db.batch([allowedId, privateId].map(id => db.prepare('INSERT INTO database_definitions(id,name,created_by) VALUES(?,?,?)').bind(id, id === allowedId ? 'QA allowed source' : 'QA private source', owner.owner_id)))
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'QA scoped App manager', permissions: Permission.manageGadgets | Permission.manageDatabases, resourceAccess: { databases: [allowedId] } } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'QA scoped App manager', permissions: Permission.manageGadgets | Permission.manageDatabases, resourceAccess: { databases: [allowedId] } })
   const spec = databaseId => ({ schemaVersion: 1, bindings: [{ id: 'source', label: 'Source', source: { type: 'database_view', databaseId, viewId: `default:${databaseId}` }, fieldIds: [], operations: ['read'] }], sections: [{ id: 'section', bindingId: 'source', title: 'Source', presentation: 'table' }] })
   try {
     await api('alpha', `${root}/members/${memberId}`, { method: 'PATCH', body: { roleId: role.id } })

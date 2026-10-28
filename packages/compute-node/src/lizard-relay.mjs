@@ -18,14 +18,16 @@ export function createLizardRelay(secret, { timeoutMs=14000, maxPending=4 }={}) 
   const queue=[],pending=new Map()
   const server=http.createServer(async(req,res)=>{
     try {
+      // Check the relay key before routing, so no request path decides whether it is checked.
+      const relay=authenticated(req.headers['x-relay-key'],secret)
       if(req.url==='/bridge/next'&&req.method==='GET'){
-        if(!authenticated(req.headers['x-relay-key'],secret)){res.writeHead(403).end();return}
+        if(!relay){res.writeHead(403).end();return}
         let item
         do {item=queue.shift()} while(item&&!pending.has(item.id))
         res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify(item??null));return
       }
       if(req.url==='/bridge/respond'&&req.method==='POST'){
-        if(!authenticated(req.headers['x-relay-key'],secret)){res.writeHead(403).end();return}
+        if(!relay){res.writeHead(403).end();return}
         const reply=JSON.parse(await body(req,600000))
         if(typeof reply.id!=='string'||!Number.isInteger(reply.status)||reply.status<200||reply.status>599||typeof reply.body!=='string') {res.writeHead(400).end();return}
         const target=pending.get(reply.id)

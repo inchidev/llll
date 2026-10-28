@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createFixtureRole, setFixtureRolePermissions } from './test-role-fixture.mjs'
 
 /** Compare the real HTTP interface and MCP on the same isolated Worker/D1. */
 export async function testMcpMessages({ api, runtimes, origins, ids, cookies, memberId }) {
@@ -7,7 +8,7 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   const ownerId = (await api('alpha', '/api/me')).payload.user.id
   const db = await runtimes.alpha.getD1Database('DB')
   const originalRole = await db.prepare('SELECT role_id FROM users WHERE id=?').bind(memberId).first()
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'MCP chat only', permissions: 4096 } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'MCP chat only', permissions: 4096 })
   await api('alpha', root + '/members/' + memberId, { method: 'PATCH', body: { roleId: role.id } })
   const chat = (await api('alpha', root + '/channels', { method: 'POST', body: { name: 'mcp-chat' } })).payload.channel
   const hidden = (await api('alpha', root + '/channels', { method: 'POST', body: { name: 'mcp-private', visibility: 'private' } })).payload.channel
@@ -88,7 +89,8 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   assert.equal(audit.actor_id, memberId)
   assert.equal(JSON.parse(audit.meta_json).clientId, clientId)
   assert.equal((await tool(readOnly, 'send_message', { channelId: chat.id, content: 'Denied by scope' })).error, true)
-  assert.equal((await tool(token, 'list_documents')).error, true)
+  // Document tools are paused, so the Server does not offer them at all.
+  assert.ok((await tool(token, 'list_documents')).payload.error || (await tool(token, 'list_documents')).error)
   assert.equal((await tool(token, 'create_task', { boardId: 'irrelevant-board', title: 'Denied' })).error, true)
   assert.equal((await tool(token, 'send_message', { channelId: chat.id, content: 'Invalid reply', replyToId: 'missing-message' })).error, true)
 
@@ -115,7 +117,7 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   assert.ok(!channelsNav.threads.some(t => t.id === agentThreadId))
   assert.ok(channelsNav.threads.some(t => t.id === thread.id))
 
-  await api('alpha', root + '/roles/' + role.id, { method: 'PATCH', body: { permissions: 16 } })
+  await setFixtureRolePermissions({ api, ids }, role.id, 16)
   assert.equal((await tool(token, 'list_messages', { channelId: chat.id })).status, 401)
   await api('alpha', root + '/members/' + memberId, { method: 'PATCH', body: { roleId: originalRole.role_id } })
   console.log('PASS: concurrent MCP client isolation (same JSON-RPC IDs), MCP chat-only OAuth, interface permission parity, private discovery/history, channel overrides, DM/thread access, mentions, persisted user authorship/audit, scope separation and live grant removal')

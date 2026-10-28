@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 // Only the remote provider is replaced; the Worker uses the real MCP client and D1.
 export async function outboundMcpFixture(request) {
@@ -19,7 +20,7 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
   const root = `/api/servers/${ids.alpha}`, endpoint = root + '/tool-connections'
   const db = await runtimes.alpha.getD1Database('DB')
   const permissions = Permission.sendMessages | Permission.useExternalTools | Permission.readTasks | Permission.writeTasks
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'External docs fixture', permissions } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'External docs fixture', permissions })
   const agent = (await api('alpha', root + '/agents', { method: 'POST', body: { displayName: 'External docs fixture', roleId: role.id } })).payload.agent
   const owner = (await db.prepare('SELECT owner_id FROM server').first()).owner_id
   const token = 'synthetic-private-mcp-http-token'
@@ -35,13 +36,14 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
   const refreshed = (await api('alpha', item + '/refresh', { method: 'POST', body: {} })).payload.connection
   const connection = (await api('alpha', item, { method: 'PUT', body: { ...value, credential: undefined, enabled: true } })).payload.connection
   const metadata = (await api('alpha', root + '/tools?agentId=' + agent.id)).payload
-  assert.ok(!metadata.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
-  assert.equal(metadata.capabilities.find(capability => capability.name === 'Read-only MCP').available, false)
+  // Role mode is the default: a shared, current connection is exposed to the granted Agent.
+  assert.ok(metadata.preview.tools.some(tool => tool.provenance?.connectionId === created.id))
+  assert.equal(metadata.capabilities.find(capability => capability.name === 'Read-only MCP').available, true)
   await api('alpha', root + '/tools', { actor: 'alpha-member', expected: 403 })
   await api('alpha', root + '/tools', { actor: 'anonymous', expected: 401 })
   await api('beta', root + '/tools', { expected: 404 })
   const originalRole = (await db.prepare('SELECT role_id FROM users WHERE id=?').bind(memberId).first()).role_id
-  const personalRole = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Personal tools fixture', permissions: Permission.useExternalTools | Permission.sendMessages } })).payload.role
+  const personalRole = await createFixtureRole({ api, runtimes, ids }, { name: 'Personal tools fixture', permissions: Permission.useExternalTools | Permission.sendMessages })
   await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(personalRole.id,memberId).run()
   try {
     const personal = (await api('alpha', endpoint, { actor: 'alpha-member', method: 'POST', body: { ...value, name: 'Private connection fixture', ownership: 'member', grants: { agentIds: [agent.id], memberIds: [], roleIds: [] } } })).payload.connection
@@ -83,7 +85,7 @@ export async function testOutboundMcp({ api, runtimes, ids, signingSecret, chann
     await api('alpha', `/api/agent-runs/${runId}`, { actor: 'alpha-member', expected: 403 })
     await api('alpha', `/api/agent-runs/${runId}/transcript`, { actor: 'alpha-member', expected: 403 })
     await api('alpha', `/api/agent-runs/${runId}/files`, { actor: 'alpha-member', expected: 403 })
-    const queueRole = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Private Run queue fixture', permissions: Permission.sendMessages | Permission.useAgents } })).payload.role
+    const queueRole = await createFixtureRole({ api, runtimes, ids }, { name: 'Private Run queue fixture', permissions: Permission.sendMessages | Permission.useAgents })
     await db.prepare('UPDATE agent_runs SET prompt=? WHERE id=?').bind('private-queue-prompt-sentinel', runId).run()
     await db.prepare('UPDATE users SET role_id=? WHERE id=?').bind(queueRole.id, memberId).run()
     try {

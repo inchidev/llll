@@ -13,9 +13,13 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
     assert.equal(Boolean(defaults.find(role => role.key === key).permissions & mcpConnect), key === 'owner')
   }
   await db.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('oauth-test-role','oauth-test','MCP test',?)").bind(768 | mcpConnect).run()
-  const setConnectGrant = enabled => api('alpha', `/api/servers/${ids.alpha}/roles/oauth-test-role`, {
-    method: 'PATCH', body: { permissions: 768 | (enabled ? mcpConnect : 0) },
+  // A Role's permissions are the policies assigned to it; toggling the grant swaps policies.
+  const policy = async (name, permissions) => (await api('alpha', `/api/servers/${ids.alpha}/project-policies`, { method: 'POST', body: { name, permissions } })).payload.policy.id
+  const [withConnect, withoutConnect] = [await policy('MCP test with connect', 768 | mcpConnect), await policy('MCP test without connect', 768)]
+  const setConnectGrant = enabled => api('alpha', `/api/servers/${ids.alpha}/roles/oauth-test-role/policies`, {
+    method: 'PUT', body: { policyIds: [enabled ? withConnect : withoutConnect] },
   })
+  await setConnectGrant(true)
   await db.prepare("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('oauth-test-agent','agent','OAuth test Agent','active','oauth-test-role',?)")
     .bind(new Date().toISOString()).run()
 
@@ -107,7 +111,8 @@ export async function testMcpOAuth({ api, runtimes, origins, ids, cookies, membe
   assert.equal(audit.actor_id, 'oauth-test-agent')
   assert.equal(JSON.parse(audit.meta_json).delegatedBy, owner)
   assert.equal(JSON.parse(audit.meta_json).clientId, clientId)
-  assert.equal((await mcp(exchanged.payload.access_token, 'list_documents')).payload.result.isError, true)
+  // The connection was granted Task scopes only.
+  assert.equal((await mcp(exchanged.payload.access_token, 'list_channels')).payload.result.isError, true)
   assert.equal((await mcp(exchanged.payload.access_token, 'list_task_boards', {}, 'beta')).response.status, 401)
 
   // Keep data permissions intact: removing only mcp.connect must block every

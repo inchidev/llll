@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { Permission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 /** Real authenticated HTTP and D1; no external model or GitHub repository. */
 export async function testAgentToolDiscovery({ api, runtimes, ids, signingSecret, channelId }) {
   const root = `/api/servers/${ids.alpha}`
   const db = await runtimes.alpha.getD1Database('DB')
   const permissions = Permission.sendMessages | Permission.readTasks
-  const role = (await api('alpha', root + '/roles', { method: 'POST', body: { name: 'Discovery fixture', permissions } })).payload.role
+  const role = await createFixtureRole({ api, runtimes, ids }, { name: 'Discovery fixture', permissions })
   const agent = (await api('alpha', root + '/agents', { method: 'POST', body: { displayName: 'Discovery fixture', roleId: role.id } })).payload.agent
   const owner = (await db.prepare('SELECT owner_id FROM server').first()).owner_id
   const sessionId = crypto.randomUUID(), runId = crypto.randomUUID(), now = new Date().toISOString()

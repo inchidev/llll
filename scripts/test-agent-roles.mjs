@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Permission, hasPermission } from '../shared/permissions.ts'
+import { createFixtureRole } from './test-role-fixture.mjs'
 
 /** Exercise editor role changes against real HTTP, permissions and isolated storage. */
 export async function testAgentRoles({ api, runtimes, ids, memberId }) {
@@ -9,7 +10,7 @@ export async function testAgentRoles({ api, runtimes, ids, memberId }) {
   const admin = await db.prepare("SELECT id,permissions_bitmask FROM roles WHERE key='admin'").first()
   assert.equal(hasPermission(admin.permissions_bitmask, Permission.executeTasks), false)
   const createRole = async (name, permissions, resourceAccess = { boards: ['allowed'] }) =>
-    (await api('alpha', root + '/roles', { method: 'POST', body: { name, permissions, resourceAccess } })).payload.role
+    await createFixtureRole({ api, runtimes, ids }, { name, permissions, resourceAccess })
   const base = Permission.sendMessages | Permission.manageAgents
   const profileManager = await createRole('QA agent profile manager', base)
   const roleManager = await createRole('QA agent role manager', base | Permission.manageRoles)
