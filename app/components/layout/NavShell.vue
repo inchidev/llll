@@ -60,7 +60,7 @@ const connectedPath = computed(() => {
   return conversation ? channelPath(conversation) : `/channels/${id}`
 })
 
-const { unreadConversations } = useInbox(computed(() => props.serverId))
+const { attention } = useInbox(computed(() => props.serverId))
 const section = computed(() => serverNavigationSection(route.path))
 const hasMenu = computed(() => hasServerNavigationMenu(route.path))
 const chatUnread = computed(() => [...channels.value, ...(dmsQ.data.value?.channels ?? [])].some(channel => channel.unread))
@@ -74,7 +74,7 @@ const mailTarget = computed(() => {
   return first ? mailPath(first.channelId) : '/mail'
 })
 const views = computed(() => [
-  { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: unreadConversations.value.length, dot: false },
+  { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: attention.value, dot: false },
   { label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, path: '/channels', count: 0, dot: chatUnread.value },
   ...(canAnyProject(Permission.readProjects) ? [{ label: 'Projects', icon: 'i-ph-folder-simple', to: '/projects', path: '/projects', count: 0, dot: false }] : []),
   ...(canAnyProject(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),

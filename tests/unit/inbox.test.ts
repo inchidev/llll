@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationTitle, inboxFilter, isAgentChat, matchesInboxFilter, unreadConversations } from '../../shared/inbox'
+import { conversationTitle, inboxAttention, inboxSection, isAgentChat, unreadConversations, type InboxDTO } from '../../shared/inbox'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
 
 const human: PublicUser = { id: 'me', kind: 'human', displayName: 'Owner', avatarR2Key: null }
@@ -31,14 +31,18 @@ describe('conversation navigation and Inbox', () => {
     expect(unreadConversations([older, latest], 'server').map(channel => channel.id)).toEqual(['older', 'latest'])
   })
 
-  it('partitions unread conversations by URL filter without mixing human and Agent chats', () => {
-    const items = [conversation('channel'), conversation('human', { type: 'dm', participants: [human] }), conversation('agent', { type: 'dm', participants: [agent] })]
-    for (const [filter, ids] of [['all', ['channel', 'human', 'agent']], ['channels', ['channel']], ['direct', ['human']], ['agents', ['agent']]] as const) {
-      expect(items.filter(item => matchesInboxFilter(item, filter)).map(item => item.id)).toEqual(ids)
-      expect(inboxFilter(filter)).toBe(filter)
-    }
-    expect(inboxFilter('unknown')).toBe('all')
-    expect(inboxFilter(['agents', 'direct'])).toBe('all')
+  it('reads the Inbox section from the URL and falls back to everything', () => {
+    for (const section of ['approvals', 'mentions', 'agents', 'tasks', 'mail', 'chats'] as const) expect(inboxSection(section)).toBe(section)
+    expect(inboxSection('unknown')).toBe('all')
+    expect(inboxSection(['mentions'])).toBe('all')
+  })
+
+  it('counts only decisions and mentions for the rail badge, not standing work', () => {
+    const empty: InboxDTO = { approvals: [], mentions: [], runs: [], assigned: [], review: [] }
+    expect(inboxAttention(undefined)).toBe(0)
+    expect(inboxAttention({ ...empty, runs: [{ id: 'r', status: 'running', createdAt: '', updatedAt: '', agentName: 'Jev', taskTitle: null, conversation: 'general', pullNumber: null }] })).toBe(0)
+    expect(inboxAttention({ ...empty, approvals: [{ id: 'a', kind: 'workspace', runId: 'r', agentName: 'Jev', taskTitle: null, operation: 'exec', createdAt: '' }],
+      mentions: [{ messageId: 'm', path: '/channels/c', conversation: 'general', author: agent, excerpt: '@Owner look', createdAt: '' }] })).toBe(2)
   })
 
   it('uses the DM title and identifies the other participant', () => {

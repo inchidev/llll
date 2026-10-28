@@ -1,15 +1,22 @@
 import { dmTitle } from './dm'
-import type { ChannelDTO } from './types'
+import type { ChannelDTO, PublicUser, TaskPriority, TaskStatus } from './types'
 
-export type InboxFilter = 'all' | 'channels' | 'direct' | 'agents'
-export function inboxFilter(value: unknown): InboxFilter {
-  return value === 'channels' || value === 'direct' || value === 'agents' ? value : 'all'
+export type InboxMentionDTO = { messageId: string; path: string; conversation: string; author: PublicUser; excerpt: string; createdAt: string }
+/** A decision only the initiating Member can make: a review-mode workspace action, or sharing a private result. */
+export type InboxApprovalDTO = { id: string; kind: 'workspace' | 'publication'; runId: string; agentName: string; taskTitle: string | null; operation: string; createdAt: string }
+export type InboxRunDTO = { id: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; createdAt: string; updatedAt: string; agentName: string; taskTitle: string | null; conversation: string; pullNumber: number | null }
+export type InboxTaskDTO = { id: string; number: number; title: string; status: TaskStatus; priority: TaskPriority; dueAt: string | null; boardName: string }
+export type InboxDTO = { approvals: InboxApprovalDTO[]; mentions: InboxMentionDTO[]; runs: InboxRunDTO[]; assigned: InboxTaskDTO[]; review: InboxTaskDTO[] }
+
+export const INBOX_SECTIONS = ['all', 'approvals', 'mentions', 'agents', 'tasks', 'mail', 'chats'] as const
+export type InboxSection = typeof INBOX_SECTIONS[number]
+export function inboxSection(value: unknown): InboxSection {
+  return (INBOX_SECTIONS as readonly unknown[]).includes(value) ? value as InboxSection : 'all'
 }
-export function matchesInboxFilter(channel: ChannelDTO, filter: InboxFilter): boolean {
-  if (filter === 'channels') return channel.type !== 'dm'
-  if (filter === 'direct') return channel.type === 'dm' && !isAgentChat(channel)
-  if (filter === 'agents') return isAgentChat(channel)
-  return true
+
+/** The rail badge counts what is new and needs a reply or a decision; standing work is listed, not counted. */
+export function inboxAttention(inbox: InboxDTO | undefined): number {
+  return inbox ? inbox.approvals.length + inbox.mentions.length : 0
 }
 
 /** Mixed human/Agent conversations belong with Agent chats, exactly once. */
