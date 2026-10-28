@@ -116,7 +116,7 @@ services:
       start_period: 240s
 
   gateway:
-    image: caddy:2.11.6-alpine
+    image: caddy:2.11.7-alpine
     restart: unless-stopped
     depends_on:
       llll:
