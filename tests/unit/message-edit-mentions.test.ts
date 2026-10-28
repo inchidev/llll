@@ -99,7 +99,7 @@ describe('mentions added by editing', () => {
       id: 'dm-message', channelId: 'dm-001', author: { id: ids.author, kind: 'human', displayName: 'Author', avatarR2Key: null },
       content: 'Hello again', mentions: [], editedAt: '2026-10-24',
     })
-    expect(result).toEqual({ added: [], notified: [] })
+    expect(result).toEqual({ content: 'Hello again', added: [], notified: [] })
     await signalAgentsForMessage(state.env!, { messageId: 'dm-message', channelId: 'dm-001', authorId: ids.author, authorName: 'Author', content: 'Hello again', mentionIds: [], edit: true })
     expect(received).not.toHaveBeenCalled()
     expect(outbox()).toEqual([ids.reader])

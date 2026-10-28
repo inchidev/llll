@@ -1,7 +1,7 @@
 import { and, desc, eq, like, lt } from 'drizzle-orm'
 import { z } from 'zod'
 import { messages, users } from '../../drizzle/schema'
-import { extractMentionIds, roleDisplayName } from '../../shared/mentions'
+import { extractMentionIds, GROUP_MENTIONS, roleDisplayName } from '../../shared/mentions'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
 import { canViewAgentMembers } from '../../shared/project-access'
@@ -17,7 +17,7 @@ import { messageNotificationStatement, reminderNotificationStatement, signalNoti
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
 import { persistMessageEdit } from '../../workers/message-edits'
-import { roleMentionRecipients, roleMentionStatement } from '../../workers/role-mentions'
+import { mentionFanout, roleMentionStatement } from '../../workers/role-mentions'
 import { channelLastMessageTimes, channelUnreadCounts } from '../../workers/unread'
 import { removeMessageData } from '../../shared/file-cleanup'
 import { threadTitle } from '../../shared/threads'
@@ -169,7 +169,10 @@ export async function listMessageMembers(env: L4Env, member: Membership, input: 
     nextCursor: rows.length > limit ? page.at(-1)?.id ?? null : null }
 }
 
-/** Roles the member may mention, with the token that mentions each. Agents are never reached through a Role. */
+/**
+ * Roles the member may mention, with the token that mentions each, and `@channel` and `@here`
+ * for those who may use them. Agents are never reached through a Role or a group mention.
+ */
 export async function listMentionRoles(env: L4Env, member: Membership) {
   authorizeMcpCredential(member.authorization, 'messages:read')
   const anyRole = member.isOwner || hasPermission(member.perms, Permission.manageChannels)
@@ -178,7 +181,8 @@ export async function listMentionRoles(env: L4Env, member: Membership) {
     FROM roles r WHERE ? OR r.mentionable = 1 ORDER BY r.position, r.id`)
     .bind(anyRole ? 1 : 0).all<{ id: string; key: string; name: string; mentionable: number; memberCount: number }>()
   return { roles: (rows.results ?? []).map(role => ({ id: role.id, name: roleDisplayName(role), mentionable: Boolean(role.mentionable),
-    memberCount: Number(role.memberCount), mentionToken: `<@&${role.id}>` })) }
+    memberCount: Number(role.memberCount), mentionToken: `<@&${role.id}>` })),
+  groups: anyRole ? GROUP_MENTIONS.map(group => ({ name: `@${group}`, mentionToken: `<!${group}>` })) : [] }
 }
 
 export async function readChannelMessages(env: L4Env, member: Membership, channelId: string, input: { limit?: number; cursor?: string | null } = {}) {
@@ -252,13 +256,13 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
 
   const id = deliveryId ?? newId()
   const created = nowIso()
-  const roleMentions = await roleMentionRecipients(env, { channelId, authorId: member.user.id, content: body.content, mentions: mentionIds })
+  const { content, recipients: roleMentions } = await mentionFanout(env, { channelId, authorId: member.user.id, content: body.content, mentions: mentionIds })
   const roleRows = roleMentionStatement(env, id, roleMentions)
   const notification = await messageNotificationStatement(env, {
     id,
     channelId,
     author: member.user,
-    content: body.content,
+    content,
     mentions: mentionIds,
     roleMentions: roleMentions.map(mention => mention.userId),
     attachmentCount: attachmentRows.length,
@@ -266,7 +270,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
   // A scheduled reminder is authored by the person it reminds: keep it unread and notify them too.
   const remindSelf = remindUserId === member.user.id
   const reminder = remindUserId
-    ? await reminderNotificationStatement(env, { id, channelId, author: member.user, content: body.content, mentions: mentionIds, attachmentCount: attachmentRows.length }, remindUserId)
+    ? await reminderNotificationStatement(env, { id, channelId, author: member.user, content, mentions: mentionIds, attachmentCount: attachmentRows.length }, remindUserId)
     : null
   const audit = actor.authorization.credential.kind === 'mcp'
     ? await auditStatement(env, { serverId: member.serverId, actorId: member.user.id, action: 'message.create',
@@ -275,7 +279,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
   await env.DB.batch([
     env.DB.prepare(
       'INSERT INTO messages (id, channel_id, author_id, content, reply_to_id, edited_at, deleted_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)',
-    ).bind(id, channelId, member.user.id, body.content, body.replyToId ?? null, created),
+    ).bind(id, channelId, member.user.id, content, body.replyToId ?? null, created),
     ...attachmentRows.map((attachment) => env.DB.prepare(
       'UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL',
     ).bind(id, attachment.id)),
@@ -300,7 +304,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     id,
     channelId,
     author: member.user,
-    content: body.content,
+    content,
     attachmentCount: attachmentRows.length,
   }, remindUserId ? [remindUserId] : []))
   if (!remindSelf) schedule(signalChannelRead(env, member.user.id, channelId, id))
@@ -317,7 +321,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
     channelId,
     authorId: member.user.id,
     authorName: member.user.displayName,
-    content: body.content,
+    content,
     mentionIds,
     mode: body.agentMode,
   }))
@@ -397,12 +401,12 @@ export async function editChannelMessage(env: L4Env, actor: Membership, messageI
         .bind(...requestedMentions).all<{ id: string }>()).results ?? []).map(mention => mention.id)
     : []
   // The same edit path as the interface: only newly added mentions are notified and invoke Agents.
-  const { added, notified } = await persistMessageEdit(env, { id: messageId, channelId: row.channelId, author: member.user, content, mentions: mentionIds, editedAt: nowIso() })
+  const { content: stored, added, notified } = await persistMessageEdit(env, { id: messageId, channelId: row.channelId, author: member.user, content, mentions: mentionIds, editedAt: nowIso() })
   const audit = await auditMcpWrite(env, actor, 'message.update', 'message', messageId, { channelId: row.channelId, mentions: mentionIds })
   if (audit) await audit.run()
   if (notified.length) schedule(signalNotificationOutbox(env))
   if (added.length) {
-    schedule(signalAgentsForMessage(env, { messageId, channelId: row.channelId, authorId: member.user.id, authorName: member.user.displayName, content, mentionIds: added, edit: true }))
+    schedule(signalAgentsForMessage(env, { messageId, channelId: row.channelId, authorId: member.user.id, authorName: member.user.displayName, content: stored, mentionIds: added, edit: true }))
   }
   const [dto] = await hydrateMessages(env, [await loadMessage(env, messageId)], member.user.id)
   // The broadcast copy carries no viewer; each client keeps its own reaction highlight.

@@ -36,7 +36,7 @@ import {
 import { signalChannelActivity, signalChannelRead } from './channel-activity'
 import { signalAgentsForMessage } from './agent-ingress'
 import { persistMessageEdit } from './message-edits'
-import { mentionedRoleIds, roleMentionRecipients, roleMentionStatement, type RoleMention } from './role-mentions'
+import { mentionedRoleIds, mentionFanout, roleMentionStatement, type RoleMention } from './role-mentions'
 import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
@@ -559,7 +559,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const id = newId()
     const createdAt = nowIso()
     const mentions = await this.validMentions(extractMentionIds(body.content))
-    const roleMentions = await roleMentionRecipients(this.env, { channelId: this.channelId(), authorId: sock.userId, content: body.content, mentions })
+    const { content, recipients: roleMentions } = await mentionFanout(this.env, { channelId: this.channelId(), authorId: sock.userId, content: body.content, mentions })
     const attachmentIds = [...new Set(body.attachmentIds ?? [])]
     if (attachmentIds.length !== (body.attachmentIds?.length ?? 0)) {
       fail('bad_request', 'Duplicate attachment')
@@ -601,7 +601,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       channelId: this.channelId(),
       serverId: authz.serverId,
       author: sock.user,
-      content: body.content,
+      content,
       replyTo,
       mentions,
       roleMentions: mentionedRoleIds(roleMentions),
@@ -621,7 +621,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       id,
       channelId: this.channelId(),
       author: sock.user,
-      content: body.content,
+      content,
       attachmentCount: attachments.length,
     }))
     this.ctx.waitUntil(signalChannelRead(this.env, sock.userId, this.channelId(), id))
@@ -634,7 +634,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       channelId: this.channelId(),
       authorId: sock.userId,
       authorName: sock.user.displayName,
-      content: body.content,
+      content,
       mentionIds: mentions,
       mode: body.agentMode,
     }))
@@ -717,7 +717,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (row.deleted_at) return
     const editedAt = nowIso()
     const mentions = await this.validMentions(extractMentionIds(body.content))
-    const { added, notified } = await persistMessageEdit(this.env, { id: body.id, channelId: this.channelId(), author: sock.user, content: body.content, mentions, editedAt })
+    const { content, added, notified } = await persistMessageEdit(this.env, { id: body.id, channelId: this.channelId(), author: sock.user, content: body.content, mentions, editedAt })
     const dto = await this.loadMessage(body.id)
     if (dto) await this.broadcast({ t: 'message.update', message: dto })
     if (notified.length) this.ctx.waitUntil(signalNotificationOutbox(this.env))
@@ -727,7 +727,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         channelId: this.channelId(),
         authorId: sock.userId,
         authorName: sock.user.displayName,
-        content: body.content,
+        content,
         mentionIds: added,
         edit: true,
       }))
@@ -1220,7 +1220,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }>()
     if (!row) return null
     const mentionRows = await this.env.DB.prepare('SELECT user_id FROM message_mentions WHERE message_id = ? AND role_id IS NULL').bind(id).all<{ user_id: string }>()
-    const roleRows = await this.env.DB.prepare('SELECT DISTINCT role_id FROM message_mentions WHERE message_id = ? AND role_id IS NOT NULL').bind(id).all<{ role_id: string }>()
+    const roleRows = await this.env.DB.prepare(`SELECT DISTINCT role_id FROM message_mentions WHERE message_id = ? AND role_id IS NOT NULL AND role_id NOT LIKE '!%'`).bind(id).all<{ role_id: string }>()
     const attRows = await this.env.DB.prepare(
       'SELECT id, r2_key, filename, content_type, size_bytes, width, height FROM attachments WHERE message_id = ?',
     ).bind(id).all<{

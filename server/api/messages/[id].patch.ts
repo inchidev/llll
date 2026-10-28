@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
     ).bind(...requestedMentions).all<{ id: string }>()
     mentionIds = (rows.results ?? []).map((mention) => mention.id)
   }
-  const { added, notified } = await persistMessageEdit(env, { id, channelId: row.channelId, author: member.user, content: body.content, mentions: mentionIds, editedAt })
+  const { content, added, notified } = await persistMessageEdit(env, { id, channelId: row.channelId, author: member.user, content: body.content, mentions: mentionIds, editedAt })
   const updated = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
   const [dto] = await hydrateMessages(env, [updated], member.user.id)
   try {
@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
       channelId: row.channelId,
       authorId: member.user.id,
       authorName: member.user.displayName,
-      content: body.content,
+      content,
       mentionIds: added,
       edit: true,
     }))

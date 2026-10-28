@@ -1,4 +1,5 @@
 import { getServerId } from '../../shared/server-id'
+import { isGroupMentionMarker } from '../../shared/mentions'
 import { and, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { attachments, channels, messageMentions, messagePins, messageReactions, messages, users } from '../../drizzle/schema'
 import type { AttachmentDTO, MessageDTO, MessagePinDTO, PublicUser, ReactionDTO } from '../../shared/types'
@@ -66,7 +67,8 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
   }
 
   const roleMentions = new Map<string, string[]>()
-  for (const m of roleMentionRows) roleMentions.set(m.messageId, [...roleMentions.get(m.messageId) ?? [], m.roleId!])
+  // Group mentions are recorded under markers; the message names only its Roles.
+  for (const m of roleMentionRows) if (!isGroupMentionMarker(m.roleId!)) roleMentions.set(m.messageId, [...roleMentions.get(m.messageId) ?? [], m.roleId!])
 
   const atts = new Map<string, AttachmentDTO[]>()
   for (const a of attRows) {

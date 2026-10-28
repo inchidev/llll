@@ -2,6 +2,12 @@ import { hasPermission, Permission } from '../shared/permissions'
 import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-access'
 import type { L4Env } from './env'
 
+/** A Task discussion's audience: the Owner, or a Role with Read tasks that reaches the Task's Board. */
+export function readsTaskBoard(user: { id: string, permissions: number, resourceAccess: string | null, ownerId: string }, boardId: string): boolean {
+  return user.id === user.ownerId || (hasPermission(user.permissions, Permission.readTasks)
+    && resourceAccessAllows(parseResourceAccess(user.resourceAccess), 'boards', boardId))
+}
+
 /** Apply conversation access to both Live events and push recipients. */
 export async function filterLiveRecipients(env: L4Env, channelId: string, candidates: string[]): Promise<string[]> {
   if (!candidates.length) return []
@@ -28,7 +34,6 @@ export async function filterLiveRecipients(env: L4Env, channelId: string, candid
     if ((root.type === 'dm' || root.visibility === 'private') && !user.participant) return false
     const owner = user.id === user.ownerId
     if (root.type === 'dm' && root.hasAgent && !owner && !hasPermission(user.permissions, Permission.useAgents)) return false
-    return !root.boardId || owner || (hasPermission(user.permissions, Permission.readTasks)
-      && resourceAccessAllows(parseResourceAccess(user.resourceAccess), 'boards', root.boardId))
+    return !root.boardId || readsTaskBoard(user, root.boardId)
   }).map(user => user.id).sort()
 }
