@@ -3,7 +3,7 @@ import { messages, users } from '../../drizzle/schema'
 import { authorizeMcpCredential, type AuthorizationContext } from '../../shared/authorization'
 import type { McpScope } from '../../shared/mcp'
 import { readableMailContent } from '../../shared/mail-content'
-import type { MailFolder } from '../../shared/paths'
+import type { MailThreadFolder } from '../../shared/paths'
 import type { MailboxPermission, MailMessageDTO, MailThreadStatus } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
 import { signalMailChanged } from '../../workers/mail-events'
@@ -65,7 +65,7 @@ function canSendIn(access: Parameters<typeof mailboxPermission>[0]) {
 }
 
 export async function listMemberMailThreads(env: L4Env, member: Membership, input: {
-  mailboxId: string; folder?: MailFolder; unread?: boolean; query?: string; limit?: number; cursor?: string
+  mailboxId: string; folder?: MailThreadFolder; unread?: boolean; query?: string; limit?: number; cursor?: string
 }) {
   authorizeMcpCredential(member.authorization, 'mail:read')
   const access = await mailboxAccess(env, member, input.mailboxId, 'read')
