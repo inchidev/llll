@@ -1,4 +1,4 @@
-import { and, notInArray, sql } from 'drizzle-orm'
+import { and, isNull, notInArray, sql } from 'drizzle-orm'
 import { channelCategories, channels } from '../../../../drizzle/schema'
 import { channelLastMessageTimes, channelUnreadCounts, sidebarThreads } from '../../../../workers/unread'
 import { requireMember } from '../../../utils/guards'
@@ -13,8 +13,10 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const db = getDb(env.DB)
   // DMs, threads and mailboxes have their own navigation; task discussions live inside their task.
+  // Archived channels leave navigation and the Inbox; Server settings lists them for restore.
   const list = await db.select().from(channels).where(and(
     notInArray(channels.type, ['dm', 'thread']),
+    isNull(channels.archivedAt),
     sql`(${channels.visibility} = 'server' OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = ${channels.id} AND cm.user_id = ${member.user.id}))`,
     sql`NOT EXISTS (SELECT 1 FROM email_mailboxes mb WHERE mb.channel_id = ${channels.id})`,
     sql`NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = ${channels.id})`,

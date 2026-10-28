@@ -16,7 +16,8 @@ export default defineEventHandler(async (event) => {
   const { env, waitUntil } = cf(event)
   const channel = member.channel
   if (channel.type === 'dm') fail(400, 'bad_request', 'Direct messages cannot be deleted')
-  if (await isChatChannel(env, channel) && await chatChannelCount(env) <= 1) fail(400, 'bad_request', 'Cannot delete the last channel')
+  // An archived channel is already out of the count, so deleting it never leaves Chat empty.
+  if (!channel.archivedAt && await isChatChannel(env, channel) && await chatChannelCount(env) <= 1) fail(400, 'bad_request', 'Cannot delete the last channel')
   const blocker = await deletionBlocker(env, id)
   if (blocker) blocked(blocker)
   const deletedIds = await conversationTree(env, channel)

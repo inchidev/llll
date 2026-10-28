@@ -32,6 +32,7 @@ import chatLifecycleSql from '../../drizzle/server-migrations/0028_chat_lifecycl
 import chatSearchSql from '../../drizzle/server-migrations/0029_chat_search.sql?raw'
 import agentsTasksMailSql from '../../drizzle/server-migrations/0030_agents_tasks_mail.sql?raw'
 import roleMentionsSql from '../../drizzle/server-migrations/0031_role_mentions.sql?raw'
+import channelArchiveSql from '../../drizzle/server-migrations/0032_channel_archive.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -87,6 +88,7 @@ export const INIT_SQL = d1ExecSql([
   chatSearchSql,
   agentsTasksMailSql,
   roleMentionsSql,
+  channelArchiveSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

@@ -51,6 +51,7 @@ export default defineEventHandler(async (event) => {
       live,
       createdAt: ch.createdAt,
       title,
+      archivedAt: access.archivedAt,
     },
     frozen: false,
   }

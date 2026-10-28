@@ -29,6 +29,8 @@ const props = withDefaults(defineProps<{
   linkPath?: string
   /** Offer Create task on messages (Create and update tasks somewhere in the Server). */
   canCreateTasks?: boolean
+  /** An archived conversation: history only. Existing threads still open; nothing new is added. */
+  readOnly?: boolean
 }>(), { channelName: undefined, linkPath: undefined, showIntro: true, allowThreads: true })
 const { api } = useApi()
 const emit = defineEmits<{
@@ -448,21 +450,27 @@ function quickReactions() {
   return [...new Set([...recent, ...QUICK_REACTIONS])].slice(0, 10)
 }
 
+/** Archived history keeps its existing threads open but adds no new ones or pins. */
+const canPinHere = computed(() => props.canPin && !props.readOnly)
+function canThread(message: MessageDTO) {
+  return props.allowThreads && (!props.readOnly || Boolean(message.threadId))
+}
+
 function actionsFor(message: MessageDTO): DropdownMenuItem[][] {
   const mine = message.author.id === session.user?.id
-  const main: DropdownMenuItem[] = [
+  const main: DropdownMenuItem[] = props.readOnly ? [] : [
     {
       label: 'Add reaction',
       icon: 'i-ph-smiley-sticker',
       children: [quickReactions().map(emoji => ({ label: emoji, onSelect: () => { prefs.useEmoji(emoji); void react(message.id, emoji) } }))],
     },
   ]
-  if (mine) main.push({ label: 'Edit message', icon: 'i-ph-pencil-simple', onSelect: () => startEdit(message) })
-  main.push({ label: 'Reply', icon: 'i-ph-arrow-bend-up-left', onSelect: () => emit('reply', message.id) })
-  if (props.allowThreads) {
+  if (mine && !props.readOnly) main.push({ label: 'Edit message', icon: 'i-ph-pencil-simple', onSelect: () => startEdit(message) })
+  if (!props.readOnly) main.push({ label: 'Reply', icon: 'i-ph-arrow-bend-up-left', onSelect: () => emit('reply', message.id) })
+  if (canThread(message)) {
     main.push({ label: message.threadId ? 'Open thread' : 'Create thread', icon: 'i-ph-chats', onSelect: () => emit('thread', message) })
   }
-  if (props.canPin) main.push({ label: message.pin ? 'Unpin message' : 'Pin message', icon: 'i-ph-push-pin', onSelect: () => { void togglePin(message) } })
+  if (canPinHere.value) main.push({ label: message.pin ? 'Unpin message' : 'Pin message', icon: 'i-ph-push-pin', onSelect: () => { void togglePin(message) } })
   if (props.canCreateTasks && !message.deletedAt && !message.id.startsWith('tmp:')) {
     main.push({ label: 'Create task', icon: 'i-ph-kanban', onSelect: () => { void navigateTo({ path: '/tasks', query: { fromMessage: message.id } }) } })
   }
@@ -559,10 +567,10 @@ function onRowKey(event: KeyboardEvent) {
     event.preventDefault()
     focusRow(messages.value[index + (key === 'arrowup' ? -1 : 1)]?.id)
   }
-  else if (key === 'e' && mine) { event.preventDefault(); startEdit(message) }
-  else if (key === 'r') { event.preventDefault(); emit('reply', message.id) }
-  else if (key === 't' && props.allowThreads) { event.preventDefault(); emit('thread', message) }
-  else if (key === 'p' && props.canPin) { event.preventDefault(); void togglePin(message) }
+  else if (key === 'e' && mine && !props.readOnly) { event.preventDefault(); startEdit(message) }
+  else if (key === 'r' && !props.readOnly) { event.preventDefault(); emit('reply', message.id) }
+  else if (key === 't' && canThread(message)) { event.preventDefault(); emit('thread', message) }
+  else if (key === 'p' && canPinHere.value) { event.preventDefault(); void togglePin(message) }
   else if ((key === 'delete' || key === 'backspace') && (mine || props.canModerate)) { event.preventDefault(); remove(message.id, event.shiftKey) }
 }
 
@@ -696,8 +704,9 @@ defineExpose({ focusMessage })
               :names="names"
               :member="membersById.get(m.author.id)"
               :mine="m.author.id === session.user?.id"
-              :can-pin="canPin"
-              :can-thread="allowThreads"
+              :can-pin="canPinHere"
+              :can-thread="canThread(m)"
+              :read-only="readOnly"
               :compact="unreadBoundary !== m.id && messages[i - 1]?.channelId === m.channelId && compactWith(m, messages[i - 1])"
               :streaming="streamingMessageIds.has(m.id)"
               :active="activeId === m.id"
@@ -710,7 +719,7 @@ defineExpose({ focusMessage })
               @save-edit="saveEdit(m)"
               @cancel-edit="ui.cancelEditing(channelId)"
               @remove="(immediate) => remove(m.id, immediate)"
-              @thread="allowThreads && emit('thread', m)"
+              @thread="canThread(m) && emit('thread', m)"
               @jump="focusMessage"
               @react="(emoji) => react(m.id, emoji)"
               @pin="togglePin(m)"
@@ -812,7 +821,7 @@ defineExpose({ focusMessage })
     <UDrawer v-model:open="sheetOpen" :title="sheetMessage ? `Message from ${sheetMessage.author.displayName}` : 'Message'" :ui="{ title: 'sr-only', header: 'hidden' }">
       <template #body>
         <div v-if="sheetMessage" class="space-y-3">
-          <div class="flex justify-between gap-1">
+          <div v-if="!readOnly" class="flex justify-between gap-1">
             <button
               v-for="e in quickReactions().slice(0, 6)"
               :key="e"

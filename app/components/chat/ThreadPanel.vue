@@ -35,6 +35,8 @@ const { mine } = usePermissions(computed(() => props.members))
 const effectivePermissions = computed(() => threadQ.data.value?.channel.permissions ?? mine.value?.role.permissions ?? 0)
 const canSendMessages = computed(() => hasPermission(effectivePermissions.value, Permission.sendMessages))
 const canAttachFiles = computed(() => hasPermission(effectivePermissions.value, Permission.attachFiles))
+/** A Thread follows its parent channel: archived history stays readable but takes no replies. */
+const archived = computed(() => Boolean(threadQ.data.value?.channel.archivedAt))
 const presence = usePresenceStore()
 const agentBusy = computed(() => Boolean(threadId.value && presence.agentTurnsIn(threadId.value).length))
 const canApproveAgent = computed(() => hasPermission(effectivePermissions.value, Permission.approveAgentActions))
@@ -103,6 +105,7 @@ defineShortcuts({
       :can-pin="props.canPin"
       :can-moderate="props.canModerate"
       :can-create-tasks="props.canCreateTasks"
+      :read-only="archived"
       :allow-threads="false"
       :link-path="linkPath"
       @root-message="rootMessage = $event"
@@ -122,6 +125,7 @@ defineShortcuts({
       :members="props.members"
       :send="send as (msg: ClientMsg) => void"
       :disabled="!canSendMessages"
+      :disabled-placeholder="archived ? 'This channel is archived' : undefined"
       :can-attach="canAttachFiles"
       :agent-busy="agentBusy"
       :agent-id="agentId"

@@ -21,7 +21,7 @@ vi.mock('../../workers/env', async original => ({
   callsProvider: () => 'realtimekit',
 }))
 
-type Authz = { serverId: string, perms: number, ownerId: string, type: string, frozen: boolean, canManageAgents: boolean, mailbox: boolean }
+type Authz = { serverId: string, perms: number, ownerId: string, type: string, frozen: boolean, canManageAgents: boolean, mailbox: boolean, archived: boolean }
 
 let now = Date.parse('2026-10-28T10:00:00.000Z')
 
@@ -103,6 +103,7 @@ function room(opts: { directMessage?: boolean, members?: number, access?: Record
         frozen: false,
         canManageAgents: false,
         mailbox: false,
+        archived: false,
         ...access[userId],
       }
     },

@@ -1,14 +1,21 @@
 import type { ServerChannelsChangedEvent } from '../../shared/server-realtime'
+import { nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
-import { asRpc } from './cf'
+import { asRpc, fail } from './cf'
+import type { ServerChannelAccess } from './channel-access'
+import { revalidateLiveRooms } from './live'
+import { writeAudit } from './messages'
 
 type ChannelRef = { id: string, type: string, visibility: string, parentId: string | null }
 
-/** Root text channels that appear in Chat; mailboxes and task discussions share the table but not the list. */
-export async function chatChannelCount(env: L4Env): Promise<number> {
-  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM channels c WHERE c.type = 'text'
+/** Root text channels listed in Chat: not archived, and not a mailbox or task discussion sharing the table. */
+const ACTIVE_CHAT_CHANNEL = `c.type = 'text' AND c.archived_at IS NULL
     AND NOT EXISTS (SELECT 1 FROM email_mailboxes mb WHERE mb.channel_id = c.id)
-    AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = c.id)`).first<{ n: number }>()
+    AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = c.id)`
+
+/** Active Chat channels; the last one can be neither deleted nor archived. */
+export async function chatChannelCount(env: L4Env): Promise<number> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM channels c WHERE ${ACTIVE_CHAT_CHANNEL}`).first<{ n: number }>()
   return Number(row?.n ?? 0)
 }
 
@@ -58,7 +65,7 @@ export async function channelAudience(env: L4Env, rootId: string): Promise<strin
 export async function signalChannelsChanged(
   env: L4Env,
   serverId: string,
-  change: { deletedIds?: string[], parentIds?: string[] } = {},
+  change: { deletedIds?: string[], parentIds?: string[], updatedIds?: string[] } = {},
   recipientIds?: string[],
 ): Promise<void> {
   const event: ServerChannelsChangedEvent = {
@@ -66,6 +73,7 @@ export async function signalChannelsChanged(
     serverId,
     deletedIds: change.deletedIds ?? [],
     parentIds: change.parentIds ?? [],
+    ...(change.updatedIds?.length ? { updatedIds: change.updatedIds } : {}),
   }
   try {
     await asRpc<{ notifyChannelsChanged: (event: ServerChannelsChangedEvent, recipientIds?: string[]) => Promise<void> }>(
@@ -73,4 +81,77 @@ export async function signalChannelsChanged(
     ).notifyChannelsChanged(event, recipientIds)
   }
   catch { /* realtime is advisory */ }
+}
+
+/**
+ * Archive or restore a Chat channel. Its Threads follow it. Members with Manage channels
+ * may do this; a private channel follows its visibility rule, so only its creator can.
+ * Archiving cancels the channel's queued and running Agent Runs, whose replies could no
+ * longer be posted, and ends its Live room. Schedules that post there are blocked when
+ * they next fire and can be resumed after a restore.
+ */
+export async function setChannelArchived(
+  env: L4Env,
+  access: ServerChannelAccess,
+  archived: boolean,
+  schedule: (promise: Promise<unknown>) => void,
+): Promise<{ changed: boolean, cancelledRuns: number }> {
+  const channel = access.channel
+  if (channel.type === 'dm') fail(400, 'invalid_channel', 'Direct messages cannot be archived')
+  if (channel.type === 'thread') fail(400, 'invalid_channel', 'Threads follow their channel; archive the channel instead')
+  if (!await isChatChannel(env, channel)) fail(400, 'invalid_channel', 'Only Chat channels can be archived')
+  if (channel.visibility === 'private') {
+    if (!channel.createdBy) fail(403, 'forbidden', 'Assign a channel creator before archiving or restoring this channel')
+    if (channel.createdBy !== access.user.id) fail(403, 'forbidden', 'Only the channel creator can archive or restore this channel')
+  }
+  const at = nowIso()
+  const changed = archived
+    // The last-channel rule is part of the write, so two concurrent archives cannot both pass it.
+    ? await env.DB.prepare(`UPDATE channels SET archived_at = ?, archived_by = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL
+        AND EXISTS (SELECT 1 FROM channels c WHERE ${ACTIVE_CHAT_CHANNEL} AND c.id <> ?) RETURNING id`)
+      .bind(at, access.user.id, at, channel.id, channel.id).first()
+    : await env.DB.prepare('UPDATE channels SET archived_at = NULL, archived_by = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL RETURNING id')
+      .bind(at, channel.id).first()
+  if (!changed) {
+    const current = await env.DB.prepare('SELECT archived_at AS archivedAt FROM channels WHERE id = ?').bind(channel.id).first<{ archivedAt: string | null }>()
+    if (Boolean(current?.archivedAt) === archived) return { changed: false, cancelledRuns: 0 }
+    fail(400, 'last_channel', 'Cannot archive the last channel')
+  }
+  const tree = await conversationTree(env, channel)
+  let cancelledRuns = 0
+  if (archived) {
+    cancelledRuns = await cancelConversationRuns(env, channel.id)
+    // An archived channel's Live room ends; its participants leave the media session.
+    schedule(revalidateLiveRooms(env, [channel.id]))
+  }
+  await writeAudit(env, {
+    serverId: access.serverId,
+    actorId: access.user.id,
+    action: archived ? 'channel.archive' : 'channel.restore',
+    targetType: 'channel',
+    targetId: channel.id,
+    ...(archived ? { meta: { cancelledRuns } } : {}),
+  })
+  schedule(signalChannelsChanged(env, access.serverId, { updatedIds: tree }, await channelAudience(env, channel.id)))
+  return { changed: true, cancelledRuns }
+}
+
+/**
+ * Runs end through their own Durable Object so status, budget and report settle normally.
+ * Every Run step rechecks Send messages in its conversation, which an archived channel
+ * refuses, so a missed cancel still cannot post.
+ */
+async function cancelConversationRuns(env: L4Env, channelId: string): Promise<number> {
+  if (!env.AGENT_RUN_DO) return 0
+  const runs = await env.DB.prepare(`SELECT id FROM agent_runs WHERE status IN ('queued', 'running')
+    AND channel_id IN (SELECT id FROM channels WHERE id = ? OR parent_id = ?)`).bind(channelId, channelId).all<{ id: string }>()
+  let cancelled = 0
+  for (const run of runs.results ?? []) {
+    try {
+      await asRpc<{ cancel: () => Promise<void> }>(env.AGENT_RUN_DO.getByName(`run:${run.id}`)).cancel()
+      cancelled += 1
+    }
+    catch { /* The Run's own authorization check fences it. */ }
+  }
+  return cancelled
 }

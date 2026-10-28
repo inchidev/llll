@@ -36,7 +36,8 @@ const SEARCH_COLUMNS = `
     channels.parent_message_id AS parentMessageId,
     root.id AS rootId,
     root.name AS rootName,
-    root.type AS rootType`
+    root.type AS rootType,
+    root.archived_at AS rootArchivedAt`
 
 const SEARCH_JOINS = `
   FROM matched
@@ -70,7 +71,9 @@ export const SEARCH_MESSAGES_SQL = `
  * Every conversation the member can open from chat navigation: open channels,
  * private channels and DMs they belong to, and their threads. Mailboxes and task
  * discussions keep their own access and are not searched here. Agent DMs follow
- * the interface rule. The channel guard still confirms each returned root.
+ * the interface rule. Archived channels stay searchable, since their history stays
+ * readable, and their hits are marked archived. The channel guard still confirms
+ * each returned root.
  */
 export const SEARCH_SERVER_MESSAGES_SQL = `
   WITH matched AS (
@@ -117,6 +120,7 @@ export type SearchRow = {
   rootId: string
   rootName: string
   rootType: ChannelType
+  rootArchivedAt?: string | null
 }
 
 /** Turn user text into an FTS expression without exposing FTS5 query syntax. */
@@ -198,6 +202,7 @@ export function searchHit(row: SearchRow, root: { participants: PublicUser[] }, 
       parentMessageId: row.parentMessageId,
       title: row.rootType === 'dm' ? dmTitle(row.rootName, root.participants, viewerId) : row.rootName,
       path: thread ? channelPath(rootRef, row.channelId) : channelPath(rootRef),
+      ...(row.rootArchivedAt ? { archived: true } : {}),
     },
     author: {
       id: row.authorId,

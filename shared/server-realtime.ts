@@ -47,9 +47,9 @@ export type ServerChannelAccessChangedEvent = {
 }
 
 /**
- * The Server's channel layout changed: a channel or category was created, renamed, moved or
- * deleted, or a Thread was deleted. Clients refetch their channel list; deleted conversations
- * leave their caches at once.
+ * The Server's channel layout changed: a channel or category was created, renamed, moved,
+ * archived, restored or deleted, or a Thread was deleted. Clients refetch their channel list;
+ * deleted conversations leave their caches at once.
  */
 export type ServerChannelsChangedEvent = {
   t: 'channels.changed'
@@ -58,6 +58,8 @@ export type ServerChannelsChangedEvent = {
   deletedIds: string[]
   /** Conversations whose Thread list changed. */
   parentIds: string[]
+  /** Conversations that remain but whose own state changed, such as an archived channel with its Threads. */
+  updatedIds?: string[]
 }
 
 export type ServerLiveChangedEvent = {

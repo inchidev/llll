@@ -414,6 +414,31 @@ function shiftChannel(channel: ChannelDTO, step: -1 | 1) {
   void moveChannel(channel.id, channel.categoryId ?? null, before?.id ?? null)
 }
 
+const archiveChannelId = ref<string | null>(null)
+const archivingChannel = ref(false)
+const archiveCandidate = computed(() => serverChannels.value.find(channel => channel.id === archiveChannelId.value) ?? null)
+/** Archiving follows the visibility rule: a private channel only by its creator. The last channel stays. */
+function canArchive(channel: ChannelDTO) {
+  return serverChannels.value.length > 1 && (channel.visibility !== 'private' || channel.createdBy === session.user?.id)
+}
+async function confirmArchiveChannel() {
+  const channel = archiveCandidate.value
+  if (!channel || archivingChannel.value) return
+  archivingChannel.value = true
+  try {
+    await api(`/api/channels/${channel.id}/archive`, { method: 'PUT' })
+    archiveChannelId.value = null
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['channels', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['archived-channels', props.serverId] }),
+      qc.invalidateQueries({ queryKey: ['channel', channel.id] }),
+    ])
+    toast.add({ title: `#${channel.name} archived`, color: 'success' })
+  }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { archivingChannel.value = false }
+}
+
 function canChangeVisibility(channel: ChannelDTO) {
   return channel.createdBy ? channel.createdBy === session.user?.id : channel.visibility === 'server'
 }
@@ -604,7 +629,7 @@ function roleLabel(name: string) {
         />
       </div>
       <SettingsEditor v-model:open="createChannelOpen" back="Channels" title="Create channel"><template #body><form class="space-y-4" @submit.prevent="createChannel"><UFormField label="Channel name"><UInput v-model="newChannelName" autofocus class="w-full" /></UFormField><UFormField label="Category"><USelect v-model="newChannelCategory" :items="categoryOptions" class="w-full" /></UFormField><UCheckbox v-model="newChannelPrivate" label="Private channel" /><UFormField v-if="newChannelPrivate" label="Members"><USelectMenu v-model="newChannelMembers" :items="(membersQ.data.value?.members ?? []).map(m => ({ label: m.nickname || m.user.displayName, value: m.user.id }))" value-key="value" multiple class="w-full" /></UFormField><div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" @click="createChannelOpen = false" /><UButton type="submit" label="Create channel" :loading="channelCreating" :disabled="!newChannelName.trim()" /></div></form></template></SettingsEditor>
-      <LayoutSegmentedTabs v-model="channelTab" :items="[{ value: 'channels', label: 'Channels' }, { value: 'categories', label: 'Categories' }, ...(isOwner ? [{ value: 'recovery', label: 'Recovery' }] : [])]" label="Channel settings" class="mt-5" />
+      <LayoutSegmentedTabs v-model="channelTab" :items="[{ value: 'channels', label: 'Channels' }, { value: 'categories', label: 'Categories' }, { value: 'archived', label: 'Archived' }, ...(isOwner ? [{ value: 'recovery', label: 'Recovery' }] : [])]" label="Channel settings" class="mt-5" />
       <SettingsList v-if="channelTab === 'categories'" class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
         <template #row="{ item: category }">
           <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-folder" class="size-4" /></span>
@@ -615,6 +640,7 @@ function roleLabel(name: string) {
       <SettingsList v-else-if="channelTab === 'channels'" class="mt-6" :items="serverChannels" :item-key="channel => channel.id" :search-text="channel => channel.name" placeholder="Search channels" :noun="['channel', 'channels']" @select="channelSettingsId = $event.id">
         <template #row="{ item: channel }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-hash" class="size-4" /></span><span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ channel.name }}</span></template>
       </SettingsList>
+      <SettingsArchivedChannels v-else-if="channelTab === 'archived'" :server-id="serverId" class="mt-6" />
       <SettingsChannelCreatorRecovery v-else-if="isOwner && channelTab === 'recovery'" :server-id="serverId" class="mt-6" />
       <SettingsEditor back="Channels" :open="Boolean(channelSettings)" :title="channelSettings?.name || 'Channel'" @update:open="value => { if (!value) channelSettingsId = null }"><template #body><div v-if="channelSettings" class="flex flex-wrap gap-2">
         <UButton v-if="can(Permission.manageChannels)" icon="i-ph-shield-check" label="Permissions" color="neutral" variant="outline" @click="editChannelPermissions(channelSettings!.id); channelSettingsId = null" />
@@ -623,6 +649,7 @@ function roleLabel(name: string) {
         <UButton v-if="canChangeVisibility(channelSettings)" :icon="channelSettings.visibility === 'private' ? 'i-ph-lock-open' : 'i-ph-lock'" :label="channelSettings.visibility === 'private' ? 'Open to Server' : 'Make private'" color="neutral" variant="outline" @click="visibilityChannelId = channelSettings!.id; channelSettingsId = null" />
         <UButton icon="i-ph-arrow-up" label="Move up" color="neutral" variant="outline" :disabled="channelSiblings(channelSettings)[0]?.id === channelSettings.id || Boolean(channelAssigningId)" @click="shiftChannel(channelSettings!, -1)" />
         <UButton icon="i-ph-arrow-down" label="Move down" color="neutral" variant="outline" :disabled="channelSiblings(channelSettings).at(-1)?.id === channelSettings.id || Boolean(channelAssigningId)" @click="shiftChannel(channelSettings!, 1)" />
+        <UButton v-if="canArchive(channelSettings)" icon="i-ph-archive" label="Archive" color="neutral" variant="outline" @click="archiveChannelId = channelSettings!.id; channelSettingsId = null" />
       </div></template></SettingsEditor>
       <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
       <SettingsEditor back="Channels" :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
@@ -818,6 +845,20 @@ v-if="rolesListVisible || section === 'project-policies'"
   </UModal>
 
 
+
+  <UModal
+    :open="Boolean(archiveCandidate)"
+    :title="`Archive #${archiveCandidate?.name ?? 'channel'}?`"
+    @update:open="(value: boolean) => { if (!value && !archivingChannel) archiveChannelId = null }"
+  >
+    <template #body>
+      <p class="text-sm text-muted">It leaves Chat and the Inbox and becomes read-only for everyone, Threads included. Its history stays readable at its links and in search. Agent Runs working there are cancelled, its Live room ends, and Schedules that post there are blocked until it is restored. You can restore it from the Archived tab.</p>
+    </template>
+    <template #footer>
+      <UButton color="neutral" variant="outline" label="Cancel" :disabled="archivingChannel" @click="archiveChannelId = null" />
+      <UButton label="Archive channel" icon="i-ph-archive" :loading="archivingChannel" @click="confirmArchiveChannel" />
+    </template>
+  </UModal>
 
   <UModal
     :open="Boolean(categoryDeleteId)"

@@ -6,6 +6,7 @@ import { cf, fail } from '../../../utils/cf'
 import { writeAudit } from '../../../utils/messages'
 import { parseBody } from '../../../utils/validate'
 import { isChatChannel, signalChannelsChanged } from '../../../utils/channel-lifecycle'
+import { requireActiveChannel } from '../../../utils/channel-access'
 
 const bodySchema = z.object({
   categoryId: z.string().min(8).nullable(),
@@ -20,6 +21,7 @@ const bodySchema = z.object({
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const member = await requireChannelMember(event, id, Permission.manageChannels)
+  requireActiveChannel(member)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
   if (!await isChatChannel(env, member.channel)) fail(400, 'invalid_channel', 'Only server channels can be reordered')
