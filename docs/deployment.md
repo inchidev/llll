@@ -40,6 +40,10 @@ Optional Software Factory on a VPS needs Docker, a loop device and about 7 GiB f
 
 `PUBLIC_ORIGIN` is the primary public origin. On VPS installations, add or remove additional hostnames with `sudo llll domain`; the command updates the Worker's `LLLL_ORIGINS`, the Caddy site addresses and every address's certificate, and verifies discovery on each one before keeping the change. `LLLL_ORIGINS` is a comma-separated fallback for operators who do not use the installer; it must contain only origins this Server should trust.
 
+`PUBLIC_ORIGIN` is the only origin a Server ever stores as its primary address; the Host of an incoming request is never persisted. Without it (unconfigured local development) the Server only trusts the address each request reached.
+
+**Browser security.** HTML responses carry a Content-Security-Policy whose `script-src` allows only same-origin bundles, Turnstile and per-document SHA-256 hashes of the Server's own inline scripts (no `'unsafe-inline'`); zone features that inject or rewrite inline scripts, such as Rocket Loader, are incompatible. HTTPS responses send `Strict-Transport-Security: max-age=31536000` without `includeSubDomains`, since operator origins may share a parent domain with unrelated sites. Unsafe requests (`POST`/`PUT`/`PATCH`/`DELETE`) that carry cookies must come from one of the Server's origins (`Origin`, or `Sec-Fetch-Site: same-origin` when no `Origin` is sent); scripts that use a session cookie must send a matching `Origin`. Bearer-token, signed-webhook, compute-node and agent-runtime requests need no browser headers. `GET /api/setup/health` is read-only; anonymous callers receive status, version and branding (plus setup diagnostics before the owner claims the Server), and signed-in members also receive runtime details.
+
 Keep each Server's D1, files and DO state separate. Preserve its original encryption secret and storage across restarts and updates. Operator Docker/SSH credentials do not enter the Client. Verify transport and browser behavior on celld separately from Cloudflare.
 
 ## Providers and recovery

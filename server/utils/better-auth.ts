@@ -208,6 +208,13 @@ export async function createAuth(
     trustedOrigins: origins,
     advanced: {
       cookiePrefix: `llll-server${new URL(baseURL).port ? '-' + new URL(baseURL).port : ''}`,
+      // SameSite=None is required: the official Shell (llll.gg) embeds this
+      // Server's Client in a cross-site iframe, where Lax/Strict cookies are
+      // never sent. `partitioned` (CHIPS) keys the cookie to the embedding
+      // top-level site, so it is not a general third-party cookie. Because the
+      // browser still attaches it to cross-site requests, unsafe methods are
+      // guarded by originOk() in server/middleware/00-security.ts (listed
+      // Origin, or Sec-Fetch-Site same-origin/none when Origin is absent).
       cookies: baseURL.startsWith('https:') ? { session_token: { attributes: { sameSite: 'none', secure: true, partitioned: true } } } : undefined,
       useSecureCookies: baseURL.startsWith('https://'),
     },

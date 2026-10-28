@@ -128,11 +128,18 @@ export async function allowedServerOrigins(env: L4Env, fallbackOrigin?: string):
   return (await readServerOrigins(env, fallbackOrigin)).map(origin => origin.origin)
 }
 
-/** Create the primary row once. The D1 write is safe to repeat and never overrides an owner's choice. */
-export async function ensurePrimaryServerOrigin(env: L4Env, fallbackOrigin?: string): Promise<void> {
+/**
+ * Create the primary row once from the operator-configured `PUBLIC_ORIGIN`.
+ * The D1 write is safe to repeat and never overrides an owner's choice. A
+ * request's Host is never persisted: whichever name first reached the Worker
+ * must not become the address used for auth links and trusted origins. Without
+ * `PUBLIC_ORIGIN` (unconfigured local development) nothing is stored and
+ * `readServerOrigins` computes a per-request fallback instead.
+ */
+export async function ensurePrimaryServerOrigin(env: L4Env): Promise<void> {
   if (env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return
   if (!env.DB) return
-  const origin = safeOrigin(env.PUBLIC_ORIGIN) || safeOrigin(fallbackOrigin)
+  const origin = safeOrigin(env.PUBLIC_ORIGIN)
   if (!origin) return
   try {
     const primary = await env.DB.prepare('SELECT 1 AS present FROM server_domains WHERE is_primary = 1 LIMIT 1').first()

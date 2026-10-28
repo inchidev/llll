@@ -41,6 +41,22 @@ describe('session transport', () => {
     expect(session.ready).toBe(true)
   })
 
+  it('fetches member-only health details once a session exists', async () => {
+    const session = useSessionStore()
+    let signedIn = false
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === '/api/setup/health') return signedIn ? { ready: true, capabilities: { calls: true } } : { ready: true }
+      if (path === '/api/me') throw new Error('unauthorized')
+      if (path === '/api/auth/login') { signedIn = true; return { user: { id: 'user-1' } } }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+    await Reflect.apply(session.refresh, session, [fetcher])
+    expect(session.health).toEqual({ ready: true })
+    await Reflect.apply(session.login, session, ['owner@example.com', 'password12', fetcher])
+    expect(session.health).toEqual({ ready: true, capabilities: { calls: true } })
+    expect(fetcher.mock.calls.filter(([path]) => path === '/api/setup/health')).toHaveLength(2)
+  })
+
   it('uses the supplied client fetcher for login and logout', async () => {
     const session = useSessionStore()
     const clientFetch = vi.fn(async (path: string) => {

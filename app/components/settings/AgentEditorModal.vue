@@ -216,7 +216,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
               accept="image/png,image/jpeg,image/webp,image/gif"
               variant="button"
               label="Choose image"
-              :disabled="(session.health?.bindings.r2 === false && !session.health?.bindings.kv)"
+              :disabled="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)"
             />
             <UButton
               v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"

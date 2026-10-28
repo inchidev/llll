@@ -24,8 +24,8 @@ const createTokenUrl = 'https://dash.cloudflare.com/?to=/:account/api-tokens&nam
 const managed = computed(() => realtimekit.value?.source === 'deployment')
 const connected = computed(() => Boolean(realtimekit.value?.configured))
 const unreadable = computed(() => realtimekit.value?.source === 'database' && !realtimekit.value.secretReadable)
-const callsUnavailable = computed(() => session.health?.capabilities.calls === false)
-const restCalls = computed(() => session.health?.capabilities.callsProvider === 'realtimekit-rest')
+const callsUnavailable = computed(() => session.health?.capabilities?.calls === false)
+const restCalls = computed(() => session.health?.capabilities?.callsProvider === 'realtimekit-rest')
 const showTokenForm = computed(() => !callsUnavailable.value && !managed.value && (!connected.value || replacing.value || unreadable.value))
 const statusLabel = computed(() => {
   if (connected.value) return 'Connected'
@@ -40,7 +40,7 @@ function apply(value: RealtimeKitSettingsAdminDTO) {
   if (session.health) {
     session.health = {
       ...session.health,
-      realtimekit: value.configured || session.health.capabilities.callsProvider === 'realtimekit-rest',
+      realtimekit: value.configured || session.health.capabilities?.callsProvider === 'realtimekit-rest',
     }
   }
 }

@@ -123,6 +123,18 @@ export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: stri
   return true
 }
 
+/** Read-only: the database carries the supported `server-v1` schema marker. */
+export async function schemaCurrent(db: D1Database): Promise<boolean> {
+  if (migratedDatabases.has(db)) return true
+  try {
+    const row = await db.prepare('SELECT version FROM server_schema WHERE id = 1').first<{ version: string }>()
+    return row?.version === 'server-v1'
+  }
+  catch {
+    return false
+  }
+}
+
 export async function userCount(db: D1Database): Promise<number> {
   try {
     const row = await db.prepare("SELECT COUNT(*) as c FROM users WHERE status = 'active'").first<{ c: number }>()

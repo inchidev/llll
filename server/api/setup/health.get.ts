@@ -1,48 +1,23 @@
+import type { H3Event } from 'h3'
 import { agentProviderCatalog } from '../../utils/agent-providers'
 import { piConfigured } from '../../utils/agent-run-service'
 import { liveAvailable } from '../../../workers/realtimekit'
-import { ensureAdminFromEnv, readAdminEnv } from '../../utils/bootstrap'
+import { readAdminEnv } from '../../utils/bootstrap'
 import { cf } from '../../utils/cf'
-import { ensureMigrated, userCount, serverReady } from '../../utils/db'
-import type { SetupHealth } from '../../../shared/types'
+import { currentUser } from '../../utils/auth'
+import { schemaCurrent, userCount, serverReady } from '../../utils/db'
+import type { SetupBindings, SetupHealth, SetupHealthDetails } from '../../../shared/types'
 import { readAppBranding } from '../../../shared/app-branding'
 import { maskedOwnerEmail, readOwnerSetup } from '../../utils/owner-setup'
 import { serverVersion } from '../../utils/version'
 import { publicServerAppearance } from '../../utils/server-appearance'
-import { ensurePrimaryServerOrigin, primaryServerOrigin } from '../../utils/server-origins'
+import { requestServerOrigin } from '../../utils/server-origins'
 import { authMode } from '../../utils/cloudflare-access'
-import { agentBrowserConfigured, aiProvider } from '../../../workers/env'
-import { serverAiModel, serverCapabilities, UNAVAILABLE_CAPABILITIES } from '../../../workers/server-capabilities'
+import { agentBrowserConfigured, aiProvider, type L4Env } from '../../../workers/env'
+import { serverAiModel, serverCapabilities } from '../../../workers/server-capabilities'
 
-export default defineEventHandler(async (event): Promise<SetupHealth> => {
-  setHeader(event, 'Cache-Control', 'no-store')
-  setHeader(event, 'Access-Control-Allow-Origin', '*')
-  let env
-  try {
-    env = cf(event).env
-  }
-  catch {
-    return {
-      version: serverVersion(),
-      authMode: 'builtin',
-      ok: false,
-      ready: false,
-      users: 0,
-      migrated: false,
-      adminEnv: false,
-      ownerSetup: false,
-      ownerEmailHint: null,
-      bindings: { db: false, r2: false, kv: false, channelDo: false, serverDo: false, rateLimitDo: false, notificationDo: false, agentDo: false, workersAi: false, browser: false },
-      aiProvider: null,
-      aiModel: null,
-      capabilities: UNAVAILABLE_CAPABILITIES,
-      realtimekit: false,
-      twitterAuth: false,
-      ...readAppBranding(),
-    }
-  }
-
-  const bindings = {
+function readBindings(env: L4Env): SetupBindings {
+  return {
     db: Boolean(env.DB),
     r2: Boolean(env.FILES),
     kv: Boolean(env.TICKETS),
@@ -54,58 +29,86 @@ export default defineEventHandler(async (event): Promise<SetupHealth> => {
     workersAi: Boolean(env.AI),
     browser: agentBrowserConfigured(env),
   }
-  const provider = aiProvider(env)
+}
+
+async function signedIn(event: H3Event): Promise<boolean> {
+  try { return Boolean(await currentUser(event)) }
+  catch { return false }
+}
+
+async function runtimeDetails(env: L4Env, migrated: boolean, users: number): Promise<SetupHealthDetails> {
+  return {
+    users,
+    bindings: readBindings(env),
+    aiProvider: aiProvider(env),
+    aiModel: (migrated ? (await agentProviderCatalog(env)).defaultModel : null) ?? serverAiModel(env),
+    capabilities: { ...serverCapabilities(env), containers: migrated ? await piConfigured(env) : false },
+    realtimekit: await liveAvailable(env),
+    twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
+  }
+}
+
+/**
+ * Read-only. Schema bootstrap, the env owner and the primary origin are
+ * initialised once per isolate by server/middleware/01-startup.ts.
+ *
+ * Unauthenticated callers (the installer's deploy verification, the sign-in
+ * and setup pages, container health checks) get only what they need; runtime
+ * details (bindings, AI provider/model, capabilities, member count) are for
+ * signed-in members. The response is same-origin only: no CORS.
+ */
+export default defineEventHandler(async (event): Promise<SetupHealth> => {
+  setHeader(event, 'Cache-Control', 'no-store')
+  let env
+  try {
+    env = cf(event).env
+  }
+  catch {
+    return {
+      version: serverVersion(),
+      authMode: 'builtin',
+      ok: false,
+      ready: false,
+      migrated: false,
+      ownerSetup: false,
+      ownerEmailHint: null,
+      ...readAppBranding(),
+    }
+  }
 
   let migrated = false
   let users = 0
   let ready = false
-  const checkFiles = env.FILES
-    ? env.FILES.head('__health__').catch(() => {
-        // head of missing key still proves the binding works on most runtimes
-      })
-    : null
-  const realtimekit = liveAvailable(env)
   if (env.DB) {
     try {
-      migrated = await ensureMigrated(env.DB, env)
-      users = (await ensureAdminFromEnv(event)).users
-      ready = await serverReady(env.DB)
+      migrated = await schemaCurrent(env.DB)
+      ;[users, ready] = await Promise.all([userCount(env.DB), serverReady(env.DB)])
     }
     catch {
-      try {
-        ;[users, ready] = await Promise.all([userCount(env.DB), serverReady(env.DB)])
-      }
-      catch {
-        users = 0
-      }
+      users = 0
     }
   }
-
-  const ownerSetup = await readOwnerSetup(env.DB, env)
-  await checkFiles
-  const requestOrigin = getRequestURL(event).origin
-  if (migrated) await ensurePrimaryServerOrigin(env, requestOrigin)
-  const primaryOrigin = migrated ? await primaryServerOrigin(env, requestOrigin) : env.PUBLIC_ORIGIN || requestOrigin
+  const ownerSetup = migrated && !ready ? await readOwnerSetup(env.DB, env, { persist: false }).catch(() => null) : null
   const branding = readAppBranding(env)
-  const appearance = migrated ? await publicServerAppearance(env.DB, primaryOrigin, branding.appName) : null
+  const origin = await requestServerOrigin(env, getRequestURL(event).origin, '')
+  const appearance = migrated ? await publicServerAppearance(env.DB, origin, branding.appName) : null
 
-  return {
+  const health: SetupHealth = {
     version: serverVersion(env),
     authMode: authMode(env),
-    ok: bindings.db && migrated,
+    ok: Boolean(env.DB) && migrated,
     ready,
-    users,
     migrated,
-    adminEnv: Boolean(readAdminEnv(env)),
-    ownerSetup: Boolean(ownerSetup && !ready),
-    ownerEmailHint: ownerSetup && !ready ? maskedOwnerEmail(ownerSetup.email) : null,
-    bindings,
-    aiProvider: provider,
-    aiModel: (migrated ? (await agentProviderCatalog(env)).defaultModel : null) ?? serverAiModel(env),
-    capabilities: { ...serverCapabilities(env), containers: migrated ? await piConfigured(env) : false },
-    realtimekit: await realtimekit,
-    twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
+    ownerSetup: Boolean(ownerSetup),
+    ownerEmailHint: ownerSetup ? maskedOwnerEmail(ownerSetup.email) : null,
     ...branding,
     ...(appearance ? { appName: appearance.name, iconUrl: appearance.iconUrl } : {}),
   }
+  if (!ready) {
+    // Unclaimed Server: the setup page and installer need these to explain a
+    // misconfigured deployment or decide whether owner setup is pending.
+    Object.assign(health, { users, adminEnv: Boolean(readAdminEnv(env)), bindings: readBindings(env) })
+  }
+  if (ready && await signedIn(event)) Object.assign(health, await runtimeDetails(env, migrated, users))
+  return health
 })
