@@ -5,6 +5,7 @@ import type { LiveKind, LiveState } from '~~/shared/types'
 import { LIVE_RING_TIMEOUT_MS, liveEndedTitle, liveTitle } from '~~/shared/live'
 import type { ServerLiveChangedEvent } from '~~/shared/server-realtime'
 import type { LiveJoinOptions } from '../composables/useLiveSession'
+import { plainFetch } from '../composables/useApi'
 import { liveJoinProblem, liveMediaProblem, type LiveMediaControl } from '../utils/live-errors'
 
 /** `reconnecting` keeps the person in the room while a dropped media connection is restored. */
