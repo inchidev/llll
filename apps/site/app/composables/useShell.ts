@@ -39,6 +39,9 @@ export function useShell() {
   const ready = useState<Record<string, boolean>>('shell-ready', () => ({}))
   const calls = useState<Record<string, boolean>>('shell-calls', () => ({}))
   const pendingMessages = useState<Record<string, boolean>>('shell-pending-messages', () => ({}))
+  // Absent until a Client reports it: older Clients never do, so the Shell keeps its rail visible for them.
+  const drawers = useState<Record<string, boolean>>('shell-drawers', () => ({}))
+  const signedIn = useState<Record<string, boolean>>('shell-signed-in', () => ({}))
   const initialized = useState('shell-initialized', () => false)
   const frames = useState<Record<string, HTMLIFrameElement>>(
     'shell-frames',
@@ -348,6 +351,8 @@ export function useShell() {
         safeEmbedPath(m.path)
       )
         void router.replace('/' + server.id + (m.path === '/' ? '' : stripDeploymentClaim(m.path)))
+      if (m.type === 'session') signedIn.value[server.origin] = m.authenticated
+      if (m.type === 'drawer') drawers.value[server.origin] = m.open
       if (m.type === 'session' && !m.authenticated) {
         server.unread = 0
         persist()
@@ -368,6 +373,8 @@ export function useShell() {
     Reflect.deleteProperty(claims.value, origin)
     Reflect.deleteProperty(ready.value, origin)
     Reflect.deleteProperty(unclaimed.value, origin)
+    Reflect.deleteProperty(drawers.value, origin)
+    Reflect.deleteProperty(signedIn.value, origin)
     Reflect.deleteProperty(calls.value, origin)
     Reflect.deleteProperty(pendingMessages.value, origin)
     Reflect.deleteProperty(metadata.value, origin)
@@ -390,6 +397,8 @@ export function useShell() {
     ownerSetupUrl,
     calls,
     pendingMessages,
+    drawers,
+    signedIn,
     frames,
     frameSrc,
     initialize,

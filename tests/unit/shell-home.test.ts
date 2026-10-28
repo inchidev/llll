@@ -22,6 +22,7 @@ const shell = {
   servers, selected, loaded, error, ready: ref({ [origin]: true } as Record<string, boolean>), unclaimed: ref({} as Record<string, boolean>),
   groups: computed(() => [{ origin, name: 'Fixture', servers: servers.value }]),
   frames: ref({}), pendingMessages: ref({} as Record<string, boolean>),
+  drawers: ref({} as Record<string, boolean>), signedIn: ref({} as Record<string, boolean>),
   frameSrc: () => 'about:blank', initialize, forget,
   refreshMetadata: vi.fn(async () => {}),
   resolveServer: vi.fn(async () => { selected.value = origin }),
@@ -36,13 +37,14 @@ const Button = defineComponent({ props: ['label', 'to'], setup: (props, { attrs,
 const Link = defineComponent({ props: ['to'], setup: (props, { attrs, slots }) => () => h('a', { ...attrs, href: props.to }, slots.default?.()) })
 const Alert = defineComponent({ props: ['description'], setup: props => () => h('p', props.description) })
 const Slot = { template: '<div><slot /></div>' }
-const Slideover = defineComponent({ props: ['open'], emits: ['update:open'], template: '<div><div @click="$emit(\'update:open\', !open)"><slot /></div><div v-if="open" role="dialog"><slot name="body" /></div></div>' })
-const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a Server</h1>' } }
+const stubs = { UButton: Button, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a Server</h1>' } }
 
 beforeEach(() => {
   go('/' + id)
   route.query = {}
   shell.pendingMessages.value = {}
+  shell.drawers.value = {}
+  shell.signedIn.value = {}
   shell.connect.mockClear()
   servers.value = [{ id, origin, name: 'Fixture community', unread: 3 }]
   selected.value = origin; loaded.value = [origin]; error.value = ''
@@ -59,23 +61,42 @@ beforeEach(() => {
 })
 afterEach(() => { view?.unmount(); view = undefined; vi.unstubAllGlobals() })
 
-it('opens the mobile server menu and selects a Server without remounting its Client', async () => {
+it('keeps the server rail at every width and switches Servers without remounting its Client', async () => {
   view = mount(Shell, { attachTo: document.body, global: { stubs } })
   await flushPromises()
   const frame = view.get('iframe').element
-  await view.get('[aria-label="Open server menu"]').trigger('click')
-  expect(view.get('[role="dialog"]').text()).toContain('Fixture community')
-  await view.get('[role="dialog"] button[aria-current="page"]').trigger('click')
+  expect(view.find('[aria-label="Open server menu"]').exists()).toBe(false)
+  const rail = view.getComponent({ name: 'CommunityRail' })
+  rail.vm.$emit('server', origin, id)
   expect(shell.open).toHaveBeenCalledWith(servers.value[0], id)
-  expect(view.find('[role="dialog"]').exists()).toBe(false)
   expect(view.get('iframe').element).toBe(frame)
-  await view.get('[aria-label="Open server menu"]').trigger('click')
-  const add = view.findAll('[role="dialog"] button').find(button => button.text() === 'Add a Server')!
-  await add.trigger('click')
+  rail.vm.$emit('connect')
   await flushPromises()
   expect(route.path).toBe('/create')
-  expect(view.find('[role="dialog"]').exists()).toBe(false)
   expect(view.get('iframe').element).toBe(frame)
+})
+
+it('gives the Client the full phone width and shows the rail only with its navigation drawer', async () => {
+  view = mount(Shell, { attachTo: document.body, global: { stubs } })
+  await flushPromises()
+  const rail = () => view!.getComponent({ name: 'CommunityRail' }).element.parentElement!
+  // An older Client never reports its drawer, so the rail stays reachable.
+  expect(rail().classList.contains('hidden')).toBe(false)
+  shell.drawers.value = { [origin]: false }
+  await flushPromises()
+  expect(rail().classList.contains('hidden')).toBe(true)
+  expect(rail().classList.contains('md:block')).toBe(true)
+  shell.drawers.value = { [origin]: true }
+  await flushPromises()
+  expect(rail().classList.contains('hidden')).toBe(false)
+  shell.drawers.value = { [origin]: false }
+  shell.signedIn.value = { [origin]: false }
+  await flushPromises()
+  expect(rail().classList.contains('hidden')).toBe(false)
+  shell.signedIn.value = { [origin]: true }
+  go('/servers')
+  await flushPromises()
+  expect(rail().classList.contains('hidden')).toBe(false)
 })
 
 it('opens My Servers through the logo without unloading the Client, and keeps + for Add a Server', async () => {

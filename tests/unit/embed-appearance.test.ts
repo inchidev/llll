@@ -20,6 +20,8 @@ it('publishes renamed Server settings and icon changes from the real query cache
   sessionStorage.setItem('llll.embed-parent', 'https://llll.gg')
   vi.stubGlobal('useSessionStore', () => reactive({ user: { id: 'owner' } }))
   vi.stubGlobal('useLiveStore', () => reactive({ connection: 'disconnected' }))
+  const ui = reactive({ mobilePane: 'chat' })
+  vi.stubGlobal('useUiStore', () => ui)
   vi.stubGlobal('useColorMode', () => ({ preference: 'dark' }))
   vi.stubGlobal('useRouter', () => ({ afterEach: vi.fn(), replace: vi.fn() }))
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, name: 'Old name', version: 'test', ready: true, embedOrigins: ['https://llll.gg'] })))
@@ -34,6 +36,14 @@ it('publishes renamed Server settings and icon changes from the real query cache
   await embedPlugin({ hook: (name: string, callback: () => void) => { hooks.set(name, callback) } } as never)
   app.mount(document.createElement('div'))
   hooks.get('app:mounted')!()
+  const drawer = () => post.mock.calls.filter(call => call[0].type === 'drawer').at(-1)![0].open
+  expect(drawer()).toBe(false)
+  ui.mobilePane = 'channels'
+  await nextTick()
+  expect(drawer()).toBe(true)
+  ui.mobilePane = 'chat'
+  await nextTick()
+  expect(drawer()).toBe(false)
   const row = { id, name: 'abra cadabra', iconR2Key: 'private-key-never-posted', updatedAt: '2026-10-20T02:00:00.000Z', ownerId: 'private-owner', createdAt: '2026-10-20T01:00:00.000Z' }
   client.setQueryData(['server', id], { server: row })
   expect(connection.servers.value[0]?.name).toBe('abra cadabra')

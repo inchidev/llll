@@ -42,6 +42,9 @@ export default defineNuxtPlugin(async (nuxt) => {
     })
   }
   watch(() => [session.user?.id, unread.value, appearance.value.name, appearance.value.iconUrl, appearance.value.updatedAt], publish)
+  const ui = useUiStore()
+  const publishDrawer = () => post({ type: 'drawer', open: ui.mobilePane === 'channels' })
+  watch(() => ui.mobilePane === 'channels', publishDrawer)
   watch(
     () => live.connection,
     (v) =>
@@ -93,6 +96,7 @@ export default defineNuxtPlugin(async (nuxt) => {
   nuxt.hook('app:mounted', () => {
     post({ type: 'ready', version: EMBED_VERSION, name: server.name })
     publishDelivery()
+    publishDrawer()
     publish()
   })
 })

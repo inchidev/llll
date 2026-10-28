@@ -14,6 +14,8 @@ export const embedEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('navigate'), serverId: uuidSchema, path: z.string().max(2000) }),
   z.object({ type: z.literal('call'), active: z.boolean() }),
   z.object({ type: z.literal('delivery'), pending: z.boolean() }),
+  // Whether the Client's phone navigation drawer is open; the Shell shows its Server rail alongside.
+  z.object({ type: z.literal('drawer'), open: z.boolean() }),
   z.object({ type: z.literal('open-rejected'), serverId: uuidSchema, currentServerId: uuidSchema.optional(), path: z.string().max(2000).optional(), reason: z.enum(['call-active', 'unavailable']) }),
 ])
 
