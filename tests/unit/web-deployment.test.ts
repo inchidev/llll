@@ -8,6 +8,9 @@ import {
 import { installL4 } from '../../packages/deployment-core/src/installer'
 import { digest, type DeploymentState } from '../../apps/site/src/session'
 
+/** Mocks route by exact host; a substring check would also match look-alike hosts. */
+const hostname = (value: string) => { try { return new URL(value).hostname } catch { return '' } }
+
 vi.mock('../../packages/deployment-core/src/installer', () => ({ installL4: vi.fn() }))
 afterEach(() => { vi.unstubAllGlobals(); vi.mocked(installL4).mockReset() })
 it('lists complete published releases and rejects malformed versions', async () => {
@@ -39,7 +42,7 @@ it('lists complete published releases and rejects malformed versions', async () 
 })
 it('uses the public release feed when the shared GitHub REST quota is exhausted', async () => {
   const fetcher = vi.fn(async (input: string) => {
-    if (input.includes('api.github.com')) return new Response('', { status: 403 })
+    if (hostname(input) === 'api.github.com') return new Response('', { status: 403 })
     if (input.endsWith('/releases.atom')) return new Response(`<feed><entry><id>tag:github.com,2008:Repository/1424308136/v0.1.0-alpha.4</id><title>L4 &amp; community</title><updated>2026-10-18T17:00:00Z</updated></entry><entry><id>invalid/../../other</id></entry></feed>`)
     if (input.endsWith('/SHA256SUMS')) return new Response(`${'a'.repeat(64)}  llll-deployment.json\n${'b'.repeat(64)}  llll-cloudflare-manifest.json\n`)
     return Response.json({ version: '0.1.0-alpha.4', capabilities: ['llll-server-schema-v2'] })
@@ -50,7 +53,7 @@ it('uses the public release feed when the shared GitHub REST quota is exhausted'
 })
 it('does not offer feed releases with incomplete assets or a mismatched manifest', async () => {
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-    if (input.includes('api.github.com')) return new Response('', { status: 429 })
+    if (hostname(input) === 'api.github.com') return new Response('', { status: 429 })
     if (input.endsWith('/releases.atom')) return new Response('<feed><entry><id>repo/v0.1.0-alpha.4</id></entry><entry><id>repo/v0.1.0-alpha.5</id></entry></feed>')
     if (input.includes('/v0.1.0-alpha.4/')) return new Response(`${'a'.repeat(64)}  llll-cloudflare-manifest.json\n`)
     if (input.endsWith('/SHA256SUMS')) return new Response(`${'a'.repeat(64)}  llll-deployment.json\n${'b'.repeat(64)}  llll-cloudflare-manifest.json\n`)
@@ -138,7 +141,7 @@ it('installs the checksum-verified release through the OAuth grant and retains t
   expect(state.completed).toBe(true)
   expect(state.grant?.accessToken).toBe('private')
   expect(state.deployments).toEqual([expect.objectContaining({ origin: state.origin, setupToken: state.setupToken })])
-  expect(calls.some((call) => call.includes('api.cloudflare.com'))).toBe(false)
+  expect(calls.some((call) => hostname(call) === 'api.cloudflare.com')).toBe(false)
 })
 it('refuses an unsupported release format before creating resources', async () => {
   const code = 'export default {}'
