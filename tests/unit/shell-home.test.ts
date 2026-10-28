@@ -25,6 +25,7 @@ const shell = {
   drawers: ref({} as Record<string, boolean>), signedIn: ref({} as Record<string, boolean>),
   frameSrc: () => 'about:blank', initialize, forget,
   refreshMetadata: vi.fn(async () => {}),
+  removed: ref([] as string[]), pruneMissing: vi.fn(async () => [] as string[]),
   resolveServer: vi.fn(async () => { selected.value = origin }),
   open: vi.fn(), connect: vi.fn(async () => ({ id })),
 }

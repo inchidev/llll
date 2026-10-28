@@ -142,7 +142,7 @@ it('switches Cloudflare accounts without displaying the previous account’s Ser
   expect(view.text()).not.toContain('Unclaimed Server')
 })
 
-it('uses a successful account refresh rather than presenting a deleted cached Server as current', async () => {
+it('uses a successful account refresh and forgets a remembered Server the account no longer lists', async () => {
   const view = await render()
   const original = api.getMockImplementation()!
   api.mockImplementation(async (path: string) => path === '/api/deploy/servers' ? { servers: [] } : original(path))
@@ -150,7 +150,7 @@ it('uses a successful account refresh rather than presenting a deleted cached Se
   await flushPromises(); await nextTick()
   expect(view.findAll('li')).toHaveLength(0)
   expect(view.text()).toContain('No L4 Servers found')
-  expect(localStorage.getItem('llll.deploy-recall.v1')).toContain(ready)
+  expect(localStorage.getItem('llll.deploy-recall.v1')).not.toContain(ready)
 })
 
 it('uses current public names and icons rather than Cloudflare deployment labels and removes a deleted icon', async () => {
@@ -279,4 +279,31 @@ it('shows why the Cloudflare connection could not be loaded', async () => {
   })
   const view = await render()
   expect(view.text()).toContain('Could not load the Cloudflare connection. Cloudflare could not complete GET /accounts (502): timeout')
+})
+
+it('forgets saved Servers confirmed deleted, keeps unreachable ones and lets the rest be removed by hand', async () => {
+  const gone = 'https://gone.customer.workers.dev'
+  const offline = 'https://offline.customer.workers.dev'
+  localStorage.setItem('llll.deploy-recall.v1', JSON.stringify([gone, offline].map((origin, index) => ({ origin, name: index ? 'Offline Server' : 'Deleted Server', completedAt: 1 }))))
+  localStorage.setItem('llll.shell.servers.v1', JSON.stringify([{ origin: gone, id: '00000000-0000-4000-8000-000000000009', name: 'Deleted Server' }]))
+  api.mockImplementation(async (path: string, options?: { body?: { origins: string[] } }) => {
+    if (path === '/api/deploy/config') return { oauth: true }
+    if (path === '/api/deploy/releases') return { releases: [] }
+    if (path === '/api/deploy/session') throw Object.assign(new Error('Reconnect'), { status: 401 })
+    if (path === '/api/servers/status') return { servers: options!.body!.origins.map(origin => ({ origin, status: origin === gone ? 'missing' : 'unreachable' })) }
+    throw new Error('Unexpected API request')
+  })
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+  const view = await render()
+  await flushPromises(); await nextTick()
+  expect(api).toHaveBeenCalledWith('/api/servers/status', expect.objectContaining({ method: 'POST' }))
+  expect(view.text()).not.toContain('Deleted Server')
+  expect(localStorage.getItem('llll.deploy-recall.v1')).not.toContain(gone)
+  expect(localStorage.getItem('llll.shell.servers.v1')).not.toContain(gone)
+  expect(useShell().removed.value).toEqual(['Deleted Server'])
+  expect(view.text()).toContain('Offline Server')
+  await view.findAll('button').find(button => button.text() === 'Remove from this device')!.trigger('click')
+  await flushPromises()
+  expect(view.text()).not.toContain('Offline Server')
+  expect(localStorage.getItem('llll.deploy-recall.v1')).toBe('[]')
 })
