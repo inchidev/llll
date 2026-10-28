@@ -494,6 +494,9 @@ export const channels = sqliteTable('channels', {
   dmPairKey: text('dm_pair_key'),
   /** The active Live room's RealtimeKit meeting. */
   liveMeetingId: text('live_meeting_id'),
+  /** Set on an archived root text channel: readable history, no new activity, hidden from Chat. */
+  archivedAt: text('archived_at'),
+  archivedBy: text('archived_by').references(() => users.id, { onDelete: 'set null' }),
   parentId: text('parent_id').references((): AnySQLiteColumn => channels.id, { onDelete: 'cascade' }),
   parentMessageId: text('parent_message_id').references((): AnySQLiteColumn => messages.id, { onDelete: 'cascade' }),
   ...isoTimestamps(),

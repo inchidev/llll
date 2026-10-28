@@ -80,7 +80,30 @@ const frozen = computed(() => Boolean(oneQ.data.value?.frozen || channel.value?.
 const { can, canAnyProject, mine } = usePermissions(members)
 /** Writing Tasks anywhere offers Create task on messages; the board is chosen in the form. */
 const canCreateTasks = computed(() => canAnyProject(Permission.writeTasks))
-const canPin = computed(() => isDm.value ? !frozen.value : can(Permission.manageChannels))
+/** Archived history stays readable at its link; it takes no new messages, reactions, pins or Live rooms. */
+const archived = computed(() => !isDm.value && Boolean(channel.value?.archivedAt))
+/** Restoring follows the visibility rule: Manage channels, and for a private channel its creator. */
+const canRestore = computed(() => archived.value && can(Permission.manageChannels)
+  && (channel.value?.visibility !== 'private' || channel.value?.createdBy === session.user?.id))
+const restoring = ref(false)
+async function restoreChannel() {
+  if (restoring.value) return
+  restoring.value = true
+  try {
+    await api(`/api/channels/${channelId.value}/archive`, { method: 'DELETE' })
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['channel', channelId.value] }),
+      qc.invalidateQueries({ queryKey: ['channels', serverId.value] }),
+      qc.invalidateQueries({ queryKey: ['archived-channels', serverId.value] }),
+    ])
+    toast.add({ title: 'Channel restored', color: 'success' })
+  }
+  catch (error) {
+    toast.add({ title: errorMessage(error), color: 'error' })
+  }
+  finally { restoring.value = false }
+}
+const canPin = computed(() => isDm.value ? !frozen.value : can(Permission.manageChannels) && !archived.value)
 const effectivePermissions = computed(() => channel.value?.permissions ?? mine.value?.role.permissions ?? 0)
 const canSendMessages = computed(() => isDm.value ? !frozen.value : hasPermission(effectivePermissions.value, Permission.sendMessages))
 const canAttachFiles = computed(() => (session.health?.bindings?.r2 !== false || session.health?.bindings?.kv) && (isDm.value ? !frozen.value : hasPermission(effectivePermissions.value, Permission.attachFiles)))
@@ -93,6 +116,7 @@ const permissionsKnown = computed(() => Boolean(channel.value)
   && (isDm.value || channel.value?.permissions !== undefined || Boolean(mine.value)))
 const composerDisabledPlaceholder = computed(() => {
   if (!permissionsKnown.value) return composerPlaceholder.value
+  if (archived.value) return 'This channel is archived'
   return frozen.value
     ? 'You can no longer send messages to this user'
     : 'You cannot send messages in this channel'
@@ -135,6 +159,7 @@ const callsUnavailable = computed(() => session.health?.capabilities?.calls === 
 const liveActionHint = computed(() => {
   if (callsUnavailable.value) return 'Calls use Cloudflare RealtimeKit and are unavailable on this runtime.'
   if (roomActive.value || canStartLive.value) return liveActionLabel.value
+  if (archived.value) return 'This channel is archived'
   return frozen.value ? 'You can no longer call in this Direct Message' : 'Your role cannot start live sessions here'
 })
 const joinedHere = computed(() => live.inRoom && live.currentChannelId === channelId.value)
@@ -459,6 +484,7 @@ defineShortcuts({
         :can-pin="canPin"
         :can-moderate="canModerate"
         :can-create-tasks="canCreateTasks"
+        :read-only="archived"
         :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
@@ -466,6 +492,16 @@ defineShortcuts({
         @retry="retry"
       />
       <UAlert v-if="frozen" color="neutral" variant="subtle" title="You can no longer send messages to this user." class="rounded-none shrink-0" />
+      <UAlert
+        v-if="archived"
+        color="neutral"
+        variant="subtle"
+        icon="i-ph-archive"
+        title="This channel is archived"
+        description="Its history stays readable, but nothing new can be posted."
+        :actions="canRestore ? [{ label: 'Restore', color: 'neutral', variant: 'outline', loading: restoring, onClick: restoreChannel }] : []"
+        class="rounded-none shrink-0"
+      />
       <ChatAgentActivity
         :channel-id="channelId"
         :members="members"

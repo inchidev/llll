@@ -10,6 +10,7 @@ import { parseBody } from '../../utils/validate'
 import { writeAudit } from '../../utils/messages'
 import { channelAudience, isChatChannel, signalChannelsChanged } from '../../utils/channel-lifecycle'
 import { refreshChannelVisibility } from '../../utils/private-channel-members'
+import { requireActiveChannel } from '../../utils/channel-access'
 
 const bodySchema = z.object({
   name: z.string().min(1).max(80).optional(),
@@ -23,6 +24,8 @@ const bodySchema = z.object({
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const member = await requireChannelMember(event, id, Permission.manageChannels)
+  // Restore an archived channel before renaming or moving it.
+  requireActiveChannel(member)
   const body = parseBody(bodySchema, await readBody(event))
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)

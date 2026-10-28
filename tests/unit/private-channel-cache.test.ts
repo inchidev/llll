@@ -41,3 +41,16 @@ it('drops a deleted Thread and its link from the parent while the channel list r
   expect(refresh).toHaveBeenCalledWith({ queryKey: ['channels', 'server'] })
   cache.clear()
 })
+
+it('refreshes an archived or restored channel in place, keeping its history cached', () => {
+  const cache = new QueryClient()
+  const refresh = vi.spyOn(cache, 'invalidateQueries')
+  cache.setQueryData(['messages', 'random'], { pages: [{ messages: [{ id: 'kept' }] }] })
+  applyServerRealtimeEvent(cache, { t: 'channels.changed', serverId: 'server', deletedIds: [], parentIds: [], updatedIds: ['random', 'thread'] })
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['channel', 'random'] })
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['channel', 'thread'] })
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['archived-channels', 'server'] })
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['channels', 'server'] })
+  expect(cache.getQueryData(['messages', 'random'])).toEqual({ pages: [{ messages: [{ id: 'kept' }] }] })
+  cache.clear()
+})

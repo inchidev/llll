@@ -11,6 +11,7 @@ import { authorizeResource } from '../../shared/authorization'
 import { intersectResources, type RunMandate } from '../../shared/agent-execution'
 import { scheduleRequestSchema, type PublicSchedule, type Schedule, type ScheduleListPage, type ScheduleOccurrence, type ScheduleRequest } from '../../shared/schedules'
 import { newId, nowIso } from '../../shared/ids'
+import { CHANNEL_ARCHIVED_CODE } from '../../shared/channel-archive'
 import { loadAuthorizationContext } from './authorization'
 import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import { getTask } from './task-service'
@@ -87,7 +88,7 @@ export async function scheduleAuthorization(env: L4Env, item: Schedule) {
   try { await scheduleMember(env, current, item.channelId) }
   catch (error) {
     const failure = scheduleFailure(error)
-    if (failure.code === 'schedule_revoked') throw error
+    if (failure.code === 'schedule_revoked' || failure.code === CHANNEL_ARCHIVED_CODE) throw error
     fail(failure.status, 'channel_unavailable', 'The conversation was removed or no longer accepts messages from this schedule')
   }
   return current
@@ -252,7 +253,7 @@ export function scheduleFailure(error: unknown): ScheduleFailure {
 /** These need a person to act before any later attempt can succeed. */
 function blocksSchedule(failure: ScheduleFailure) {
   return failure.status === 403 || failure.status === 404
-    || ['agent_unavailable', 'pi_unconfigured', 'model_unavailable', 'run_conflict'].includes(failure.code)
+    || ['agent_unavailable', 'pi_unconfigured', 'model_unavailable', 'run_conflict', CHANNEL_ARCHIVED_CODE].includes(failure.code)
 }
 /**
  * Persist a failed attempt and return when to retry, or null when the schedule was blocked, completed or

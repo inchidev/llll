@@ -68,6 +68,15 @@ describe('Pi run authorization', () => {
     expect(authorization.principal.resourceAccess?.boards).toEqual(['board-allowed'])
   })
 
+  it('admits no new Run in an archived channel and fences one already admitted', async () => {
+    const admitted = await createAgentRun(env, (await start())!, input())
+    db.exec("UPDATE channels SET archived_at='2026-10-24T00:00:00Z' WHERE id='public-chat'")
+    const archived = { statusCode: 409, data: { error: { code: 'channel_archived' } } }
+    await expect(createAgentRun(env, (await start())!, { ...input(), idempotencyKey: 'request-0002' })).rejects.toMatchObject(archived)
+    await expect(runAuthorization(env, admitted)).rejects.toMatchObject(archived)
+    expect(db.prepare('SELECT count(*) as count FROM agent_runs').get()).toMatchObject({ count: 1 })
+  })
+
   it('rejects capability replay against another run and rejects tools before execution starts', async () => {
     const run = await createAgentRun(env, (await start())!, input())
     const token = await runCapability(env, run.id)

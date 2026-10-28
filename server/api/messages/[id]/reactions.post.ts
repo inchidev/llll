@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { messageReactions, messages } from '../../../../drizzle/schema'
 import { nowIso } from '../../../../shared/ids'
 import { requireChannelAccess } from '../../../utils/guards'
+import { requireActiveChannel } from '../../../utils/channel-access'
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { fanoutDm } from '../../../utils/dms'
@@ -20,6 +21,7 @@ export default defineEventHandler(async (event) => {
   const row = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Message not found')
   const access = await requireChannelAccess(event, row.channelId)
+  requireActiveChannel(access)
   if (row.deletedAt) fail(409, 'deleted', 'Message was deleted')
   const body = parseBody(bodySchema, await readBody(event))
   await requireRate(env, reactionRate(access.user.id), 'Too many reactions. Slow down.')

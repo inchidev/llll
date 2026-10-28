@@ -11,7 +11,7 @@ import type { L4Env } from '../../workers/env'
 import { asRpc, fail } from './cf'
 import { getDb } from './db'
 import { auditStatement, hydrateMessages, toPublicUser } from './messages'
-import { requireChannelAccessForMember, requireMemberForUser } from './channel-access'
+import { requireActiveChannel, requireChannelAccessForMember, requireMemberForUser } from './channel-access'
 import type { ServerMembership as Membership } from './channel-access'
 import { messageNotificationStatement, reminderNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
@@ -109,13 +109,15 @@ export async function listMessageChannels(env: L4Env, member: Membership, input:
   authorizeMcpCredential(member.authorization, 'messages:read')
   const limit = Math.max(1, Math.min(input.limit ?? 25, 50))
   const canManageAgents = member.isOwner || hasPermission(member.perms, Permission.useAgents)
-  // Match chat navigation visibility before pagination. The shared channel
-  // guard remains authoritative for every returned item (including threads).
+  // Match chat navigation visibility before pagination, so archived channels and their
+  // Threads are omitted. The shared channel guard remains authoritative for every returned
+  // item (including threads); an archived conversation stays readable by ID.
   const rows = await env.DB.prepare(
     `SELECT c.id FROM channels c JOIN channels root ON root.id =
        CASE WHEN c.type = 'thread' AND c.parent_id IS NOT NULL THEN c.parent_id ELSE c.id END
      WHERE (root.visibility = 'server' OR EXISTS
        (SELECT 1 FROM channel_members cm WHERE cm.channel_id = root.id AND cm.user_id = ?))
+     AND root.archived_at IS NULL
      AND NOT EXISTS (SELECT 1 FROM email_mailboxes m WHERE m.channel_id = root.id)
      AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = root.id)
      AND (? = 1 OR root.type <> 'dm' OR NOT EXISTS
@@ -399,6 +401,7 @@ export async function setMessageReaction(env: L4Env, actor: Membership, messageI
   const emoji = parsed.data
   const row = await loadMessage(env, messageId)
   const member = await requireChannelAccessForMember(env, actor, row.channelId, undefined, 'POST')
+  requireActiveChannel(member)
   if (row.deletedAt) fail(409, 'deleted', 'Message was deleted')
   await requireRate(env, reactionRate(member.user.id), 'Too many reactions. Slow down.')
   const op = input.remove ? 'remove' as const : 'add' as const
@@ -420,6 +423,7 @@ export async function setMessagePin(env: L4Env, actor: Membership, messageId: st
   authorizeMcpCredential(actor.authorization, 'messages:write')
   const row = await loadMessage(env, messageId)
   const access = await requireChannelAccessForMember(env, actor, row.channelId, undefined, input.pinned ? 'PUT' : 'DELETE')
+  requireActiveChannel(access)
   if (!canManageMessagePins(access)) fail(403, 'forbidden', 'Missing permission')
   if (!input.pinned) {
     const removed = ((await env.DB.prepare('DELETE FROM message_pins WHERE message_id = ?').bind(messageId).run()).meta.changes ?? 0) > 0

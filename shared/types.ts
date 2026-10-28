@@ -478,6 +478,8 @@ export type MessageSearchChannelDTO = {
   title: string
   /** App path of the conversation or thread holding the hit. */
   path: string
+  /** The hit's channel (or a Thread's parent) is archived: still readable, closed to new activity. */
+  archived?: boolean
 }
 
 export type MessageSearchHitDTO = {
@@ -586,6 +588,19 @@ export type ChannelDTO = {
   lastAgentMessage?: string | null
   agentWorking?: boolean
   lastMessageAt?: string | null
+  /** When the channel, or a Thread's parent channel, was archived: readable, but closed to new activity. */
+  archivedAt?: string | null
+}
+
+/** An archived Chat channel listed in Server settings for restore. */
+export type ArchivedChannelDTO = {
+  id: string
+  name: string
+  topic: string
+  visibility: ChannelVisibility
+  createdBy: string | null
+  archivedAt: string
+  archivedBy: { id: string, displayName: string } | null
 }
 
 /** A recently active thread shown under its channel in the navigation. */

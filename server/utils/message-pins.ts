@@ -5,6 +5,7 @@ import type { MessagePinDTO } from '../../shared/types'
 import { hasPermission, Permission } from '../../shared/permissions'
 import { asRpc, fail } from './cf'
 import { requireChannelAccess } from './guards'
+import { requireActiveChannel } from './channel-access'
 
 type PinAccess = Pick<ChannelAccess, 'accessRootType' | 'frozen' | 'perms'>
 
@@ -22,6 +23,7 @@ export function canManageMessagePins(access: PinAccess): boolean {
 
 export async function requireMessagePinAccess(event: H3Event, channelId: string): Promise<ChannelAccess> {
   const access = await requireChannelAccess(event, channelId)
+  requireActiveChannel(access)
   if (!canManageMessagePins(access)) fail(403, 'forbidden', 'Missing permission')
   return access
 }

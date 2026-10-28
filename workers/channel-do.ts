@@ -39,6 +39,7 @@ import { persistMessageEdit } from './message-edits'
 import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
+import { ARCHIVED_CHANNEL_WITHHELD, CHANNEL_ARCHIVED_CODE, CHANNEL_ARCHIVED_MESSAGE } from '../shared/channel-archive'
 import { createSerialQueue } from './serial-queue'
 import { authorizedSockets } from './socket-access'
 
@@ -46,7 +47,8 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60_000
 
 type Sock = { userId: string; user: PublicUser; sessionId?: string }
 type StartLimiter = { take: (n: number, w: number) => Promise<boolean>, giveBack: () => Promise<void> }
-type Authz = { serverId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
+/** `archived`: the channel, or a Thread's parent, is archived and accepts no new activity. */
+type Authz = { serverId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean; archived: boolean }
 
 const createSchema = z.object({
   t: z.literal('message.create'),
@@ -190,6 +192,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   async postAgentMessage(input: z.infer<typeof agentPostSchema>): Promise<{ id: string, channelId: string }> {
     const body = agentPostSchema.parse(input)
     const authz = await this.loadAuthz(body.agentId)
+    if (authz?.archived) throw new Error(CHANNEL_ARCHIVED_MESSAGE)
     if (!authz || !hasPermission(authz.perms, Permission.sendMessages)) {
       throw new Error('Agent cannot send messages in this channel')
     }
@@ -286,6 +289,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   async updateAgentMessage(input: z.infer<typeof agentUpdateSchema>): Promise<void> {
     const body = agentUpdateSchema.parse(input)
     const authz = await this.loadAuthz(body.agentId)
+    if (authz?.archived) throw new Error(CHANNEL_ARCHIVED_MESSAGE)
     if (!authz || !hasPermission(authz.perms, Permission.sendMessages)) throw new Error('Agent cannot edit in this channel')
     const row = await this.env.DB.prepare(
       `SELECT m.id
@@ -304,6 +308,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   async setAgentReaction(input: z.infer<typeof agentReactionSchema>): Promise<void> {
     const body = agentReactionSchema.parse(input)
     const authz = await this.loadAuthz(body.agentId)
+    if (authz?.archived) throw new Error(CHANNEL_ARCHIVED_MESSAGE)
     if (!authz || !hasPermission(authz.perms, Permission.sendMessages)) throw new Error('Agent cannot react in this channel')
     const target = await this.env.DB.prepare(
       `SELECT m.id
@@ -437,8 +442,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     await this.liveInOrder(async () => {
       const live = await this.getLive()
       if (!live.active || !live.meetingId) return
-      const exists = await this.env.DB.prepare('SELECT id FROM channels WHERE id = ?').bind(this.channelId()).first()
-      if (!exists) {
+      // A deleted or archived conversation's room ends for everyone.
+      const open = await this.env.DB.prepare('SELECT id FROM channels WHERE id = ? AND archived_at IS NULL').bind(this.channelId()).first()
+      if (!open) {
         await this.endLiveNow({})
         return
       }
@@ -517,6 +523,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       message,
       clientId: body.clientId,
     })
+    if (authz.archived) {
+      fail(CHANNEL_ARCHIVED_CODE, CHANNEL_ARCHIVED_MESSAGE)
+      return
+    }
     if (authz.frozen) {
       fail('frozen', 'You can no longer send messages to this user')
       return
@@ -674,6 +684,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async onUpdate(ws: WebSocket, sock: Sock, authz: Authz, body: z.infer<typeof updateSchema>) {
+    if (authz.archived) {
+      this.send(ws, { t: 'error', code: CHANNEL_ARCHIVED_CODE, message: CHANNEL_ARCHIVED_MESSAGE })
+      return
+    }
     if (!hasPermission(authz.perms, Permission.sendMessages)) {
       this.send(ws, { t: 'error', code: 'forbidden', message: 'Cannot edit messages in this channel' })
       return
@@ -784,6 +798,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     const authz = await this.loadAuthz(user.id)
     if (!authz) return liveFailure('not_found', 'Conversation not found')
     if (authz.mailbox) return liveFailure('forbidden', 'Live sessions are unavailable for mailboxes')
+    if (authz.archived) return liveFailure('channel_archived', CHANNEL_ARCHIVED_MESSAGE)
     if (authz.type === 'thread') return liveFailure('forbidden', 'Join the live session in the parent conversation')
     if (authz.frozen) return liveFailure('frozen', 'You can no longer call in this Direct Message')
     if (!callsProvider(this.env)) {
@@ -1015,14 +1030,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async loadAuthz(userId: string): Promise<Authz | null> {
+    type Row = { id: string; type: string; visibility: string; parent_id: string | null; archived_at: string | null }
     const ch = await this.env.DB.prepare(
-      'SELECT id, type, visibility, parent_id FROM channels WHERE id = ?',
-    ).bind(this.channelId()).first<{ id: string; type: string; visibility: string; parent_id: string | null }>()
+      'SELECT id, type, visibility, parent_id, archived_at FROM channels WHERE id = ?',
+    ).bind(this.channelId()).first<Row>()
     if (!ch) return null
     const type = ch.type
     let accessRoot = ch
     if (type === 'thread' && ch.parent_id) {
-      const parent = await this.env.DB.prepare('SELECT id, type, visibility, parent_id FROM channels WHERE id = ?').bind(ch.parent_id).first<{ id: string; type: string; visibility: string; parent_id: string | null }>()
+      const parent = await this.env.DB.prepare('SELECT id, type, visibility, parent_id, archived_at FROM channels WHERE id = ?').bind(ch.parent_id).first<Row>()
       if (!parent) return null
       accessRoot = parent
     }
@@ -1067,7 +1083,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         frozen = dmFrozen(ids.length, (still.results ?? []).length)
       }
       const perms = directMessagePermissions(membership.perms, membership.ownerId === userId, frozen)
-      return { serverId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }
+      return { serverId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false, archived: false }
     }
     let perms = membership.ownerId === userId ? ALL_PERMISSIONS : membership.perms
     if (membership.ownerId !== userId) {
@@ -1091,7 +1107,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         perms |= Permission.sendMessages | Permission.attachFiles
       }
     }
-    return { serverId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }
+    const archived = accessRoot.type === 'text' && Boolean(accessRoot.archived_at)
+    if (archived) perms &= ~ARCHIVED_CHANNEL_WITHHELD
+    return { serverId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox), archived }
   }
 
   private async loadDmParticipants(): Promise<PublicUser[]> {

@@ -18,6 +18,8 @@ const props = defineProps<{
   canThread?: boolean
   /** The original message shown as context in a child thread. */
   contextOnly?: boolean
+  /** An archived conversation: history only, no reactions, edits or replies. */
+  readOnly?: boolean
   compact?: boolean
   streaming?: boolean
   /** The pointer or keyboard focus is on this row: only then is the toolbar rendered. */
@@ -219,14 +221,14 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
             :class="r.me ? 'border-primary/60 bg-primary/15 text-highlighted' : 'border-transparent bg-elevated text-toned hover:border-accented'"
             :aria-pressed="r.me"
             :aria-label="reactionLabel(r.emoji, r.count, r.me)"
-            :disabled="contextOnly"
+            :disabled="contextOnly || readOnly"
             @click="react(r.emoji)"
           >
             <span class="text-base leading-none">{{ r.emoji }}</span>
             <span class="text-xs font-semibold tabular-nums">{{ r.count }}</span>
           </button>
         </UTooltip>
-        <UPopover v-if="actionable" v-model:open="reactionPickerOpen">
+        <UPopover v-if="actionable && !readOnly" v-model:open="reactionPickerOpen">
           <button
             type="button"
             class="flex h-6 items-center rounded-md bg-elevated px-1.5 text-muted opacity-0 transition-opacity hover:text-default group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
@@ -281,7 +283,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
       role="toolbar"
       :aria-label="`Actions for message from ${message.author.displayName}`"
     >
-      <template v-if="!shift">
+      <template v-if="!shift && !readOnly">
         <UButton
           v-for="e in quickEmoji"
           :key="e"
@@ -295,7 +297,7 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
         />
         <USeparator orientation="vertical" class="mx-0.5 h-5" />
       </template>
-      <UPopover v-model:open="pickerOpen">
+      <UPopover v-if="!readOnly" v-model:open="pickerOpen">
         <UTooltip text="Add reaction" :content="{ side: 'top' }">
           <UButton size="sm" variant="ghost" color="neutral" square icon="i-ph-smiley-sticker" aria-label="Add reaction" />
         </UTooltip>
@@ -303,10 +305,10 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
           <ChatEmojiPicker @select="react" />
         </template>
       </UPopover>
-      <UTooltip v-if="mine" text="Edit" :content="{ side: 'top' }">
+      <UTooltip v-if="mine && !readOnly" text="Edit" :content="{ side: 'top' }">
         <UButton size="sm" variant="ghost" color="neutral" square icon="i-ph-pencil-simple" aria-label="Edit" @click="emit('edit')" />
       </UTooltip>
-      <UTooltip text="Reply" :content="{ side: 'top' }">
+      <UTooltip v-if="!readOnly" text="Reply" :content="{ side: 'top' }">
         <UButton size="sm" variant="ghost" color="neutral" square icon="i-ph-arrow-bend-up-left" aria-label="Reply" @click="emit('reply')" />
       </UTooltip>
       <UTooltip v-if="canThread" :text="message.threadId ? 'Open thread' : 'Create thread'" :content="{ side: 'top' }">

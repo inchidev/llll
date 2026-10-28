@@ -199,7 +199,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
     cursor: z.string().min(1).max(100).optional(),
   }
   server.registerTool('list_channels', {
-    description: 'List accessible chat channels, DMs and threads with IDs, participants, canSend, unread state (unread, unreadCount, lastMessageAt) for the acting member. Use it to answer what needs catching up. Email mailboxes and task discussions use their own navigation and are excluded. Page with nextCursor.',
+    description: 'List accessible chat channels, DMs and threads with IDs, participants, canSend, unread state (unread, unreadCount, lastMessageAt) for the acting member. Use it to answer what needs catching up. Email mailboxes and task discussions use their own navigation and are excluded; archived channels and their threads leave navigation and are omitted, though list_messages still reads them by ID. Page with nextCursor.',
     inputSchema: { ...pageSchema, name: z.string().trim().min(1).max(100).optional() },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async (input) => result(await listMessageChannels(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
@@ -217,7 +217,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ channelId, ...input }) => result(await readChannelMessages(env, await requireMessageMember(env, principal.authorization, 'messages:read'), channelId, input)))
 
   server.registerTool('send_message', {
-    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
+    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. Archived channels and their threads are read-only and answer channel_archived. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
     inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -228,7 +228,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   const writeAnnotations = (destructiveHint: boolean, idempotentHint: boolean) => ({ readOnlyHint: false, destructiveHint, idempotentHint, openWorldHint: false })
 
   server.registerTool('search_messages', {
-    description: 'Full-text search, newest first, across every chat, DM and thread you can read in the interface (mailboxes and task discussions excluded). Words match as prefixes; all must match. Narrow with channelId (a conversation and its threads, or one thread) and authorId. Each hit has its channel and the path that opens it. Page with nextCursor.',
+    description: 'Full-text search, newest first, across every chat, DM and thread you can read in the interface (mailboxes and task discussions excluded). Words match as prefixes; all must match. Narrow with channelId (a conversation and its threads, or one thread) and authorId. Each hit has its channel and the path that opens it; hits in archived channels stay searchable and carry channel.archived=true. Page with nextCursor.',
     inputSchema: { query: z.string().trim().min(1).max(120), channelId: z.string().min(8).optional(), authorId: z.string().min(8).optional(),
       limit: z.number().int().min(1).max(50).default(20), cursor: z.string().min(1).max(2048).optional() },
     annotations: { readOnlyHint: true, openWorldHint: false },

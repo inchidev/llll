@@ -101,6 +101,9 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
       }
     }
     for (const parentId of event.parentIds) void cache.invalidateQueries({ queryKey: ['threads', parentId] })
+    // An archived or restored channel stays open where it is shown, now read-only or writable again.
+    for (const id of event.updatedIds ?? []) void cache.invalidateQueries({ queryKey: ['channel', id] })
+    if (event.updatedIds?.length) void cache.invalidateQueries({ queryKey: ['archived-channels', event.serverId] })
     void cache.invalidateQueries({ queryKey: ['channels', event.serverId] })
     return
   }

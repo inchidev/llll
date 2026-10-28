@@ -41,7 +41,8 @@ async function unreadMentions(env: L4Env, member: ServerMembership): Promise<Inb
       access.set(row.channelId, await requireChannelAccessForMember(env, member, row.channelId).catch(() => null))
     }
     const channel = access.get(row.channelId)
-    if (channel) visible.push({ row, channel })
+    // An archived channel leaves the Inbox with its navigation; its history stays readable.
+    if (channel && !channel.archivedAt) visible.push({ row, channel })
     if (visible.length === MENTION_LIMIT) break
   }
   const excerpts = await readableMentions(env, visible.map(({ row }) => row.content.slice(0, 400)))
