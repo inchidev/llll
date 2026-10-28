@@ -88,7 +88,7 @@ function selectResource(event: MouseEvent) {
 }
 const menuTitle = computed(() => views.value.find(view => isViewActive(view.path))?.label || '')
 function leaveLiveOnPageExit() {
-  if (!live.currentChannelId || live.connection !== 'connected') return
+  if (!live.currentChannelId || !live.inRoom) return
   navigator.sendBeacon?.(`/api/channels/${live.currentChannelId}/live/leave`)
 }
 

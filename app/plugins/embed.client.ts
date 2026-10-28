@@ -42,7 +42,7 @@ export default defineNuxtPlugin(async (nuxt) => {
   watch(
     () => live.connection,
     (v) =>
-      post({ type: 'call', active: v === 'connected' || v === 'connecting' }),
+      post({ type: 'call', active: v === 'connected' || v === 'connecting' || v === 'reconnecting' }),
   )
   router.afterEach((to) => {
     if (safeEmbedPath(to.fullPath))

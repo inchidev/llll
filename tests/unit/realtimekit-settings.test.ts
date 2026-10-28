@@ -72,6 +72,13 @@ describe('RealtimeKit meetings', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('treats a meeting that no longer exists as ended', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(null, 404))
+
+    await expect(endMeeting(managedConfig, 'meeting')).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('does not clear provider failures as successful cleanup', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(null, 403))
 

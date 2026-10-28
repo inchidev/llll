@@ -3,8 +3,17 @@ import type { LiveKind, LiveState } from '../shared/types'
 
 /** A joined participant is present while their client keeps sending heartbeats. Background tabs may slow them to one a minute. */
 export const LIVE_PRESENCE_TTL_MS = 75_000
-/** An unanswered Call stops ringing after this long. */
-export const LIVE_RING_TIMEOUT_MS = 45_000
+export { LIVE_RING_TIMEOUT_MS } from '../shared/live'
+/** How many times an ended room retries ending its RealtimeKit meeting before giving up. */
+export const LIVE_END_RETRY_LIMIT = 5
+
+/** A RealtimeKit meeting whose room ended locally but whose remote end failed. */
+export type LiveEndRetry = { meetingId: string, attempts: number, at: number }
+
+/** Back off one more minute after each failed attempt to end a remote meeting. */
+export function liveEndRetryDelayMs(attempts: number): number {
+  return 60_000 * Math.max(1, attempts)
+}
 
 /**
  * How long an empty room stays open so people can come back. A Call that the

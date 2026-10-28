@@ -106,8 +106,10 @@ export async function removeParticipants(config: RealtimeKitApp, meetingId: stri
 export async function endMeeting(config: RealtimeKitApp, meetingId: string): Promise<void> {
   // An already-ended session has nothing left to kick, but its meeting must
   // still be made inactive so a participant cannot create another session.
+  // A meeting that no longer exists, for example after the app was replaced,
+  // has nothing left to end.
   await ignoreNotFound(kitFetch(config, 'POST', `/meetings/${meetingId}/active-session/kick-all`))
-  await kitFetch(config, 'PATCH', `/meetings/${meetingId}`, { status: 'INACTIVE' })
+  await ignoreNotFound(kitFetch(config, 'PATCH', `/meetings/${meetingId}`, { status: 'INACTIVE' }))
 }
 
 export type RealtimeKitAccount = { id: string, name: string }

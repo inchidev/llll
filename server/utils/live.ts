@@ -5,10 +5,12 @@ import { asRpc, fail } from './cf'
 
 type LiveRoom = {
   getLive: () => Promise<LiveState>
-  joinLive: (user: PublicUser) => Promise<LiveJoinResult>
+  joinLive: (user: PublicUser, opts?: { meetingId?: string }) => Promise<LiveJoinResult>
   leaveLive: (userId: string) => Promise<LiveState>
   declineLive: (userId: string) => Promise<LiveState>
   endLive: (userId: string) => Promise<LiveEndResult>
+  closeLive: () => Promise<LiveState>
+  removeLiveParticipant: (hostId: string, userId: string) => Promise<LiveEndResult>
   pingLive: (userId: string) => Promise<boolean>
   revalidateLive: () => Promise<void>
 }
@@ -27,7 +29,19 @@ export function failLive(result: LiveFailure): never {
  * from its Live room. Without ids, checks every room that is live.
  */
 export async function revalidateLiveRooms(env: L4Env, channelIds?: string[]): Promise<void> {
-  const ids = channelIds ?? ((await env.DB.prepare('SELECT id FROM channels WHERE live_meeting_id IS NOT NULL')
-    .all<{ id: string }>()).results ?? []).map(row => row.id)
+  const ids = channelIds ?? await liveChannelIds(env)
   await Promise.allSettled(ids.map(id => liveRoom(env, id).revalidateLive()))
+}
+
+/**
+ * End every live room before the server's RealtimeKit connection is removed
+ * or moved to another app, while their meetings can still be reached.
+ */
+export async function closeLiveRooms(env: L4Env): Promise<void> {
+  await Promise.allSettled((await liveChannelIds(env)).map(id => liveRoom(env, id).closeLive()))
+}
+
+async function liveChannelIds(env: L4Env): Promise<string[]> {
+  return ((await env.DB.prepare('SELECT id FROM channels WHERE live_meeting_id IS NOT NULL')
+    .all<{ id: string }>()).results ?? []).map(row => row.id)
 }

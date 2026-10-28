@@ -6,6 +6,7 @@ import { loadRealtimeKitConfig, realtimekitSettingsAdminDto } from '../../../../
 import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { requireMember } from '../../../utils/guards'
+import { closeLiveRooms } from '../../../utils/live'
 import { writeAudit } from '../../../utils/messages'
 
 export default defineEventHandler(async (event): Promise<{ realtimekit: RealtimeKitSettingsAdminDTO }> => {
@@ -16,6 +17,8 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
   if ((await loadRealtimeKitConfig(env)).source === 'deployment') {
     fail(400, 'managed_by_deployment', 'RealtimeKit is managed by the deployment')
   }
+  // End live rooms while their meetings can still be reached with this connection.
+  await closeLiveRooms(env)
   await getDb(env.DB).delete(realtimekitSettings).where(eq(realtimekitSettings.id, 1))
   await writeAudit(env, {
     serverId: (await getServerId(cf(event).env.DB)),

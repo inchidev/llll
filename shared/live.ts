@@ -1,5 +1,8 @@
 import type { LiveKind } from './types'
 
+/** An unanswered Call stops ringing after this long. */
+export const LIVE_RING_TIMEOUT_MS = 45_000
+
 /**
  * Product copy for a conversation's Live room. A 1:1 Direct Message presents it
  * as a Call; every other conversation as Live. Internal values such as `kind`
