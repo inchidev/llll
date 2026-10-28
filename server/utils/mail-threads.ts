@@ -51,9 +51,10 @@ const searchFilter = `(? IS NULL
 
 export async function listMailThreads(
   env: L4Env,
-  input: { mailboxId: string; userId: string; folder: MailFolder; before?: unknown; search?: string | null },
+  input: { mailboxId: string; userId: string; folder: MailFolder; before?: unknown; search?: string | null; unreadOnly?: boolean; limit?: number },
 ): Promise<MailThreadPageDTO> {
   const { filter, sortAt } = folderQuery(input.folder)
+  const limit = Math.max(1, Math.min(Math.floor(input.limit ?? MAIL_THREAD_PAGE_SIZE), MAIL_THREAD_PAGE_SIZE))
   const cursor = parseMailCursor(input.before)
   const search = mailSearchTerm(input.search)
   // The preview is the conversation's latest reply, or the message that started
@@ -76,19 +77,19 @@ export async function listMailThreads(
        LEFT JOIN channel_reads r ON r.channel_id = t.channel_id AND r.user_id = ?
        WHERE t.mailbox_channel_id = ? AND ${filter} AND ${searchFilter}
      )
-     WHERE lastMessageAt IS NOT NULL
+     WHERE lastMessageAt IS NOT NULL AND (? = 0 OR unread = 1)
        AND (? IS NULL OR lastMessageAt < ? OR (lastMessageAt = ? AND channelId < ?))
      ORDER BY lastMessageAt DESC, channelId DESC LIMIT ?`,
   ).bind(
-    input.userId, input.mailboxId, ...Array.from({ length: 6 }, () => search),
+    input.userId, input.mailboxId, ...Array.from({ length: 6 }, () => search), input.unreadOnly ? 1 : 0,
     cursor?.at ?? null, cursor?.at ?? null, cursor?.at ?? null, cursor?.id ?? null,
-    MAIL_THREAD_PAGE_SIZE + 1,
+    limit + 1,
   ).all<Parameters<typeof mailThreadDto>[0]>()
   const results = rows.results || []
-  const page = results.slice(0, MAIL_THREAD_PAGE_SIZE)
+  const page = results.slice(0, limit)
   const last = page.at(-1)
   return {
     threads: page.map(mailThreadDto),
-    nextCursor: results.length > MAIL_THREAD_PAGE_SIZE && last ? `${last.lastMessageAt}|${last.channelId}` : null,
+    nextCursor: results.length > limit && last ? `${last.lastMessageAt}|${last.channelId}` : null,
   }
 }

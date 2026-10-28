@@ -10,6 +10,7 @@ import type { L4Env } from '../../workers/env'
 import type { MailboxPermission } from '../../shared/types'
 import { MAIL_EXTERNAL_USER_ID, mailAddress, mailPermissionAllows, normalizeMailLocalPart } from '../../shared/mail'
 import { requireChannelAccess } from './guards'
+import type { ServerChannelAccess } from './channel-access'
 import { fail } from './cf'
 import { getDb } from './db'
 
@@ -161,7 +162,11 @@ export async function ensureServerMailFromEnv(env: L4Env): Promise<void> {
  * guard already loads the mailbox and the member's grant, so this adds no query.
  */
 export async function requireMailboxPermission(event: H3Event, channelId: string, needed: MailboxPermission) {
-  const access = await requireChannelAccess(event, channelId)
+  return mailboxPermission(await requireChannelAccess(event, channelId), needed)
+}
+
+/** The mailbox grant and email policy on a resolved channel access, shared by HTTP and MCP. */
+export function mailboxPermission(access: ServerChannelAccess, needed: MailboxPermission) {
   if (!access.mailPermission) fail(404, 'not_found', 'Mailbox not found')
   if (!mailPermissionAllows(access.mailPermission, needed)) fail(403, 'forbidden', 'Missing mailbox permission')
   if (needed !== 'read' && !access.isOwner && !hasPermission(access.perms, Permission.sendMail)) fail(403, 'forbidden', 'Missing email policy')

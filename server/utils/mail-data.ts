@@ -1,7 +1,7 @@
 import { inArray } from 'drizzle-orm'
 import { emailMessages, messages } from '../../drizzle/schema'
 import type { L4Env } from '../../workers/env'
-import type { MailMessageDTO, MailThreadDTO } from '../../shared/types'
+import type { MailboxDTO, MailMessageDTO, MailThreadDTO } from '../../shared/types'
 import { mailAddressList, mailDeliveryUncertain } from '../../shared/mail'
 import { readableMailContent } from '../../shared/mail-content'
 import { getDb } from './db'
@@ -70,4 +70,36 @@ export function mailThreadDto(row: ThreadRow): MailThreadDTO {
     lastMessageAt: row.lastMessageAt,
     unread: Boolean(row.unread),
   }
+}
+
+/**
+ * Enabled Mailboxes with a grant for the member, and how many Inbox conversations
+ * are unread. Callers check the email policy; the channel guard checks each one.
+ */
+export async function listGrantedMailboxes(env: L4Env, userId: string): Promise<MailboxDTO[]> {
+  const rows = await env.DB.prepare(
+    `SELECT mb.channel_id as channelId, mb.display_name as displayName, mb.enabled,
+       a.permission, lower(mb.local_part || '@' || d.domain) as address,
+       (SELECT count(*) FROM email_threads t
+        LEFT JOIN channel_reads r ON r.channel_id = t.channel_id AND r.user_id = a.user_id
+        WHERE t.mailbox_channel_id = mb.channel_id AND t.status = 'inbox'
+          AND (r.last_read_message_id IS NULL OR r.last_read_message_id < (
+            SELECT max(em.message_id) FROM email_messages em WHERE em.thread_channel_id = t.channel_id AND em.direction = 'inbound'
+          ))) as unreadCount
+     FROM email_mailboxes mb
+     JOIN email_domains d ON d.id = mb.domain_id
+     JOIN email_mailbox_access a ON a.channel_id = mb.channel_id
+     WHERE a.user_id = ? AND mb.enabled = 1
+     ORDER BY mb.display_name, address`,
+  ).bind(userId).all<MailboxDTO>()
+  return rows.results || []
+}
+
+/** Marks a conversation read up to a message. Reading only ever moves forward. */
+export async function markMailThreadRead(env: L4Env, threadId: string, userId: string, messageId: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO channel_reads (channel_id, user_id, last_read_message_id, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(channel_id, user_id) DO UPDATE SET last_read_message_id = excluded.last_read_message_id, updated_at = excluded.updated_at
+     WHERE channel_reads.last_read_message_id IS NULL OR channel_reads.last_read_message_id < excluded.last_read_message_id`,
+  ).bind(threadId, userId, messageId, new Date().toISOString()).run()
 }
