@@ -32,6 +32,7 @@ const selectedMemberId = ref<string | null>(null)
 const selectedAudit = ref<AuditEntryDTO | null>(null)
 const localComputeOpen = ref(false)
 const computeNodes = ref<{ openCreate: () => void } | null>(null)
+const providerSettings = ref<{ openCreate: () => void } | null>(null)
 const rolesSettings = ref<{ createRole: () => void } | null>(null)
 const policiesSettings = ref<{ createPolicy: () => void } | null>(null)
 const rolesListVisible = ref(true)
@@ -99,25 +100,29 @@ const updatesQ = useQuery({
 
 const serverNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'overview' as const, label: 'Overview', icon: 'i-ph-house', keywords: ['name', 'icon', 'rename'] }] : []),
-  ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles & Policies', icon: 'i-ph-shield', aliases: ['roles', 'project-policies'], keywords: ['permissions', 'admin', 'access', 'projects', 'developer', 'reviewer'] }] : []),
-  ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
   ...(can(Permission.manageRoles) || can(Permission.kick) ? [{ id: 'members' as const, label: 'Members', icon: 'i-ph-users', keywords: ['people', 'kick', 'assign role'] }] : []),
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
+  ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles & Policies', icon: 'i-ph-shield', aliases: ['roles', 'project-policies'], keywords: ['permissions', 'admin', 'access', 'projects', 'developer', 'reviewer'] }] : []),
 ])
-const featureNav = computed(() => [
-  ...(can(Permission.useAgents) || can(Permission.manageAgents) || can(Permission.useExternalTools) ? [{ id: 'tools' as const, label: 'Tools', icon: 'i-ph-wrench', keywords: ['mcp', 'connections', 'capabilities', 'permissions', 'approvals'] }] : []),
-  ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
-  ...(can(Permission.manageServer) ? [{ id: 'compute' as const, label: 'Compute', icon: 'i-ph-cpu', keywords: ['nodes', 'lizard', 'execution'] }] : []),
-  ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
-  ...(isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-hard-drives', keywords: ['files', 'kv', 'r2', 'quota'] }] : []),
+const communicationNav = computed(() => [
+  ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
+  ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Mail', icon: 'i-ph-envelope-simple', keywords: ['email', 'mailbox', 'inbox', 'domain'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
-  ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Email', icon: 'i-ph-envelope-simple', keywords: ['mail', 'mailbox', 'inbox', 'domain'] }] : []),
+])
+// The path to an agent that opens pull requests, in setup order.
+const agentNav = computed(() => [
+  ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks', 'execution', 'limits', 'audit'] }] : []),
+  ...(isOwner.value ? [{ id: 'models' as const, label: 'Models', icon: 'i-ph-plugs-connected', aliases: ['models', 'model-defaults'], keywords: ['providers', 'openrouter', 'anthropic', 'claude', 'chatgpt', 'api key', 'default model'] }] : []),
+  ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
+  ...(can(Permission.manageServer) ? [{ id: 'compute' as const, label: 'Compute', icon: 'i-ph-cpu', keywords: ['nodes', 'lizard', 'execution', 'containers', 'vps'] }] : []),
+  ...(can(Permission.useAgents) || can(Permission.manageAgents) || can(Permission.useExternalTools) ? [{ id: 'tools' as const, label: 'Tools', icon: 'i-ph-wrench', keywords: ['mcp', 'connections', 'capabilities', 'permissions', 'approvals'] }] : []),
 ])
 const accessNav = computed(() => [
   ...(isOwner.value ? [{ id: 'authentication' as const, label: 'Authentication', icon: 'i-ph-key', keywords: ['login', 'signup', 'oauth', 'github', 'sso', 'registration'] }] : []),
   ...(isOwner.value ? [{ id: 'onboarding' as const, label: 'Onboarding', icon: 'i-ph-flag-banner', keywords: ['welcome', 'first run', 'branding'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'audit' as const, label: 'Audit Log', icon: 'i-ph-list-magnifying-glass', keywords: ['history', 'activity', 'log'] }] : []),
 ])
+const storageNav = computed(() => isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-database', keywords: ['files', 'kv', 'r2', 'quota'] }] : [])
 const deploymentSections = ['cloudflare', 'domains', 'backups', 'updates', 'danger']
 const deploymentNav = computed(() => isOwner.value
   ? [{
@@ -137,9 +142,10 @@ const deploymentNav = computed(() => isOwner.value
   : [])
 const groups = computed(() => [
   { label: 'Server', items: serverNav.value },
-  { label: 'Features', items: featureNav.value },
+  { label: 'Agents & code', items: agentNav.value },
+  { label: 'Communication', items: communicationNav.value },
   { label: 'Access', items: accessNav.value },
-  { items: deploymentNav.value },
+  { label: 'Hosting', items: [...storageNav.value, ...deploymentNav.value] },
 ].filter(group => group.items.length))
 const availableSections = computed(() => groups.value.flatMap(group => group.items.flatMap(item => 'aliases' in item ? item.aliases : [item.id])))
 
@@ -660,7 +666,13 @@ v-if="rolesListVisible || section === 'project-policies'"
     </template>
 
     <template v-else-if="section === 'agents'">
-      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" @navigate="open = false" />
+      <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" :can-manage-server="can(Permission.manageServer)" @navigate="open = false" @section="section = $event" />
+    </template>
+
+    <template v-else-if="section === 'models' || section === 'model-defaults'">
+      <SettingsHeader title="Models"><template #actions><UButton v-if="section === 'models'" icon="i-ph-plus" label="Add provider" @click="providerSettings?.openCreate()" /></template></SettingsHeader>
+      <LayoutSegmentedTabs :model-value="section" :items="[{ value: 'models', label: 'Providers' }, { value: 'model-defaults', label: 'Defaults' }]" label="Model settings" class="mt-5 mb-6" @update:model-value="section = $event" />
+      <SettingsAgentProviderSettings ref="providerSettings" :server-id="serverId" :is-owner="isOwner" :view="section === 'model-defaults' ? 'defaults' : 'providers'" />
     </template>
 
     <template v-else-if="section === 'members'">

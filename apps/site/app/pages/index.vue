@@ -34,7 +34,12 @@ const featuredGroups = [
 const moreGroups = [
   { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Email conversations and internal notes stay together.' },
   { id: 'repositories', name: 'Repositories', icon: 'i-ph-git-branch', title: 'Code work you can review.', description: 'Connect GitHub to a Project. Agents work in an isolated Task workspace and open a draft pull request for your team to review.' },
+  { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Nothing slips.', description: 'Set reminders and schedule agent work. See upcoming, completed and cancelled schedules in one list.' },
   { id: 'notifications', name: 'Notifications', icon: 'i-ph-bell', title: 'Know when you are needed.', description: 'Push notifications for mentions, direct messages and calls, on desktop and on your phone.' },
+]
+const soonGroups = [
+  { id: 'data', name: 'Data', icon: 'i-ph-table', description: 'Tables, documents and canvases your team and agents share.' },
+  { id: 'apps', name: 'Apps', icon: 'i-ph-squares-four', description: 'Internal tools over shared data, published to the right Roles.' },
 ]
 const productGroups = [...featuredGroups, ...moreGroups]
 
@@ -83,7 +88,7 @@ useHead({
       sameAs: repoUrl,
       offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account or VPS', price: '0', priceCurrency: 'USD' },
       featureList: [
-        'Chat, Projects and Tasks, Mail and push notifications',
+        'Chat, Projects and Tasks, Mail, Schedules and push notifications',
         'AI agents as Members with Roles and Project policies',
         'Agent work on connected repositories in isolated Task workspaces',
         'Optional voice, video and screen sharing through RealtimeKit',
@@ -152,7 +157,7 @@ useHead({
           <div class="max-w-3xl">
             <p class="mb-3 text-sm font-medium text-primary">Inside your Server</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, tasks, mail and code live in one Server, so people and agents work from the same context.</p>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, tasks, mail, schedules and code live in one Server, so people and agents work from the same context.</p>
           </div>
           <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted md:grid-cols-2">
             <article v-for="app in featuredGroups" :id="`app-${app.id}`" :key="app.id" class="scroll-mt-24 bg-default p-8 sm:p-10">
@@ -162,12 +167,21 @@ useHead({
               <p v-if="app.note" class="mt-4 text-xs leading-5 text-dimmed">{{ app.note }}</p>
             </article>
           </div>
-          <div class="mt-px grid gap-px overflow-hidden rounded-md border border-muted bg-muted md:grid-cols-3">
+          <div class="mt-px grid gap-px overflow-hidden rounded-md border border-muted bg-muted sm:grid-cols-2 lg:grid-cols-4">
             <article v-for="app in moreGroups" :id="`app-${app.id}`" :key="app.id" class="scroll-mt-24 bg-default p-7">
               <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
               <h3 class="mt-5 text-lg font-semibold text-highlighted">{{ app.title }}</h3>
               <p class="mt-2 text-sm leading-6 text-muted">{{ app.description }}</p>
             </article>
+          </div>
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <div v-for="app in soonGroups" :key="app.id" class="flex items-start gap-3 rounded-md border border-dashed border-muted p-5">
+              <UIcon :name="app.icon" class="mt-0.5 size-5 shrink-0 text-dimmed" />
+              <div class="min-w-0">
+                <p class="flex items-center gap-2 text-sm font-medium text-muted">{{ app.name }}<UBadge label="Soon" color="neutral" variant="subtle" size="sm" /></p>
+                <p class="mt-1 text-sm leading-6 text-dimmed">{{ app.description }}</p>
+              </div>
+            </div>
           </div>
         </UContainer>
       </section>

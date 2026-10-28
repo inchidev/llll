@@ -11,6 +11,7 @@ const groupDefinitions = [
   { label: 'Agents & compute', keys: ['useAgents', 'manageAgents', 'approveAgentActions', 'useComputer', 'browseWeb'] },
   { label: 'Email', keys: ['readMail', 'sendMail'] },
   { label: 'Tools & integrations', keys: ['useExternalTools', 'mcp.connect'] },
+  { label: 'Schedules', keys: ['manageSchedules'] },
 ]
 const assignedKeys = new Set(groupDefinitions.flatMap(group => group.keys))
 const permissionGroups = [

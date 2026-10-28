@@ -169,13 +169,13 @@ describe('Pi run authorization', () => {
     }
   })
 
-  it('hides paused Data and Schedule tools even from a fully permitted Agent', async () => {
+  it('hides paused Data tools even from a fully permitted Agent', async () => {
     db.exec(`UPDATE roles SET permissions_bitmask=${ALL_PERMISSIONS} WHERE id='agent-role'`)
     const run = await createAgentRun(env, (await start())!, input())
     const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
     const names = (await tools.catalog()).map(tool => tool.name)
     expect(names).toContain('list_tasks')
-    for (const name of ['list_tables', 'list_data', 'create_document', 'create_reminder', 'list_schedules']) {
+    for (const name of ['list_tables', 'list_data', 'create_document']) {
       expect(names).not.toContain(name)
       await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
     }
