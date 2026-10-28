@@ -143,7 +143,7 @@ async function onSaveName(event: FormSubmitEvent<Schema>) {
 }
 
 async function uploadAvatar(file: File | undefined) {
-  if (!file || avatarBusy.value || (session.health?.bindings.r2 === false && !session.health?.bindings.kv)) return
+  if (!file || avatarBusy.value || (session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)) return
   avatarBusy.value = true
   try {
     const image = await prepareAvatarImage(file)
@@ -383,7 +383,7 @@ async function logout() {
               </button>
               <div class="min-w-0 space-y-2">
                 <div class="flex flex-wrap gap-2">
-                  <UButton size="sm" :label="hasAvatar ? 'Change Avatar' : 'Upload Avatar'" :loading="avatarBusy" :disabled="(session.health?.bindings.r2 === false && !session.health?.bindings.kv)" @click="avatarInput?.click()" />
+                  <UButton size="sm" :label="hasAvatar ? 'Change Avatar' : 'Upload Avatar'" :loading="avatarBusy" :disabled="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)" @click="avatarInput?.click()" />
                   <UButton
                     v-if="hasAvatar"
                     size="sm"

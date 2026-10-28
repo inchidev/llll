@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { llllNitroPlugins, llllNodeAliases } from './nitro.runtime.mjs'
 import { communityRailIcons } from './packages/client-ui/icons'
+import { SERVER_PERMISSIONS_POLICY } from './shared/security-headers'
 
 const devPublicHost = process.env.LLLL_DEV_HOST?.trim() || ''
 const requestedClientMode = process.env.LLLL_CLIENT_MODE
@@ -98,7 +99,9 @@ export default defineNuxtConfig({
         headers: {
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
-          'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self)',
+          // Also written to _headers for static assets; documents get the full
+          // set (CSP, HSTS) from server/middleware/00-security.ts.
+          'Permissions-Policy': SERVER_PERMISSIONS_POLICY,
         },
       },
     },

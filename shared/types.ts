@@ -646,38 +646,51 @@ export type RuntimeCapabilities = {
   callsProvider: CallsProviderName
 }
 
-export type SetupHealth = {
-  version: string
-  authMode: AuthMode
-  ok: boolean
-  ready: boolean
+export type SetupBindings = {
+  db: boolean
+  r2: boolean
+  kv: boolean
+  channelDo: boolean
+  serverDo: boolean
+  rateLimitDo: boolean
+  notificationDo: boolean
+  agentDo: boolean
+  workersAi: boolean
+  browser: boolean
+}
+
+/** Runtime details of `/api/setup/health`, returned only to signed-in members. */
+export type SetupHealthDetails = {
   users: number
-  migrated: boolean
-  adminEnv: boolean
-  ownerSetup: boolean
-  ownerEmailHint: string | null
-  bindings: {
-    db: boolean
-    r2: boolean
-    kv: boolean
-    channelDo: boolean
-    serverDo: boolean
-    rateLimitDo: boolean
-    notificationDo: boolean
-    agentDo: boolean
-    workersAi: boolean
-    browser: boolean
-  }
+  bindings: SetupBindings
   aiProvider: AiProviderName
   aiModel: string | null
   capabilities: RuntimeCapabilities
   realtimekit: boolean
   twitterAuth: boolean
+}
+
+/**
+ * `GET /api/setup/health`. Anyone may read the public part (the installer's
+ * deploy verification and the sign-in/setup pages need it). Before owner setup
+ * it also carries `users`, `adminEnv` and `bindings` so the setup page can
+ * explain a misconfigured deployment. Members additionally receive
+ * {@link SetupHealthDetails}.
+ */
+export type SetupHealth = {
+  version: string
+  authMode: AuthMode
+  ok: boolean
+  ready: boolean
+  migrated: boolean
+  ownerSetup: boolean
+  ownerEmailHint: string | null
+  adminEnv?: boolean
   appName: string
   iconUrl?: string | null
   appTitle: string
   appSubtitle: string
-}
+} & Partial<SetupHealthDetails>
 
 export type ClientMsg =
   | { t: 'auth'; token: string }

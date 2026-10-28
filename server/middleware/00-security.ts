@@ -1,5 +1,7 @@
 import { embedOrigins } from '../../shared/embed'
-import { cf, fail, originOk  } from '../utils/cf'
+import { SERVER_PERMISSIONS_POLICY, strictTransportSecurity } from '../../shared/security-headers'
+import { cf, fail, originOk } from '../utils/cf'
+import { fetchMetadataExempt, OAUTH_BACKCHANNEL_PATHS, serverContentSecurityPolicy } from '../utils/security-policy'
 
 export default defineEventHandler(async (event) => {
   const path = (event.path || '').split('?')[0]!
@@ -7,18 +9,18 @@ export default defineEventHandler(async (event) => {
 
   setHeader(event, 'X-Content-Type-Options', 'nosniff')
   setHeader(event, 'Referrer-Policy', 'strict-origin-when-cross-origin')
+  setHeader(event, 'Permissions-Policy', SERVER_PERMISSIONS_POLICY)
+  // Operator-owned origins: no includeSubDomains, so a Server on an apex name
+  // never forces HTTPS onto the operator's unrelated subdomains.
+  const hsts = strictTransportSecurity(getRequestURL(event), getHeader(event, 'x-forwarded-proto'), false)
+  if (hsts) setHeader(event, 'Strict-Transport-Security', hsts)
   let configured = ''
   try { configured = cf(event).env.EMBED_ORIGINS || '' } catch { /* Prerender has no runtime bindings. */ }
   const allowed = embedOrigins(configured)
   const ancestors = path === '/mcp/authorize' ? "'none'" : allowed.length ? "'self' " + allowed.join(' ') : "'none'"
-  setHeader(
-    event,
-    'Content-Security-Policy',
-    `default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https: wss: ws:; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com; frame-ancestors ${ancestors}; base-uri 'self'`,
-  )
+  setHeader(event, 'Content-Security-Policy', serverContentSecurityPolicy(ancestors))
 
-  // These OAuth backchannels use client authentication/PKCE, never browser cookies.
-  const oauthBackchannel = ['/api/auth/oauth2/token', '/api/auth/oauth2/register', '/api/auth/oauth2/revoke', '/api/auth/oauth2/introspect'].includes(path)
+  const oauthBackchannel = OAUTH_BACKCHANNEL_PATHS.has(path)
   if (oauthBackchannel) {
     setHeader(event, 'Access-Control-Allow-Origin', '*')
     setHeader(event, 'Cache-Control', 'no-store')
@@ -28,8 +30,12 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 204)
       return ''
     }
+    // Cross-origin token clients (browser MCP clients) are authenticated by
+    // client credentials/PKCE, so the Origin check does not apply here.
+    return
   }
-  if (!oauthBackchannel && !await originOk(event)) {
+  const allowMissingFetchMetadata = fetchMetadataExempt(path, getHeader(event, 'authorization'))
+  if (!await originOk(event, { allowMissingFetchMetadata })) {
     fail(403, 'csrf', 'Origin mismatch')
   }
 })

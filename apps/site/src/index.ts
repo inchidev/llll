@@ -4,6 +4,7 @@ import { enableL4Files } from '../../../packages/deployment-core/src/storage'
 import { z } from 'zod'
 import { CLOUDFLARE_AUTH_URL, CLOUDFLARE_SCOPES, oauthGrant, pkceChallenge, randomCode, refreshCloudflareGrant } from '../../../shared/cloudflare-oauth'
 import { uuidSchema } from '../../../shared/embed'
+import { policyForHtml, SHELL_PERMISSIONS_POLICY, strictTransportSecurity } from '../../../shared/security-headers'
 import { advanceDeployment, deploymentFailure, cloudflare, deploymentParameters, listReleases, VERSION_PATTERN } from './deploy'
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
@@ -11,6 +12,24 @@ import { webSession, digest, clearDeployment } from './session'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
 
+// Landing, Docs and the Shell only run same-origin bundles, their own inline
+// scripts (allowed by hash per document) and Telegram's Mini App SDK. Other
+// resource types stay unrestricted: the Shell embeds and talks to
+// operator-owned Server origins it cannot enumerate.
+const SITE_CSP = "script-src 'self' https://telegram.org; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+export async function withSiteSecurityHeaders(request: Request, response: Response): Promise<Response> {
+  const html = (response.headers.get('Content-Type') || '').toLowerCase().includes('text/html') && request.method !== 'HEAD' && response.body
+    ? await response.text()
+    : null
+  const output = new Response(html ?? response.body, response)
+  output.headers.set('Referrer-Policy', 'no-referrer'); output.headers.set('X-Content-Type-Options', 'nosniff')
+  output.headers.set('Permissions-Policy', SHELL_PERMISSIONS_POLICY)
+  // llll.gg and every PR Preview subdomain are HTTPS-only Cloudflare hosts.
+  const hsts = strictTransportSecurity(new URL(request.url), null, true)
+  if (hsts) output.headers.set('Strict-Transport-Security', hsts)
+  output.headers.set('Content-Security-Policy', html === null ? SITE_CSP : await policyForHtml(SITE_CSP, html))
+  return output
+}
 function fail(status: number, message: string): never { throw Object.assign(new Error(message), { status }) }
 function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } }) }
 async function boundedText(response: Response | Request) {
@@ -380,10 +399,7 @@ export default {
       const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error && 'status' in error ? Number(error.status) : 500
       response = json({ error: { message: error instanceof z.ZodError ? 'Invalid request' : error instanceof Error ? error.message : 'Request failed' } }, status)
     }
-    const output = new Response(response.body, response)
-    output.headers.set('Referrer-Policy', 'no-referrer'); output.headers.set('X-Content-Type-Options', 'nosniff')
-    output.headers.set('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
-    return output
+    return withSiteSecurityHeaders(request, response)
   },
   async scheduled(_event: ScheduledController, env: WebEnv) {
     await env.DB.batch([env.DB.prepare('DELETE FROM deployment_sessions WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM rate_limits WHERE expires_at<?').bind(Date.now())])

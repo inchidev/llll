@@ -22,12 +22,28 @@ export const useSessionStore = defineStore('session', () => {
     ])
     health.value = healthResult.status === 'fulfilled' ? healthResult.value : null
     user.value = meResult.status === 'fulfilled' ? meResult.value.user : null
+    await memberDetails(fetcher)
     ready.value = true
+  }
+
+  /**
+   * Public health omits runtime details (bindings, capabilities, Live). Fetch
+   * them again once a session exists, e.g. right after sign-in.
+   */
+  async function memberDetails(fetcher: SessionFetcher) {
+    if (!user.value || !health.value?.ready || health.value.capabilities) return
+    try { health.value = await fetcher('/api/setup/health') as SetupHealth }
+    catch { /* Keep the public health; feature checks treat details as unknown. */ }
+  }
+
+  async function signedIn(next: SessionUser | null, fetcher: SessionFetcher = asSessionFetcher($fetch)) {
+    user.value = next
+    await memberDetails(fetcher)
   }
 
   async function login(email: string, password: string, fetcher: SessionFetcher = asSessionFetcher($fetch)) {
     const res = await fetcher('/api/auth/login', { method: 'POST', body: { email, password } }) as { user: SessionUser }
-    user.value = res.user
+    await signedIn(res.user, fetcher)
   }
 
   async function logout(fetcher: SessionFetcher = asSessionFetcher($fetch)) {
@@ -41,5 +57,5 @@ export const useSessionStore = defineStore('session', () => {
     return response?.redirect || null
   }
 
-  return { user, health, ready, refresh, login, logout }
+  return { user, health, ready, refresh, signedIn, login, logout }
 })

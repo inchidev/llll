@@ -40,13 +40,35 @@ export function requireFiles(env: FileStorageEnv): FileStore {
   return fileStorage(env)
 }
 
-export async function originOk(event: H3Event): Promise<boolean> {
+export type OriginCheckOptions = {
+  /**
+   * The path authenticates by a token or signature, never the session cookie,
+   * so a request without browser fetch metadata is acceptable even if it
+   * happens to carry a Cookie header. A present foreign Origin is still denied.
+   */
+  allowMissingFetchMetadata?: boolean
+}
+
+/**
+ * CSRF defence for unsafe methods. The session cookie is `SameSite=None`
+ * (the Client runs inside the Shell's cross-site iframe), so the browser
+ * attaches it to cross-site requests and this check is the boundary:
+ *
+ * 1. The Host must be one of this Server's addresses.
+ * 2. A present `Origin` must be one of this Server's origins.
+ * 3. A request that carries cookies but no `Origin` must carry
+ *    `Sec-Fetch-Site: same-origin` or `none` (user-initiated). Without either
+ *    header nothing proves it came from this Server's own pages.
+ *
+ * Requests with no Cookie header carry no ambient browser credential: bearer
+ * tokens (MCP, native and extension clients, Shell popup sessions), signed
+ * webhooks and machine clients need no fetch metadata. The `x-llll-client`
+ * header is only honoured on such cookie-less requests, so a custom header can
+ * never stand in for an Origin check on cookie-authenticated requests.
+ */
+export async function originOk(event: H3Event, options: OriginCheckOptions = {}): Promise<boolean> {
   const method = event.method.toUpperCase()
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return true
-  // Bundled clients cannot share the server's browser origin. The custom header
-  // makes the request non-simple, so ordinary cross-origin web pages cannot use
-  // this path without first passing CORS preflight.
-  if (['native', 'extension'].includes(getHeader(event, 'x-llll-client') ?? '')) return true
   const origin = getHeader(event, 'origin')
   let origins: string[] = []
   try {
@@ -70,9 +92,20 @@ export async function originOk(event: H3Event): Promise<boolean> {
       }
     })) return false
   }
-  if (!origin) return true
+  const cookies = Boolean(getHeader(event, 'cookie')?.trim())
+  // Bundled clients cannot share the server's browser origin. They authenticate
+  // with bearer tokens; the header also makes the request non-simple, so a web
+  // page cannot send it cross-origin without passing a CORS preflight.
+  if (!cookies && ['native', 'extension'].includes(getHeader(event, 'x-llll-client') ?? '')) return true
+  if (!origin) {
+    if (!cookies || options.allowMissingFetchMetadata) return true
+    const site = getHeader(event, 'sec-fetch-site')?.trim().toLowerCase()
+    return site === 'same-origin' || site === 'none'
+  }
   let normalized: string
   try { normalized = new URL(origin).origin } catch { return false }
+  // Opaque origins (sandboxed frames, cross-origin redirects) are never ours.
+  if (normalized === 'null') return false
   if (origins.length) return origins.includes(normalized)
   let configured: string | undefined
   try { configured = cf(event).env.PUBLIC_ORIGIN } catch { /* See above. */ }

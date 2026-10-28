@@ -276,7 +276,7 @@ async function onSave(name: string) {
 }
 
 async function uploadServerIcon(event: Event) {
-  if ((session.health?.bindings.r2 === false && !session.health?.bindings.kv)) return
+  if ((session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)) return
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
@@ -519,7 +519,7 @@ function roleLabel(name: string) {
               color="neutral"
               variant="soft"
               label="Change icon"
-              :disabled="(session.health?.bindings.r2 === false && !session.health?.bindings.kv)"
+              :disabled="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)"
               :loading="serverIconBusy"
               @click="serverIconInput?.click()"
             />

@@ -46,10 +46,14 @@ export function maskedOwnerEmail(email: string): string {
 
 const setupEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
-/** Read the one pending owner claim from D1, falling back to legacy env once. */
+/**
+ * Read the one pending owner claim from D1, falling back to legacy env once.
+ * `persist: false` keeps the read side-effect free (public health).
+ */
 export async function readOwnerSetup(
   db: D1Database,
   env: Pick<L4Env, 'ADMIN_EMAIL' | 'SETUP_TOKEN' | 'ADMIN_SERVER'>,
+  options: { persist?: boolean } = {},
 ): Promise<OwnerSetup | null> {
   const row = await db
     .prepare('SELECT email, token_hash, server_name FROM server_setup WHERE singleton = 1')
@@ -58,7 +62,7 @@ export async function readOwnerSetup(
   if (await db.prepare('SELECT 1 FROM server LIMIT 1').first()) return null
   const legacy = readOwnerSetupEnv(env, await readServerSetting(db, 'initial_name'))
   if (!legacy) return null
-  await ensureOwnerSetupFromEnv(db, legacy)
+  if (options.persist !== false) await ensureOwnerSetupFromEnv(db, legacy)
   return legacy
 }
 

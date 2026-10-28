@@ -123,3 +123,41 @@ describe('request origin checks', () => {
     }, []))).toBe(false)
   })
 })
+
+describe('fetch metadata on cookie-authenticated unsafe requests', () => {
+  const cookie = 'llll-server.session_token=signed'
+  const ok = (headers: Record<string, string | undefined>, options?: { allowMissingFetchMetadata?: boolean }) =>
+    originOk(event({ headers: { host: 'primary.example.com', ...headers } }, listed) as never, options)
+
+  it('rejects a cookie request that has neither Origin nor Sec-Fetch-Site', async () => {
+    expect(await ok({ cookie })).toBe(false)
+  })
+
+  it('accepts a cookie request without Origin only from the same origin or a user action', async () => {
+    expect(await ok({ cookie, 'sec-fetch-site': 'same-origin' })).toBe(true)
+    expect(await ok({ cookie, 'sec-fetch-site': 'none' })).toBe(true)
+    expect(await ok({ cookie, 'sec-fetch-site': 'same-site' })).toBe(false)
+    expect(await ok({ cookie, 'sec-fetch-site': 'cross-site' })).toBe(false)
+  })
+
+  it('accepts a listed Origin and rejects opaque or foreign origins', async () => {
+    expect(await ok({ cookie, origin: 'https://primary.example.com', 'sec-fetch-site': 'same-origin' })).toBe(true)
+    expect(await ok({ cookie, origin: 'null' })).toBe(false)
+    expect(await ok({ cookie, origin: 'https://evil.example', 'sec-fetch-site': 'same-origin' })).toBe(false)
+  })
+
+  it('needs no fetch metadata when the request carries no cookie', async () => {
+    expect(await ok({})).toBe(true)
+    expect(await ok({ authorization: 'Bearer token' })).toBe(true)
+  })
+
+  it('never lets the bundled-client header bypass the check for cookie requests', async () => {
+    expect(await ok({ cookie, origin: 'capacitor://localhost', 'x-llll-client': 'native' })).toBe(false)
+    expect(await ok({ cookie, 'x-llll-client': 'extension' })).toBe(false)
+  })
+
+  it('lets an exempt token-authenticated path omit fetch metadata but not send a foreign Origin', async () => {
+    expect(await ok({ cookie }, { allowMissingFetchMetadata: true })).toBe(true)
+    expect(await ok({ cookie, origin: 'https://evil.example' }, { allowMissingFetchMetadata: true })).toBe(false)
+  })
+})
