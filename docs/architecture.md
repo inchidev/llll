@@ -120,7 +120,7 @@ Replies in that DM Thread keep addressing the same Agent without another mention
 
 ## Notifications
 
-- Server-channel and thread Messages notify only explicitly mentioned Members who can access the Channel. Direct Messages notify every other active participant.
+- Server-channel and thread Messages notify only Members who can access the Channel and are mentioned directly, through a Role, or through `@channel` or `@here`. Direct Messages notify every other active participant.
 - A newly started Live session notifies other active Members who can access its parent Channel or Direct Message; a 1:1 Call rings the other participant. Join, leave, and end events do not create push notifications.
 - One outbox row targets one browser subscription. The `(event_id, subscription_id)` key makes producer retries idempotent; deterministic browser notification tags limit visible duplicates after at-least-once delivery.
 - A `404` or `410` push-service response removes the expired subscription. Transient failures use bounded retry and a D1 lease.

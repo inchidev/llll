@@ -211,7 +211,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async (input) => result(await listMessageMembers(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))
 
   server.registerTool('list_roles', {
-    description: 'List the Roles you may mention: mentionable Roles, or every Role for the Server Owner and members with Manage channels. Paste a returned mentionToken (<@&role-id>) into send_message content to notify the people with that Role who can read the conversation, up to 500. Role mentions never invoke Agents.',
+    description: 'List the Roles you may mention: mentionable Roles, or every Role for the Server Owner and members with Manage channels. Paste a returned mentionToken (<@&role-id>) into send_message content to notify the people with that Role who can read the conversation, up to 500. The Owner and members with Manage channels also get groups: <!channel> notifies everyone who can read the conversation and <!here> only those of them online, up to 500; from anyone else these tokens are stored as plain @channel and @here text. Role and group mentions never invoke Agents.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => result(await listMentionRoles(env, await requireMessageMember(env, principal.authorization, 'messages:read'))))
@@ -223,7 +223,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ channelId, ...input }) => result(await readChannelMessages(env, await requireMessageMember(env, principal.authorization, 'messages:read'), channelId, input)))
 
   server.registerTool('send_message', {
-    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members, or <@&role-id> tokens from list_roles to notify a Role. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. Archived channels and their threads are read-only and answer channel_archived. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
+    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members, <@&role-id> tokens from list_roles to notify a Role, or the <!channel> and <!here> group tokens list_roles offers you. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. Archived channels and their threads are read-only and answer channel_archived. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
     inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -247,7 +247,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ channelId, ...input }) => result(await listChannelThreads(env, await reader(), channelId, input)))
 
   server.registerTool('edit_message', {
-    description: 'Replace the content of a message you sent. Same rules as the interface: only your own messages, with send permission in that conversation. <@member-id> tokens are mentions.',
+    description: 'Replace the content of a message you sent. Same rules as the interface: only your own messages, with send permission in that conversation. Mention tokens work as in send_message; only people a new mention reaches are notified.',
     inputSchema: { messageId: z.string().min(8), content: z.string().min(1).max(2000) },
     annotations: writeAnnotations(false, true),
   }, async ({ messageId, content }) => result(await editChannelMessage(env, await writer(), messageId, { content }, schedule)))

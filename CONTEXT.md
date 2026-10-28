@@ -30,6 +30,8 @@ A Grant permits an operation on a resource. Evaluate the operation in its Projec
 
 A Channel is a conversation in one Server. A Thread is a child conversation. A Direct Message is a private conversation between Members of the same Server.
 
+A mention names who a message is for: a direct mention names one Member, a role mention a Role's holders, and a group mention (`@channel` or `@here`) everyone who can read the conversation or those of them online. Only a direct mention addresses an Agent.
+
 ## Mailbox and Email Conversation
 
 A Mailbox is a shared inbox with its own access rules and email address. An Email Conversation groups incoming mail, outgoing replies and internal notes. Both belong to one Server.
