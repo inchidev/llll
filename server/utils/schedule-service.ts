@@ -9,7 +9,7 @@ import type { AuthorizationContext } from '../../shared/authorization'
 import { findCodeEnvironment } from './code-environment-service'
 import { authorizeResource } from '../../shared/authorization'
 import { intersectResources, type RunMandate } from '../../shared/agent-execution'
-import { scheduleRequestSchema, type PublicSchedule, type Schedule, type ScheduleListPage, type ScheduleOccurrence, type ScheduleRequest } from '../../shared/schedules'
+import { scheduleEditable, scheduleEditSchema, scheduleRequestSchema, type PublicSchedule, type Schedule, type ScheduleEdit, type ScheduleListPage, type ScheduleOccurrence, type ScheduleRequest } from '../../shared/schedules'
 import { newId, nowIso } from '../../shared/ids'
 import { CHANNEL_ARCHIVED_CODE } from '../../shared/channel-archive'
 import { loadAuthorizationContext } from './authorization'
@@ -94,11 +94,11 @@ export async function scheduleAuthorization(env: L4Env, item: Schedule) {
   return current
 }
 
-export async function createSchedule(env: L4Env, auth: AuthorizationContext, request: ScheduleRequest) {
-  requireGrant(auth, Permission.manageSchedules)
-  if (!env.AGENT_SCHEDULE_DO) fail(409, 'schedule_unavailable', 'Schedule execution is not configured')
-  const input = scheduleRequestSchema.parse(request)
-  if (Date.parse(input.firstAt) < Date.now() + 5000 || Date.parse(input.firstAt) > Date.now() + 366 * 86400000) fail(400, 'schedule_time', 'Choose a time between five seconds and one year from now')
+function requireScheduleTime(at: string) {
+  if (Date.parse(at) < Date.now() + 5000 || Date.parse(at) > Date.now() + 366 * 86400000) fail(400, 'schedule_time', 'Choose a time between five seconds and one year from now')
+}
+/** Creation and edits share these checks; the returned mandate never exceeds the actor's current grants. */
+async function authorizeSchedule(env: L4Env, auth: AuthorizationContext, input: ScheduleRequest) {
   await scheduleMember(env, auth, input.channelId)
   let mandate: RunMandate | null = null
   if (input.kind === 'work') {
@@ -128,6 +128,15 @@ export async function createSchedule(env: L4Env, auth: AuthorizationContext, req
       mandate.environmentVersion = environment.version
     }
   }
+  return mandate
+}
+
+export async function createSchedule(env: L4Env, auth: AuthorizationContext, request: ScheduleRequest) {
+  requireGrant(auth, Permission.manageSchedules)
+  if (!env.AGENT_SCHEDULE_DO) fail(409, 'schedule_unavailable', 'Schedule execution is not configured')
+  const input = scheduleRequestSchema.parse(request)
+  requireScheduleTime(input.firstAt)
+  const mandate = await authorizeSchedule(env, auth, input)
   const id = newId()
   await env.DB.prepare(`INSERT INTO agent_schedules(id,principal_id,created_by,channel_id,kind,content,agent_id,task_id,first_at,timezone,recurrence,next_at,status,authorization_json,mandate_json,created_at)
     SELECT ?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,? WHERE (SELECT count(*) FROM agent_schedules WHERE created_by=? AND status='active')<? RETURNING id`)
@@ -224,6 +233,55 @@ export async function resumeSchedule(env: L4Env, auth: AuthorizationContext, id:
     if (item.status === 'blocked') fail(429, 'schedule_limit', `You already have ${SCHEDULE_ACTIVE_LIMIT} active schedules. Cancel one first.`)
     fail(409, 'schedule_inactive', 'This schedule changed. Refresh and try again.')
   }
+  await wake(env, id)
+  return publicSchedule((await findSchedule(env, id))!)
+}
+/** A due occurrence may already be delivering, so its time cannot move until it settles. */
+const DUE_MARGIN = 5000
+/**
+ * Only the creator edits, under the same checks and limits as creation. The saved ceiling and mandate are
+ * replaced from the editor's current grants, so an edit never restores a reduced role. A changed time restarts
+ * the schedule from it; otherwise the next occurrence keeps its identity. A paused schedule stays paused; a
+ * blocked one becomes active once the resume checks pass. `scope` limits an Agent to its Run's reminders.
+ */
+export async function updateSchedule(env: L4Env, auth: AuthorizationContext, id: string, edit: ScheduleEdit, scope?: Pick<Schedule, 'kind' | 'channelId'>) {
+  const item = await ownedSchedule(env, auth, id)
+  if (item.principalId !== auth.principal.id || item.createdBy !== owner(auth)) fail(403, 'schedule_denied', 'Only the creator of this schedule can edit it')
+  if (scope && (item.kind !== scope.kind || item.channelId !== scope.channelId)) fail(403, 'schedule_denied', 'Only a reminder in this conversation can be edited here')
+  if (!scheduleEditable(item)) fail(409, 'schedule_inactive', 'A completed or cancelled schedule cannot be edited')
+  if (!env.AGENT_SCHEDULE_DO) fail(409, 'schedule_unavailable', 'Schedule execution is not configured')
+  const changes = scheduleEditSchema.parse(edit)
+  if (item.kind === 'reminder' && (changes.agentId || changes.taskId)) fail(400, 'bad_request', 'Only recurring work has an agent and task')
+  const retimed = changes.firstAt !== undefined || changes.timezone !== undefined || changes.recurrence !== undefined
+  const live = item.status === 'active'
+  if (retimed && live && item.nextAt && Date.parse(item.nextAt) <= Date.now() + DUE_MARGIN)
+    fail(409, 'schedule_due', 'This schedule is delivering or retrying its current occurrence. Pause it first, or try again once it finishes.')
+  const input = scheduleRequestSchema.parse({ channelId: item.channelId, kind: item.kind, content: changes.content ?? item.content,
+    firstAt: changes.firstAt ?? (retimed ? item.nextAt ?? item.firstAt : item.firstAt), timezone: changes.timezone ?? item.timezone, recurrence: changes.recurrence ?? item.recurrence,
+    ...(item.kind === 'work' ? { agentId: changes.agentId ?? item.agentId, taskId: changes.taskId ?? item.taskId } : {}) })
+  if (retimed) requireScheduleTime(input.firstAt)
+  const mandate = await authorizeSchedule(env, auth, input)
+  const authorizationJson = JSON.stringify(auth)
+  const blocked = item.status === 'blocked'
+  // The creation checks already cover the Agent and Task; delivery checks the fresh ceiling as resume does.
+  if (blocked) await scheduleAuthorization(env, { ...item, authorizationJson })
+  const firstAt = new Date(input.firstAt).toISOString()
+  const due = item.nextAt ?? item.firstAt
+  const nextAt = retimed ? firstAt : !blocked ? item.nextAt : Date.parse(due) > Date.now() || item.recurrence === 'once' ? due : nextScheduleAt(item, due, nowIso())
+  const cleared = retimed || blocked
+  const updated = await env.DB.prepare(`UPDATE agent_schedules SET content=?,agent_id=?,task_id=?,first_at=?,timezone=?,recurrence=?,next_at=?,authorization_json=?,mandate_json=?,status='active'
+      ${cleared ? ',last_error=NULL,last_error_code=NULL' : ''}
+      WHERE id=? AND status=? AND (paused_at IS NOT NULL)=? AND next_at IS ? ${retimed && live ? 'AND next_at>?' : ''}
+      AND (status='active' OR (SELECT count(*) FROM agent_schedules WHERE created_by=? AND status='active')<?) RETURNING id`)
+      .bind(input.content, input.agentId ?? null, input.taskId ?? null, firstAt, input.timezone, input.recurrence, nextAt, authorizationJson, mandate ? JSON.stringify(mandate) : null,
+        id, blocked ? 'blocked' : 'active', item.status === 'paused' ? 1 : 0, item.nextAt, ...(retimed && live ? [new Date(Date.now() + DUE_MARGIN).toISOString()] : []),
+        item.createdBy, SCHEDULE_ACTIVE_LIMIT).first()
+  if (!updated) {
+    if (blocked && (await findSchedule(env, id))?.status === 'blocked') fail(429, 'schedule_limit', `You already have ${SCHEDULE_ACTIVE_LIMIT} active schedules. Cancel one first.`)
+    fail(409, 'schedule_inactive', 'This schedule changed. Refresh and try again.')
+  }
+  // A retried or failed occurrence at the new time starts over, as on resume; history keeps its other occurrences.
+  if (cleared && nextAt) await env.DB.prepare('UPDATE agent_schedule_occurrences SET attempts=0,failed_at=NULL,last_error=NULL WHERE schedule_id=? AND due_at=? AND completed_at IS NULL').bind(id, nextAt).run()
   await wake(env, id)
   return publicSchedule((await findSchedule(env, id))!)
 }

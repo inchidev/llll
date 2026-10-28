@@ -27,6 +27,19 @@ export const scheduleListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
 export const scheduleActionSchema = z.object({ action: z.enum(['pause', 'resume', 'dismiss']) })
+const scheduleEditFields = {
+  content: z.string().trim().min(1).max(12000).optional(),
+  firstAt: z.string().datetime({ offset: true }).optional(),
+  timezone: z.string().min(1).max(100).refine(isTimeZone, 'Choose a valid IANA timezone').optional(),
+  recurrence: z.enum(['once', 'daily', 'weekly']).optional(),
+  agentId: z.string().min(8).optional(), taskId: z.string().min(8).optional(),
+}
+const changesSomething = (value: object) => Object.entries(value).some(([key, field]) => key !== 'action' && field !== undefined)
+/** Omitted fields keep their value. The conversation and kind are fixed; `agentId`/`taskId` apply to recurring work only. */
+export const scheduleEditSchema = z.object(scheduleEditFields).strict().refine(changesSomething, 'Choose something to change')
+export type ScheduleEdit = z.infer<typeof scheduleEditSchema>
+export const schedulePatchSchema = z.discriminatedUnion('action', [scheduleActionSchema,
+  z.object({ action: z.literal('edit'), ...scheduleEditFields }).strict().refine(changesSomething, 'Choose something to change')])
 export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'cancelled' | 'blocked'
 export type Schedule = {
   id: string; principalId: string; createdBy: string; channelId: string; kind: 'reminder' | 'work'; content: string
@@ -36,6 +49,7 @@ export type Schedule = {
 }
 /** `unavailable`: the viewer can no longer open the conversation, so content is withheld. */
 export type PublicSchedule = Omit<Schedule, 'authorizationJson' | 'mandateJson'> & { unavailable?: true }
+export const scheduleEditable = (item: Pick<PublicSchedule, 'status'>) => item.status === 'active' || item.status === 'paused' || item.status === 'blocked'
 export type ScheduleListPage = { schedules: PublicSchedule[]; nextCursor: string | null; activeCount: number; activeLimit: number }
 export type ScheduleOccurrence = {
   dueAt: string; messageId: string | null; runId: string | null; completedAt: string | null

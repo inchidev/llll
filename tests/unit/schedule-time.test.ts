@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleErrorHint, scheduleRequestSchema } from '../../shared/schedules'
+import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleErrorHint, schedulePatchSchema, scheduleRequestSchema } from '../../shared/schedules'
 
 describe('schedule time', () => {
   it('resolves a wall time in the chosen zone and reports DST gaps and overlaps', () => {
@@ -18,6 +18,14 @@ describe('schedule time', () => {
     expect(formatScheduleTime(at, 'America/Los_Angeles', 'en-US').replace(/\s/g, ' ')).toBe('May 31, 2026, 7:00 PM')
     expect(relativeScheduleTime(at, Date.parse(at) - 3 * 3600000, 'en-US')).toBe('in 3 hours')
     expect(relativeScheduleTime(at, Date.parse(at) + 2 * 86400000, 'en-US')).toBe('2 days ago')
+  })
+  it('accepts an action or an edit, never a change of conversation or kind', () => {
+    expect(schedulePatchSchema.parse({ action: 'pause' })).toEqual({ action: 'pause' })
+    expect(schedulePatchSchema.parse({ action: 'edit', content: ' Later ' })).toEqual({ action: 'edit', content: 'Later' })
+    expect(schedulePatchSchema.safeParse({ action: 'edit' }).error?.issues[0]?.message).toBe('Choose something to change')
+    expect(schedulePatchSchema.safeParse({ action: 'edit', channelId: 'channel-2' }).success).toBe(false)
+    expect(schedulePatchSchema.safeParse({ action: 'edit', kind: 'work' }).success).toBe(false)
+    expect(schedulePatchSchema.safeParse({ action: 'edit', timezone: 'Mars/Olympus' }).success).toBe(false)
   })
   it('explains how to recover from a blocking reason', () => {
     expect(scheduleErrorHint('task_reassigned')).toMatch(/Assign the task/)

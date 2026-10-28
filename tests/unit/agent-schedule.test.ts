@@ -5,7 +5,7 @@ import { d1 } from '../helpers/sqlite-d1'
 import { Permission } from '../../shared/permissions'
 import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { cancelSchedule, createSchedule, dismissSchedule, executeScheduledOccurrence, findSchedule, listScheduleOccurrences, listSchedules, pauseSchedule,
-  recordScheduleFailure, resumeSchedule, scheduleAuthorization, SCHEDULE_RETRY_DELAYS } from '../../server/utils/schedule-service'
+  recordScheduleFailure, resumeSchedule, scheduleAuthorization, SCHEDULE_RETRY_DELAYS, updateSchedule } from '../../server/utils/schedule-service'
 import { sendChannelMessage } from '../../server/utils/message-service'
 import { piConfigured } from '../../server/utils/agent-run-service'
 import { nextScheduleAt } from '../../shared/schedules'
@@ -256,5 +256,114 @@ describe('schedule management', () => {
     vi.mocked(sendChannelMessage).mockResolvedValue({} as Awaited<ReturnType<typeof sendChannelMessage>>)
     await executeScheduledOccurrence(env, await due(item.id), () => {})
     expect(db.prepare('SELECT count(*) as count FROM agent_schedule_occurrences').get()).toMatchObject({ count: 100 })
+  })
+})
+
+describe('schedule edits', () => {
+  const saved = (id: string) => JSON.parse((db.prepare('SELECT authorization_json FROM agent_schedules WHERE id=?').get(id) as { authorization_json: string }).authorization_json)
+  it('replaces content, time, repetition and the saved ceiling, and re-arms the scheduler', async () => {
+    const item = await reminder({ recurrence: 'once' })
+    wake.mockClear()
+    const firstAt = new Date(Date.now() + 7200000).toISOString()
+    const edited = await updateSchedule(env, (await actor())!, item.id, { content: 'Review the new evidence', firstAt, timezone: 'UTC', recurrence: 'weekly' })
+    expect(edited).toMatchObject({ status: 'active', content: 'Review the new evidence', firstAt, nextAt: firstAt, timezone: 'UTC', recurrence: 'weekly' })
+    expect(edited).not.toHaveProperty('authorizationJson')
+    expect(wake).toHaveBeenCalledWith(item.id)
+    // Content alone keeps the next occurrence and its identity.
+    expect(await updateSchedule(env, (await actor())!, item.id, { content: 'Only text' })).toMatchObject({ content: 'Only text', nextAt: firstAt })
+    await expect(updateSchedule(env, (await actor())!, item.id, { firstAt: new Date(Date.now() - 60000).toISOString() })).rejects.toMatchObject({ statusCode: 400, data: { error: { code: 'schedule_time' } } })
+    await expect(updateSchedule(env, (await actor())!, item.id, { taskId: 'task-0001' })).rejects.toMatchObject({ statusCode: 400 })
+  })
+  it('lets only the creator edit, and only unfinished schedules', async () => {
+    const item = await reminder()
+    const other = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+    await expect(updateSchedule(env, other, item.id, { content: 'Mine now' })).rejects.toMatchObject({ statusCode: 404 })
+    // A reminder an Agent created for this person is the Agent's to edit.
+    db.exec(`INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('agent-user','agent','Agent','active','scheduler','2026-10-21')`)
+    db.prepare("UPDATE agent_schedules SET principal_id='agent-user' WHERE id=?").run(item.id)
+    await expect(updateSchedule(env, (await actor())!, item.id, { content: 'Mine now' })).rejects.toMatchObject({ statusCode: 403, data: { error: { code: 'schedule_denied' } } })
+    db.prepare("UPDATE agent_schedules SET principal_id='human-user' WHERE id=?").run(item.id)
+    for (const status of ['completed', 'cancelled']) {
+      db.prepare('UPDATE agent_schedules SET status=?,next_at=NULL WHERE id=?').run(status, item.id)
+      await expect(updateSchedule(env, (await actor())!, item.id, { content: 'Again' })).rejects.toMatchObject({ statusCode: 409, data: { error: { code: 'schedule_inactive' } } })
+    }
+    expect((await findSchedule(env, item.id))?.content).toBe('Review evidence')
+  })
+  it('re-authorizes from current grants, so an edit never restores a reduced role', async () => {
+    db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.manageSchedules | Permission.sendMessages | Permission.writeData, 'scheduler')
+    const item = await reminder()
+    expect(saved(item.id).principal.permissions & Permission.writeData).toBe(Permission.writeData)
+    db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.manageSchedules | Permission.sendMessages, 'scheduler')
+    await updateSchedule(env, (await actor())!, item.id, { content: 'Reduced' })
+    expect(saved(item.id).principal.permissions & Permission.writeData).toBe(0)
+    db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.manageSchedules, 'scheduler')
+    await expect(updateSchedule(env, (await actor())!, item.id, { content: 'Cannot send' })).rejects.toMatchObject({ statusCode: 403 })
+    expect(await findSchedule(env, item.id)).toMatchObject({ content: 'Reduced', status: 'active' })
+  })
+  it('refuses work an edit could not create', async () => {
+    db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.manageSchedules | Permission.sendMessages | Permission.executeTasks | Permission.useAgents | Permission.readTasks, 'scheduler')
+    const work = await insertWork()
+    db.prepare('UPDATE agent_schedules SET next_at=? WHERE id=?').run(new Date(Date.now() + 3600000).toISOString(), work.id)
+    await expect(updateSchedule(env, (await actor())!, work.id, { content: 'Do more' })).rejects.toMatchObject({ statusCode: 409, data: { error: { code: 'pi_unconfigured' } } })
+    vi.mocked(piConfigured).mockResolvedValue(true)
+    db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.manageSchedules | Permission.sendMessages | Permission.executeTasks | Permission.readTasks, 'scheduler')
+    await expect(updateSchedule(env, (await actor())!, work.id, { content: 'Do more' })).rejects.toMatchObject({ statusCode: 403, data: { error: { code: 'schedule_denied' } } })
+    expect((await findSchedule(env, work.id))?.content).toBe('Do it')
+  })
+  it('recomputes the next run in the new zone and keeps its wall time through DST', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T00:00:00Z'))
+    try {
+      const item = await reminder()
+      // 09:00 in New York the day before clocks move back.
+      const edited = await updateSchedule(env, (await actor())!, item.id, { firstAt: '2026-10-31T09:00:00-04:00', timezone: 'America/New_York', recurrence: 'daily' })
+      expect(edited.nextAt).toBe('2026-10-31T13:00:00.000Z')
+      expect(nextScheduleAt((await findSchedule(env, item.id))!, edited.nextAt!, '2026-10-31T14:00:00Z')).toBe('2026-11-01T14:00:00.000Z')
+    } finally { vi.useRealTimers() }
+  })
+  it('keeps a paused schedule paused and the alarm follows each edit', async () => {
+    let alarm: number | null = null
+    const data = new Map<string, unknown>()
+    const storage = { get: async (key: string) => data.get(key), put: async (key: string, value: unknown) => { data.set(key, value) },
+      setAlarm: async (at: number) => { alarm = at }, deleteAlarm: async () => { alarm = null } }
+    const object = new AgentScheduleDurableObject({ storage, waitUntil: () => {} } as never, env)
+    env.AGENT_SCHEDULE_DO = { getByName: () => object } as unknown as L4Env['AGENT_SCHEDULE_DO']
+    const auth = (await actor())!
+    const item = await reminder()
+    expect(alarm).toBe(Date.parse(item.nextAt!))
+    const later = new Date(Date.now() + 3 * 3600000).toISOString()
+    await updateSchedule(env, auth, item.id, { firstAt: later })
+    expect(alarm).toBe(Date.parse(later))
+    await pauseSchedule(env, auth, item.id)
+    const paused = await updateSchedule(env, auth, item.id, { firstAt: new Date(Date.now() + 4 * 3600000).toISOString(), content: 'Still paused' })
+    expect(paused).toMatchObject({ status: 'paused', content: 'Still paused' })
+    expect(alarm).toBeNull()
+    expect((await resumeSchedule(env, auth, item.id)).nextAt).toBe(paused.nextAt)
+    expect(alarm).toBe(Date.parse(paused.nextAt!))
+  })
+  it('does not move a due occurrence that may be delivering, and keeps its history', async () => {
+    const item = await due((await reminder()).id)
+    vi.mocked(sendChannelMessage).mockResolvedValue({} as Awaited<ReturnType<typeof sendChannelMessage>>)
+    await expect(updateSchedule(env, (await actor())!, item.id, { firstAt: new Date(Date.now() + 3600000).toISOString() }))
+      .rejects.toMatchObject({ statusCode: 409, data: { error: { code: 'schedule_due' } } })
+    // A content edit during delivery keeps the occurrence identity, so it is delivered once and advances.
+    await updateSchedule(env, (await actor())!, item.id, { content: 'Edited meanwhile' })
+    await executeScheduledOccurrence(env, item, () => {})
+    expect(sendChannelMessage).toHaveBeenCalledOnce()
+    const after = (await findSchedule(env, item.id))!
+    expect(after).toMatchObject({ content: 'Edited meanwhile', status: 'active' })
+    expect(Date.parse(after.nextAt!)).toBeGreaterThan(Date.now())
+    await updateSchedule(env, (await actor())!, item.id, { firstAt: new Date(Date.now() + 7200000).toISOString() })
+    expect(await listScheduleOccurrences(env, (await actor())!, item.id)).toEqual([expect.objectContaining({ dueAt: item.nextAt, completedAt: expect.any(String) })])
+  })
+  it('returns a blocked schedule to active only once the checks pass', async () => {
+    const item = await due((await reminder({ recurrence: 'once' })).id)
+    db.prepare("UPDATE channels SET visibility='private' WHERE id='public-channel'").run()
+    await recordScheduleFailure(env, item, await failureOf(executeScheduledOccurrence(env, item, () => {})))
+    await expect(updateSchedule(env, (await actor())!, item.id, { content: 'Try again' })).rejects.toMatchObject({ statusCode: 404 })
+    expect(await findSchedule(env, item.id)).toMatchObject({ status: 'blocked', lastErrorCode: 'channel_unavailable', content: 'Review evidence' })
+    db.prepare("UPDATE channels SET visibility='server' WHERE id='public-channel'").run()
+    const firstAt = new Date(Date.now() + 3600000).toISOString()
+    expect(await updateSchedule(env, (await actor())!, item.id, { firstAt })).toMatchObject({ status: 'active', nextAt: firstAt, lastError: null, lastErrorCode: null })
   })
 })
