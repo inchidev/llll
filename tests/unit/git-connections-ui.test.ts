@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, ref, watch } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import GitConnections from '../../app/components/settings/GitConnections.vue'
+import SettingsList from '../../app/components/settings/SettingsList.vue'
 
 const query = vi.hoisted(() => ({ useQuery: vi.fn(), useQueryClient: vi.fn() }))
 vi.mock('@tanstack/vue-query', () => query)
@@ -21,7 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   data.value = { connections: [], canConfigure: true }
   refetch.mockResolvedValue({ error: null })
-  query.useQuery.mockReturnValue({ data, error: ref(null), refetch })
+  query.useQuery.mockReturnValue({ data, error: ref(null), isPending: ref(false), refetch })
   query.useQueryClient.mockReturnValue({ invalidateQueries })
   vi.stubGlobal('useApi', () => ({ api }))
   vi.stubGlobal('useToast', () => ({ add: toast }))
@@ -31,8 +32,8 @@ beforeEach(() => {
 })
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals() })
 async function prepare() {
-  wrapper = mount(GitConnections, { global: { stubs: { UButton: Button, UInput: Input, UCheckbox: true, UModal: { template: '<div><slot name="body" /></div>' }, UFormField: { template: '<label><slot /></label>' }, UBadge: true, LayoutLoadError: true } } })
-  await wrapper.findAll('input')[2]!.setValue('qa-user')
+  wrapper = mount(GitConnections, { global: { components: { SettingsList }, stubs: { UButton: Button, UInput: Input, UIcon: true, UCheckbox: true, UModal: { template: '<div><slot name="body" /></div>' }, UFormField: { template: '<label><slot /></label>' }, UBadge: true, LayoutLoadError: true } } })
+  await wrapper.findAll('input')[1]!.setValue('qa-user')
   await wrapper.get('form').trigger('submit')
   await flushPromises()
   return wrapper

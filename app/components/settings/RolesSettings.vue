@@ -232,10 +232,7 @@ watch(addMemberId, async (userId) => {
     </UModal>
     <!-- Role list -->
     <template v-if="!selectedRole">
-      <SettingsHeader title="Roles" description="Every member has one server role. Policies define what its members can do." />
-
       <SettingsList
-        class="mt-6"
         :items="roles"
         :item-key="role => role.id"
         :search-text="role => roleLabel(role)"

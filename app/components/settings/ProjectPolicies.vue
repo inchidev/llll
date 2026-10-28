@@ -35,7 +35,6 @@ async function remove() {
 </script>
 <template>
   <div class="space-y-6">
-    <SettingsHeader title="Policies" description="Reusable permissions for people and agents across the server and its projects." />
     <LayoutLoadError v-if="query.error.value" message="Project policies did not load." :retry="query.refetch" />
     <SettingsList :items="query.data.value?.policies ?? []" :item-key="policy => policy.id" :search-text="policy => `${policy.name} ${policy.description}`" :loading="query.isPending.value" placeholder="Search policies" :noun="['policy', 'policies']" @select="edit">
       <template #row="{ item: policy }">

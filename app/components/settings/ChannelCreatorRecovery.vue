@@ -43,12 +43,7 @@ async function assign() {
     <h2 class="text-sm font-semibold text-highlighted">Missing channel creators</h2>
     <p class="text-sm text-muted">Assign a current participant to an older private channel without a recorded creator. That person will manage its members. This action is recorded in the audit log.</p>
     <LayoutLoadError v-if="channels.error.value" message="Channels did not load." :retry="channels.refetch" />
-    <ul v-else class="divide-y divide-default">
-      <li v-for="channel in channels.data.value?.channels" :key="channel.id" class="flex items-center justify-between gap-3 py-2">
-        <span class="min-w-0 truncate">{{ channel.name }}</span>
-        <UButton label="Assign creator" size="xs" color="neutral" variant="outline" @click="choose(channel)" />
-      </li>
-    </ul>
+    <SettingsList v-else :items="channels.data.value?.channels ?? []" :item-key="channel => channel.id" :search-text="channel => channel.name" :search-from="Infinity" :noun="['channel', 'channels']" @select="choose"><template #row="{ item: channel }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-hash" class="size-4" /></span><span class="min-w-0 flex-1 truncate text-sm font-medium">{{ channel.name }}</span></template></SettingsList>
     <p v-if="channels.data.value?.total === 0" class="text-sm text-muted">Every private channel has a recorded creator.</p>
     <UPagination v-if="(channels.data.value?.total ?? 0) > 25" v-model:page="page" :items-per-page="25" :total="channels.data.value?.total ?? 0" />
     <UModal :open="Boolean(selected)" title="Assign channel creator" :description="selected?.name" @update:open="value => { if (!value && !saving) selected = null }">

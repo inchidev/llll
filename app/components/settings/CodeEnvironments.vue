@@ -57,8 +57,6 @@ async function disable(item: CodeEnvironment) {
   <div class="space-y-6">
     <SettingsHeader title="Repository environments" description="Choose where agents can read code and propose changes. Assign repository access and agent permissions in Roles."><template #actions><UButton v-if="list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
     <SettingsGitConnections />
-    <SettingsFactorySetup />
-    <details><summary class="cursor-pointer text-sm">Advanced: remote Compute Nodes</summary><SettingsComputeNodes /></details>
     <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
     <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a dedicated GitHub App" description="Create a GitHub App connection above, authorize its repositories on GitHub, then select that connection for Git execution." color="neutral" variant="subtle" />
     <template v-else>

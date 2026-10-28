@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { publicIconPath } from '~~/shared/server-appearance'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { TableColumn } from '@nuxt/ui'
 import type { AuditEntryDTO, ChannelCategoryDTO, ChannelDTO, ChannelRoleOverrideDTO, ServerDTO, MemberDTO, RoleDTO } from '~~/shared/types'
 import type { UpdateStatusDTO } from '~~/shared/releases'
 import { channelPermissionMasks, channelPermissionMode, ChannelPermissionGrants, type ChannelPermissionGrantKey, type ChannelPermissionMode } from '~~/shared/channel-permissions'
@@ -20,6 +19,11 @@ const qc = useQueryClient()
 const { copy } = useClipboard()
 /** Exposed so `/server/:id/settings?section=…` can deep-link, and so the section survives reopening. */
 const section = defineModel<string>('section', { default: 'overview' })
+const channelTab = ref('channels')
+const channelSettingsId = ref<string | null>(null)
+const selectedMemberId = ref<string | null>(null)
+const selectedAudit = ref<AuditEntryDTO | null>(null)
+const localComputeOpen = ref(false)
 const rolesSettings = ref<{ createRole: () => void } | null>(null)
 const policiesSettings = ref<{ createPolicy: () => void } | null>(null)
 const rolesListVisible = ref(true)
@@ -72,6 +76,11 @@ const auditQ = useQuery({
   enabled: computed(() => Boolean(props.serverId) && open.value && section.value === 'audit'),
 })
 const isOwner = computed(() => mine.value?.role.key === 'owner')
+const overviewQ = useQuery({
+  queryKey: computed(() => ['server-overview', props.serverId]),
+  queryFn: () => api<{ totals: Record<string, number> }>(`/api/servers/${props.serverId}/overview`),
+  enabled: computed(() => open.value && section.value === 'overview' && isOwner.value),
+})
 const updatesQ = useQuery({
   queryKey: computed(() => ['updates', props.serverId]),
   queryFn: () => api<UpdateStatusDTO>(`/api/servers/${props.serverId}/updates`),
@@ -82,14 +91,15 @@ const updatesQ = useQuery({
 
 const serverNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'overview' as const, label: 'Overview', icon: 'i-ph-house', keywords: ['name', 'icon', 'rename'] }] : []),
-  ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
   ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles & Policies', icon: 'i-ph-shield', aliases: ['roles', 'project-policies'], keywords: ['permissions', 'admin', 'access', 'projects', 'developer', 'reviewer'] }] : []),
+  ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
   ...(can(Permission.manageRoles) || can(Permission.kick) ? [{ id: 'members' as const, label: 'Members', icon: 'i-ph-users', keywords: ['people', 'kick', 'assign role'] }] : []),
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
 ])
 const featureNav = computed(() => [
   ...(can(Permission.useAgents) || can(Permission.manageAgents) || can(Permission.useExternalTools) ? [{ id: 'tools' as const, label: 'Tools', icon: 'i-ph-wrench', keywords: ['mcp', 'connections', 'capabilities', 'permissions', 'approvals'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Repositories', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork'] }] : []),
+  ...(can(Permission.manageServer) ? [{ id: 'compute' as const, label: 'Compute', icon: 'i-ph-cpu', keywords: ['nodes', 'lizard', 'execution'] }] : []),
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks'] }] : []),
   ...(isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-hard-drives', keywords: ['files', 'kv', 'r2', 'quota'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
@@ -156,6 +166,8 @@ const channelAssigningId = ref<string | null>(null)
 const roles = computed(() => rolesQ.data.value?.roles ?? [])
 const categories = computed(() => channelsQ.data.value?.categories ?? [])
 const serverChannels = computed(() => (channelsQ.data.value?.channels ?? []).filter(channel => channel.type !== 'dm' && channel.type !== 'thread'))
+const channelSettings = computed(() => serverChannels.value.find(channel => channel.id === channelSettingsId.value))
+const selectedMember = computed(() => membersQ.data.value?.members.find(member => member.user.id === selectedMemberId.value))
 const selectedCategory = computed(() => categories.value.find(category => category.id === selectedCategoryId.value) ?? null)
 const categoryOptions = computed(() => [
   { label: 'Uncategorized', value: 'uncategorized' },
@@ -453,13 +465,6 @@ async function assignRole(userId: string, roleId: string) {
   }
 }
 
-const columns: TableColumn<AuditEntryDTO>[] = [
-  { accessorKey: 'createdAt', header: 'When', cell: ({ row }) => formatDateTime(row.original.createdAt) },
-  { accessorKey: 'actorName', header: 'Actor' },
-  { accessorKey: 'action', header: 'Action' },
-  { accessorKey: 'targetType', header: 'Target', cell: ({ row }) => `${row.original.targetType} ${row.original.targetId.slice(0, 8)}` },
-]
-
 function roleLabel(name: string) {
   if (name === 'owner') return 'Owner'
   if (name === 'admin') return 'Admin'
@@ -508,58 +513,45 @@ function roleLabel(name: string) {
         </div>
         <SettingsServerOverviewForm v-if="serverQ.data.value" :name="serverQ.data.value.server.name" :saving="saving" :editable="can(Permission.manageServer)" @save="onSave" />
       </div>
-      <div class="mt-10 grid grid-cols-2 gap-4 max-w-md">
-        <div class="rounded-lg bg-elevated p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wide text-muted">Members</p>
-          <USkeleton v-if="membersQ.isPending.value" class="mt-2 h-7 w-10" />
-          <p v-else class="text-2xl font-semibold text-highlighted mt-1">{{ memberCount }}</p>
-        </div>
-        <div class="rounded-lg bg-elevated p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wide text-muted">Channels</p>
-          <USkeleton v-if="channelsQ.isPending.value" class="mt-2 h-7 w-10" />
-          <p v-else class="text-2xl font-semibold text-highlighted mt-1">{{ channelCount }}</p>
+      <LayoutLoadError v-if="isOwner && overviewQ.error.value" class="mt-10" message="Server totals did not load." :retry="overviewQ.refetch" />
+      <div v-else class="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div v-for="metric in (isOwner ? ['people', 'agents', 'channels', 'projects', 'tasks', 'tables', 'documents', 'canvases', 'mailboxes'] : ['members', 'channels'])" :key="metric" class="rounded-lg bg-elevated p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wide text-muted">{{ metric }}</p>
+          <USkeleton v-if="isOwner ? overviewQ.isPending.value : membersQ.isPending.value || channelsQ.isPending.value" class="mt-2 h-7 w-10" />
+          <p v-else class="text-2xl font-semibold text-highlighted mt-1">{{ isOwner ? overviewQ.data.value?.totals?.[metric] : metric === 'members' ? memberCount : channelCount }}</p>
         </div>
       </div>
     </template>
 
     <template v-else-if="section === 'channels'">
       <div class="flex items-center justify-between gap-3">
-        <h1 class="text-xl font-semibold text-highlighted">Channel categories</h1>
+        <h1 class="text-xl font-semibold text-highlighted">Channels</h1>
         <UButton
-          v-if="can(Permission.manageChannels)"
+          v-if="can(Permission.manageChannels) && channelTab === 'categories'"
           icon="i-ph-plus"
           label="Add category"
           size="sm"
           @click="createCategoryOpen = true"
         />
       </div>
-      <SettingsList class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
+      <LayoutSegmentedTabs v-model="channelTab" :items="[{ value: 'channels', label: 'Channels' }, { value: 'categories', label: 'Categories' }, ...(isOwner ? [{ value: 'recovery', label: 'Recovery' }] : [])]" label="Channel settings" class="mt-5" />
+      <SettingsList v-if="channelTab === 'categories'" class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
         <template #row="{ item: category }">
           <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-folder" class="size-4" /></span>
           <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ category.name }}</span><span class="text-xs text-muted">{{ serverChannels.filter(channel => channel.categoryId === category.id).length }} channels</span></span>
         </template>
         <template #empty><p class="py-4 text-sm text-muted">No categories yet.</p></template>
       </SettingsList>
-      <h2 class="mt-10 text-sm font-semibold text-highlighted">Channels</h2>
-      <ul class="mt-2 divide-y divide-default overflow-hidden rounded-lg border border-default">
-        <li v-for="channel in serverChannels" :key="channel.id" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
-          <UIcon name="i-ph-hash" class="size-5 shrink-0 text-muted" />
-          <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ channel.name }}</span>
-          <UButton
-            v-if="can(Permission.manageChannels)"
-            icon="i-ph-shield-check"
-            label="Permissions"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            @click="editChannelPermissions(channel.id)"
-          />
-          <UButton v-if="channel.visibility === 'private' && channel.createdBy === session.user?.id" icon="i-ph-users" label="Members" color="neutral" variant="ghost" size="xs" :aria-label="`Manage members of ${channel.name}`" @click="memberChannelId = channel.id" />
-          <UButton icon="i-ph-folder" label="Move" color="neutral" variant="ghost" size="sm" :aria-label="`Move ${channel.name} to a category`" @click="moveChannelId = channel.id; moveCategoryId = channel.categoryId || 'uncategorized'" />
-        </li>
-      </ul>
+      <SettingsList v-else-if="channelTab === 'channels'" class="mt-6" :items="serverChannels" :item-key="channel => channel.id" :search-text="channel => channel.name" placeholder="Search channels" :noun="['channel', 'channels']" @select="channelSettingsId = $event.id">
+        <template #row="{ item: channel }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-hash" class="size-4" /></span><span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ channel.name }}</span></template>
+      </SettingsList>
+      <SettingsChannelCreatorRecovery v-else-if="isOwner && channelTab === 'recovery'" :server-id="serverId" class="mt-6" />
+      <UModal :open="Boolean(channelSettings)" :title="channelSettings?.name || 'Channel'" @update:open="value => { if (!value) channelSettingsId = null }"><template #body><div v-if="channelSettings" class="flex flex-wrap gap-2">
+        <UButton v-if="can(Permission.manageChannels)" icon="i-ph-shield-check" label="Permissions" color="neutral" variant="outline" @click="editChannelPermissions(channelSettings!.id); channelSettingsId = null" />
+        <UButton v-if="channelSettings.visibility === 'private' && channelSettings.createdBy === session.user?.id" icon="i-ph-users" label="Members" color="neutral" variant="outline" @click="memberChannelId = channelSettings!.id; channelSettingsId = null" />
+        <UButton icon="i-ph-folder" label="Move to category" color="neutral" variant="outline" @click="moveChannelId = channelSettings!.id; moveCategoryId = channelSettings!.categoryId || 'uncategorized'; channelSettingsId = null" />
+      </div></template></UModal>
       <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
-      <SettingsChannelCreatorRecovery v-if="isOwner" :server-id="serverId" />
       <UModal :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
         <div class="flex items-center gap-3">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">
@@ -639,6 +631,15 @@ function roleLabel(name: string) {
       <SettingsCodeEnvironments :server-id="serverId" />
     </template>
 
+    <template v-else-if="section === 'compute'">
+      <SettingsHeader title="Compute" />
+      <div class="mt-6 space-y-6">
+        <SettingsList :items="[{ id: 'local', name: 'Server compute setup' }]" :item-key="item => item.id" :search-text="item => item.name" @select="localComputeOpen = true"><template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-cpu" class="size-4" /></span><span class="min-w-0 flex-1 text-sm font-medium text-highlighted">{{ item.name }}</span></template></SettingsList>
+        <SettingsComputeNodes />
+      </div>
+      <UModal v-model:open="localComputeOpen" title="Server compute setup"><template #body><SettingsFactorySetup /></template></UModal>
+    </template>
+
     <template v-else-if="section === 'agents'">
       <SettingsAgentSettings :server-id="serverId" :is-owner="isOwner" @navigate="open = false" />
     </template>
@@ -646,57 +647,24 @@ function roleLabel(name: string) {
     <template v-else-if="section === 'members'">
       <h1 class="text-xl font-semibold text-highlighted">Members</h1>
       <p class="mt-1 text-sm text-muted">{{ memberCount }} {{ memberCount === 1 ? 'member' : 'members' }} in this server.</p>
-      <ul class="mt-6 divide-y divide-default overflow-hidden rounded-lg border border-default">
-        <li v-for="m in membersQ.data.value?.members ?? []" :key="m.user.id" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
-          <UserAvatar :user="m.user" size="sm" />
-          <div class="min-w-0 flex-1">
-            <p class="font-medium truncate">{{ m.nickname || m.user.displayName }}</p>
-            <p class="text-xs text-muted">{{ roleLabel(m.role.name) }}</p>
-          </div>
-          <USelect
-            v-if="can(Permission.manageRoles) && m.role.key !== 'owner'"
-            :model-value="m.role.id"
-            :items="roleOptions"
-            value-key="value"
-            label-key="label"
-            size="sm"
-            class="w-40"
-            :loading="assigningId === m.user.id"
-            aria-label="Assign role"
-            @update:model-value="assignRole(m.user.id, String($event))"
-          />
-          <UButton
-            v-if="can(Permission.kick) && m.role.name !== 'owner'"
-            size="xs"
-            color="error"
-            variant="ghost"
-            label="Kick"
-            @click="kickId = m.user.id"
-          />
-        </li>
-      </ul>
+      <SettingsList class="mt-6" :items="membersQ.data.value?.members ?? []" :item-key="m => m.user.id" :search-text="m => `${m.nickname || m.user.displayName} ${m.role.name}`" :loading="membersQ.isPending.value" placeholder="Search members" :noun="['member', 'members']" @select="selectedMemberId = $event.user.id">
+        <template #row="{ item: m }"><UserAvatar :user="m.user" size="sm" /><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ m.nickname || m.user.displayName }}</span><span class="block text-xs text-muted">{{ roleLabel(m.role.name) }}</span></span></template>
+      </SettingsList>
+      <UModal :open="Boolean(selectedMember)" :title="selectedMember?.nickname || selectedMember?.user.displayName || 'Member'" @update:open="value => { if (!value) selectedMemberId = null }">
+        <template #body><div v-if="selectedMember" class="space-y-5">
+          <UFormField label="Server role"><USelect v-if="can(Permission.manageRoles) && selectedMember.role.key !== 'owner'" :model-value="selectedMember.role.id" :items="roleOptions" value-key="value" label-key="label" class="w-full" :loading="assigningId === selectedMember.user.id" aria-label="Assign role" @update:model-value="assignRole(selectedMember!.user.id, String($event))" /><p v-else class="text-sm text-muted">{{ roleLabel(selectedMember.role.name) }}</p></UFormField>
+          <UButton v-if="can(Permission.kick) && selectedMember.role.key !== 'owner'" color="error" variant="soft" label="Remove member" @click="kickId = selectedMember!.user.id" />
+        </div></template>
+      </UModal>
     </template>
 
     <template v-else-if="section === 'invites'">
-      <h1 class="text-xl font-semibold text-highlighted">Invites</h1>
-      <p class="mt-1 text-sm text-muted">Anyone with a link can join this server.</p>
-      <div class="mt-6 flex gap-2 max-w-xl">
-        <UInput :model-value="inviteUrl" readonly class="flex-1" placeholder="Create an invite to get a link" />
-        <UButton v-if="inviteUrl" label="Copy" @click="copyInvite()" />
-        <UButton v-if="can(Permission.invite)" :loading="inviting" label="Create Invite" @click="makeInvite" />
-      </div>
-      <ul v-if="invitesQ.data.value?.invites.length" class="mt-8 divide-y divide-default overflow-hidden rounded-lg border border-default">
-        <li v-for="inv in invitesQ.data.value.invites" :key="inv.code" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
-          <div class="min-w-0 flex-1">
-            <p class="font-mono text-sm text-highlighted truncate">{{ inv.code }}</p>
-            <p class="text-xs text-muted">
-              {{ inv.uses }}{{ inv.maxUses ? ` / ${inv.maxUses}` : '' }} uses
-              · {{ inv.expiresAt ? `expires ${formatDateTime(inv.expiresAt)}` : 'never expires' }}
-            </p>
-          </div>
-          <UButton size="xs" color="neutral" variant="soft" label="Copy" @click="copyInvite(inv.url)" />
-        </li>
-      </ul>
+      <SettingsHeader title="Invites"><template #actions><UButton v-if="can(Permission.invite)" :loading="inviting" icon="i-ph-plus" label="Create invite" @click="makeInvite" /></template></SettingsHeader>
+      <SettingsList class="mt-6" :items="invitesQ.data.value?.invites ?? []" :item-key="inv => inv.code" :search-text="inv => inv.code" :loading="invitesQ.isPending.value" placeholder="Search invites" :noun="['invite', 'invites']" @select="inviteUrl = $event.url">
+        <template #row="{ item: inv }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-link" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate font-mono text-sm text-highlighted">{{ inv.code }}</span><span class="block text-xs text-muted">{{ inv.uses }}{{ inv.maxUses ? ` / ${inv.maxUses}` : '' }} uses · {{ inv.expiresAt ? `expires ${formatDateTime(inv.expiresAt)}` : 'never expires' }}</span></span></template>
+        <template #empty><p class="text-sm text-muted">No invites yet.</p></template>
+      </SettingsList>
+      <UModal :open="Boolean(inviteUrl)" title="Invite link" @update:open="value => { if (!value) inviteUrl = '' }"><template #body><div class="flex gap-2"><UInput :model-value="serverUrl(inviteUrl)" readonly class="min-w-0 flex-1" /><UButton label="Copy" @click="copyInvite()" /></div></template></UModal>
     </template>
 
     <template v-else-if="section === 'storage'"><SettingsStorageSettings :server-id="serverId" /></template>
@@ -731,7 +699,8 @@ function roleLabel(name: string) {
       <LayoutSkeleton v-if="auditQ.isPending.value" variant="rows" :rows="6" class="mt-6" />
       <UAlert v-else-if="auditQ.error.value" color="error" title="Need manage permission." class="mt-6" />
       <UAlert v-else-if="!auditQ.data.value?.entries.length" color="neutral" title="Nothing yet." class="mt-6" />
-      <UTable v-else class="mt-6" :data="auditQ.data.value.entries" :columns="columns" />
+      <SettingsList v-else class="mt-6" :items="auditQ.data.value.entries" :item-key="entry => entry.id" :search-text="entry => `${entry.action} ${entry.actorName} ${entry.targetType}`" placeholder="Search audit log" :noun="['entry', 'entries']" @select="selectedAudit = $event"><template #row="{ item: entry }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-list-magnifying-glass" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ entry.action }}</span><span class="block truncate text-xs text-muted">{{ entry.actorName }} · {{ formatDateTime(entry.createdAt) }}</span></span></template></SettingsList>
+      <UModal :open="Boolean(selectedAudit)" :title="selectedAudit?.action || 'Audit entry'" @update:open="value => { if (!value) selectedAudit = null }"><template #body><div v-if="selectedAudit" class="space-y-2 text-sm"><p>{{ selectedAudit.actorName }} · {{ formatDateTime(selectedAudit.createdAt) }}</p><p class="break-all text-muted">{{ selectedAudit.targetType }} · {{ selectedAudit.targetId }}</p><pre v-if="Object.keys(selectedAudit.meta ?? {}).length" class="overflow-auto rounded bg-elevated p-3 text-xs">{{ JSON.stringify(selectedAudit.meta, null, 2) }}</pre></div></template></UModal>
     </template>
   </SettingsOverlay>
 

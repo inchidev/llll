@@ -19,8 +19,8 @@ watch([search, view], () => { page.value = 1 })
     <LayoutSkeleton v-if="audit.isPending.value" variant="rows" :rows="4" />
     <LayoutLoadError v-else-if="audit.error.value" message="Agent audit did not load." :retry="audit.refetch" />
     <LayoutEmptyState v-else-if="!audit.data.value?.entries.length" icon="i-ph-list-magnifying-glass" title="No matching activity" description="Runs and changes will appear here as agents are used." />
-    <ul v-else class="divide-y divide-default" :aria-busy="audit.isFetching.value">
-      <li v-for="entry in audit.data.value.entries" :key="entry.id" class="min-w-0 space-y-1 py-4">
+    <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default" :aria-busy="audit.isFetching.value">
+      <li v-for="entry in audit.data.value.entries" :key="entry.id" class="min-w-0 space-y-1 px-4 py-3">
         <template v-if="entry.kind === 'run'">
           <div class="flex flex-wrap items-center justify-between gap-2"><NuxtLink v-if="entry.initiatedBy === session.user?.id" :to="`/runs/${entry.id}`" class="text-sm font-medium text-highlighted underline" @click="emit('navigate')">{{ entry.agentName }}</NuxtLink><span v-else class="text-sm font-medium text-highlighted">{{ entry.agentName }} · Private content</span><UBadge :label="entry.status" :color="entry.status === 'failed' ? 'error' : entry.status === 'running' ? 'primary' : 'neutral'" size="xs" variant="subtle" /></div>
           <p v-if="entry.lastError" class="text-sm text-error">{{ entry.lastError }}</p>

@@ -16,7 +16,7 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
 </script>
 
 <template>
-  <SettingsHeader title="Agents" description="Manage the teammates people can message and work with.">
+  <SettingsHeader title="Agents">
     <template #actions><UButton :class="{ invisible: tab !== 'agents' }" :tabindex="tab === 'agents' ? undefined : -1" icon="i-ph-plus" label="Create agent" @click="edit()" /></template>
   </SettingsHeader>
   <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Execution', value: 'execution', icon: 'i-ph-play-circle' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />

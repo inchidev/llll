@@ -4,6 +4,7 @@ import { computed, ref, reactive, watch } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import Tools from '../../app/components/settings/ToolsSettings.vue'
+import SettingsList from '../../app/components/settings/SettingsList.vue'
 import { ids } from '../helpers/outbound-mcp'
 afterEach(()=>vi.unstubAllGlobals())
 async function setup(mayConnect=true){
@@ -16,12 +17,12 @@ async function setup(mayConnect=true){
  })
  for(const[name,value]of Object.entries({computed,ref,reactive,watch,useApi:()=>({api}),useToast:()=>({add:vi.fn()}),useRoleGrants:()=>({can:()=>false}),errorMessage:(e:Error)=>e.message}))vi.stubGlobal(name,value)
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
- const view=mount(Tools,{props:{serverId:ids.server},global:{plugins:[[VueQueryPlugin,{queryClient:client}]],stubs:{
+ const view=mount(Tools,{props:{serverId:ids.server},global:{components:{SettingsList},plugins:[[VueQueryPlugin,{queryClient:client}]],stubs:{
   UButton:{props:['label','disabled'],template:'<button :disabled="disabled">{{label}}</button>'},
   UModal:{props:['open'],template:'<div v-if="open"><slot name="body"/><slot name="footer"/></div>'},
   UInput:{props:['modelValue','type'],emits:['update:modelValue'],template:'<input :type="type" :value="modelValue" @input="$emit(\'update:modelValue\',$event.target.value)"/>'},
   USelect:{props:['modelValue','items'],emits:['update:modelValue'],template:'<select :value="modelValue" @change="$emit(\'update:modelValue\',$event.target.value)"><option v-for="item in items" :key="item.value" :value="item.value">{{item.label}}</option></select>'},
-  USelectMenu:true,UCheckbox:true,UFormField:{template:'<label><slot/></label>'},UAlert:{props:['title','description'],template:'<div>{{title}} {{description}}</div>'},UBadge:true,LayoutSkeleton:true,LayoutLoadError:true,NuxtLink:true,
+  USelectMenu:true,UCheckbox:true,UIcon:true,LayoutSegmentedTabs:true,UFormField:{template:'<label><slot/></label>'},UAlert:{props:['title','description'],template:'<div>{{title}} {{description}}</div>'},UBadge:true,LayoutSkeleton:true,LayoutLoadError:true,NuxtLink:true,
  }}})
  await flushPromises()
  return {view,client,calls}
@@ -29,6 +30,7 @@ async function setup(mayConnect=true){
 it('keeps saved credentials hidden and clears replacement text after a rejected save',async()=>{
  const {view,client,calls}=await setup()
  try{
+  await view.findAll('button').find(b=>b.text().includes('Personal docs'))!.trigger('click');await flushPromises()
   expect(view.text()).toContain('Credential saved (hidden)')
   await view.findAll('button').find(b=>b.text()==='Edit connection')!.trigger('click');await flushPromises()
   expect(view.findAll('select[aria-label="Connection ownership"] option').map(o=>o.attributes('value'))).toEqual(['member'])
