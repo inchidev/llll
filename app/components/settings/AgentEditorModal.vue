@@ -5,6 +5,7 @@ import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
 import { Permission, PermissionGrants, MemberPermissions } from '~~/shared/permissions'
+import { pausedPermissionKeys } from '~~/shared/features'
 import { agentRoleSummary } from '~~/shared/agent-roles'
 import { agentTemplates } from '~~/shared/agent-templates'
 import type { AgentDTO, RoleDTO } from '~~/shared/types'
@@ -26,7 +27,7 @@ const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), qu
 const selectedRole = computed(() => roles.data.value?.roles.find(role => role.id === roleId.value || (roleId.value === 'member' && role.key === 'member')))
 const selectedPermissions = computed(() => selectedRole.value?.permissions ?? (roleId.value === 'member' ? MemberPermissions : null))
 const selectedSummary = computed(() => selectedPermissions.value === null ? '' : agentRoleSummary({ permissions: selectedPermissions.value }))
-const selectedGrants = computed(() => PermissionGrants.filter(grant => selectedPermissions.value !== null && ((selectedPermissions.value & grant.flag) === grant.flag)).map(grant => grant.label).join(', '))
+const selectedGrants = computed(() => PermissionGrants.filter(grant => !pausedPermissionKeys.has(grant.key) && selectedPermissions.value !== null && ((selectedPermissions.value & grant.flag) === grant.flag)).map(grant => grant.label).join(', '))
 const memberRoleId = computed(() => roles.data.value?.roles.find(role => role.key === 'member')?.id ?? 'member')
 const roleSelection = computed({
   get: () => roleId.value === 'member' ? memberRoleId.value : roleId.value,

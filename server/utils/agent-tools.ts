@@ -1,4 +1,5 @@
 import { factoryToolSchema } from '../../shared/software-factory'
+import { toolPaused } from '../../shared/features'
 import { factoryToolCall } from './factory-actions'
 import { factoryFeedback } from './factory-github'
 import { factoryStatus } from './factory-status'
@@ -152,6 +153,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     return candidates.some(id => resourceAllowed(authorization, kind, id))
   }
   const allowed = Object.entries(definitions).filter(([name, definition]) => {
+    if (toolPaused(name)) return false
     try {
       if (definition.action) authorize(authorization, definition.action)
       if (resourceKinds[name] && !hasResources(resourceKinds[name])) return false
@@ -183,7 +185,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     return catalog.filter(tool => !toolSecurityReason(tool.name, untrusted, mode) && (tool.name !== 'search_web' || searchAvailable))
   }
   const discovery: RuntimeTool[] = [
-    { name: 'search_tools', description: 'Find a small ranked set of currently permitted tools for your goal. Start here for research, Tasks, Data, documents or repository work. Results are metadata, not permission. If no suitable tool exists, report the missing capability; do not invent access.',
+    { name: 'search_tools', description: 'Find a small ranked set of currently permitted tools for your goal. Start here for research, Tasks or repository work. Results are metadata, not permission. If no suitable tool exists, report the missing capability; do not invent access.',
       parameters: z.toJSONSchema(z.object({ query: z.string().trim().min(1).max(240), limit: z.number().int().min(1).max(8).default(5) }).strict()) },
     { name: 'get_tool_details', description: 'Load one exact tool identity and its argument schema for the next model request. Use search_tools first. Give a short public purpose for the selection, without private reasoning, prompts or secrets. Never choose a similarly named connection implicitly.',
       parameters: z.toJSONSchema(z.object({ name: z.string().min(1).max(64), purpose: z.string().trim().min(1).max(240) }).strict()) },

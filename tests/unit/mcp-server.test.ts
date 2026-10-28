@@ -1,11 +1,19 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { version as packageVersion } from '../../package.json'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { INIT_SQL } from '../../server/utils/db'
 import { serveMcpRequest } from '../../server/utils/mcp-server'
+import { toolPaused } from '../../shared/features'
 import type { L4Env } from '../../workers/env'
 import type { McpPrincipal } from '../../server/utils/mcp-principal'
+
+// Paused Data tools keep their tests; those cases resume the area for one test.
+vi.mock('../../shared/features', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../shared/features')>()
+  return { ...actual, toolPaused: vi.fn(actual.toolPaused) }
+})
+const resumePausedTools = () => vi.mocked(toolPaused).mockReturnValue(false)
 
 let sqlite: DatabaseSync
 
@@ -36,7 +44,10 @@ beforeEach(() => {
   `)
 })
 
-afterEach(() => sqlite.close())
+afterEach(() => {
+  sqlite.close()
+  vi.mocked(toolPaused).mockReset()
+})
 
 function ownerPrincipal(): McpPrincipal {
   const authorization = {
@@ -107,20 +118,15 @@ describe('L4 MCP server', () => {
     expect(payload.result.serverInfo).toEqual({ name: 'L4', version: packageVersion })
   })
 
-  it('publishes focused Tasks and Documents tools over Streamable HTTP', async () => {
+  it('publishes focused Tasks and messaging tools over Streamable HTTP, without paused Data tools', async () => {
     const { response, payload } = await call(createHandler(), { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
 
     expect(response.status).toBe(200)
     expect(payload.result.tools?.map(tool => tool.name)).toEqual([
-      'list_tables', 'create_table', 'read_records', 'create_record', 'update_record',
       'list_task_boards',
       'get_task',
       'create_task',
       'update_task',
-      'list_documents',
-      'get_document',
-      'create_document',
-      'update_document',
       'list_channels',
       'list_members',
       'list_messages',
@@ -148,6 +154,7 @@ describe('L4 MCP server', () => {
   })
 
   it('creates a server document as an Agent and records its human delegator', async () => {
+    resumePausedTools()
     sqlite.exec(`
       INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'agent', 'Agent', ${ALL_PERMISSIONS});
       INSERT INTO users (id, kind, display_name, status, role_id, joined_at)
@@ -193,6 +200,7 @@ describe('L4 MCP server', () => {
 
 
 it('discovers only authorized table schemas over MCP with the data:read scope', async () => {
+  resumePausedTools()
   sqlite.exec(`INSERT INTO database_definitions(id,name,created_by) VALUES('allowed','Visible table','owner'),('private','Private canary table','owner');
     INSERT INTO database_fields(id,database_id,name,type,slot,created_by) VALUES('field-allowed','allowed','Name','text','text_1','owner'),('field-private','private','Private canary field','text','text_1','owner');`)
   const principal = ownerPrincipal()

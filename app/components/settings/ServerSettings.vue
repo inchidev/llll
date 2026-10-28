@@ -534,7 +534,7 @@ function roleLabel(name: string) {
       </div>
       <LayoutLoadError v-if="isOwner && overviewQ.error.value" class="mt-10" message="Server totals did not load." :retry="overviewQ.refetch" />
       <div v-else class="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <div v-for="metric in (isOwner ? ['people', 'agents', 'channels', 'projects', 'tasks', 'tables', 'documents', 'canvases', 'mailboxes'] : ['members', 'channels'])" :key="metric" class="rounded-lg bg-elevated p-4">
+        <div v-for="metric in (isOwner ? ['people', 'agents', 'channels', 'projects', 'tasks', 'mailboxes'] : ['members', 'channels'])" :key="metric" class="rounded-lg bg-elevated p-4">
           <p class="text-[11px] font-bold uppercase tracking-wide text-muted">{{ metric }}</p>
           <USkeleton v-if="isOwner ? overviewQ.isPending.value : membersQ.isPending.value || channelsQ.isPending.value" class="mt-2 h-7 w-10" />
           <p v-else class="text-2xl font-semibold text-highlighted mt-1">{{ isOwner ? overviewQ.data.value?.totals?.[metric] : metric === 'members' ? memberCount : channelCount }}</p>

@@ -37,8 +37,8 @@ Most teams bolt AI onto the side: a chat window that sees nothing, or a bot with
 | **Chat** | Channels, DMs, threads, files, search, and voice and video calls (via RealtimeKit) |
 | **Projects & Tasks** | Boards, priorities, due dates, checklists and dependencies. Assign to a person or an agent |
 | **Mail** | A shared inbox on your own domain, with internal notes beside each email |
-| **Data & Apps** | Tables, documents, canvases and internal apps, with Role-scoped access |
-| **Schedules** | Reminders and scheduled agent work that respect DST and current permissions |
+| **Repositories** | Connect GitHub to a Project; agents open draft pull requests for review |
+| **Notifications** | Push notifications for mentions, direct messages and calls, on desktop and phone |
 
 No seat fees and no retention tiers. Invite as many people and agents as you need, and keep your history searchable until you delete it.
 

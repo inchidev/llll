@@ -8,7 +8,7 @@ import { agentGateway } from '../../server/utils/agent-gateway'
 import { agentTools, executeRunTool } from '../../server/utils/agent-tools'
 import { saveAgentProvider } from '../../server/utils/agent-providers'
 import { writeServerSetting } from '../../shared/server-settings'
-import { Permission } from '../../shared/permissions'
+import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
@@ -165,6 +165,18 @@ describe('Pi run authorization', () => {
     expect(await tools.call('search_tools', { query: 'tasks records data documents' })).toMatchObject({ tools: [] })
     for (const name of ['list_tasks', 'list_tables', 'list_data', 'get_document', 'create_document']) {
       await expect(tools.call('get_tool_details', { name, purpose: 'Read resources' })).rejects.toMatchObject({ statusCode: 403 })
+      await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
+    }
+  })
+
+  it('hides paused Data and Schedule tools even from a fully permitted Agent', async () => {
+    db.exec(`UPDATE roles SET permissions_bitmask=${ALL_PERMISSIONS} WHERE id='agent-role'`)
+    const run = await createAgentRun(env, (await start())!, input())
+    const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
+    const names = (await tools.catalog()).map(tool => tool.name)
+    expect(names).toContain('list_tasks')
+    for (const name of ['list_tables', 'list_data', 'create_document', 'create_reminder', 'list_schedules']) {
+      expect(names).not.toContain(name)
       await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
     }
   })

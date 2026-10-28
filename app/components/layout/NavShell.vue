@@ -8,6 +8,7 @@ import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
 import { chatNavigationTarget, hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
 import { publicIconPath } from '~~/shared/server-appearance'
+import { pausedSections } from '~~/shared/features'
 import ServerAvatar from '../../../packages/client-ui/ServerAvatar.vue'
 
 const props = defineProps<{ serverId: string }>()
@@ -82,7 +83,7 @@ const views = computed(() => [
   ...(can(Permission.useAgents) || can(Permission.manageAgents) ? [{ label: 'Agents', icon: 'i-ph-robot', to: '/agents', path: '/agents', count: 0, dot: false }] : []),
   ...(can(Permission.readData) ? [{ label: 'Data', icon: 'i-ph-stack', to: '/data', path: '/data', count: 0, dot: false }] : []),
   ...(can(Permission.useGadgets) || can(Permission.manageGadgets) ? [{ label: 'Apps', icon: 'i-ph-squares-four', to: '/gadgets', path: '/gadgets', count: 0, dot: false }] : []),
-])
+].filter(view => !pausedSections.has(serverNavigationSection(view.path)!)))
 function isViewActive(path: string) {
   return section.value === serverNavigationSection(path)
 }

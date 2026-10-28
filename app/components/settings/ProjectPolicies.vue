@@ -3,20 +3,19 @@ import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { ProjectPolicy } from '~~/shared/project-access'
 import { PermissionGrants } from '~~/shared/permissions'
+import { pausedPermissionKeys } from '~~/shared/features'
 const groupDefinitions = [
   { label: 'Server & members', keys: ['manageServer', 'manageRoles', 'invite', 'kick'] },
   { label: 'Chat & live', keys: ['manageChannels', 'sendMessages', 'attachFiles', 'startLive'] },
   { label: 'Projects & tasks', keys: ['readProjects', 'manageProjects', 'readTasks', 'writeTasks', 'manageTasks', 'delegateTasks', 'executeTasks', 'proposeCode'] },
   { label: 'Agents & compute', keys: ['useAgents', 'manageAgents', 'approveAgentActions', 'useComputer', 'browseWeb'] },
-  { label: 'Data & apps', keys: ['readData', 'writeData', 'manageDatabases', 'useGadgets', 'manageGadgets'] },
   { label: 'Email', keys: ['readMail', 'sendMail'] },
   { label: 'Tools & integrations', keys: ['useExternalTools', 'mcp.connect'] },
-  { label: 'Schedules', keys: ['manageSchedules'] },
 ]
 const assignedKeys = new Set(groupDefinitions.flatMap(group => group.keys))
 const permissionGroups = [
   ...groupDefinitions.map(group => ({ label: group.label, grants: PermissionGrants.filter(grant => group.keys.includes(grant.key)) })),
-  { label: 'Other permissions', grants: PermissionGrants.filter(grant => !assignedKeys.has(grant.key)) },
+  { label: 'Other permissions', grants: PermissionGrants.filter(grant => !assignedKeys.has(grant.key) && !pausedPermissionKeys.has(grant.key)) },
 ].filter(group => group.grants.length)
 const props = defineProps<{ serverId: string; isOwner?: boolean }>()
 const { api } = useApi(), toast = useToast(), cache = useQueryClient()

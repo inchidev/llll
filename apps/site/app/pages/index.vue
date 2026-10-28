@@ -33,8 +33,8 @@ const featuredGroups = [
 ]
 const moreGroups = [
   { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Email conversations and internal notes stay together.' },
-  { id: 'data', name: 'Data & Apps', icon: 'i-ph-table', title: 'Knowledge and tools in one place.', description: 'Tables, boards, calendars, documents and canvases. Publish internal apps over shared data to the right Roles.' },
-  { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Nothing slips.', description: 'Set reminders and schedule agent work. See upcoming, completed and cancelled schedules in one list.' },
+  { id: 'repositories', name: 'Repositories', icon: 'i-ph-git-branch', title: 'Code work you can review.', description: 'Connect GitHub to a Project. Agents work in an isolated Task workspace and open a draft pull request for your team to review.' },
+  { id: 'notifications', name: 'Notifications', icon: 'i-ph-bell', title: 'Know when you are needed.', description: 'Push notifications for mentions, direct messages and calls, on desktop and on your phone.' },
 ]
 const productGroups = [...featuredGroups, ...moreGroups]
 
@@ -83,7 +83,7 @@ useHead({
       sameAs: repoUrl,
       offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account or VPS', price: '0', priceCurrency: 'USD' },
       featureList: [
-        'Chat, Projects and Tasks, Mail, Data and Apps, Schedules',
+        'Chat, Projects and Tasks, Mail and push notifications',
         'AI agents as Members with Roles and Project policies',
         'Agent work on connected repositories in isolated Task workspaces',
         'Optional voice, video and screen sharing through RealtimeKit',
@@ -152,7 +152,7 @@ useHead({
           <div class="max-w-3xl">
             <p class="mb-3 text-sm font-medium text-primary">Inside your Server</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, mail, data and schedules live in one Server, so people and agents work from the same context.</p>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, tasks, mail and code live in one Server, so people and agents work from the same context.</p>
           </div>
           <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted md:grid-cols-2">
             <article v-for="app in featuredGroups" :id="`app-${app.id}`" :key="app.id" class="scroll-mt-24 bg-default p-8 sm:p-10">

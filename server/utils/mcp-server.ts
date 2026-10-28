@@ -1,4 +1,5 @@
 import { listAuthorizedTables } from './table-catalog'
+import { toolPaused } from '../../shared/features'
 import { McpServer, createMcpHandler, hostHeaderValidationResponse, originValidationResponse } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
@@ -38,29 +39,29 @@ export function serveMcpRequest(request: Request, context: McpServerContext): Pr
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })
-  server.registerTool('list_tables', {
+  if (!toolPaused('list_tables')) server.registerTool('list_tables', {
     description: 'Discover authorized table IDs, names, fields and views before reading records. Requires data:read.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => result({ tables: await listAuthorizedTables(env, principal.authorization) }))
 
-  server.registerTool('create_table', {
+  if (!toolPaused('create_table')) server.registerTool('create_table', {
     description: 'Create a table and typed fields. Requires the data:manage scope, role permission and unrestricted table creation.',
     inputSchema: createTableSchema.shape,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async input => result({ database: await createTable(env, principal.authorization, input) }))
 
-  server.registerTool('read_records', {
+  if (!toolPaused('read_records')) server.registerTool('read_records', {
     description: 'Read fields and records without saved view filters by default. Supply viewId to apply a saved view; search/pageSize and nextPage support paging.',
     inputSchema: readRecordsSchema.shape,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ databaseId, page, ...options }) => result(await readRecords(env, principal.authorization, databaseId, page, options)))
-  server.registerTool('create_record', {
+  if (!toolPaused('create_record')) server.registerTool('create_record', {
     description: 'Create a record in an authorized table. Requires data:write scope and role permission.',
     inputSchema: { databaseId: z.string().min(1), ...createRecordSchema.shape },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async ({ databaseId, ...input }) => result({ item: await createRecord(env, principal.authorization, databaseId, input) }))
-  server.registerTool('update_record', {
+  if (!toolPaused('update_record')) server.registerTool('update_record', {
     description: 'Update an authorized record using its current version.',
     inputSchema: { recordId: z.string().min(1), ...updateRecordSchema.shape },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -127,7 +128,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     return result({ task: await updateTask(env, principal.authorization, taskId, input, schedule) })
   })
 
-  server.registerTool('list_documents', {
+  if (!toolPaused('list_documents')) server.registerTool('list_documents', {
     description: 'List L4 document summaries. Use get_document to read a document body.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -136,7 +137,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     return result({ documents: resources.documents })
   })
 
-  server.registerTool('get_document', {
+  if (!toolPaused('get_document')) server.registerTool('get_document', {
     description: 'Read one L4 document. The content field contains HTML used by the rich-text editor.',
     inputSchema: { documentId: z.string().min(8) },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -144,7 +145,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     return result({ document: await getDocument(env, principal.authorization, documentId) })
   })
 
-  server.registerTool('create_document', {
+  if (!toolPaused('create_document')) server.registerTool('create_document', {
     description: 'Create a L4 document. Supply the rich-text body as HTML.',
     inputSchema: {
       title: z.string().trim().min(1).max(160),
@@ -155,7 +156,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     return result({ document: await createDocument(env, principal.authorization, input) })
   })
 
-  server.registerTool('update_document', {
+  if (!toolPaused('update_document')) server.registerTool('update_document', {
     description: 'Update a L4 document using its current version. Supply rich-text content as HTML.',
     inputSchema: {
       documentId: z.string().min(8),

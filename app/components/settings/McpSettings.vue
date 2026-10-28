@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useClipboard } from '@vueuse/core'
+import { pausedMcpScopes } from '~~/shared/features'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '~~/shared/mcp'
 import type { MemberDTO } from '~~/shared/types'
 import { formatDateTime } from '~~/shared/format'
@@ -13,7 +14,7 @@ const queryClient = useQueryClient()
 const { copy } = useClipboard()
 const name = ref('Codex')
 const subjectId = ref<string>()
-const scopes = ref<McpScope[]>([...MCP_SCOPES])
+const scopes = ref<McpScope[]>(MCP_SCOPES.filter(scope => !pausedMcpScopes.has(scope)))
 const created = shallowRef<CreatedMcpAccessTokenDTO | null>(null)
 const revokeTarget = shallowRef<McpAccessTokenDTO | null>(null)
 
@@ -32,11 +33,8 @@ const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).filte
 watch(subjectOptions, (options) => { if (!subjectId.value && options[0]) subjectId.value = options.find(option => option.value === session.user?.id)?.value ?? options[0].value }, { immediate: true })
 
 const scopeOptions: Array<{ value: McpScope; label: string }> = [
-  { value: 'data:manage', label: 'Manage tables' },
   { value: 'tasks:read', label: 'Read tasks' },
   { value: 'tasks:write', label: 'Write tasks' },
-  { value: 'documents:read', label: 'Read documents' },
-  { value: 'documents:write', label: 'Write documents' },
   { value: 'messages:read', label: 'Read accessible chats and messages' },
   { value: 'messages:write', label: 'Send messages and mentions' },
 ]
