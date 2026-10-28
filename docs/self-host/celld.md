@@ -305,7 +305,7 @@ The value must look like `arn:aws:sns:<region>:<12-digit account>:<topic name>`.
 
 Inbound mail is the webhook above. This process does not receive SMTP. The mail settings screen says inbound mail is not configured when `capabilities.emailInbound` is `null`.
 
-Outbound mail still sends when an HTTP gateway is configured. L4 POSTs the same JSON a server email message already uses, with `Authorization: Bearer <token>`, and expects `{ "messageId": "..." }`.
+Outbound mail still sends when an HTTP gateway is configured. L4 POSTs the same JSON a server email message already uses, with `Authorization: Bearer <token>`, and expects `{ "messageId": "..." }`. The body has `from`, `to`, optional `cc`, `bcc` and `replyTo`, `subject`, `text`, `html` when the email was formatted, `headers`, and `attachments`: a list of `{ "filename", "type", "content", "disposition": "attachment" }` with base64 `content`, at most 3 MB of files per email. A gateway that cannot deliver attachments must reject the message with an error rather than drop them.
 
 An email binding is used first. Without one, Cloudflare Email Sending is used when `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are set. The sender domain must be onboarded for Email Sending. Health then reports `emailProvider: "cloudflare-rest"`.
 
