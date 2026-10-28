@@ -149,6 +149,27 @@ export async function messageNotificationStatement(env: L4Env, message: Notifica
   })
 }
 
+/** A reminder is authored by the person it reminds, so message rules would skip them. Shares the message's event id. */
+export async function reminderNotificationStatement(env: L4Env, message: NotificationMessage, recipientId: string): Promise<D1PreparedStatement | null> {
+  const channels = await channelAndRoot(env, message.channelId)
+  if (!channels) return null
+  const { channel, root } = channels
+  return outboxStatement(env, {
+    eventId: `message:${message.id}`,
+    kind: 'mention',
+    channelId: message.channelId,
+    recipientIds: [recipientId],
+    payload: {
+      title: root.type === 'dm' ? 'Reminder' : `Reminder in #${root.name}`,
+      body: notificationPreview(message.content, message.attachmentCount),
+      tag: `message:${message.id}`,
+      url: channel.type === 'thread' ? channelPath(root.id, channel.id) : channelPath(channel.id),
+      icon: '/android-chrome-192x192.png',
+      badge: '/favicon-32x32.png',
+    },
+  })
+}
+
 /** Push for a Live room that just went live: a ringing Call in a 1:1 DM, a joinable session elsewhere. */
 export async function liveNotificationStatement(
   env: L4Env,

@@ -73,9 +73,11 @@ export async function signalChannelActivity(
     content: string
     attachmentCount: number
   },
+  alsoNotify: string[] = [],
 ): Promise<void> {
   const audience = await channelActivityAudience(env.DB, message.channelId, message.author.id)
   if (!audience) return
+  audience.recipientIds = [...new Set([...audience.recipientIds, ...alsoNotify])]
   if (audience.rootType === 'dm') {
     await env.DB.prepare('UPDATE channel_members SET hidden_at = NULL WHERE channel_id = ?').bind(audience.rootChannelId).run()
   }

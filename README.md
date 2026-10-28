@@ -70,6 +70,7 @@ L4 is in active development. Releases are frequent and immutable, and each Serve
 ## Documentation
 
 - [Governed agents](docs/agents.md): Roles, runtime, budgets and the untrusted-context policy
+- [Schedules](docs/schedules.md): reminders and recurring work, limits, blocked reasons and the API
 - [Compute nodes and Task workspaces](docs/software-factory.md)
 - [MCP connections](docs/mcp.md)
 - [Deployment and credentials](docs/deployment.md) · [VPS installer](docs/vps-installer.md) · [Self-host on celld](docs/self-host/celld.md)
