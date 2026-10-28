@@ -10,9 +10,11 @@ type AgentIngressMessage = {
   content: string
   mentionIds: string[]
   mode?: 'queue' | 'steer'
+  /** An edit addresses only newly mentioned Agents; a DM's Agent already received the send. */
+  edit?: boolean
 }
 
-type AgentReceiveMessage = Omit<AgentIngressMessage, 'mentionIds'> & {
+type AgentReceiveMessage = Omit<AgentIngressMessage, 'mentionIds' | 'edit'> & {
   hasImages: boolean
 }
 
@@ -47,7 +49,7 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
   if (!accessChannel) return
 
   const candidates = new Set(message.mentionIds)
-  if (isDmType(accessChannel.type)) {
+  if (isDmType(accessChannel.type) && !message.edit) {
     const rows = await env.DB.prepare(
       `SELECT u.id
        FROM channel_members cm

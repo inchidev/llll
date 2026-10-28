@@ -9,6 +9,9 @@ import { asRpc, cf, fail } from '../../utils/cf'
 import { getDb } from '../../utils/db'
 import { hydrateMessages } from '../../utils/messages'
 import { parseBody } from '../../utils/validate'
+import { persistMessageEdit } from '../../../workers/message-edits'
+import { signalNotificationOutbox } from '../../../workers/notifications'
+import { signalAgentsForMessage } from '../../../workers/agent-ingress'
 
 const bodySchema = z.object({
   content: z.string().min(1).max(2000),
@@ -16,7 +19,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const row = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'Message not found')
@@ -34,13 +37,7 @@ export default defineEventHandler(async (event) => {
     ).bind(...requestedMentions).all<{ id: string }>()
     mentionIds = (rows.results ?? []).map((mention) => mention.id)
   }
-  await env.DB.batch([
-    env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').bind(body.content, editedAt, id),
-    env.DB.prepare('DELETE FROM message_mentions WHERE message_id = ?').bind(id),
-    ...mentionIds.map((userId) => env.DB.prepare(
-      'INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)',
-    ).bind(id, userId)),
-  ])
+  const added = await persistMessageEdit(env, { id, channelId: row.channelId, author: member.user, content: body.content, mentions: mentionIds, editedAt })
   const updated = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
   const [dto] = await hydrateMessages(env, [updated], member.user.id)
   try {
@@ -49,5 +46,17 @@ export default defineEventHandler(async (event) => {
     await stub.fanout({ t: 'message.update', message: { ...dto!, reactions: dto!.reactions.map(reaction => ({ ...reaction, me: false })) } })
   }
   catch { /* ignore */ }
+  if (added.length) {
+    waitUntil(signalNotificationOutbox(env))
+    waitUntil(signalAgentsForMessage(env, {
+      messageId: id,
+      channelId: row.channelId,
+      authorId: member.user.id,
+      authorName: member.user.displayName,
+      content: body.content,
+      mentionIds: added,
+      edit: true,
+    }))
+  }
   return { message: dto }
 })

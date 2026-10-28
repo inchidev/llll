@@ -5,12 +5,13 @@ import { requireMember } from '../../../../utils/guards'
 import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
+import { signalChannelsChanged } from '../../../../utils/channel-lifecycle'
 
 export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
   const categoryId = getRouterParam(event, 'categoryId')!
   const member = await requireMember(event, serverId, Permission.manageChannels)
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const category = (await db.select().from(channelCategories).where(eq(channelCategories.id, categoryId)).limit(1))[0]
   if (!category) fail(404, 'not_found', 'Channel category not found')
@@ -25,5 +26,6 @@ export default defineEventHandler(async (event) => {
     targetId: categoryId,
     meta: { name: category.name },
   })
+  waitUntil(signalChannelsChanged(env, serverId))
   return { ok: true }
 })

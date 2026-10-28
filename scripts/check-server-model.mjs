@@ -10,7 +10,7 @@ const codingWorkspaceSources = new Set([
   'workers/env.ts', 'workers/factory-compute.ts', 'packages/deployment-core/src/factory.ts', 'packages/deployment-core/src/factory-repair.ts', 'apps/site/app/components/ServerVps.vue',
   'app/components/agents/FactoryReview.vue', 'app/components/settings/ComputeNodes.vue',
   'app/components/settings/ToolsSettings.vue', 'app/pages/runs/[id].vue', 'app/pages/tasks.vue',
-  'server/utils/agent-tool-security.ts', 'server/utils/agent-tools.ts', 'server/utils/compute-nodes.ts',
+  'server/utils/agent-tool-security.ts', 'server/utils/agent-tools.ts', 'server/utils/channel-lifecycle.ts', 'server/utils/compute-nodes.ts',
   'server/utils/factory-actions.ts', 'server/utils/factory-authority.ts', 'server/utils/factory-github.ts',
   'server/utils/factory-status.ts', 'server/utils/github-agent-client.ts',
   'shared/software-factory.ts', 'shared/workspace-provider.ts', 'workers/agent-pi-durable.ts',

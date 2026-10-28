@@ -1,6 +1,7 @@
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
-import { channels, channelMembers, users } from '../../drizzle/schema'
+import type { channels } from '../../drizzle/schema'
+import { channelMembers, users } from '../../drizzle/schema'
 import { dmFrozen, dmTitle } from '../../shared/dm'
 import { newId, nowIso } from '../../shared/ids'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
@@ -75,45 +76,54 @@ export async function toDmDto(
   }
 }
 
+/** Canonical, order-independent key of a 1:1 DM. */
+export function dmPairKey(a: string, b: string): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`
+}
+
 export async function findPairDm(env: L4Env, meId: string, otherId: string): Promise<string | null> {
+  const key = dmPairKey(meId, otherId)
+  const keyed = await env.DB.prepare("SELECT id FROM channels WHERE dm_pair_key = ? AND type = 'dm'").bind(key).first<{ id: string }>()
+  if (keyed) return keyed.id
+  // A pair created before its key existed claims the key on first reuse.
   const row = await env.DB.prepare(
     `SELECT a.channel_id as id
      FROM channel_members a
      JOIN channel_members b ON a.channel_id = b.channel_id AND b.user_id = ?
-     JOIN channels c ON c.id = a.channel_id AND c.type = 'dm' AND c.dm_kind = 'pair'
+     JOIN channels c ON c.id = a.channel_id AND c.type = 'dm' AND c.dm_kind = 'pair' AND c.dm_pair_key IS NULL
      WHERE a.user_id = ?
        AND (SELECT COUNT(*) FROM channel_members p WHERE p.channel_id = a.channel_id) = 2
+     ORDER BY c.created_at, c.id
      LIMIT 1`,
   ).bind(otherId, meId).first<{ id: string }>()
-  return row?.id ?? null
+  if (!row) return null
+  await env.DB.prepare('UPDATE OR IGNORE channels SET dm_pair_key = ? WHERE id = ? AND dm_pair_key IS NULL').bind(key, row.id).run()
+  const winner = await env.DB.prepare("SELECT id FROM channels WHERE dm_pair_key = ? AND type = 'dm'").bind(key).first<{ id: string }>()
+  return winner?.id ?? row.id
 }
 
+/** Find-or-create. Concurrent opens race on the unique pair key; every caller gets the winner. */
 export async function openPairDm(env: L4Env, meId: string, otherId: string): Promise<string> {
-  const existing = await findPairDm(env, meId, otherId)
   const db = getDb(env.DB)
-  if (existing) {
-    await db.update(channelMembers).set({ hiddenAt: null }).where(and(eq(channelMembers.channelId, existing), eq(channelMembers.userId, meId)))
-    return existing
+  let id = await findPairDm(env, meId, otherId)
+  if (!id) {
+    const candidate = newId()
+    const created = nowIso()
+    const key = dmPairKey(meId, otherId)
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO channels (id, name, topic, type, visibility, position, dm_kind, dm_pair_key, created_at, updated_at)
+        VALUES (?, 'dm', '', 'dm', 'private', 0, 'pair', ?, ?, ?) ON CONFLICT DO NOTHING`).bind(candidate, key, created, created),
+      env.DB.prepare(`INSERT INTO channel_members (channel_id, user_id, hidden_at, joined_at)
+        SELECT ?, ?, NULL, ? WHERE EXISTS (SELECT 1 FROM channels WHERE id = ?)`).bind(candidate, meId, created, candidate),
+      env.DB.prepare(`INSERT INTO channel_members (channel_id, user_id, hidden_at, joined_at)
+        SELECT ?, ?, NULL, ? WHERE EXISTS (SELECT 1 FROM channels WHERE id = ?)`).bind(candidate, otherId, created, candidate),
+    ])
+    const winner = await env.DB.prepare("SELECT id FROM channels WHERE dm_pair_key = ? AND type = 'dm'").bind(key).first<{ id: string }>()
+    if (!winner) throw new Error('Direct message could not be opened')
+    if (winner.id === candidate) return candidate
+    id = winner.id
   }
-  const id = newId()
-  const created = nowIso()
-  await db.insert(channels).values({
-    id,
-    name: 'dm',
-    topic: '',
-    type: 'dm',
-    visibility: 'private',
-    position: 0,
-    liveMeetingId: null,
-    parentId: null,
-    parentMessageId: null,
-    createdAt: created,
-    updatedAt: created,
-  })
-  await db.insert(channelMembers).values([
-    { channelId: id, userId: meId, hiddenAt: null, joinedAt: created },
-    { channelId: id, userId: otherId, hiddenAt: null, joinedAt: created },
-  ])
+  await db.update(channelMembers).set({ hiddenAt: null }).where(and(eq(channelMembers.channelId, id), eq(channelMembers.userId, meId)))
   return id
 }
 

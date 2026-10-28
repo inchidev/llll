@@ -6,6 +6,7 @@ import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { writeAudit } from '../../../utils/messages'
+import { signalChannelsChanged } from '../../../utils/channel-lifecycle'
 import { parseBody } from '../../../utils/validate'
 
 const bodySchema = z.object({
@@ -16,11 +17,11 @@ export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
   const member = await requireMember(event, serverId, Permission.manageChannels)
   const body = parseBody(bodySchema, await readBody(event))
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const id = newId()
   const createdAt = nowIso()
-  const position = Date.now() % 100000
+  const position = Number((await env.DB.prepare('SELECT COALESCE(MAX(position),0)+1 AS position FROM channel_categories').first<{ position: number }>())?.position ?? 1)
 
   await db.insert(channelCategories).values({
     id,
@@ -38,5 +39,6 @@ export default defineEventHandler(async (event) => {
     meta: { name: body.name },
   })
 
+  waitUntil(signalChannelsChanged(env, serverId))
   return { category: { id, name: body.name, position, createdAt } }
 })

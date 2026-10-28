@@ -176,6 +176,9 @@ const moveCategoryId = ref('uncategorized')
 const movingChannel = computed(() => serverChannels.value.find(channel => channel.id === moveChannelId.value) ?? null)
 const categoryDeleteId = ref<string | null>(null)
 const channelAssigningId = ref<string | null>(null)
+const visibilityChannelId = ref<string | null>(null)
+const visibilitySaving = ref(false)
+const visibilityChannel = computed(() => serverChannels.value.find(channel => channel.id === visibilityChannelId.value) ?? null)
 
 const roles = computed(() => rolesQ.data.value?.roles ?? [])
 const categories = computed(() => channelsQ.data.value?.categories ?? [])
@@ -378,13 +381,10 @@ async function confirmDeleteCategory() {
   }
 }
 
-async function assignChannelCategory(channelId: string, categoryId: string) {
+async function moveChannel(channelId: string, categoryId: string | null, beforeId: string | null) {
   channelAssigningId.value = channelId
   try {
-    await api(`/api/channels/${channelId}`, {
-      method: 'PATCH',
-      body: { categoryId: categoryId === 'uncategorized' ? null : categoryId },
-    })
+    await api(`/api/channels/${channelId}/position`, { method: 'PUT', body: { categoryId, beforeId } })
     await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
     moveChannelId.value = null
   }
@@ -393,6 +393,49 @@ async function assignChannelCategory(channelId: string, categoryId: string) {
   }
   finally {
     channelAssigningId.value = null
+  }
+}
+
+/** Moving to another category places the channel last there. */
+function assignChannelCategory(channelId: string, categoryId: string) {
+  return moveChannel(channelId, categoryId === 'uncategorized' ? null : categoryId, null)
+}
+
+function channelSiblings(channel: ChannelDTO) {
+  return serverChannels.value.filter(other => (other.categoryId ?? null) === (channel.categoryId ?? null))
+}
+
+function shiftChannel(channel: ChannelDTO, step: -1 | 1) {
+  const siblings = channelSiblings(channel)
+  const index = siblings.findIndex(other => other.id === channel.id)
+  if (index < 0 || !siblings[index + step]) return
+  // Moving down places the channel before the one after its next sibling.
+  const before = step < 0 ? siblings[index - 1]! : siblings[index + 2] ?? null
+  void moveChannel(channel.id, channel.categoryId ?? null, before?.id ?? null)
+}
+
+function canChangeVisibility(channel: ChannelDTO) {
+  return channel.createdBy ? channel.createdBy === session.user?.id : channel.visibility === 'server'
+}
+
+async function confirmVisibilityChange() {
+  const channel = visibilityChannel.value
+  if (!channel) return
+  const visibility = channel.visibility === 'private' ? 'server' : 'private'
+  visibilitySaving.value = true
+  try {
+    await api(`/api/channels/${channel.id}`, { method: 'PATCH', body: { visibility } })
+    await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
+    visibilityChannelId.value = null
+    toast.add({ title: visibility === 'private' ? 'Channel is now private' : 'Channel is now open to the Server', color: 'success' })
+    // A channel made private starts with only its creator; choose who else belongs.
+    if (visibility === 'private') memberChannelId.value = channel.id
+  }
+  catch (err) {
+    toast.add({ title: errorMessage(err), color: 'error' })
+  }
+  finally {
+    visibilitySaving.value = false
   }
 }
 
@@ -577,6 +620,9 @@ function roleLabel(name: string) {
         <UButton v-if="can(Permission.manageChannels)" icon="i-ph-shield-check" label="Permissions" color="neutral" variant="outline" @click="editChannelPermissions(channelSettings!.id); channelSettingsId = null" />
         <UButton v-if="channelSettings.visibility === 'private' && channelSettings.createdBy === session.user?.id" icon="i-ph-users" label="Members" color="neutral" variant="outline" @click="memberChannelId = channelSettings!.id; channelSettingsId = null" />
         <UButton icon="i-ph-folder" label="Move to category" color="neutral" variant="outline" @click="moveChannelId = channelSettings!.id; moveCategoryId = channelSettings!.categoryId || 'uncategorized'; channelSettingsId = null" />
+        <UButton v-if="canChangeVisibility(channelSettings)" :icon="channelSettings.visibility === 'private' ? 'i-ph-lock-open' : 'i-ph-lock'" :label="channelSettings.visibility === 'private' ? 'Open to Server' : 'Make private'" color="neutral" variant="outline" @click="visibilityChannelId = channelSettings!.id; channelSettingsId = null" />
+        <UButton icon="i-ph-arrow-up" label="Move up" color="neutral" variant="outline" :disabled="channelSiblings(channelSettings)[0]?.id === channelSettings.id || Boolean(channelAssigningId)" @click="shiftChannel(channelSettings!, -1)" />
+        <UButton icon="i-ph-arrow-down" label="Move down" color="neutral" variant="outline" :disabled="channelSiblings(channelSettings).at(-1)?.id === channelSettings.id || Boolean(channelAssigningId)" @click="shiftChannel(channelSettings!, 1)" />
       </div></template></SettingsEditor>
       <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
       <SettingsEditor back="Channels" :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
@@ -736,6 +782,16 @@ v-if="rolesListVisible || section === 'project-policies'"
     <SettingsEditor v-model:open="editCategoryOpen" back="Channels" title="Edit category" :dismissible="!categorySaving">
     <template #body><UFormField label="Category name"><UInput v-model="categoryName" autofocus class="w-full" @keyup.enter="saveCategory" /></UFormField></template>
     <template #footer><UButton v-if="selectedCategory" color="error" variant="ghost" label="Delete category" @click="categoryDeleteId = selectedCategory.id; editCategoryOpen = false" /><UButton color="neutral" variant="ghost" label="Cancel" @click="editCategoryOpen = false" /><UButton label="Save changes" :loading="categorySaving" :disabled="!categoryName.trim()" @click="saveCategory" /></template>
+  </SettingsEditor>
+    <SettingsEditor back="Channels" :open="Boolean(visibilityChannel)" :title="visibilityChannel?.visibility === 'private' ? `Open #${visibilityChannel?.name} to the Server?` : `Make #${visibilityChannel?.name} private?`" @update:open="value => { if (!value) visibilityChannelId = null }">
+    <template #body>
+      <p class="text-sm text-muted">
+        {{ visibilityChannel?.visibility === 'private'
+          ? 'Every Server member will be able to read this channel, its Threads and its whole history.'
+          : 'Only you keep access until you add members. Everyone else loses this channel, its Threads and its history right away.' }}
+      </p>
+    </template>
+    <template #footer><UButton label="Cancel" color="neutral" variant="ghost" @click="visibilityChannelId = null" /><UButton :label="visibilityChannel?.visibility === 'private' ? 'Open channel' : 'Make private'" :color="visibilityChannel?.visibility === 'private' ? 'primary' : 'error'" :loading="visibilitySaving" @click="confirmVisibilityChange" /></template>
   </SettingsEditor>
     <SettingsEditor back="Channels" :open="Boolean(movingChannel)" :title="`Move #${movingChannel?.name || 'channel'}`" @update:open="value => { if (!value) moveChannelId = null }">
     <template #body><UFormField label="Category" description="Choose the group where this channel appears in Chat."><USelect v-model="moveCategoryId" :items="categoryOptions" class="w-full" /></UFormField></template>
