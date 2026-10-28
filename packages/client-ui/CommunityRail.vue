@@ -21,7 +21,7 @@ const visibleGroups = computed(() => props.groups.filter(group => group.servers.
 </script>
 
 <template>
-  <nav aria-label="Servers" class="community-rail flex h-full w-[72px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-e border-default bg-elevated px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+  <nav aria-label="Servers" class="community-rail flex h-full w-[72px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-e border-default bg-elevated px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.125rem,env(safe-area-inset-top))]">
     <a :href="homeHref || '/'" :aria-label="homeLabel || 'L4 home'" :aria-current="homeActive ? 'page' : undefined" :class="homeActive ? 'bg-accented ring-2 ring-primary' : ''" class="flex size-11 shrink-0 items-center justify-center rounded-2xl text-highlighted hover:bg-accented focus-visible:outline-2 focus-visible:outline-primary" @click="emit('home', $event)">
         <svg class="size-7" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M2 2h4v8h8v4H2V2Zm16 0h4v8h8v4H18V2ZM2 18h4v8h8v4H2V18Zm16 0h4v8h8v4H18V18Z" /></svg>
     </a>
@@ -55,7 +55,7 @@ const visibleGroups = computed(() => props.groups.filter(group => group.servers.
   --ui-border: #e5e5e5;
 }
 .dark .community-rail {
-  --ui-bg-elevated: #0a0a0a;
+  --ui-bg-elevated: #000000;
   --ui-bg-accented: #171717;
   --ui-bg-inverted: #fafafa;
   --ui-text: #e5e5e5;

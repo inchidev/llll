@@ -119,10 +119,10 @@ function roleLabel(name: string) {
 <template>
   <aside
     id="channel-details"
-    class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-muted"
+    class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-muted dark:bg-black"
     :class="isOverlay
       ? 'absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-20 flex w-full pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]'
-      : 'relative hidden md:flex'"
+      : 'relative hidden border-s border-default md:flex'"
     :style="!isOverlay ? { width: `${ui.rightPanelWidth}px` } : undefined"
     aria-label="Right panel"
   >
@@ -134,7 +134,7 @@ function roleLabel(name: string) {
       side="start"
       label="Resize right panel"
     />
-    <header class="h-12 px-3 flex items-center gap-2 shadow-[0_1px_0_var(--ui-border)] shrink-0 bg-muted">
+    <header class="h-12 px-3 flex items-center gap-2 shadow-[0_1px_0_var(--ui-border)] shrink-0 bg-muted dark:bg-black">
       <UButton
         v-if="isOverlay"
         icon="i-ph-arrow-right"

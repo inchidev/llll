@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 const props = defineProps<{ serverId: string }>()
 const { api } = useApi()
@@ -46,7 +47,7 @@ async function assign() {
     <SettingsList v-else :items="channels.data.value?.channels ?? []" :item-key="channel => channel.id" :search-text="channel => channel.name" :search-from="Infinity" :noun="['channel', 'channels']" @select="choose"><template #row="{ item: channel }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-hash" class="size-4" /></span><span class="min-w-0 flex-1 truncate text-sm font-medium">{{ channel.name }}</span></template></SettingsList>
     <p v-if="channels.data.value?.total === 0" class="text-sm text-muted">Every private channel has a recorded creator.</p>
     <UPagination v-if="(channels.data.value?.total ?? 0) > 25" v-model:page="page" :items-per-page="25" :total="channels.data.value?.total ?? 0" />
-    <UModal :open="Boolean(selected)" title="Assign channel creator" :description="selected?.name" @update:open="value => { if (!value && !saving) selected = null }">
+    <SettingsEditor back="Channels" :open="Boolean(selected)" title="Assign channel creator" :description="selected?.name" @update:open="value => { if (!value && !saving) selected = null }">
       <template #body>
         <p class="mb-4 text-sm text-muted">Choose a current participant. Once assigned, the creator can add or remove members.</p>
         <UInput v-model="search" placeholder="Search participants" aria-label="Search channel participants" class="mb-3 w-full" />
@@ -59,6 +60,6 @@ async function assign() {
         <UButton label="Cancel" color="neutral" variant="ghost" :disabled="saving" @click="selected = null" />
         <UButton label="Assign creator" :disabled="!participant || members.isPending.value || Boolean(members.error.value)" :loading="saving" @click="assign" />
       </template>
-    </UModal>
+    </SettingsEditor>
   </section>
 </template>

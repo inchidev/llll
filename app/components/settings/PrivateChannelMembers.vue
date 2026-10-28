@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MemberDTO, PrivateChannelMemberDTO, PublicUser } from '~~/shared/types'
 
@@ -52,7 +53,7 @@ async function update(userId: string, method: 'POST' | 'DELETE') {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="`Members of #${channel.name}`" description="Members can read this channel’s history, files and Threads.">
+  <SettingsEditor v-model:open="open" back="Channels" :title="`Members of #${channel.name}`" description="Members can read this channel’s history, files and Threads.">
     <template #body>
       <LayoutLoadError v-if="membership.isError.value" message="Channel members did not load." :retry="membership.refetch" />
       <div v-else-if="membership.isPending.value" class="py-6 text-sm text-muted" role="status">Loading members…</div>
@@ -86,7 +87,7 @@ async function update(userId: string, method: 'POST' | 'DELETE') {
         </div>
       </div>
     </template>
-  </UModal>
+  </SettingsEditor>
   <UModal :open="Boolean(removal)" :title="`Remove ${removal?.displayName ?? 'member'}?`" :description="`They will lose access to #${channel.name}, its files, Threads and active calls.`" @update:open="value => { if (!value && !busy) removal = null }">
     <template #footer>
       <UButton label="Cancel" color="neutral" variant="outline" :disabled="busy" @click="removal = null" />

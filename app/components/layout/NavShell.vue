@@ -231,7 +231,7 @@ watch(nav.inviteOpen, (open) => {
 <template>
   <div class="relative flex h-full min-h-0 w-full select-none flex-col">
     <div class="flex min-h-0 flex-1">
-      <div class="flex w-[72px] shrink-0 flex-col border-e border-default bg-muted">
+      <div class="flex w-[72px] shrink-0 flex-col border-e border-default bg-muted dark:bg-black">
         <UDropdownMenu :items="serverItems" :ui="{ content: 'w-56' }">
           <button
             type="button"
@@ -239,8 +239,8 @@ watch(nav.inviteOpen, (open) => {
             :aria-label="serverName || 'Server menu'"
             :title="serverName || 'Server menu'"
           >
-            <span class="server-avatar flex size-11 items-center justify-center rounded-xl transition-colors group-data-[state=open]:bg-accented">
-              <UAvatar v-if="serverIconUrl" size="xl" :src="serverIconUrl" :alt="serverName" class="size-10 rounded-lg" />
+            <span class="server-avatar flex size-10 items-center justify-center rounded-xl transition-colors group-data-[state=open]:bg-accented">
+              <UAvatar v-if="serverIconUrl" size="lg" :src="serverIconUrl" :alt="serverName" class="size-8 rounded-lg" />
               <BrandLogo v-else size="xl" alt="" />
             </span>
           </button>
@@ -274,7 +274,7 @@ watch(nav.inviteOpen, (open) => {
 
       </div>
 
-      <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted" @click.capture="selectResource">
+      <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted dark:bg-black" @click.capture="selectResource">
         <header class="flex h-12 shrink-0 items-center gap-2 px-3 shadow-[0_1px_0_var(--ui-border)]">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
           <UButton v-if="section === 'agents' && can(Permission.manageAgents)" icon="i-ph-plus" color="neutral" variant="ghost" square class="size-9 justify-center" aria-label="Create agent" @click="nav.createAgentOpen.value = true" />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailSettingsDTO, MailboxPermission, MemberDTO } from '~~/shared/types'
 
@@ -304,7 +305,7 @@ async function saveMailbox() {
       <LayoutSaveBar :dirty="dirty" :saving="saving" :disabled="!displayName.trim()" @save="saveMailbox" @reset="resetDraft" />
     </template>
 
-    <UModal v-model:open="createOpen" title="New mailbox">
+    <SettingsEditor v-model:open="createOpen" back="Email" title="New mailbox">
       <template #body>
         <div class="space-y-4">
           <UFormField label="Address">
@@ -320,7 +321,7 @@ async function saveMailbox() {
         <UButton color="neutral" variant="ghost" label="Cancel" @click="createOpen = false" />
         <UButton label="Create mailbox" :loading="creating" :disabled="!localPart.trim() || !domainId" @click="createMailbox" />
       </template>
-    </UModal>
+    </SettingsEditor>
 
     <UModal v-model:open="deleteOpen" title="Delete this mailbox?">
       <template #body>

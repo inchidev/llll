@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { llllReleaseUrl } from '~~/shared/releases'
+import { settingsEditorKey } from '../../composables/useSettingsEditor'
+import { provide, shallowRef } from 'vue'
 
 export type SettingsItem = {
   id: string
@@ -19,6 +21,7 @@ const props = defineProps<{
   title: string
   /** The section list depends on data that is still loading. */
   loading?: boolean
+  editorPages?: boolean
 }>()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -29,6 +32,10 @@ const { $pwa } = useNuxtApp()
 const releaseUrl = computed(() => llllReleaseUrl(appConfig.version))
 const isMobile = useIsMobile()
 const detailBack = provideSettingsDetailBack()
+const editorTarget = ref<HTMLElement | null>(null)
+const activeEditor = shallowRef<symbol | null>(null)
+const sectionRevision = ref(0)
+if (props.editorPages) provide(settingsEditorKey, { target: editorTarget, active: activeEditor })
 
 const query = ref('')
 const searchActivated = ref(false)
@@ -71,6 +78,7 @@ const activeLabel = computed(() => props.groups
   .find(isActive)?.label ?? '')
 
 function select(id: string) {
+  if (props.groups.flatMap(group => group.items).some(item => item.id === id && isActive(item))) sectionRevision.value++
   section.value = id
   query.value = ''
   searchActivated.value = false
@@ -116,10 +124,9 @@ function focusSettings(event: Event) {
 function onEscape(event: KeyboardEvent) {
   event.preventDefault()
   event.stopPropagation()
-  if (isMobile.value && mobileView.value === 'detail') {
-    if (detailBack.value) detailBack.value.go()
-    else mobileView.value = 'nav'
-  } else close()
+  if (detailBack.value) detailBack.value.go()
+  else if (isMobile.value && mobileView.value === 'detail') mobileView.value = 'nav'
+  else close()
 }
 </script>
 
@@ -131,8 +138,8 @@ function onEscape(event: KeyboardEvent) {
     :dismissible="false"
     :content="{ onOpenAutoFocus: focusSettings, onEscapeKeyDown: onEscape }"
     :ui="{
-      overlay: 'bg-muted',
-      content: 'divide-y-0 p-0 ring-0 shadow-none rounded-none bg-muted inset-0',
+      overlay: 'bg-muted dark:bg-black',
+      content: 'divide-y-0 p-0 ring-0 shadow-none rounded-none bg-muted dark:bg-black inset-0',
     }"
   >
     <template #content>
@@ -145,7 +152,7 @@ function onEscape(event: KeyboardEvent) {
         style="outline: none"
       >
         <div
-          class="min-w-0 flex-1 justify-end bg-muted md:flex md:min-w-[192px] md:flex-none"
+          class="min-w-0 flex-1 justify-end bg-muted dark:bg-black md:flex md:min-w-[192px] md:flex-none md:border-e md:border-default"
           :class="isMobile && mobileView === 'detail' ? 'hidden' : 'flex'"
         >
           <aside class="flex w-full flex-col overflow-y-auto px-2 pb-6 pe-1.5 pt-6 *:shrink-0 md:w-[192px] md:py-[60px] lg:w-[218px]">
@@ -221,7 +228,7 @@ function onEscape(event: KeyboardEvent) {
         </div>
 
         <div
-          class="min-w-0 flex-1 bg-default md:flex md:flex-[1_1_800px]"
+          class="min-w-0 flex-1 bg-default dark:bg-black md:flex md:flex-[1_1_800px]"
           :class="isMobile && mobileView === 'nav' ? 'hidden' : 'flex'"
         >
           <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
@@ -237,7 +244,8 @@ function onEscape(event: KeyboardEvent) {
               <span class="min-w-0 flex-1 truncate text-sm text-muted">{{ activeLabel }}</span>
               <UButton icon="i-ph-x" color="neutral" variant="ghost" square aria-label="Close settings" @click="close" />
             </div>
-            <slot />
+            <div v-show="!activeEditor" :key="sectionRevision"><slot /></div>
+            <div v-show="Boolean(activeEditor)" ref="editorTarget" />
           </div>
           <div class="hidden w-14 shrink-0 pe-2 pt-[60px] md:block sm:w-16 sm:pe-3">
             <button

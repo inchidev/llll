@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { agentProviderSchema, agentProviderIds, providerNames, agentModelLabel, type AgentProviderId, type AgentProviderDTO, type AgentProviderModel } from '~~/shared/agent-providers'
 const props = withDefaults(defineProps<{ serverId: string; isOwner?: boolean; view?: 'providers' | 'defaults' }>(), { view: 'providers' })
@@ -111,7 +112,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
     </template>
   </section>
-  <UModal v-model:open="open" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose models for Agents and AI functions.">
+  <SettingsEditor v-model:open="open" back="Agents" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose models for Agents and AI functions.">
     <template #body>
       <UForm id="agent-provider-form" :schema="agentProviderSchema.omit({ apiKey: true })" :state="state" class="space-y-4" @submit="save">
         <UFormField name="kind" label="Provider"><USelect v-model="state.kind" :items="kinds" :disabled="Boolean(editing)" class="w-full" /></UFormField>
@@ -141,5 +142,5 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
       </UForm>
     </template>
     <template #footer><UButton v-if="editing" label="Remove connection" color="error" variant="ghost" :disabled="busy" class="me-auto" @click="remove" /><UButton label="Cancel" color="neutral" variant="ghost" @click="open = false" /><UButton type="submit" form="agent-provider-form" label="Save" :disabled="!state.models.length && state.kind !== 'chatgpt'" :loading="busy" /></template>
-  </UModal>
+  </SettingsEditor>
 </template>

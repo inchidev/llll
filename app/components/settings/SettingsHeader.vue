@@ -9,20 +9,24 @@ const emit = defineEmits<{ back: [] }>()
 
 // Inside the settings overlay, its mobile header takes over this back button.
 const overlayBack = inject(settingsDetailBackKey, null)
+let ownBack: { label: string; go: () => void } | null = null
 watchEffect(() => {
-  if (overlayBack && props.back) overlayBack.value = { label: props.back, go: () => emit('back') }
+  if (overlayBack && props.back) {
+    ownBack = { label: props.back, go: () => emit('back') }
+    overlayBack.value = ownBack
+  }
 })
 onBeforeUnmount(() => {
-  if (overlayBack && props.back) overlayBack.value = null
+  if (overlayBack && overlayBack.value === ownBack) overlayBack.value = null
 })
 </script>
 
 <template>
-  <div>
+  <div class="relative">
     <button
       v-if="back"
       type="button"
-      class="mb-3 items-center gap-1 rounded text-sm text-muted hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
+      class="absolute bottom-full mb-2 items-center gap-1 whitespace-nowrap rounded text-sm text-muted hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
       :class="overlayBack ? 'hidden md:inline-flex' : 'inline-flex'"
       @click="emit('back')"
     >

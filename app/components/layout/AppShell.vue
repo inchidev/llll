@@ -153,7 +153,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       v-if="serverId"
       id="channel-navigation"
       ref="drawer"
-      class="channel-drawer flex min-h-0 shrink-0 bg-muted pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]"
+      class="channel-drawer flex min-h-0 shrink-0 bg-muted pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] dark:bg-black md:border-e md:border-default"
       :class="{ 'rail-only': !hasMenu }"
       :style="drawerStyle"
       :aria-hidden="isMobile && !open && dragOffset === null ? 'true' : undefined"
@@ -179,13 +179,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       aria-label="Close navigation"
       @click="sectionIntent = null; ui.mobilePane = 'chat'"
     />
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)]">
+    <div class="server-content flex min-h-0 min-w-0 flex-1 flex-col pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] dark:bg-black">
       <slot />
     </div>
   </div>
 </template>
 
 <style scoped>
+:global(.dark) .server-content { --ui-bg: #000; }
 /* Phones: an off-canvas drawer over the page. */
 .channel-drawer {
   position: absolute;

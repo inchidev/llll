@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { defaultAgentExecutionPolicy, type AgentExecutionPolicy } from '~~/shared/agent-execution-policy'
 const props = defineProps<{ serverId: string }>()
@@ -37,13 +38,13 @@ async function save() {
     <button v-if="policy" class="flex w-full items-center justify-between gap-4 rounded-lg border border-default p-4 text-left hover:bg-elevated" @click="edit">
       <span><span class="block font-medium">{{ policy.mode === 'role' ? 'Autonomous within granted permissions' : 'Review writes and outbound calls' }}</span><span class="mt-1 block text-sm text-muted">{{ policy.maxModelCalls }} model calls · {{ policy.maxToolCalls }} tool calls · {{ policy.maxTokens.toLocaleString() }} tokens · {{ policy.maxDurationMs / 3600000 }} hours per run</span></span><UIcon name="i-ph-caret-right" class="size-4 shrink-0" />
     </button>
-    <UModal v-model:open="open" title="Agent execution" description="These settings apply to new runs. Existing runs retain their admitted limits. Revoking roles or project access stops new actions immediately.">
+    <SettingsEditor v-model:open="open" back="Agents" title="Agent execution" description="These settings apply to new runs. Existing runs retain their admitted limits. Revoking roles or project access stops new actions immediately.">
       <template #body><form class="space-y-5" @submit.prevent="save">
         <UFormField label="Execution mode"><USelect v-model="form.mode" :items="[{ label: 'Autonomous within granted permissions', value: 'role' }, { label: 'Review writes and outbound calls', value: 'review' }]" class="w-full" /></UFormField>
         <p class="text-sm text-muted">Review mode pauses compute operations for approval and blocks other writes and outbound calls. Autonomous mode allows only tools covered by the run and current permissions. Merge and release tools are not available.</p>
         <UFormField v-for="limit in limits" :key="limit.key" :label="limit.label"><UInput v-model.number="form[limit.key]" type="number" :min="limit.min" :max="limit.max" required class="w-full" /></UFormField>
         <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" :disabled="busy" @click="open = false" /><UButton type="submit" label="Save execution settings" :loading="busy" /></div>
       </form></template>
-    </UModal>
+    </SettingsEditor>
   </div>
 </template>

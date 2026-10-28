@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { GitConnection } from '~~/shared/git-connections'
 const {api}=useApi(),qc=useQueryClient(),toast=useToast()
@@ -53,8 +54,8 @@ async function disconnect(id:string){
  <section class="space-y-4">
   <LayoutLoadError v-if="connections.error.value" message="Git connections did not load." :retry="connections.refetch" />
   <SettingsList :items="connections.data.value?.connections ?? []" :item-key="c => c.id" :search-text="c => `${c.name} ${c.account}`" :loading="connections.isPending.value" placeholder="Search connections" :noun="['connection', 'connections']" @select="c => { selectedId = c.id; detailOpen = true }"><template #row="{ item: c }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ c.name }}</span><span class="block text-xs text-muted">{{ c.account }}</span></span><UBadge :label="c.enabled ? 'Active' : 'Disabled'" :color="c.enabled ? 'success' : 'neutral'" /></template></SettingsList>
-  <UModal v-model:open="detailOpen" :title="selected?.name ?? 'Git connection'" description="Manage the repositories this connection can access."><template #body><div v-if="selected" class="space-y-4"><p>{{selected.account}} · {{selected.enabled ? 'Active' : 'Disabled'}}</p><div class="flex flex-wrap gap-2"><UButton v-if="selected.enabled && connections.data.value?.canConfigure" :to="selected.setupUrl" target="_blank" label="Choose repositories on GitHub" color="neutral" variant="outline" /><UButton v-if="selected.enabled && connections.data.value?.canConfigure" label="Disable in L4" color="neutral" variant="ghost" :loading="busy" @click="disconnect(selected.id)" /></div></div></template></UModal>
-  <UModal v-model:open="connectOpen" title="Connect GitHub" description="Create a GitHub App owned by your account or organization."><template #body><div class="space-y-5">
+  <SettingsEditor v-model:open="detailOpen" back="Repositories" :title="selected?.name ?? 'Git connection'" description="Manage the repositories this connection can access."><template #body><div v-if="selected" class="space-y-4"><p>{{selected.account}} · {{selected.enabled ? 'Active' : 'Disabled'}}</p><div class="flex flex-wrap gap-2"><UButton v-if="selected.enabled && connections.data.value?.canConfigure" :to="selected.setupUrl" target="_blank" label="Choose repositories on GitHub" color="neutral" variant="outline" /><UButton v-if="selected.enabled && connections.data.value?.canConfigure" label="Disable in L4" color="neutral" variant="ghost" :loading="busy" @click="disconnect(selected.id)" /></div></div></template></SettingsEditor>
+  <SettingsEditor v-model:open="connectOpen" back="Repositories" title="Connect GitHub" description="Create a GitHub App owned by your account or organization."><template #body><div class="space-y-5">
   <form v-if="connections.data.value?.canConfigure" class="space-y-3" @submit.prevent="connect">
    <UFormField label="Connection name"><UInput v-model="name" class="w-full" /></UFormField>
    <UFormField label="GitHub account or organization"><UInput v-model="account" placeholder="Your GitHub username or organization" class="w-full" /></UFormField>
@@ -69,6 +70,6 @@ async function disconnect(id:string){
    <UButton type="submit" label="Create App on GitHub" :disabled="submitted||busy" />
    <UButton type="button" label="Prepare again after GitHub sign-in" color="neutral" variant="outline" :loading="busy" @click="resumeAfterSignIn" />
   </form>
-  </div></template></UModal>
+  </div></template></SettingsEditor>
  </section>
 </template>

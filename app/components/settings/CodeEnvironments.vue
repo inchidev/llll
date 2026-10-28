@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery } from '@tanstack/vue-query'
 import type { GitConnection } from '~~/shared/git-connections'
 import type { CodeEnvironment, CodeEnvironmentInput } from '~~/shared/code-environments'
@@ -68,7 +69,7 @@ async function disable(item: CodeEnvironment) {
         <template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></span><span class="block truncate text-xs text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</span></span></template>
       </SettingsList>
     </template>
-    <UModal v-model:open="open" :title="editingId ? 'Edit environment' : 'Add environment'" description="Saving changes revokes Runs and scheduled mandates using the previous configuration.">
+    <SettingsEditor v-model:open="open" back="Repositories" :title="editingId ? 'Edit environment' : 'Add environment'" description="Saving changes revokes Runs and scheduled mandates using the previous configuration.">
       <template #body><div class="space-y-4">
         <UFormField label="Name" help="A short label for this repository and execution setup, for example Website fixes."><UInput v-model="name" class="w-full" /></UFormField>
         <UFormField label="Git connection"><USelect v-model="connectionId" :items="connectionOptions" placeholder="Choose a Git connection" class="w-full" /></UFormField>
@@ -82,6 +83,6 @@ async function disable(item: CodeEnvironment) {
         <UFormField label="Allowed Preview domains" help="One domain per line, for example dev.example.com. Preview links must use HTTPS."><UTextarea v-model="previewHosts" class="w-full" :rows="2" /></UFormField>
       </div></template>
       <template #footer><div class="flex w-full justify-between gap-2"><UButton v-if="selectedEnvironment?.enabled" label="Disable" color="error" variant="ghost" :loading="saving" @click="disable(selectedEnvironment)" /><span v-else /><UButton label="Save environment" color="neutral" :loading="saving" :disabled="!name.trim() || !sourceId || !workId || !requiredChecks.trim()" @click="save" /></div></template>
-    </UModal>
+    </SettingsEditor>
   </div>
 </template>

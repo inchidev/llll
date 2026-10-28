@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
@@ -195,7 +196,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="isNew ? 'Create agent' : `Edit ${selectedAgent?.displayName || 'agent'}`" :dismissible="!busy" :close="!busy" :ui="{ content: 'max-w-xl' }">
+  <SettingsEditor v-model:open="open" back="Agents" :title="isNew ? 'Create agent' : `Edit ${selectedAgent?.displayName || 'agent'}`" :dismissible="!busy" :close="!busy" :ui="{ content: 'max-w-xl' }">
     <template #body>
     <UForm :schema="schema" :state="form" :disabled="busy" class="min-w-0 space-y-5" :data-update-blocked="busy" @submit="saveAgent">
       <UAlert
@@ -261,5 +262,5 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       </div>
     </UForm>
     </template>
-  </UModal>
+  </SettingsEditor>
 </template>

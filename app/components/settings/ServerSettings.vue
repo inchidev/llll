@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { publicIconPath } from '~~/shared/server-appearance'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { AuditEntryDTO, ChannelCategoryDTO, ChannelDTO, ChannelRoleOverrideDTO, ServerDTO, MemberDTO, RoleDTO } from '~~/shared/types'
@@ -493,7 +494,7 @@ function roleLabel(name: string) {
 </script>
 
 <template>
-  <SettingsOverlay v-model:open="open" v-model:section="section" :groups="groups" :title="serverName" :loading="membersQ.isPending.value">
+  <SettingsOverlay v-model:open="open" v-model:section="section" :groups="groups" :title="serverName" :loading="membersQ.isPending.value" editor-pages>
     <template v-if="section === 'overview'">
       <h1 class="text-xl font-semibold text-highlighted">Server Overview</h1>
       <div class="mt-8 flex flex-col items-start gap-6 sm:flex-row">
@@ -553,7 +554,7 @@ function roleLabel(name: string) {
           @click="createCategoryOpen = true"
         />
       </div>
-      <UModal v-model:open="createChannelOpen" title="Create channel"><template #body><form class="space-y-4" @submit.prevent="createChannel"><UFormField label="Channel name"><UInput v-model="newChannelName" autofocus class="w-full" /></UFormField><UFormField label="Category"><USelect v-model="newChannelCategory" :items="categoryOptions" class="w-full" /></UFormField><UCheckbox v-model="newChannelPrivate" label="Private channel" /><UFormField v-if="newChannelPrivate" label="Members"><USelectMenu v-model="newChannelMembers" :items="(membersQ.data.value?.members ?? []).map(m => ({ label: m.nickname || m.user.displayName, value: m.user.id }))" value-key="value" multiple class="w-full" /></UFormField><div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" @click="createChannelOpen = false" /><UButton type="submit" label="Create channel" :loading="channelCreating" :disabled="!newChannelName.trim()" /></div></form></template></UModal>
+      <SettingsEditor v-model:open="createChannelOpen" back="Channels" title="Create channel"><template #body><form class="space-y-4" @submit.prevent="createChannel"><UFormField label="Channel name"><UInput v-model="newChannelName" autofocus class="w-full" /></UFormField><UFormField label="Category"><USelect v-model="newChannelCategory" :items="categoryOptions" class="w-full" /></UFormField><UCheckbox v-model="newChannelPrivate" label="Private channel" /><UFormField v-if="newChannelPrivate" label="Members"><USelectMenu v-model="newChannelMembers" :items="(membersQ.data.value?.members ?? []).map(m => ({ label: m.nickname || m.user.displayName, value: m.user.id }))" value-key="value" multiple class="w-full" /></UFormField><div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" @click="createChannelOpen = false" /><UButton type="submit" label="Create channel" :loading="channelCreating" :disabled="!newChannelName.trim()" /></div></form></template></SettingsEditor>
       <LayoutSegmentedTabs v-model="channelTab" :items="[{ value: 'channels', label: 'Channels' }, { value: 'categories', label: 'Categories' }, ...(isOwner ? [{ value: 'recovery', label: 'Recovery' }] : [])]" label="Channel settings" class="mt-5" />
       <SettingsList v-if="channelTab === 'categories'" class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
         <template #row="{ item: category }">
@@ -566,13 +567,13 @@ function roleLabel(name: string) {
         <template #row="{ item: channel }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-hash" class="size-4" /></span><span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ channel.name }}</span></template>
       </SettingsList>
       <SettingsChannelCreatorRecovery v-else-if="isOwner && channelTab === 'recovery'" :server-id="serverId" class="mt-6" />
-      <UModal :open="Boolean(channelSettings)" :title="channelSettings?.name || 'Channel'" @update:open="value => { if (!value) channelSettingsId = null }"><template #body><div v-if="channelSettings" class="flex flex-wrap gap-2">
+      <SettingsEditor back="Channels" :open="Boolean(channelSettings)" :title="channelSettings?.name || 'Channel'" @update:open="value => { if (!value) channelSettingsId = null }"><template #body><div v-if="channelSettings" class="flex flex-wrap gap-2">
         <UButton v-if="can(Permission.manageChannels)" icon="i-ph-shield-check" label="Permissions" color="neutral" variant="outline" @click="editChannelPermissions(channelSettings!.id); channelSettingsId = null" />
         <UButton v-if="channelSettings.visibility === 'private' && channelSettings.createdBy === session.user?.id" icon="i-ph-users" label="Members" color="neutral" variant="outline" @click="memberChannelId = channelSettings!.id; channelSettingsId = null" />
         <UButton icon="i-ph-folder" label="Move to category" color="neutral" variant="outline" @click="moveChannelId = channelSettings!.id; moveCategoryId = channelSettings!.categoryId || 'uncategorized'; channelSettingsId = null" />
-      </div></template></UModal>
+      </div></template></SettingsEditor>
       <SettingsPrivateChannelMembers v-if="memberChannel" :open="true" :server-id="serverId" :channel="memberChannel" @update:open="value => { if (!value) memberChannelId = null }" />
-      <UModal :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
+      <SettingsEditor back="Channels" :open="Boolean(permissionChannel)" title="Channel permissions" @update:open="value => { if (!value) permissionChannelId = null }"><template #body><div v-if="permissionChannel">
         <div class="flex items-center gap-3">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">
             {{ permissionChannel.name }} permissions
@@ -622,7 +623,7 @@ function roleLabel(name: string) {
           />
           <UButton label="Save" :loading="permissionSaving" @click="saveChannelPermissions" />
         </div>
-      </div></template></UModal>
+      </div></template></SettingsEditor>
     </template>
 
     <template v-else-if="section === 'tools'">
@@ -630,13 +631,14 @@ function roleLabel(name: string) {
     </template>
 
     <template v-else-if="section === 'roles' || section === 'project-policies'">
-      <SettingsHeader title="Roles &amp; Policies">
+      <SettingsHeader v-if="rolesListVisible || section === 'project-policies'" title="Roles &amp; Policies">
         <template #actions>
           <UButton v-if="section === 'roles' && rolesListVisible" icon="i-ph-plus" label="Create role" size="sm" @click="rolesSettings?.createRole()" />
           <UButton v-else-if="section === 'project-policies'" icon="i-ph-plus" label="Create policy" size="sm" @click="policiesSettings?.createPolicy()" />
         </template>
       </SettingsHeader>
       <LayoutSegmentedTabs
+v-if="rolesListVisible || section === 'project-policies'"
         :model-value="section"
         :items="[{ value: 'roles', label: 'Roles' }, { value: 'project-policies', label: 'Policies' }]"
         label="Roles and policies"
@@ -654,7 +656,7 @@ function roleLabel(name: string) {
     <template v-else-if="section === 'compute'">
       <SettingsHeader title="Compute"><template #actions><UButton label="Add compute" icon="i-ph-plus" @click="computeNodes?.openCreate()" /></template></SettingsHeader>
       <SettingsComputeNodes ref="computeNodes" class="mt-6" @open-server="localComputeOpen = true" />
-      <UModal v-model:open="localComputeOpen" title="Server compute setup"><template #body><SettingsFactorySetup /></template></UModal>
+      <SettingsEditor v-model:open="localComputeOpen" back="Compute" title="Server compute setup"><template #body><SettingsFactorySetup /></template></SettingsEditor>
     </template>
 
     <template v-else-if="section === 'agents'">
@@ -667,12 +669,12 @@ function roleLabel(name: string) {
       <SettingsList class="mt-6" :items="membersQ.data.value?.members ?? []" :item-key="m => m.user.id" :search-text="m => `${m.nickname || m.user.displayName} ${m.role.name}`" :loading="membersQ.isPending.value" placeholder="Search members" :noun="['member', 'members']" @select="selectedMemberId = $event.user.id">
         <template #row="{ item: m }"><UserAvatar :user="m.user" size="sm" /><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ m.nickname || m.user.displayName }}</span><span class="block text-xs text-muted">{{ roleLabel(m.role.name) }}</span></span></template>
       </SettingsList>
-      <UModal :open="Boolean(selectedMember)" :title="selectedMember?.nickname || selectedMember?.user.displayName || 'Member'" @update:open="value => { if (!value) selectedMemberId = null }">
+      <SettingsEditor back="Members" :open="Boolean(selectedMember)" :title="selectedMember?.nickname || selectedMember?.user.displayName || 'Member'" @update:open="value => { if (!value) selectedMemberId = null }">
         <template #body><div v-if="selectedMember" class="space-y-5">
           <UFormField label="Server role"><USelect v-if="can(Permission.manageRoles) && selectedMember.role.key !== 'owner'" :model-value="selectedMember.role.id" :items="roleOptions" value-key="value" label-key="label" class="w-full" :loading="assigningId === selectedMember.user.id" aria-label="Assign role" @update:model-value="assignRole(selectedMember!.user.id, String($event))" /><p v-else class="text-sm text-muted">{{ roleLabel(selectedMember.role.name) }}</p></UFormField>
           <UButton v-if="can(Permission.kick) && selectedMember.role.key !== 'owner'" color="error" variant="soft" label="Remove member" @click="kickId = selectedMember!.user.id" />
         </div></template>
-      </UModal>
+      </SettingsEditor>
     </template>
 
     <template v-else-if="section === 'invites'">
@@ -681,7 +683,7 @@ function roleLabel(name: string) {
         <template #row="{ item: inv }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-link" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate font-mono text-sm text-highlighted">{{ inv.code }}</span><span class="block text-xs text-muted">{{ inv.uses }}{{ inv.maxUses ? ` / ${inv.maxUses}` : '' }} uses · {{ inv.expiresAt ? `expires ${formatDateTime(inv.expiresAt)}` : 'never expires' }}</span></span></template>
         <template #empty><p class="text-sm text-muted">No invites yet.</p></template>
       </SettingsList>
-      <UModal :open="Boolean(inviteUrl)" title="Invite link" @update:open="value => { if (!value) inviteUrl = '' }"><template #body><div class="flex gap-2"><UInput :model-value="serverUrl(inviteUrl)" readonly class="min-w-0 flex-1" /><UButton label="Copy" @click="copyInvite()" /></div></template></UModal>
+      <SettingsEditor back="Invites" :open="Boolean(inviteUrl)" title="Invite link" @update:open="value => { if (!value) inviteUrl = '' }"><template #body><div class="flex gap-2"><UInput :model-value="serverUrl(inviteUrl)" readonly class="min-w-0 flex-1" /><UButton label="Copy" @click="copyInvite()" /></div></template></SettingsEditor>
     </template>
 
     <template v-else-if="section === 'storage'"><SettingsStorageSettings :server-id="serverId" /></template>
@@ -717,25 +719,17 @@ function roleLabel(name: string) {
       <UAlert v-else-if="auditQ.error.value" color="error" title="Need manage permission." class="mt-6" />
       <UAlert v-else-if="!auditQ.data.value?.entries.length" color="neutral" title="Nothing yet." class="mt-6" />
       <SettingsList v-else class="mt-6" :items="auditQ.data.value.entries" :item-key="entry => entry.id" :search-text="entry => `${entry.action} ${entry.actorName} ${entry.targetType}`" placeholder="Search audit log" :noun="['entry', 'entries']" @select="selectedAudit = $event"><template #row="{ item: entry }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-list-magnifying-glass" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ entry.action }}</span><span class="block truncate text-xs text-muted">{{ entry.actorName }} · {{ formatDateTime(entry.createdAt) }}</span></span></template></SettingsList>
-      <UModal :open="Boolean(selectedAudit)" :title="selectedAudit?.action || 'Audit entry'" @update:open="value => { if (!value) selectedAudit = null }"><template #body><div v-if="selectedAudit" class="space-y-2 text-sm"><p>{{ selectedAudit.actorName }} · {{ formatDateTime(selectedAudit.createdAt) }}</p><p class="break-all text-muted">{{ selectedAudit.targetType }} · {{ selectedAudit.targetId }}</p><pre v-if="Object.keys(selectedAudit.meta ?? {}).length" class="overflow-auto rounded bg-elevated p-3 text-xs">{{ JSON.stringify(selectedAudit.meta, null, 2) }}</pre></div></template></UModal>
+      <SettingsEditor back="Audit Log" :open="Boolean(selectedAudit)" :title="selectedAudit?.action || 'Audit entry'" @update:open="value => { if (!value) selectedAudit = null }"><template #body><div v-if="selectedAudit" class="space-y-2 text-sm"><p>{{ selectedAudit.actorName }} · {{ formatDateTime(selectedAudit.createdAt) }}</p><p class="break-all text-muted">{{ selectedAudit.targetType }} · {{ selectedAudit.targetId }}</p><pre v-if="Object.keys(selectedAudit.meta ?? {}).length" class="overflow-auto rounded bg-elevated p-3 text-xs">{{ JSON.stringify(selectedAudit.meta, null, 2) }}</pre></div></template></SettingsEditor>
     </template>
-  </SettingsOverlay>
-
-  <UModal :open="Boolean(kickId)" title="Kick this member?" @update:open="(v: boolean) => { if (!v) kickId = null }">
-    <template #footer>
-      <UButton color="neutral" variant="outline" label="Cancel" @click="kickId = null" />
-      <UButton color="error" label="Kick" @click="confirmKick" />
-    </template>
-  </UModal>
-  <UModal v-model:open="editCategoryOpen" title="Edit category" :dismissible="!categorySaving">
+    <SettingsEditor v-model:open="editCategoryOpen" back="Channels" title="Edit category" :dismissible="!categorySaving">
     <template #body><UFormField label="Category name"><UInput v-model="categoryName" autofocus class="w-full" @keyup.enter="saveCategory" /></UFormField></template>
     <template #footer><UButton v-if="selectedCategory" color="error" variant="ghost" label="Delete category" @click="categoryDeleteId = selectedCategory.id; editCategoryOpen = false" /><UButton color="neutral" variant="ghost" label="Cancel" @click="editCategoryOpen = false" /><UButton label="Save changes" :loading="categorySaving" :disabled="!categoryName.trim()" @click="saveCategory" /></template>
-  </UModal>
-  <UModal :open="Boolean(movingChannel)" :title="`Move #${movingChannel?.name || 'channel'}`" @update:open="value => { if (!value) moveChannelId = null }">
+  </SettingsEditor>
+    <SettingsEditor back="Channels" :open="Boolean(movingChannel)" :title="`Move #${movingChannel?.name || 'channel'}`" @update:open="value => { if (!value) moveChannelId = null }">
     <template #body><UFormField label="Category" description="Choose the group where this channel appears in Chat."><USelect v-model="moveCategoryId" :items="categoryOptions" class="w-full" /></UFormField></template>
     <template #footer><UButton label="Cancel" color="neutral" variant="ghost" @click="moveChannelId = null" /><UButton label="Move channel" :loading="Boolean(channelAssigningId)" @click="moveChannelId && assignChannelCategory(moveChannelId, moveCategoryId)" /></template>
-  </UModal>
-  <UModal v-model:open="createCategoryOpen" title="Add category">
+  </SettingsEditor>
+    <SettingsEditor v-model:open="createCategoryOpen" back="Channels" title="Add category">
     <template #body>
       <UFormField label="Category name">
         <UInput v-model="newCategoryName" class="w-full" autofocus @keyup.enter="createCategory" />
@@ -745,7 +739,18 @@ function roleLabel(name: string) {
       <UButton color="neutral" variant="outline" label="Cancel" @click="createCategoryOpen = false" />
       <UButton label="Add category" :loading="categoryCreating" :disabled="!newCategoryName.trim()" @click="createCategory" />
     </template>
+  </SettingsEditor>
+  </SettingsOverlay>
+
+  <UModal :open="Boolean(kickId)" title="Kick this member?" @update:open="(v: boolean) => { if (!v) kickId = null }">
+    <template #footer>
+      <UButton color="neutral" variant="outline" label="Cancel" @click="kickId = null" />
+      <UButton color="error" label="Kick" @click="confirmKick" />
+    </template>
   </UModal>
+
+
+
   <UModal
     :open="Boolean(categoryDeleteId)"
     title="Delete this category?"

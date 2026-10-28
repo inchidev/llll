@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MemberDTO, RoleDTO } from '~~/shared/types'
 import { Permission } from '~~/shared/permissions'
@@ -227,9 +228,9 @@ watch(addMemberId, async (userId) => {
 
 <template>
   <div>
-    <UModal v-model:open="createOpen" title="Create role" :dismissible="!creating">
+    <SettingsEditor v-model:open="createOpen" back="Roles &amp; Policies" title="Create role" :dismissible="!creating">
       <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name" help="New roles start without policies. Choose policies after creation."><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
-    </UModal>
+    </SettingsEditor>
     <!-- Role list -->
     <template v-if="!selectedRole">
       <SettingsList
@@ -262,7 +263,7 @@ watch(addMemberId, async (userId) => {
 
     <!-- Role detail -->
     <template v-else>
-      <SettingsHeader :title="roleLabel(selectedRole)" back="Roles" @back="backToList">
+      <SettingsHeader :title="roleLabel(selectedRole)" back="Roles & Policies" @back="backToList">
         <template #badge>
           <UBadge v-if="selectedRole.isSystem" label="System" color="neutral" variant="subtle" size="sm" />
         </template>
