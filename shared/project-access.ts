@@ -37,3 +37,13 @@ export function anyProjectPermission(auth: AuthorizationContext, flag: Permissio
   const candidates = new Set((auth.principal.projectPolicies ?? []).map(grant => grant.projectId))
   return [...candidates].some(id => projectPermissionAllowed(auth, id, flag))
 }
+
+/**
+ * Whether a Member's directory includes Agents. HTTP members and MCP `list_members`
+ * share this rule: the Owner, Use agents or Manage agents, globally or in a project.
+ */
+export function canViewAgentMembers(auth: AuthorizationContext): boolean {
+  const { principal } = auth
+  return principal.isOwner || hasPermission(principal.permissions, Permission.useAgents)
+    || hasPermission(principal.permissions, Permission.manageAgents) || anyProjectPermission(auth, Permission.useAgents)
+}

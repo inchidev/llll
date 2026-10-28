@@ -77,7 +77,9 @@ const headerName = computed(() => {
   return channel.value?.title || dmTitle(channel.value?.name, channel.value?.participants ?? [], session.user?.id || '')
 })
 const frozen = computed(() => Boolean(oneQ.data.value?.frozen || channel.value?.frozen || ui.dmFrozen))
-const { can, mine } = usePermissions(members)
+const { can, canAnyProject, mine } = usePermissions(members)
+/** Writing Tasks anywhere offers Create task on messages; the board is chosen in the form. */
+const canCreateTasks = computed(() => canAnyProject(Permission.writeTasks))
 const canPin = computed(() => isDm.value ? !frozen.value : can(Permission.manageChannels))
 const effectivePermissions = computed(() => channel.value?.permissions ?? mine.value?.role.permissions ?? 0)
 const canSendMessages = computed(() => isDm.value ? !frozen.value : hasPermission(effectivePermissions.value, Permission.sendMessages))
@@ -456,6 +458,7 @@ defineShortcuts({
         :is-dm="isDm"
         :can-pin="canPin"
         :can-moderate="canModerate"
+        :can-create-tasks="canCreateTasks"
         :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
@@ -516,6 +519,7 @@ defineShortcuts({
         :members="members"
         :can-pin="canPin"
         :can-moderate="canModerate"
+        :can-create-tasks="canCreateTasks"
       />
       <LayoutMemberRail
         v-else-if="(!detailsOverlay && ui.rightPanelOpen) || (detailsOverlay && ui.mobilePane === 'members')"

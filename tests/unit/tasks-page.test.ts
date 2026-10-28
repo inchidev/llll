@@ -11,6 +11,8 @@ const Button = defineComponent({ props: ['label', 'disabled', 'loading'], setup:
 const Input = defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], setup: (p, { emit }) => () => h('input', { value: p.modelValue, onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value) }) })
 const Select = defineComponent({ props: ['modelValue', 'items'], emits: ['update:modelValue'], setup: (p, { emit }) => () => h('select', { value: p.modelValue ?? '', onChange: (e: Event) => emit('update:modelValue', (e.target as HTMLSelectElement).value || null) }, p.items.filter((i: {type?: string}) => !i.type).map((i: {value: string; label: string}) => h('option', { value: i.value ?? '' }, i.label))) })
 const Modal = defineComponent({ props: ['open', 'title'], setup: (p, { slots }) => () => p.open ? h('section', [h('h2', p.title), slots.body?.(), slots.footer?.()]) : null })
+/** The task dialog: Escape is the close request a slideover emits. */
+const Slideover = defineComponent({ props: ['open', 'title'], emits: ['update:open'], setup: (p, { slots, emit }) => () => p.open ? h('section', [h('h2', p.title), slots.body?.(), h('button', { 'aria-label': 'Press Escape', onClick: () => emit('update:open', false) })]) : null })
 let view: ReturnType<typeof mount>
 beforeEach(() => {
   task = { ...templateTask }; agentStatus = 'active'
@@ -31,7 +33,7 @@ beforeEach(() => {
 })
 afterEach(() => { view?.unmount(); client.clear(); vi.unstubAllGlobals() })
 async function render() {
-  view = mount(Tasks, { global: { mocks: { useSessionStore: () => ({ health: { bindings: {} } }) }, plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, UModal: Modal, USlideover: Modal, UFormField: { props: ['label'], template: '<label>{{ label }}<slot /></label>' }, USelect: Select, UInput: Input, UTextarea: true, UCheckbox: true, UBadge: true, UserAvatar: true, UIcon: true, UDropdownMenu: { template: '<div><slot /></div>' }, TasksDiscussion: true, LayoutSaveBar: true, LayoutSkeleton: true, LayoutLoadError: true, LayoutPageHeader: { template: '<header><slot name="actions" /></header>' }, LayoutEmptyState: true, UAlert: true, ULink: true } } })
+  view = mount(Tasks, { global: { mocks: { useSessionStore: () => ({ health: { bindings: {} } }) }, plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, UModal: Modal, USlideover: Slideover, UFormField: { props: ['label'], template: '<label>{{ label }}<slot /></label>' }, USelect: Select, UInput: Input, UTextarea: true, UCheckbox: true, UBadge: true, UserAvatar: true, UIcon: true, UDropdownMenu: { template: '<div><slot /></div>' }, TasksDiscussion: true, LayoutSaveBar: true, LayoutSkeleton: true, LayoutLoadError: true, LayoutPageHeader: { template: '<header><slot name="actions" /></header>' }, LayoutEmptyState: true, UAlert: true, ULink: true } } })
   await flushPromises(); await flushPromises()
 }
 it('explains that agent assignment waits for an explicit start rather than looking queued', async () => {
@@ -103,4 +105,47 @@ it('explains why an archived task cannot start an agent', async () => {
   const section = view.get('[aria-label="Agent task execution"]')
   expect(section.text()).toContain('Restore this task')
   expect(section.get('button').attributes('disabled')).toBeDefined()
+})
+
+it('closes a deep-linked task on Escape back to its board, never to a run page', async () => {
+  const route = reactive({ query: { board: 'board', task: '1001' } as Record<string, string | undefined> })
+  vi.stubGlobal('useRoute', () => route)
+  await render()
+  await view.get('[aria-label="Press Escape"]').trigger('click')
+  expect(navigateTo).toHaveBeenCalledWith({ path: '/tasks', query: { board: 'board', task: undefined } })
+  expect(vi.mocked(navigateTo).mock.calls.some(([to]) => String(typeof to === 'string' ? to : (to as { path?: string }).path).startsWith('/runs'))).toBe(false)
+})
+
+it('stays on the board when the dialog closes while its run is being started', async () => {
+  const route = reactive({ query: { board: 'board', task: '1001' } as Record<string, string | undefined> })
+  const add = vi.fn()
+  let admit!: (value: unknown) => void
+  const original = api.getMockImplementation()!
+  api.mockImplementation(async (url: string, options?: unknown) => url === '/api/agent-runs' ? new Promise(resolve => { admit = resolve }) : original(url, options))
+  vi.stubGlobal('useRoute', () => route)
+  vi.stubGlobal('useToast', () => ({ add }))
+  vi.stubGlobal('navigateTo', vi.fn((to: { query?: Record<string, string | undefined> }) => { if (typeof to === 'object' && to.query) route.query = to.query }))
+  await render()
+  await view.findAll('button').find(item => item.text() === 'Run assigned agent')!.trigger('click')
+  await flushPromises()
+  await view.get('[aria-label="Press Escape"]').trigger('click')
+  admit({ run: { id: 'fixture-run' } }); await flushPromises()
+  expect(navigateTo).not.toHaveBeenCalledWith('/runs/fixture-run')
+  expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Agent run started' }))
+})
+
+it('opens Create task prefilled from a chat message and saves the source link', async () => {
+  const route = reactive({ query: { board: 'board', fromMessage: 'source-message' } as Record<string, string | undefined> })
+  const original = api.getMockImplementation()!
+  api.mockImplementation(async (url: string, options?: unknown) => url === '/api/messages/source-message/task-draft'
+    ? { draft: { messageId: 'source-message', channelName: '#general', authorName: 'Bob', title: 'Fix login', description: 'It fails on Safari.' } }
+    : original(url, options))
+  vi.stubGlobal('useRoute', () => route)
+  await render()
+  const modal = view.findAll('section').find(s => s.find('h2').exists() && s.find('h2').text() === 'Create task')!
+  expect(modal.text()).toContain('From a message by Bob in #general')
+  expect((modal.get('input').element as HTMLInputElement).value).toBe('Fix login')
+  expect(navigateTo).toHaveBeenCalledWith({ path: '/tasks', query: { board: 'board', fromMessage: undefined } }, { replace: true })
+  await modal.findAll('button').find(b => b.text() === 'Create task')!.trigger('click'); await flushPromises()
+  expect(api).toHaveBeenCalledWith('/api/boards/board/tasks', expect.objectContaining({ body: expect.objectContaining({ title: 'Fix login', description: 'It fails on Safari.', sourceMessageId: 'source-message' }) }))
 })

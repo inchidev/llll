@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/vue-query'
 import type { RunDelivery } from '~~/server/utils/agent-run-delivery'
 import { Permission } from '~~/shared/permissions'
 import type { AgentRun } from '~~/shared/agent-execution'
+import { runStatusColor } from '~~/shared/agent-run-status'
+import { channelPath } from '~~/shared/paths'
 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
 const route = useRoute()
@@ -38,10 +40,11 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ factoryCalls: { callId: string; status: string; argumentsJson: string; error: string | null; createdAt: string }[]; publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ agentName?: string | null; task?: { id: string; number: number; title: string } | null; factoryCalls: { callId: string; status: string; argumentsJson: string; error: string | null; createdAt: string }[]; publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
+const statusColor = computed(() => runStatusColor(run.value?.status))
 async function cancel() {
   cancelling.value = true
   try { await api(`/api/agent-runs/${route.params.id}/cancel`, { method: 'POST' }); await runQ.refetch() }
@@ -89,18 +92,22 @@ async function publicationAction(decision?: 'approve' | 'reject') {
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
-    <LayoutPageHeader title="Agent run" icon="i-ph-robot" />
+    <LayoutPageHeader :title="runQ.data.value?.agentName ? `${runQ.data.value.agentName} run` : 'Agent run'" icon="i-ph-robot"><template #actions><UButton to="/runs" label="All runs" icon="i-ph-list-bullets" color="neutral" variant="ghost" size="sm" /></template></LayoutPageHeader>
     <main class="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-4 sm:p-8">
     <LayoutSkeleton v-if="runQ.isPending.value" variant="form" />
     <LayoutLoadError v-else-if="runQ.error.value" message="This run did not load." :retry="runQ.refetch" />
     <template v-else-if="run">
       <div class="flex items-center justify-between gap-4">
         <h2 class="text-lg font-medium text-highlighted">Execution</h2>
-        <UBadge :label="run.status" color="neutral" variant="subtle" />
+        <UBadge :label="run.status" :color="statusColor" variant="subtle" />
       </div>
       <p v-if="run.status === 'queued'" class="text-sm text-muted">Waiting for a free execution slot. The execution time limit starts when this Run begins.</p>
       <dl class="grid grid-cols-2 gap-3 text-sm">
-        <dt class="text-muted">Started</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
+        <template v-if="runQ.data.value?.agentName"><dt class="text-muted">Agent</dt><dd>{{ runQ.data.value.agentName }}</dd></template>
+        <template v-if="runQ.data.value?.task"><dt class="text-muted">Task</dt><dd><ULink :to="`/tasks?task=${runQ.data.value.task.number}`" class="text-primary">#{{ runQ.data.value.task.number }} {{ runQ.data.value.task.title }}</ULink></dd></template>
+        <template v-else-if="run.channelId"><dt class="text-muted">Conversation</dt><dd><ULink :to="run.sourceMessageId ? `${channelPath(run.channelId)}?message=${run.sourceMessageId}` : channelPath(run.channelId)" class="text-primary">Open conversation</ULink></dd></template>
+        <dt class="text-muted">Requested</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
+        <template v-if="!['queued', 'running'].includes(run.status)"><dt class="text-muted">Finished</dt><dd>{{ new Date(run.updatedAt).toLocaleString() }}</dd></template>
         <dt class="text-muted">Model</dt><dd class="break-all">{{ run.model }}</dd>
         <dt class="text-muted">Model calls</dt><dd>{{ run.modelCalls }}</dd>
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>

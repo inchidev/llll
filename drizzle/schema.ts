@@ -324,6 +324,9 @@ export const agents = sqliteTable('agents', {
   status: text('status', { enum: ['active', 'paused'] }).notNull().default('active'),
   createdBy: text('created_by').notNull().references(() => users.id),
   lastActiveAt: text('last_active_at'),
+  /** Set when the Agent is deleted. The profile row stays for history. */
+  archivedAt: text('archived_at'),
+  archivedBy: text('archived_by'),
   ...isoTimestamps(),
 }, table => [
   index('agents_status_idx').on(table.status),
@@ -636,7 +639,7 @@ export const notificationOutbox = sqliteTable('notification_outbox', {
   eventId: text('event_id').notNull(),
   subscriptionId: text('subscription_id').notNull().references(() => pushSubscriptions.id, { onDelete: 'cascade' }),
   recipientId: text('recipient_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['mention', 'dm_message', 'live_started'] }).notNull(),
+  kind: text('kind', { enum: ['mention', 'dm_message', 'live_started', 'mail'] }).notNull(),
   channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
   payloadJson: text('payload_json').notNull(),
   attempts: integer('attempts').notNull().default(0),
@@ -650,7 +653,7 @@ export const notificationOutbox = sqliteTable('notification_outbox', {
 }, table => [
   primaryKey({ columns: [table.eventId, table.subscriptionId] }),
   index('notification_outbox_due_idx').on(table.availableAt).where(sql`${table.deliveredAt} is null and ${table.failedAt} is null`),
-  check('notification_outbox_kind_check', sql`${table.kind} in ('mention', 'dm_message', 'live_started')`),
+  check('notification_outbox_kind_check', sql`${table.kind} in ('mention', 'dm_message', 'live_started', 'mail')`),
 ])
 
 /** Cloudflare-managed mail domains attached to this single-server server. */
@@ -1047,10 +1050,14 @@ export const tasks = sqliteTable('tasks', {
   resultDetails: text('result_details'),
   lastError: text('last_error'),
   archivedAt: text('archived_at'),
+  /** The chat message this task was created from. No foreign key: the task outlives the message. */
+  sourceChannelId: text('source_channel_id'),
+  sourceMessageId: text('source_message_id'),
   ...isoTimestamps(),
 }, table => [
   index('tasks_board_status_position_idx').on(table.boardId, table.status, table.position),
   index('tasks_assignee_id_idx').on(table.assigneeId),
+  index('tasks_source_message_idx').on(table.sourceChannelId, table.sourceMessageId).where(sql`${table.sourceMessageId} IS NOT NULL`),
   uniqueIndex('tasks_discussion_channel_unique').on(table.discussionChannelId).where(sql`${table.discussionChannelId} is not null`),
   check('tasks_status_check', sql`${table.status} in ('backlog', 'ready', 'review', 'done', 'failed')`),
   check('tasks_priority_check', sql`${table.priority} in ('low', 'normal', 'high', 'urgent')`),

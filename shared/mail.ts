@@ -20,6 +20,33 @@ export function mailPermissionAllows(actual: MailboxPermission, needed: MailboxP
 }
 
 /** Bounds on inbound mail. Email Routing accepts messages up to 25 MiB. */
+/**
+ * To, Cc and Bcc for an outbound email: each deduplicated, without the mailbox
+ * itself, and without an address already listed in an earlier field. The total
+ * stays within one email's address limit.
+ */
+export function outboundRecipients(input: { to: string[]; cc?: string[]; bcc?: string[] }, mailboxAddress: string) {
+  const own = mailboxAddress.trim().toLowerCase()
+  const seen = new Set<string>([own])
+  const pick = (values: string[] | undefined) => mergeMailAddresses(values ?? []).filter(value => !seen.has(value) && seen.add(value))
+  const to = pick(input.to), cc = pick(input.cc), bcc = pick(input.bcc)
+  return { to, cc, bcc, total: to.length + cc.length + bcc.length }
+}
+
+/**
+ * A new email forwarding an earlier one: `Fwd:` subject and the original quoted under
+ * the usual header block, with room to write above it. Attachments are not copied.
+ */
+export function forwardedEmail(original: { subject: string; fromName: string | null; fromAddress: string; date: string; to: string[]; cc: string[]; content: string }) {
+  const from = original.fromName ? `${original.fromName} <${original.fromAddress}>` : original.fromAddress
+  const header = ['---------- Forwarded message ----------', `From: ${from}`, `Date: ${original.date}`, `Subject: ${original.subject}`,
+    `To: ${original.to.join(', ')}`, ...(original.cc.length ? [`Cc: ${original.cc.join(', ')}`] : [])].join('\n')
+  return {
+    subject: /^fwd?:/iu.test(original.subject) ? original.subject : `Fwd: ${original.subject}`,
+    body: `\n\n${header}\n\n${original.content}`,
+  }
+}
+
 export const MAIL_LIMITS = {
   rawBytes: 25 * 1024 * 1024,
   attachments: 20,

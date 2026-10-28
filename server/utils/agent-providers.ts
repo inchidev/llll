@@ -84,7 +84,7 @@ export async function saveAgentProvider(env: L4Env, id: string, input: z.infer<t
   if (secret && !input.models.length) fail(400, 'model_required', 'Choose at least one model')
   if (new Set(input.models.map(m => m.id)).size !== input.models.length) fail(400, 'duplicate_model', 'Models must be unique')
   if ((kind === 'anthropic' && input.models.some(m => m.api !== 'anthropic')) || (kind === 'openrouter' && input.models.some(m => m.api !== 'chat')) || (kind === 'chatgpt' && input.models.some(m => m.api !== 'responses'))) fail(400, 'invalid_api', 'The model protocol does not match this provider')
-  await writeServerSetting(env.DB, agentProviderKey(id), JSON.stringify({ ...current, kind, name: input.name ?? current?.name ?? providerNames[kind], enabled: input.enabled, webSearch: input.webSearch && kind === 'openrouter', models: input.models, secret, keyPreview: input.apiKey ? maskedAgentKey(input.apiKey) : current?.keyPreview }))
+  await writeServerSetting(env.DB, agentProviderKey(id), JSON.stringify({ ...current, kind, name: input.name || (input.name === undefined && current?.name) || providerNames[kind], enabled: input.enabled, webSearch: input.webSearch && kind === 'openrouter', models: input.models, secret, keyPreview: input.apiKey ? maskedAgentKey(input.apiKey) : current?.keyPreview }))
 }
 export async function resolveSavedAgentModel(env: L4Env, reference: string, actorId?: string) {
   const parsed = parseAgentModelRef(reference)

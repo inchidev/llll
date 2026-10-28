@@ -1,7 +1,8 @@
 import { filterLiveRecipients } from './live-audience'
 import type { LiveKind, PublicUser } from '../shared/types'
 import { liveNotificationTitle } from '../shared/live'
-import { channelPath } from '../shared/paths'
+import { channelPath, mailPath } from '../shared/paths'
+import { Permission } from '../shared/permissions'
 import { notificationPreview, type NotificationKind, type PushNotificationPayload } from '../shared/notifications'
 import type { L4Env } from './env'
 import { asRpc } from './env'
@@ -191,6 +192,40 @@ export async function liveNotificationStatement(
       body: kind === 'call' ? 'Tap to answer' : 'Tap to join',
       tag: `live:${meetingId}`,
       url: channelPath(channelId),
+      icon: '/android-chrome-192x192.png',
+      badge: '/favicon-32x32.png',
+    },
+  })
+}
+
+/**
+ * People who may read a mailbox now: a mailbox grant plus Read or Send email (or Owner).
+ * Delivery checks this again, so a grant removed while the push waits stops it.
+ */
+export const MAILBOX_READERS_SQL = `SELECT a.user_id AS id FROM email_mailbox_access a
+  JOIN users u ON u.id = a.user_id AND u.status = 'active' AND u.kind = 'human'
+  JOIN roles r ON r.id = u.role_id CROSS JOIN server s
+  WHERE a.channel_id = ? AND (u.id = s.owner_id OR (r.permissions_bitmask & ${Permission.readMail | Permission.sendMail}) != 0)`
+
+type InboundMail = { messageId: string; mailboxId: string; threadId: string; subject: string; fromName: string | null; fromAddress: string; content: string }
+
+/** Push for an email that just arrived, to everyone who can read its mailbox. */
+export async function mailNotificationStatement(env: L4Env, mail: InboundMail): Promise<D1PreparedStatement | null> {
+  const [readers, mailbox] = await Promise.all([
+    env.DB.prepare(MAILBOX_READERS_SQL).bind(mail.mailboxId).all<{ id: string }>(),
+    env.DB.prepare('SELECT display_name AS name FROM email_mailboxes WHERE channel_id = ?').bind(mail.mailboxId).first<{ name: string | null }>(),
+  ])
+  const sender = mail.fromName?.trim() || mail.fromAddress
+  return outboxStatement(env, {
+    eventId: `mail:${mail.messageId}`,
+    kind: 'mail',
+    channelId: mail.threadId,
+    recipientIds: (readers.results ?? []).map(row => row.id),
+    payload: {
+      title: mailbox?.name ? `${sender} · ${mailbox.name}` : sender,
+      body: notificationPreview([mail.subject, mail.content].filter(Boolean).join(' — '), 0),
+      tag: `mail:${mail.threadId}`,
+      url: mailPath(mail.mailboxId, 'inbox', mail.threadId),
       icon: '/android-chrome-192x192.png',
       badge: '/favicon-32x32.png',
     },

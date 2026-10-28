@@ -116,7 +116,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
     <template #body>
       <UForm id="agent-provider-form" :schema="agentProviderSchema.omit({ apiKey: true })" :state="state" class="space-y-4" @submit="save">
         <UFormField name="kind" label="Provider"><USelect v-model="state.kind" :items="kinds" :disabled="Boolean(editing)" class="w-full" /></UFormField>
-        <UFormField name="name" label="Connection name" description="Distinguish work, personal, or other accounts."><UInput v-model="state.name" :placeholder="providerNames[state.kind]" class="w-full" /></UFormField>
+        <UFormField name="name" label="Connection name" description="Distinguish work, personal, or other accounts. Left empty, it uses the provider name."><UInput v-model="state.name" class="w-full" /></UFormField>
         <template v-if="state.kind === 'chatgpt'">
           <p class="text-sm text-muted">{{ editing?.account ? `Connected as ${editing.account}.` : 'Use your ChatGPT plan with Pi.' }} This connection is available only for your requests.</p>
           <UButton label="Continue with ChatGPT" color="neutral" variant="outline" :loading="busy" @click="connectChatGPT" />
@@ -131,7 +131,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
         </template>
         <UFormField v-else name="apiKey" label="API key" :description="editing?.configured ? `Saved: ${editing.keyPreview || '••••••••'}. Leave blank to keep it.` : 'Paste the key from your provider account.'"><UInput v-model="state.apiKey" type="password" autocomplete="new-password" :placeholder="editing?.keyPreview" class="w-full" /></UFormField>
         <template v-if="state.kind !== 'chatgpt' || editing?.configured">
-          <UFormField name="models" label="Models" description="Search the provider catalog and choose which models are available.">
+          <UFormField name="models" label="Models" description="Search the provider catalog and choose which models are available. Models without tool support are offered to AI functions only, never to agents.">
             <USelectMenu v-model="selectedModels" :items="modelItems" value-key="id" multiple virtualize placeholder="Choose models" class="w-full" :loading="loadingModels" :search-input="{ placeholder: 'Search model names…' }" />
           </UFormField>
           <UButton label="Load models" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" :loading="loadingModels" @click="loadModels" />

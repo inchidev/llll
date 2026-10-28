@@ -209,6 +209,13 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     const owner = await requireMessageMember(env, context('owner-user'), 'messages:read')
     expect((await listMessageMembers(env, owner, { kind: 'agent' })).members).toEqual([expect.objectContaining({ id: agentId, mentionToken: `<@${agentId}>` })])
     expect((await listMessageChannels(env, owner)).channels.map(x => x.id)).not.toContain('private-chat')
+    // HTTP members.get shows Agents to Manage agents too; MCP follows the same rule.
+    for (const flag of [Permission.manageAgents, Permission.useAgents]) {
+      sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='member-role'").run(Permission.mcpConnect | Permission.sendMessages | flag)
+      const manager = await requireMessageMember(env, context(), 'messages:read')
+      expect((await listMessageMembers(env, manager, { kind: 'agent' })).members.map(x => x.id)).toEqual([agentId])
+    }
+    sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='member-role'").run(Permission.mcpConnect | Permission.sendMessages)
     const page = await listMessageChannels(env, member, { limit: 1 })
     expect(page.channels.map(x => x.id)).toEqual(['public-chat'])
     expect((await listMessageChannels(env, member, { cursor: page.nextCursor! })).channels.map(x => x.id)).toEqual(['member-dm'])

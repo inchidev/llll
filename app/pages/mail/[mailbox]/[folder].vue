@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
-import { mailReplyRecipients, mergeMailAddresses } from '~~/shared/mail'
+import { forwardedEmail, mailReplyRecipients, mergeMailAddresses } from '~~/shared/mail'
 import { formatDateTime } from '~~/shared/format'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
 import { withMailboxUnread, withMessage, withoutMessage, withoutThread, withThreadActivity, withThreadFirst, withThreadRead, type MailThreadDetail, type MailThreadPages } from '~/utils/mail-cache'
@@ -30,13 +30,26 @@ const composerMode = ref<'reply' | 'note'>('reply')
 const replyAll = ref(false)
 const replyTo = ref('')
 const replyToEdited = ref(false)
-const replyAddresses = computed(() => mergeMailAddresses(replyTo.value.split(/[;,\s]+/u).filter(Boolean)))
+/** Addresses typed into a To, Cc or Bcc field, separated by commas, semicolons or spaces. */
+function addressesIn(value: string) { return mergeMailAddresses(value.split(/[;,\s]+/u).filter(Boolean)) }
+const replyAddresses = computed(() => addressesIn(replyTo.value))
+const replyCc = ref('')
+const replyBcc = ref('')
+const replyCopies = ref(false)
 const uncertainRetry = ref<MailMessageDTO | null>(null)
 const draft = ref('')
 const sending = ref(false)
 const composeTo = ref('')
 const composeSubject = ref('')
 const composeBody = ref('')
+const composeCc = ref('')
+const composeBcc = ref('')
+const composeCopies = ref(false)
+/** Forwarding copies the text; files stay in the original conversation. */
+const forwardedFiles = ref(0)
+/** Searches the open folder of this mailbox. */
+const searchInput = ref('')
+const search = refDebounced(computed(() => searchInput.value.trim()), 300)
 // Each email carries a key; retrying one after a dropped connection reuses it, so it is sent once.
 const newRequestKey = () => crypto.randomUUID()
 const replyKey = ref(newRequestKey())
@@ -55,11 +68,11 @@ const mailboxesQ = useQuery({
 const mailboxes = computed(() => mailboxesQ.data.value?.mailboxes ?? [])
 const activeMailbox = computed(() => mailboxes.value.find(mailbox => mailbox.channelId === activeMailboxId.value) ?? null)
 const canSend = computed(() => activeMailbox.value?.permission === 'send' || activeMailbox.value?.permission === 'manage')
-const threadsKey = computed(() => ['mail-threads', activeMailboxId.value, folder.value] as const)
+const threadsKey = computed(() => ['mail-threads', activeMailboxId.value, folder.value, search.value] as const)
 const threadsQ = useInfiniteQuery({
   queryKey: threadsKey,
   queryFn: ({ pageParam }) => api<MailThreadPageDTO>(`/api/mail/mailboxes/${activeMailboxId.value}/threads`, {
-    query: { status: folder.value, before: pageParam || undefined },
+    query: { status: folder.value, before: pageParam || undefined, q: search.value || undefined },
   }),
   initialPageParam: '',
   getNextPageParam: last => last.nextCursor ?? undefined,
@@ -122,7 +135,11 @@ watch(activeThreadId, () => {
   draft.value = ''
   composerMode.value = 'reply'
   replyKey.value = newRequestKey()
+  replyCc.value = ''
+  replyBcc.value = ''
+  replyCopies.value = false
 })
+watch(folder, () => { searchInput.value = '' })
 
 /** Marks the open conversation read once its newest message is on screen. */
 const readUpTo = new Map<string, string>()
@@ -161,8 +178,8 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
           fromAddress: activeMailbox.value?.address ?? '',
           fromName: activeMailbox.value?.displayName ?? null,
           to: replyAddresses.value,
-          cc: [],
-          bcc: [],
+          cc: addressesIn(replyCc.value),
+          bcc: addressesIn(replyBcc.value),
           deliveryStatus: 'pending',
           deliveryError: null,
         }
@@ -191,9 +208,10 @@ async function send() {
   try {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
-      body: mode === 'reply' ? { content, clientId: key, to: replyAddresses.value } : { content },
+      body: mode === 'reply' ? { content, clientId: key, to: replyAddresses.value, cc: addressesIn(replyCc.value), bcc: addressesIn(replyBcc.value) } : { content },
     })
     replyKey.value = newRequestKey()
+    if (mode === 'reply') { replyCc.value = ''; replyBcc.value = '' }
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, result.message, pending.id))
     qc.setQueriesData<MailThreadPages>({ queryKey: ['mail-threads', activeMailboxId.value] }, data => withThreadActivity(data, threadId, result.message))
     // A first reply puts the conversation in Sent.
@@ -258,28 +276,48 @@ async function move(status: MailThreadStatus) {
 async function compose() {
   const mailboxId = activeMailboxId.value
   if (!mailboxId || !canSend.value || !composeSubject.value.trim() || !composeBody.value.trim()) return
-  const to = [...new Set(composeTo.value.split(/[;,\s]+/u).map(value => value.trim()).filter(Boolean))]
+  const to = addressesIn(composeTo.value)
   if (!to.length) return
   sending.value = true
   try {
     const result = await api<{ threadId: string; thread: MailThreadDTO; message: MailMessageDTO }>(`/api/mail/mailboxes/${mailboxId}/send`, {
       method: 'POST',
-      body: { to, subject: composeSubject.value.trim(), content: composeBody.value.trim(), clientId: composeKey.value },
+      body: { to, cc: addressesIn(composeCc.value), bcc: addressesIn(composeBcc.value), subject: composeSubject.value.trim(), content: composeBody.value.trim(), clientId: composeKey.value },
     })
     composeKey.value = newRequestKey()
     nav.composeOpen.value = false
     composeTo.value = ''
     composeSubject.value = ''
     composeBody.value = ''
+    composeCc.value = ''
+    composeBcc.value = ''
+    composeCopies.value = false
+    forwardedFiles.value = 0
     qc.setQueryData<MailThreadDetail>(['mail-thread', result.threadId], { thread: result.thread, messages: [result.message] })
     // A conversation you start is in Sent; it reaches the Inbox once someone replies.
-    qc.setQueryData<MailThreadPages>(['mail-threads', mailboxId, 'sent'], data => withThreadFirst(data, result.thread))
+    qc.setQueryData<MailThreadPages>(['mail-threads', mailboxId, 'sent', ''], data => withThreadFirst(data, result.thread))
     if (result.message.email?.deliveryStatus === 'failed') deliveryFailed(result.message, 'email')
     await navigateTo(mailPath(mailboxId, 'sent', result.threadId))
   }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { sending.value = false }
 }
+
+/** Forward opens a new email with the original quoted, like any mail client. */
+function forward(message: MailMessageDTO) {
+  if (!message.email) return
+  const forwarded = forwardedEmail({ subject: thread.value?.subject ?? '', date: formatDateTime(message.createdAt), content: message.content, ...message.email })
+  composeTo.value = ''
+  composeCc.value = ''
+  composeBcc.value = ''
+  composeCopies.value = false
+  composeSubject.value = forwarded.subject
+  composeBody.value = forwarded.body
+  forwardedFiles.value = message.attachments.length
+  composeKey.value = newRequestKey()
+  nav.composeOpen.value = true
+}
+watch(() => nav.composeOpen.value, (open) => { if (!open) forwardedFiles.value = 0 })
 
 const folderLabel = computed(() => folder.value.charAt(0).toUpperCase() + folder.value.slice(1))
 
@@ -319,10 +357,13 @@ const deliveryBadge = {
           </div>
           <UButton v-if="canSend" label="Compose" trailing-icon="i-ph-pencil-simple" size="sm" @click="nav.composeOpen.value = true" />
         </div>
+        <div v-if="activeMailbox" class="border-b border-default px-3 py-2">
+          <UInput v-model="searchInput" icon="i-ph-magnifying-glass" :placeholder="`Search ${folderLabel}`" :aria-label="`Search ${folderLabel}`" size="sm" class="w-full" />
+        </div>
         <LayoutSkeleton v-if="threadsQ.isPending.value" variant="rows" :rows="6" />
         <div v-else-if="!mailboxes.length || !threads.length" class="px-6 py-16 text-center">
           <UIcon :name="mailboxes.length ? 'i-ph-tray' : 'i-ph-envelope-simple'" class="size-8 text-dimmed" />
-          <p class="mt-3 text-sm font-medium text-highlighted">{{ mailboxes.length ? `${folderLabel} is empty` : 'No mailbox assigned' }}</p>
+          <p class="mt-3 text-sm font-medium text-highlighted">{{ !mailboxes.length ? 'No mailbox assigned' : search ? 'No conversations match' : `${folderLabel} is empty` }}</p>
           <p v-if="!mailboxes.length" class="mt-1 text-sm text-muted">Ask a server admin for access to a mailbox.</p>
         </div>
         <button
@@ -388,9 +429,10 @@ const deliveryBadge = {
                     <span class="text-xs text-muted">{{ formatDateTime(message.createdAt) }}</span>
                   </div>
                   <p v-if="message.email" class="mt-0.5 truncate text-xs text-muted">
-                    {{ message.email.direction === 'outbound' ? `To ${message.email.to.join(', ')}` : `From ${message.email.fromAddress}` }}
+                    {{ message.email.direction === 'outbound' ? `To ${message.email.to.join(', ')}` : `From ${message.email.fromAddress}` }}<template v-if="message.email.cc.length"> · Cc {{ message.email.cc.join(', ') }}</template><template v-if="message.email.direction === 'outbound' && message.email.bcc.length"> · Bcc {{ message.email.bcc.join(', ') }}</template>
                   </p>
                 </div>
+                <UTooltip v-if="message.email && canSend && !message.id.startsWith('tmp:')" text="Forward"><UButton icon="i-ph-arrow-bend-double-up-right" color="neutral" variant="ghost" size="xs" square aria-label="Forward" @click="forward(message)" /></UTooltip>
               </div>
               <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-default">{{ message.content }}</p>
               <div v-if="message.email?.deliveryStatus === 'failed' || message.email?.deliveryUncertain" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
@@ -418,10 +460,15 @@ const deliveryBadge = {
               <UButton label="Reply" size="xs" color="neutral" :variant="composerMode === 'reply' ? 'soft' : 'ghost'" @click="composerMode = 'reply'" />
               <UButton v-if="composerMode === 'reply'" :label="replyAll ? 'Reply all' : 'Reply to sender'" size="xs" color="neutral" variant="ghost" @click="replyAll = !replyAll" />
               <UButton label="Internal note" size="xs" color="warning" :variant="composerMode === 'note' ? 'soft' : 'ghost'" @click="composerMode = 'note'" />
+              <UButton v-if="composerMode === 'reply' && !replyCopies" label="Cc/Bcc" size="xs" color="neutral" variant="ghost" class="ms-auto" @click="replyCopies = true" />
             </div>
             <UFormField v-if="composerMode === 'reply'" label="To" hint="Separate addresses with commas" class="mb-2">
               <UInput v-model="replyTo" class="w-full" @update:model-value="replyToEdited = true" />
             </UFormField>
+            <div v-if="composerMode === 'reply' && replyCopies" class="mb-2 grid gap-2 sm:grid-cols-2">
+              <UFormField label="Cc"><UInput v-model="replyCc" class="w-full" /></UFormField>
+              <UFormField label="Bcc" hint="Hidden from other recipients"><UInput v-model="replyBcc" class="w-full" /></UFormField>
+            </div>
             <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
             <div class="mt-2 flex justify-end">
               <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim() || (composerMode === 'reply' && !replyAddresses.length)" />
@@ -445,8 +492,14 @@ const deliveryBadge = {
       <template #body>
         <div class="space-y-4">
           <UFormField label="To" hint="Separate addresses with commas"><UInput v-model="composeTo" type="text" autofocus class="w-full" /></UFormField>
+          <UButton v-if="!composeCopies" label="Add Cc/Bcc" size="xs" color="neutral" variant="ghost" @click="composeCopies = true" />
+          <template v-else>
+            <UFormField label="Cc"><UInput v-model="composeCc" class="w-full" /></UFormField>
+            <UFormField label="Bcc" hint="Hidden from other recipients"><UInput v-model="composeBcc" class="w-full" /></UFormField>
+          </template>
           <UFormField label="Subject"><UInput v-model="composeSubject" class="w-full" /></UFormField>
           <UFormField label="Message"><UTextarea v-model="composeBody" :rows="8" class="w-full" /></UFormField>
+          <p v-if="forwardedFiles" class="text-xs text-muted">{{ forwardedFiles === 1 ? 'The attachment is' : `${forwardedFiles} attachments are` }} not forwarded. Download and send files separately.</p>
         </div>
       </template>
       <template #footer>

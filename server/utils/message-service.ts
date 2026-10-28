@@ -4,6 +4,7 @@ import { messages, users } from '../../drizzle/schema'
 import { extractMentionIds } from '../../shared/mentions'
 import { newId, nowIso } from '../../shared/ids'
 import { hasPermission, Permission } from '../../shared/permissions'
+import { canViewAgentMembers } from '../../shared/project-access'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { authorizeMcpCredential } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
@@ -153,7 +154,7 @@ export async function listMessageChannels(env: L4Env, member: Membership, input:
 export async function listMessageMembers(env: L4Env, member: Membership, input: { limit?: number; cursor?: string; name?: string; kind?: 'human' | 'agent' } = {}) {
   authorizeMcpCredential(member.authorization, 'messages:read')
   const limit = Math.max(1, Math.min(input.limit ?? 25, 50))
-  const canViewAgents = member.isOwner || hasPermission(member.perms, Permission.useAgents)
+  const canViewAgents = canViewAgentMembers(member.authorization)
   const rows = await getDb(env.DB).select().from(users).where(and(
     eq(users.status, 'active'), input.cursor ? lt(users.id, input.cursor) : undefined,
     !canViewAgents ? eq(users.kind, 'human') : undefined,

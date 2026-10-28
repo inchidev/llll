@@ -1,9 +1,10 @@
 <script setup lang="ts">
 const config = useRuntimeConfig()
 const sections = [
-
   { title: 'Server', description: 'Local accounts, community data, files and live coordination.', path: 'architecture.md' },
   { title: 'Shell', description: 'Connect to Servers and use their own Clients.', path: 'server.md#shell' },
+  { title: 'Agents', description: 'Create Agents, grant Roles, run Tasks and follow their Runs.', path: 'agents.md' },
+  { title: 'MCP connections', description: 'Connect MCP clients to a Server with your own Account.', path: 'mcp.md' },
   { title: 'Deployment', description: 'PR previews, protected main and immutable releases.', path: 'deployment.md' },
   { title: 'Releases', description: 'Install a published version and understand its limits.', path: 'releases.md' },
 ]

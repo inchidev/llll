@@ -2,7 +2,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { InfiniteData } from '@tanstack/vue-query'
 import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
-import type { ChannelThreadDTO, MemberDTO, MessageContextResponse, MessageDTO, MessagePinDTO, MessageSearchHitDTO, MessageSearchResponse } from '~~/shared/types'
+import type { ChannelThreadDTO, MemberDTO, MessageContextResponse, MessageDTO, MessagePinDTO, MessageSearchHitDTO, MessageSearchResponse, TaskSourceLinkDTO } from '~~/shared/types'
 import { formatDayLabel, formatFullDateTime, formatMessageTime, sameDay } from '~~/shared/format'
 import { applyMentionTokens, extractMentionIds, humanizeMentions } from '~~/shared/mentions'
 import { replaceShortcodes } from '~~/shared/emoji'
@@ -26,6 +26,8 @@ const props = withDefaults(defineProps<{
   allowThreads?: boolean
   /** The app path a copied message link opens, before `?message=`. */
   linkPath?: string
+  /** Offer Create task on messages (Create and update tasks somewhere in the Server). */
+  canCreateTasks?: boolean
 }>(), { channelName: undefined, linkPath: undefined, showIntro: true, allowThreads: true })
 const { api } = useApi()
 const emit = defineEmits<{
@@ -56,6 +58,18 @@ type MessageResponse = MessagePage & {
 }
 
 const messagesKey = computed(() => ['messages', props.channelId] as const)
+
+/** Tasks created from messages here, shown under their message. Only Tasks the viewer can read are returned. */
+const taskLinksQ = useQuery({
+  queryKey: computed(() => ['task-links', props.channelId]),
+  queryFn: () => api<{ links: TaskSourceLinkDTO[] }>(`/api/channels/${props.channelId}/task-links`),
+  staleTime: 60_000,
+})
+const taskLinksByMessage = computed(() => {
+  const map = new Map<string, TaskSourceLinkDTO[]>()
+  for (const link of taskLinksQ.data.value?.links ?? []) map.set(link.messageId, [...(map.get(link.messageId) ?? []), link])
+  return map
+})
 
 const q = useInfiniteQuery({
   queryKey: messagesKey,
@@ -442,6 +456,9 @@ function actionsFor(message: MessageDTO): DropdownMenuItem[][] {
     main.push({ label: message.threadId ? 'Open thread' : 'Create thread', icon: 'i-ph-chats', onSelect: () => emit('thread', message) })
   }
   if (props.canPin) main.push({ label: message.pin ? 'Unpin message' : 'Pin message', icon: 'i-ph-push-pin', onSelect: () => { void togglePin(message) } })
+  if (props.canCreateTasks && !message.deletedAt && !message.id.startsWith('tmp:')) {
+    main.push({ label: 'Create task', icon: 'i-ph-kanban', onSelect: () => { void navigateTo({ path: '/tasks', query: { fromMessage: message.id } }) } })
+  }
   const copyItems: DropdownMenuItem[] = []
   if (message.content.trim()) copyItems.push({ label: 'Copy text', icon: 'i-ph-copy', onSelect: () => { void copy(message.content, 'Text') } })
   copyItems.push({ label: 'Copy message link', icon: 'i-ph-link', onSelect: () => { void copy(messageLink(message), 'Link') } })
@@ -668,6 +685,7 @@ defineExpose({ focusMessage })
               :message="m"
               :context-only="m.channelId !== channelId"
               :thread="threadsByMessage.get(m.id)"
+              :task-links="taskLinksByMessage.get(m.id)"
               :names="names"
               :member="membersById.get(m.author.id)"
               :mine="m.author.id === session.user?.id"

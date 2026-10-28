@@ -1,8 +1,9 @@
-import { deploymentDefaultModel } from './agent-providers'
+import { agentProviderKey, deploymentDefaultModel } from './agent-providers'
 import { workersAiModels } from '../../shared/workers-ai-models'
 import { readServerSetting } from '../../shared/server-settings'
 import { aiProvider, resolveAgentModelId, type L4Env } from '../../workers/env'
-import type { AgentModelOption } from '../../shared/agent-providers'
+import { parseAgentModelRef, type AgentModelOption } from '../../shared/agent-providers'
+import { fail } from './cf'
 
 /** Search a bounded model page without hydrating every connection or its encrypted credentials. */
 export async function agentModelOptions(env: L4Env, actorId: string, search = '', selected?: string | null) {
@@ -31,4 +32,14 @@ export async function agentModelOptions(env: L4Env, actorId: string, search = ''
   if (deployment && !models.some(m => m.value === deployment) && (!search || deployment.toLowerCase().includes(search.toLowerCase()) || selected === deployment || configuredDefault === deployment)) models.push({ value: deployment, label: deployment, provider: 'Deployment' })
   if (deployment && selected && !selected.startsWith('l4:') && aiProvider(env) === 'openai-compatible' && !selected.startsWith('@cf/') && !models.some(m => m.value === selected)) models.unshift({ value: selected, label: selected, provider: 'Deployment' })
   return { models, defaultModel: configuredDefault !== null ? models.find(model => model.value === configuredDefault)?.value ?? null : deploymentDefaultModel(env, models, importedDeployment), deploymentProvider: deployment ? (aiProvider(env) === 'openai-compatible' ? 'Deployment' : 'Workers AI') : null, hasMore: rows.length > 50 }
+}
+
+/** Agents work through tools. A model the provider marks as text-only stays available for AI functions only. */
+export async function assertAgentModelSupportsTools(env: L4Env, model: string) {
+  const ref = parseAgentModelRef(model)
+  if (!ref) return
+  const textOnly = await env.DB.prepare(`SELECT 1 AS found FROM server_settings p, json_each(p.value,'$.models') m
+    WHERE p.key=? AND json_extract(m.value,'$.id')=? AND json_extract(m.value,'$.tools') IS 0 LIMIT 1`)
+    .bind(agentProviderKey(ref.provider), ref.model).first()
+  if (textOnly) fail(400, 'model_without_tools', 'This model does not support tools, which agents need. Choose another model; this one remains available for AI functions.')
 }

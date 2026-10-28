@@ -123,7 +123,24 @@ export type TaskDTO = {
 export type TaskDetailDTO = TaskDTO & {
   checklist: TaskChecklistItemDTO[]
   attachments: TaskAttachmentDTO[]
+  /** The chat message the task was created from, as this viewer may see it. */
+  source?: TaskSourceDTO | null
 }
+
+/**
+ * `restricted`: the viewer cannot read the source conversation and sees nothing about it.
+ * `deleted`: the message is gone; the conversation is still linked.
+ */
+export type TaskSourceDTO =
+  | { state: 'available'; channelName: string; path: string; authorName: string | null; excerpt: string }
+  | { state: 'deleted'; channelName: string; path: string }
+  | { state: 'restricted' }
+
+/** A task created from a message in the conversation being viewed. */
+export type TaskSourceLinkDTO = { taskId: string; number: number; title: string; messageId: string }
+
+/** A Task form prefilled from a chat message. */
+export type TaskMessageDraftDTO = { messageId: string; channelName: string; authorName: string | null; title: string; description: string }
 
 export type TaskBoardDTO = {
   id: string

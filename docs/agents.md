@@ -2,6 +2,27 @@
 
 An Agent is a non-human Member with one assigned Role. Its profile contains its name, instructions and model. Creators with Manage roles can choose or change its Role in the Create/Edit agent dialog. Roles can also be changed in Settings → Roles → Members; Agents appear in that list alongside people. The Owner role cannot be assigned.
 
+## Getting started
+
+1. **Create an Agent.** Server settings → Agents → Create agent. Give it a name no other Member uses, a model (or leave the Server default) and profile instructions. People cannot rename themselves to an Agent's name either.
+2. **Choose its Role.** Members with Manage roles pick the Role in the same dialog or in Settings → Roles → Members. The Role caps what the Agent can do; the Owner role is never assignable.
+3. **Let people use it.** Grant **Use agents** to the Roles (or Project policies) whose Members may find and invoke the Agent. Without it, the Agent is hidden from their member list, MCP `list_members` and Agent DMs.
+4. **Message it.** Open a DM from Agents, or mention it in a conversation it can access. Each reply is a Run governed by both the Agent's and your permissions.
+5. **Give it Tasks.** Assign a Task to the Agent, then choose **Run assigned agent**. Task execution needs Read tasks, Execute assigned tasks and Send messages for both the Agent and you.
+6. **Follow its work.** **Runs** (from Agents or any Run page) lists the Runs you started, filterable by status and Agent. Each Run page shows its activity timeline, model requests and result.
+7. **Pause or delete it.** Pausing stops new work and keeps everything. **Delete agent** in the editor is permanent for new work; see below.
+
+## Deleting an Agent
+
+Delete agent requires Manage agents and authority over the Agent's current Role (the same hierarchy as editing it). Deleting:
+
+- removes the Agent from the directory, Settings, Task assignee lists and MCP `list_members`, and frees its name;
+- cancels its queued and running Runs and its active Schedules, and revokes MCP connections and access tokens acting as it;
+- unassigns its open Tasks (completed Tasks keep it as their assignee for history) and returns Ready Tasks to Backlog;
+- deletes its avatar file.
+
+Messages, Direct Messages, Runs, Task results and audit entries stay. Its DMs become read-only like any DM with a removed Member. The audit log records `agent.delete` with what was stopped. A deleted Agent cannot be restored; create a new one instead.
+
 ## Role permissions
 
 - Using agents: `useAgents` discovers Agents and permits invocation in accessible conversations. It does not reveal other members' private Direct Messages.

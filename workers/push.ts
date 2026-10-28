@@ -2,6 +2,7 @@ import { buildPushPayload } from '@block65/webcrypto-web-push'
 import type { PushNotificationPayload } from '../shared/notifications'
 import { pushDeliveryDisposition, pushRetryDelayMs } from '../shared/notifications'
 import type { L4Env } from './env'
+import { Permission } from '../shared/permissions'
 
 function isLiveTag(tag: string): boolean {
   return tag.startsWith('live:')
@@ -19,6 +20,7 @@ type OutboxRow = {
   attempts: number
   channel_id: string
   recipient_id: string
+  kind: string
   endpoint: string
   p256dh: string
   auth: string
@@ -46,8 +48,19 @@ export async function privatePushAccessAllowed(db: D1Database, channelId: string
     .bind(channelId, userId).first())
 }
 
+/** A queued email push needs the recipient's mailbox grant and email permission at delivery time. */
+export async function mailPushAccessAllowed(db: D1Database, threadId: string, userId: string): Promise<boolean> {
+  return Boolean(await db.prepare(`SELECT 1 AS allowed FROM email_threads t
+    JOIN email_mailbox_access a ON a.channel_id = t.mailbox_channel_id AND a.user_id = ?
+    JOIN users u ON u.id = a.user_id AND u.status = 'active'
+    JOIN roles r ON r.id = u.role_id CROSS JOIN server s
+    WHERE t.channel_id = ? AND (u.id = s.owner_id OR (r.permissions_bitmask & ?) != 0)`)
+    .bind(userId, threadId, Permission.readMail | Permission.sendMail).first())
+}
+
 async function deliverPush(env: L4Env, row: OutboxRow) {
   if (!await privatePushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
+  if (row.kind === 'mail' && !await mailPushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   if (!pushConfigured(env)) return { disposition: 'retry' as const, error: 'vapid_unconfigured' }
   let payload: PushNotificationPayload
   try {
@@ -109,7 +122,7 @@ export async function drainNotificationOutbox(env: L4Env): Promise<void> {
   const now = new Date()
   const nowIso = now.toISOString()
   const rows = await env.DB.prepare(
-    `SELECT o.event_id, o.subscription_id, o.payload_json, o.attempts, o.channel_id, o.recipient_id,
+    `SELECT o.event_id, o.subscription_id, o.payload_json, o.attempts, o.channel_id, o.recipient_id, o.kind,
             s.endpoint, s.p256dh, s.auth
      FROM notification_outbox o
      JOIN push_subscriptions s ON s.id = o.subscription_id

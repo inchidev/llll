@@ -12,6 +12,7 @@ import { getDb } from '../../../utils/db'
 import { writeAudit } from '../../../utils/messages'
 import { parseBody } from '../../../utils/validate'
 import { signalMembersChanged } from '../../../../workers/member-events'
+import { assertAgentModelSupportsTools } from '../../../utils/agent-model-options'
 import { assertAgentNameAvailable } from '../../../utils/member-names'
 
 const bodySchema = z.object({
@@ -43,6 +44,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
   }
 
   await assertAgentNameAvailable(env, body.displayName)
+  await assertAgentModelSupportsTools(env, model)
   const id = newId()
   const now = nowIso()
   await db.batch([

@@ -11,6 +11,7 @@ const props = defineProps<{
   members: MemberDTO[]
   canPin?: boolean
   canModerate?: boolean
+  canCreateTasks?: boolean
   agentId?: string
 }>()
 const ui = useUiStore()
@@ -101,6 +102,7 @@ defineShortcuts({
       :show-intro="false"
       :can-pin="props.canPin"
       :can-moderate="props.canModerate"
+      :can-create-tasks="props.canCreateTasks"
       :allow-threads="false"
       :link-path="linkPath"
       @root-message="rootMessage = $event"

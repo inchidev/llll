@@ -9,6 +9,8 @@ type OutboundRow = {
   fromAddress: string
   fromName: string | null
   toJson: string
+  ccJson: string
+  bccJson: string
   inReplyTo: string | null
   referencesJson: string
   deliveryStatus: 'pending' | 'sent' | 'failed'
@@ -34,7 +36,7 @@ function deliveryError(error: unknown): string {
 export async function deliverOutboundEmail(env: L4Env, messageId: string, options: { retryUncertain?: boolean } = {}): Promise<void> {
   const row = await env.DB.prepare(
     `SELECT em.message_id as messageId, em.thread_channel_id as threadChannelId, m.channel_id as messageChannelId,
-       em.from_address as fromAddress, em.from_name as fromName, em.to_json as toJson,
+       em.from_address as fromAddress, em.from_name as fromName, em.to_json as toJson, em.cc_json as ccJson, em.bcc_json as bccJson,
        em.in_reply_to as inReplyTo, em.references_json as referencesJson,
        em.delivery_status as deliveryStatus, em.delivery_attempts as deliveryAttempts,
        em.delivery_started_at as deliveryStartedAt, em.created_at as createdAt,
@@ -63,6 +65,8 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
     result = await sendServerEmail(env, {
       from: row.fromName ? { email: row.fromAddress, name: row.fromName } : row.fromAddress,
       to: mailAddressList(row.toJson),
+      ...(mailAddressList(row.ccJson).length ? { cc: mailAddressList(row.ccJson) } : {}),
+      ...(mailAddressList(row.bccJson).length ? { bcc: mailAddressList(row.bccJson) } : {}),
       subject: isReply && !/^re:/iu.test(row.subject) ? `Re: ${row.subject}` : row.subject,
       text: row.content,
       headers: {
