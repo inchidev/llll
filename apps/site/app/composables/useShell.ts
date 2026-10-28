@@ -10,7 +10,7 @@ import type { ServerDiscovery } from '../../../../shared/server'
 import { readDeploymentClaim, stripDeploymentClaim } from '../../../../shared/deploy-handoff'
 import { serverAppearance, type ServerAppearance } from '../../../../shared/server-appearance'
 import { serverDiscovery } from '../../../../shared/server-discovery'
-import { readDeployedServers, recordDeployedServer } from '../../../../shared/deploy-recall'
+import { forgetDeployedServers, readDeployedServers, recordDeployedServer } from '../../../../shared/deploy-recall'
 export type ShellServer = {
   id: string
   origin: string
@@ -26,6 +26,9 @@ export function useShell() {
   const metadata = useState<Record<string, ServerAppearance>>('shell-metadata', () => ({}))
   const checked = useState<Record<string, number>>('shell-metadata-checked', () => ({}))
   const checking = useState<Record<string, boolean>>('shell-metadata-checking', () => ({}))
+  const probed = useState<Record<string, number>>('shell-existence-checked', () => ({}))
+  /** Names of Servers forgotten because their address no longer serves any Worker. */
+  const removed = useState<string[]>('shell-removed', () => [])
   const groups = computed(() =>
     servers.value.map((s) => ({
       origin: s.origin,
@@ -108,15 +111,42 @@ export function useShell() {
   async function refreshMetadata() {
     let cursor = 0
     const origins = servers.value.map(item => item.origin)
+    const failed: string[] = []
     await Promise.all(Array.from({ length: Math.min(4, origins.length) }, async () => {
       while (cursor < origins.length) {
         const origin = origins[cursor++]!
         if (checking.value[origin] || Date.now() - (checked.value[origin] || 0) < 30_000) continue
         checking.value[origin] = true
-        try { await readMetadata(origin) } catch { /* Keep the saved identity and appearance while offline. */ }
+        try { await readMetadata(origin) } catch { failed.push(origin) /* Keep the saved identity and appearance while offline. */ }
         finally { checked.value[origin] = Date.now(); checking.value[origin] = false }
       }
     }))
+    if (failed.length) await pruneMissing(failed)
+  }
+  /**
+   * Forgets saved Servers whose address no longer serves any Worker. The web Server checks, because a
+   * browser cannot tell Cloudflare's error page from an outage; anything short of that answer is kept.
+   * Each address is asked at most every ten minutes. Returns the forgotten origins.
+   */
+  async function pruneMissing(candidates: string[]) {
+    const origins = [...new Set(candidates)].filter(origin => Date.now() - (probed.value[origin] || 0) > 600_000).slice(0, 20)
+    if (!origins.length) return []
+    for (const origin of origins) probed.value[origin] = Date.now()
+    let result: { servers: { origin: string; status: string }[] }
+    try { result = await $fetch('/api/servers/status', { method: 'POST', body: { origins } }) }
+    catch { return [] }
+    const deployed = readDeployedServers()
+    const gone: string[] = []
+    for (const { origin, status } of result.servers) {
+      if (status !== 'missing' || !origins.includes(origin) || pendingMessages.value[origin] || calls.value[origin]) continue
+      const name = servers.value.find(item => item.origin === origin)?.name || deployed.find(item => item.origin === origin)?.name || origin.replace(/^https?:\/\//, '')
+      const wasSelected = selected.value === origin
+      forget(origin)
+      gone.push(origin)
+      removed.value = [...removed.value.filter(item => item !== name), name]
+      if (wasSelected && route.params.serverId) void router.replace('/servers')
+    }
+    return gone
   }
   function send(origin: string, data: object) {
     if (unclaimed.value[origin] || !ready.value[origin]) return
@@ -380,6 +410,7 @@ export function useShell() {
     Reflect.deleteProperty(metadata.value, origin)
     if (selected.value === origin) selected.value = ''
     persist()
+    forgetDeployedServers([origin])
   }
   return {
     error,
@@ -388,6 +419,8 @@ export function useShell() {
     updateMetadata,
     readMetadata,
     refreshMetadata,
+    pruneMissing,
+    removed,
     bookmark,
     groups,
     selected,

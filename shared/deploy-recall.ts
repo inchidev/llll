@@ -47,6 +47,16 @@ export function readDeployedServers(storage: RememberStorage | undefined = brows
   } catch { return [] }
 }
 
+/** Drops the given origins, so a removed or deleted Server stops reappearing on /create. */
+export function forgetDeployedServers(origins: readonly string[], storage: RememberStorage | undefined = browserStorage): DeployedServer[] {
+  const remembered = readDeployedServers(storage)
+  const next = remembered.filter(item => !origins.includes(item.origin))
+  if (next.length !== remembered.length) {
+    try { storage?.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* Read-only storage keeps the old list. */ }
+  }
+  return next
+}
+
 /** Upserts by origin, newest first, capped so the list cannot grow unbounded. */
 export function recordDeployedServer(entry: DeployedServer, storage: RememberStorage | undefined = browserStorage): DeployedServer[] {
   const parsed = normalize(entry)

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { readDeployedServers, recordDeployedServer } from '../../shared/deploy-recall'
+import { forgetDeployedServers, readDeployedServers, recordDeployedServer } from '../../shared/deploy-recall'
 
 function fakeStorage(initial: string | null = null) {
   let value = initial
@@ -62,4 +62,12 @@ it('persists safe public appearance metadata and drops private icon addresses an
   expect(readDeployedServers(storage)[0]?.iconUrl).toBeNull()
   expect(storage.getItem('')).not.toContain('private-token')
   expect(storage.getItem('')).not.toContain('not-a-revision')
+})
+
+it('forgets removed origins and keeps the rest', () => {
+  const storage = fakeStorage()
+  recordDeployedServer({ origin: 'https://a.test', name: 'First', completedAt: 1 }, storage)
+  recordDeployedServer({ origin: 'https://b.test', name: 'Second', completedAt: 2 }, storage)
+  expect(forgetDeployedServers(['https://a.test', 'https://unknown.test'], storage).map(entry => entry.origin)).toEqual(['https://b.test'])
+  expect(readDeployedServers(storage).map(entry => entry.origin)).toEqual(['https://b.test'])
 })

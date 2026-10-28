@@ -153,9 +153,17 @@ async function mountServer() {
   try {
     await shell.resolveServer()
   } catch {
+    const origin = shell.servers.value.find(item => item.id === route.params.serverId)?.origin
+    if (origin && (await shell.pruneMissing([origin])).length) return
     error.value = 'This Server is unavailable. Connect it by address or open its own website.'
     await navigateTo('/create')
   }
+}
+function forgetSelected() {
+  error.value = ''
+  try { shell.forget(shell.selected.value) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not remove this Server'; return }
+  void navigateTo('/servers')
 }
 </script>
 
@@ -201,7 +209,7 @@ async function mountServer() {
           <!-- Same mark, size, colours and timing as the Client's own loading screen, so the hand-off does not flicker. -->
           <BrandMark v-if="!frameSlow" class="size-12 animate-pulse" />
           <span v-if="!frameSlow" class="sr-only">Opening your Server…</span>
-          <template v-else><p class="text-sm text-muted">The Server is taking longer to open.</p><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /></template>
+          <template v-else><p class="text-sm text-muted">The Server is taking longer to open.</p><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /><UButton label="Remove from this device" color="neutral" variant="ghost" @click="forgetSelected" /></template>
         </div>
         <div
           v-if="checkingAddress"
@@ -228,7 +236,7 @@ async function mountServer() {
           class="absolute bottom-4 left-4 right-4"
           color="error"
           :description="error"
-          closable
+          close
           @update:open="error = ''"
         />
       </section>

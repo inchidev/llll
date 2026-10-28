@@ -17,6 +17,7 @@ function forget(origin: string) {
       <UButton type="submit" label="Connect" :loading="shell.busy.value" size="lg" block />
     </form>
     <UAlert v-if="shell.error.value" class="mt-4" color="error" :description="shell.error.value" />
+      <UAlert v-if="shell.removed.value.length" class="mt-4" color="neutral" variant="subtle" :description="`Removed from this device because they no longer exist: ${shell.removed.value.join(', ')}.`" close @update:open="shell.removed.value = []" />
     <section v-if="shell.servers.value.length" class="mt-8 border-t border-default pt-6">
       <h2 class="text-sm font-medium">Saved on this device</h2>
       <ul aria-label="Saved servers" class="mt-3 space-y-2">

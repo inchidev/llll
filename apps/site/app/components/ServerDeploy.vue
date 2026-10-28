@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { z } from 'zod'
 import { deploymentShellUrl } from '../../../../shared/deploy-handoff'
-import { readDeployedServers, recordDeployedServer, type DeployedServer } from '../../../../shared/deploy-recall'
+import { forgetDeployedServers, readDeployedServers, recordDeployedServer, type DeployedServer } from '../../../../shared/deploy-recall'
 import ServerAvatar from '../../../../packages/client-ui/ServerAvatar.vue'
 
 const phases = ['Configure your Server', 'Start deployment', 'Wait for Cloudflare verification', 'Ready']
@@ -160,6 +160,14 @@ async function recoverSetup(entry: Deployment) {
 function openRoute(origin: string) {
   return deploymentShellUrl(origin, statuses.value[origin] === 'setup' ? claimFor(origin) : undefined)
 }
+const listed = (origin: string) => connected.value && inventoryLoaded.value && inventory.value.some(server => server.origin === origin)
+function forgetRow(origin: string) {
+  error.value = ''
+  try { shell.forget(origin) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not remove this Server'; return }
+  remembered.value = readDeployedServers()
+  Reflect.deleteProperty(statuses.value, origin)
+}
 function remember(entry: Deployment) {
   remembered.value = recordDeployedServer({ origin: entry.origin, name: entry.name, accountId: entry.accountId, version: entry.version, ...shell.metadata.value[entry.origin], completedAt: Date.now() })
 }
@@ -205,6 +213,8 @@ async function checkRows() {
   await Promise.all(Array.from({ length: Math.min(4, origins.length) }, async () => {
     while (cursor < origins.length) await checkServer(origins[cursor++]!)
   }))
+  const unavailable = origins.filter(origin => statuses.value[origin] === 'unavailable' && !listed(origin) && !claimFor(origin))
+  if (unavailable.length && (await shell.pruneMissing(unavailable)).length) remembered.value = readDeployedServers()
 }
 async function loadServers() {
   if (updateMode.value) { listing.value = false; return }
@@ -220,6 +230,10 @@ async function loadServers() {
     if (current !== request || selected !== accountId.value || !connected.value) return
     inventory.value = data.servers
     inventoryLoaded.value = true
+    // The account listing is authoritative: a Server this browser remembers for the account but that is no
+    // longer listed was deleted there, so stop offering it on this device.
+    const deleted = remembered.value.filter(item => item.accountId === selected && !data.servers.some(server => server.origin === item.origin))
+    if (deleted.length) remembered.value = forgetDeployedServers(deleted.map(item => item.origin))
     for (const entry of data.servers) remember(entry)
   } catch (cause) {
     if (current !== request) return
@@ -407,6 +421,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
             <UButton :to="statuses[entry.origin] === 'setup' && claimFor(entry.origin) || entry.origin" external label="Open directly" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="ghost" />
             <UButton v-if="statuses[entry.origin] !== 'ready' && connected && 'workerName' in entry && entry.workerName" :label="statuses[entry.origin] === 'setup' && !claimFor(entry.origin) ? 'Finish setup on your Server' : 'Recover setup link'" size="sm" color="neutral" variant="ghost" :loading="recoveringSetup === entry.origin" :disabled="Boolean(recoveringSetup)" @click="recoverSetup(entry)" />
             <UButton :label="copied === entry.origin ? 'Copied' : 'Copy address'" size="sm" color="neutral" variant="ghost" @click="copyAddress(entry.origin)" />
+            <UButton v-if="!listed(entry.origin)" label="Remove from this device" :aria-label="`Remove ${entry.name || 'this Server'} from this device`" icon="i-ph-x" size="sm" color="neutral" variant="ghost" @click="forgetRow(entry.origin)" />
           </div>
         </li>
       </ul>

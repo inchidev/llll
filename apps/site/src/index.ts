@@ -45,6 +45,22 @@ function publicOrigin(value: string, env: WebEnv) {
   if (url.origin !== value || (!local && (url.protocol !== 'https:' || !url.hostname.includes('.') || /^(?:\d|\[)/.test(url.hostname) || /\.(?:localhost|local|internal|test|invalid)$/.test(url.hostname)))) fail(400, 'Enter a public HTTPS server origin')
   return url.origin
 }
+/**
+ * Whether a saved Server still exists. Only Cloudflare's own answer that no Worker serves the
+ * workers.dev address (error 1042) counts as missing. Timeouts, outages and every other error stay
+ * unreachable, so a Server that is merely offline is never forgotten.
+ */
+async function probeServer(value: string, env: WebEnv): Promise<'available' | 'missing' | 'unreachable'> {
+  let origin: string
+  try { origin = publicOrigin(value, env) } catch { return 'unreachable' }
+  try {
+    const response = await fetch(origin + '/.well-known/llll', { redirect: 'manual', signal: AbortSignal.timeout(5000) })
+    const text = await boundedText(response)
+    if (response.status === 404 && new URL(origin).hostname.endsWith('.workers.dev') && /^error code: 1042\s*$/.test(text)) return 'missing'
+    if (!response.ok) return 'unreachable'
+    return (JSON.parse(text) as { kind?: unknown }).kind === 'server' ? 'available' : 'unreachable'
+  } catch { return 'unreachable' }
+}
 function resumePath(data: { oauthNext?: 'create' | 'domain', updateRequest?: unknown, factoryRequest?: { accountId: string; workerName: string; origin: string }, storageRequest?: { accountId: string; workerName: string; origin: string } }) {
   if (data.oauthNext === 'domain') return '/domain?resume=1'
   if (data.factoryRequest) return '/create?' + new URLSearchParams({ tab: 'cloudflare', factory: '1', account: data.factoryRequest.accountId, worker: data.factoryRequest.workerName, server: data.factoryRequest.origin }).toString()
@@ -85,6 +101,12 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const registered = await env.DB.prepare('INSERT INTO server_directory(id,origin,verified_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET verified_at=excluded.verified_at WHERE origin=excluded.origin RETURNING id').bind(value.id, origin, Date.now()).first()
     if (!registered) fail(409, 'This server ID is registered to another server')
     return json({ ok: true })
+  }
+  if (path === '/api/servers/status' && request.method === 'POST') {
+    // Browsers cannot read Cloudflare's error page across origins, so the Shell asks here before forgetting a Server.
+    const { origins } = z.object({ origins: z.array(z.string().max(2048)).min(1).max(20) }).strict().parse(await input(request))
+    const unique = [...new Set(origins)]
+    return json({ servers: await Promise.all(unique.map(async origin => ({ origin, status: await probeServer(origin, env) }))) })
   }
   const lookup = path.match(/^\/api\/servers\/([a-f0-9-]{36})$/)
   if (lookup && request.method === 'GET') {

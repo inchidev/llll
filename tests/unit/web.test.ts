@@ -197,6 +197,38 @@ it('requires an server proof and prevents directory ownership replacement', asyn
   expect((await web.fetch(req('/api/servers/register', '', { id: crypto.randomUUID(), origin: 'https://127.0.0.1' }), env)).status).toBe(400)
 })
 
+it('reports a saved Server as missing only when Cloudflare says no Worker serves its workers.dev address', async () => {
+  const id = crypto.randomUUID()
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const host = new URL(url).hostname
+    if (host === 'live.example.workers.dev') return Response.json({ kind: 'server', id })
+    if (host === 'gone.example.workers.dev') return new Response('error code: 1042', { status: 404 })
+    if (host === 'gone.example.com') return new Response('error code: 1042', { status: 404 })
+    if (host === 'other.example.workers.dev') return new Response('Not found', { status: 404 })
+    if (host === 'html.example.workers.dev') return new Response('<html></html>', { status: 200 })
+    throw new TypeError('network down')
+  }))
+  const response = await web.fetch(req('/api/servers/status', '', { origins: [
+    'https://live.example.workers.dev', 'https://gone.example.workers.dev', 'https://gone.example.com',
+    'https://other.example.workers.dev', 'https://html.example.workers.dev', 'https://down.example.workers.dev', 'https://127.0.0.1', 'https://gone.example.workers.dev',
+  ] }), env)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ servers: [
+    { origin: 'https://live.example.workers.dev', status: 'available' },
+    { origin: 'https://gone.example.workers.dev', status: 'missing' },
+    { origin: 'https://gone.example.com', status: 'unreachable' },
+    { origin: 'https://other.example.workers.dev', status: 'unreachable' },
+    { origin: 'https://html.example.workers.dev', status: 'unreachable' },
+    { origin: 'https://down.example.workers.dev', status: 'unreachable' },
+    { origin: 'https://127.0.0.1', status: 'unreachable' },
+  ] })
+  expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(expect.stringContaining('127.0.0.1'), expect.anything())
+  const tooMany = Array.from({ length: 21 }, (_, index) => `https://s${index}.example.workers.dev`)
+  expect((await web.fetch(req('/api/servers/status', '', { origins: tooMany }), env)).status).toBe(400)
+  const foreign = new Request(origin + '/api/servers/status', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ origins: ['https://gone.example.workers.dev'] }) })
+  expect((await web.fetch(foreign, env)).status).toBe(403)
+})
+
 async function connectedSession(completed = false) {
   const session = await webSession(req('/'), env, true)
   Object.assign(session.data, {
