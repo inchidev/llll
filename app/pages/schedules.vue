@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import type { ChannelDTO, TaskAgentDTO, TaskBoardDTO } from '~~/shared/types'
-import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleErrorHint, type PublicSchedule, type ScheduleListPage, type ScheduleStatusFilter } from '~~/shared/schedules'
+import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleEditable, scheduleErrorHint, scheduleLocalTime, type PublicSchedule, type ScheduleListPage, type ScheduleStatusFilter } from '~~/shared/schedules'
 import { Permission } from '~~/shared/permissions'
 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
@@ -9,6 +9,7 @@ const { api } = useApi()
 const { serverId } = useServer()
 const { can } = useRoleGrants()
 const toast = useToast()
+const session = useSessionStore()
 const busy = ref(false)
 const content = ref('')
 const channelId = ref('')
@@ -41,7 +42,7 @@ const agents = useQuery({ queryKey: computed(() => ['schedule-agents', serverId.
 const tasks = computed(() => boards.data.value?.boards.flatMap(board => board.tasks).filter(task => agents.data.value?.agents.some(agent => agent.id === task.assigneeId && agent.status === 'active') && !task.archivedAt && task.status !== 'done') ?? [])
 const actionItems = computed(() => [{ label: 'Reminder', value: 'reminder' },
   ...(can(Permission.executeTasks) ? [{ label: 'Run an assigned task', value: 'work', disabled: !workAvailable.value }] : [])])
-watch(workAvailable, available => { if (!available && kind.value === 'work') kind.value = 'reminder' })
+watch(workAvailable, available => { if (!available && kind.value === 'work' && !editing.value) kind.value = 'reminder' })
 const resolved = computed(() => resolveScheduleTime(firstAt.value, timezone.value))
 const preview = computed(() => {
   if (!resolved.value) return null
@@ -52,16 +53,40 @@ const dstWarning = computed(() => resolved.value?.issue === 'gap'
   ? `That time does not exist in ${timezone.value} on this date because clocks move forward. It will run at ${resolved.value.wallTime.slice(11)} instead.`
   : resolved.value?.issue === 'overlap' ? `That time happens twice in ${timezone.value} on this date because clocks move back. The first occurrence is used.` : null)
 async function refresh() { await schedules.refetch() }
-async function create() {
-  if (!resolved.value) { toast.add({ title: 'Choose a valid time and timezone', color: 'error' }); return }
-  busy.value = true
+const formError = ref('')
+/** The schedule being edited and the form values it started from, so Save sends only what changed. */
+const editing = ref<{ item: PublicSchedule; at: string | null } | null>(null)
+const formRef = ref<HTMLFormElement | null>(null)
+const canEdit = (item: PublicSchedule) => scheduleEditable(item) && !item.unavailable && item.principalId === session.user?.id
+function startEdit(item: PublicSchedule) {
+  kind.value = item.kind; channelId.value = item.channelId; content.value = item.content; taskId.value = item.taskId ?? ''
+  timezone.value = item.timezone; recurrence.value = item.recurrence; firstAt.value = scheduleLocalTime(item)
+  editing.value = { item, at: resolved.value?.at ?? null }
+  formError.value = ''
+  nextTick(() => { formRef.value?.scrollIntoView({ block: 'nearest' }); formRef.value?.querySelector('textarea')?.focus() })
+}
+function resetForm() {
+  editing.value = null; formError.value = ''; content.value = ''; firstAt.value = ''; recurrence.value = 'once'; taskId.value = ''
+}
+async function save() {
+  if (!resolved.value) { formError.value = 'Choose a valid time and timezone'; return }
+  busy.value = true; formError.value = ''
   try {
     const task = tasks.value.find(task => task.id === taskId.value)
-    await api('/api/schedules', { method: 'POST', body: { kind: kind.value, channelId: channelId.value, content: content.value,
-      firstAt: resolved.value.at, timezone: timezone.value, recurrence: recurrence.value,
-      ...(kind.value === 'work' ? { taskId: taskId.value, agentId: task?.assigneeId } : {}) } })
-    content.value = ''; await refresh()
-  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+    const work = kind.value === 'work' ? { taskId: taskId.value, agentId: task?.assigneeId } : {}
+    if (editing.value) {
+      const { item, at } = editing.value
+      const retimed = resolved.value.at !== at || timezone.value !== item.timezone || recurrence.value !== item.recurrence
+      const body = { ...(content.value.trim() !== item.content ? { content: content.value } : {}),
+        ...(retimed ? { firstAt: resolved.value.at, timezone: timezone.value, recurrence: recurrence.value } : {}),
+        ...(kind.value === 'work' && taskId.value !== item.taskId ? work : {}) }
+      if (Object.keys(body).length) await api(`/api/schedules/${item.id}`, { method: 'PATCH', body: { action: 'edit', ...body } })
+    } else {
+      await api('/api/schedules', { method: 'POST', body: { kind: kind.value, channelId: channelId.value, content: content.value,
+        firstAt: resolved.value.at, timezone: timezone.value, recurrence: recurrence.value, ...work } })
+    }
+    resetForm(); await refresh()
+  } catch (error) { formError.value = errorMessage(error) }
   finally { busy.value = false }
 }
 async function act(item: PublicSchedule, action: 'pause' | 'resume' | 'dismiss' | 'cancel') {
@@ -82,15 +107,16 @@ const history = ref<string | null>(null)
     <h2 class="text-lg font-medium">Reminders and recurring work</h2>
     <UAlert v-if="!can(Permission.manageSchedules)" title="Your role does not allow schedules" color="neutral" />
     <template v-else>
-      <form class="space-y-4 rounded-lg border border-default p-4" @submit.prevent="create">
+      <form ref="formRef" class="space-y-4 rounded-lg border border-default p-4" :aria-label="editing ? 'Edit schedule' : 'New schedule'" @submit.prevent="save">
+        <h3 v-if="editing" class="text-sm font-medium">Edit schedule</h3>
         <UFormField label="What should happen?"><UTextarea v-model="content" class="w-full" required placeholder="Review the market research" /></UFormField>
         <div class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Action" :help="can(Permission.executeTasks) && !workAvailable ? 'Running tasks needs agent execution, which this Server has not configured.' : undefined">
-            <USelect v-model="kind" class="w-full" :items="actionItems" />
+          <UFormField label="Action" :help="editing ? 'The action cannot change. Cancel and create a new schedule instead.' : can(Permission.executeTasks) && !workAvailable ? 'Running tasks needs agent execution, which this Server has not configured.' : undefined">
+            <USelect v-model="kind" class="w-full" :items="actionItems" :disabled="!!editing" />
           </UFormField>
-          <UFormField label="Conversation"><USelect v-model="channelId" :items="channelOptions" class="w-full" required /></UFormField>
+          <UFormField label="Conversation" :help="editing ? 'The conversation cannot change.' : undefined"><USelect v-model="channelId" :items="channelOptions" class="w-full" required :disabled="!!editing" /></UFormField>
           <UFormField v-if="kind === 'work'" label="Assigned task"><USelect v-model="taskId" :items="tasks.map(task => ({ label: task.title, value: task.id }))" class="w-full" required /></UFormField>
-          <UFormField label="First time" help="Enter time in the selected timezone."><UInput v-model="firstAt" type="datetime-local" class="w-full" required /></UFormField>
+          <UFormField :label="editing ? 'Next time' : 'First time'" help="Enter time in the selected timezone."><UInput v-model="firstAt" type="datetime-local" class="w-full" required /></UFormField>
           <UFormField label="Repeat"><USelect v-model="recurrence" class="w-full" :items="[{ label: 'Once', value: 'once' }, { label: 'Daily', value: 'daily' }, { label: 'Weekly', value: 'weekly' }]" /></UFormField>
           <UFormField label="Timezone">
             <USelectMenu v-model="timezone" :items="timezones" aria-label="Timezone" :search-input="{ placeholder: 'Search timezones' }" virtualize class="w-full" />
@@ -98,8 +124,10 @@ const history = ref<string | null>(null)
         </div>
         <p v-if="preview" class="text-sm text-muted" aria-live="polite">{{ preview }}</p>
         <UAlert v-if="dstWarning" :description="dstWarning" color="warning" variant="subtle" icon="i-ph-warning" />
+        <UAlert v-if="formError" :description="formError" color="error" variant="subtle" icon="i-ph-warning-circle" role="alert" />
         <div class="flex flex-wrap items-center gap-3">
-          <UButton type="submit" label="Schedule" :loading="busy" :disabled="!content.trim() || !channelId || !resolved" />
+          <UButton type="submit" :label="editing ? 'Save' : 'Schedule'" :loading="busy" :disabled="!content.trim() || !channelId || !resolved" />
+          <UButton v-if="editing" label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="resetForm" />
           <span v-if="firstPage" class="text-xs text-muted">{{ firstPage.activeCount }} of {{ firstPage.activeLimit }} active</span>
         </div>
       </form>
@@ -123,6 +151,7 @@ const history = ref<string | null>(null)
         </p>
         <UAlert v-if="item.lastError" :title="item.lastError" :description="scheduleErrorHint(item.lastErrorCode) ?? undefined" :color="item.status === 'blocked' ? 'error' : 'warning'" variant="subtle" />
         <div class="flex flex-wrap gap-1">
+          <UButton v-if="canEdit(item)" label="Edit" color="neutral" variant="ghost" size="sm" @click="startEdit(item)" />
           <UButton v-if="item.status === 'active'" label="Pause" color="neutral" variant="ghost" size="sm" @click="act(item, 'pause')" />
           <UButton v-if="item.status === 'paused' || item.status === 'blocked'" label="Resume" color="neutral" variant="ghost" size="sm" @click="act(item, 'resume')" />
           <UButton v-if="['active', 'paused', 'blocked'].includes(item.status)" label="Cancel" color="neutral" variant="ghost" size="sm" @click="act(item, 'cancel')" />

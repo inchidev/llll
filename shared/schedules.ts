@@ -83,6 +83,13 @@ export function resolveScheduleTime(local: string, timeZone: string): { at: stri
   return { at: resolved.toInstant().toString(), wallTime: resolved.toPlainDateTime().toString({ smallestUnit: 'minute' }), issue }
 }
 
+/** The `datetime-local` value an edit form starts from: the next run in the schedule's zone, skipping missed repetitions. */
+export function scheduleLocalTime(schedule: Pick<Schedule, 'firstAt' | 'timezone' | 'recurrence' | 'nextAt'>, now = new Date().toISOString()): string {
+  const due = schedule.nextAt ?? schedule.firstAt
+  const at = Date.parse(due) > Date.parse(now) ? due : nextScheduleAt(schedule, due, now) ?? due
+  return Temporal.Instant.from(at).toZonedDateTimeISO(schedule.timezone).toPlainDateTime().toString({ smallestUnit: 'minute' })
+}
+
 export function formatScheduleTime(iso: string, timeZone?: string, locale?: string): string {
   try { return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso)) }
   catch { return new Date(iso).toISOString() }

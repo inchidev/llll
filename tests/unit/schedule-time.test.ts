@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleErrorHint, schedulePatchSchema, scheduleRequestSchema } from '../../shared/schedules'
+import { formatScheduleTime, relativeScheduleTime, resolveScheduleTime, scheduleErrorHint, scheduleLocalTime, schedulePatchSchema, scheduleRequestSchema } from '../../shared/schedules'
 
 describe('schedule time', () => {
   it('resolves a wall time in the chosen zone and reports DST gaps and overlaps', () => {
@@ -18,6 +18,12 @@ describe('schedule time', () => {
     expect(formatScheduleTime(at, 'America/Los_Angeles', 'en-US').replace(/\s/g, ' ')).toBe('May 31, 2026, 7:00 PM')
     expect(relativeScheduleTime(at, Date.parse(at) - 3 * 3600000, 'en-US')).toBe('in 3 hours')
     expect(relativeScheduleTime(at, Date.parse(at) + 2 * 86400000, 'en-US')).toBe('2 days ago')
+  })
+  it('starts an edit from the next run in the schedule zone', () => {
+    const daily = { firstAt: '2026-06-01T02:00:00Z', timezone: 'Asia/Ho_Chi_Minh', recurrence: 'daily' as const }
+    expect(scheduleLocalTime({ ...daily, nextAt: '2026-06-03T02:00:00Z' }, '2026-06-02T00:00:00Z')).toBe('2026-06-03T09:00')
+    expect(scheduleLocalTime({ ...daily, nextAt: '2026-06-03T02:00:00Z' }, '2026-06-05T12:00:00Z')).toBe('2026-06-06T09:00')
+    expect(scheduleLocalTime({ ...daily, recurrence: 'once', nextAt: '2026-06-01T02:00:00Z' }, '2026-06-05T12:00:00Z')).toBe('2026-06-01T09:00')
   })
   it('accepts an action or an edit, never a change of conversation or kind', () => {
     expect(schedulePatchSchema.parse({ action: 'pause' })).toEqual({ action: 'pause' })
