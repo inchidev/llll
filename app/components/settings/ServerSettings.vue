@@ -20,10 +20,17 @@ const { copy } = useClipboard()
 /** Exposed so `/server/:id/settings?section=…` can deep-link, and so the section survives reopening. */
 const section = defineModel<string>('section', { default: 'overview' })
 const channelTab = ref('channels')
+const createChannelOpen = ref(false)
+const channelCreating = ref(false)
+const newChannelName = ref('')
+const newChannelCategory = ref('uncategorized')
+const newChannelPrivate = ref(false)
+const newChannelMembers = ref<string[]>([])
 const channelSettingsId = ref<string | null>(null)
 const selectedMemberId = ref<string | null>(null)
 const selectedAudit = ref<AuditEntryDTO | null>(null)
 const localComputeOpen = ref(false)
+const computeNodes = ref<{ openCreate: () => void } | null>(null)
 const rolesSettings = ref<{ createRole: () => void } | null>(null)
 const policiesSettings = ref<{ createPolicy: () => void } | null>(null)
 const rolesListVisible = ref(true)
@@ -188,6 +195,17 @@ const overrideModeOptions = [
   { label: 'Allow', value: 'allow' },
   { label: 'Deny', value: 'deny' },
 ]
+async function createChannel() {
+  const name = newChannelName.value.trim().toLowerCase().replace(/\s+/g, '-')
+  if (!name || channelCreating.value) return
+  channelCreating.value = true
+  try {
+    await api(`/api/servers/${props.serverId}/channels`, { method: 'POST', body: { name, visibility: newChannelPrivate.value ? 'private' : 'server', categoryId: newChannelCategory.value === 'uncategorized' ? null : newChannelCategory.value, ...(newChannelPrivate.value ? { memberIds: newChannelMembers.value } : {}) } })
+    await qc.invalidateQueries({ queryKey: ['channels', props.serverId] })
+    createChannelOpen.value = false; newChannelName.value = ''; newChannelPrivate.value = false; newChannelMembers.value = []; newChannelCategory.value = 'uncategorized'
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { channelCreating.value = false }
+}
 
 watch([categories, section], ([list, activeSection]) => {
   if (activeSection !== 'channels') return
@@ -526,6 +544,7 @@ function roleLabel(name: string) {
     <template v-else-if="section === 'channels'">
       <div class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-highlighted">Channels</h1>
+        <UButton v-if="can(Permission.manageChannels) && channelTab === 'channels'" icon="i-ph-plus" label="Create channel" size="sm" @click="createChannelOpen = true" />
         <UButton
           v-if="can(Permission.manageChannels) && channelTab === 'categories'"
           icon="i-ph-plus"
@@ -534,6 +553,7 @@ function roleLabel(name: string) {
           @click="createCategoryOpen = true"
         />
       </div>
+      <UModal v-model:open="createChannelOpen" title="Create channel"><template #body><form class="space-y-4" @submit.prevent="createChannel"><UFormField label="Channel name"><UInput v-model="newChannelName" autofocus class="w-full" /></UFormField><UFormField label="Category"><USelect v-model="newChannelCategory" :items="categoryOptions" class="w-full" /></UFormField><UCheckbox v-model="newChannelPrivate" label="Private channel" /><UFormField v-if="newChannelPrivate" label="Members"><USelectMenu v-model="newChannelMembers" :items="(membersQ.data.value?.members ?? []).map(m => ({ label: m.nickname || m.user.displayName, value: m.user.id }))" value-key="value" multiple class="w-full" /></UFormField><div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" @click="createChannelOpen = false" /><UButton type="submit" label="Create channel" :loading="channelCreating" :disabled="!newChannelName.trim()" /></div></form></template></UModal>
       <LayoutSegmentedTabs v-model="channelTab" :items="[{ value: 'channels', label: 'Channels' }, { value: 'categories', label: 'Categories' }, ...(isOwner ? [{ value: 'recovery', label: 'Recovery' }] : [])]" label="Channel settings" class="mt-5" />
       <SettingsList v-if="channelTab === 'categories'" class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
         <template #row="{ item: category }">
@@ -632,11 +652,8 @@ function roleLabel(name: string) {
     </template>
 
     <template v-else-if="section === 'compute'">
-      <SettingsHeader title="Compute" />
-      <div class="mt-6 space-y-6">
-        <SettingsList :items="[{ id: 'local', name: 'Server compute setup' }]" :item-key="item => item.id" :search-text="item => item.name" @select="localComputeOpen = true"><template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-cpu" class="size-4" /></span><span class="min-w-0 flex-1 text-sm font-medium text-highlighted">{{ item.name }}</span></template></SettingsList>
-        <SettingsComputeNodes />
-      </div>
+      <SettingsHeader title="Compute"><template #actions><UButton label="Add compute" icon="i-ph-plus" @click="computeNodes?.openCreate()" /></template></SettingsHeader>
+      <SettingsComputeNodes ref="computeNodes" class="mt-6" @open-server="localComputeOpen = true" />
       <UModal v-model:open="localComputeOpen" title="Server compute setup"><template #body><SettingsFactorySetup /></template></UModal>
     </template>
 

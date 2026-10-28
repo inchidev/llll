@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { ComputeNode } from '~~/shared/software-factory'
 const { api } = useApi(), toast = useToast(), cache = useQueryClient()
+const emit = defineEmits<{ 'open-server': [] }>()
 const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: ComputeNode[] }>('/api/compute-nodes'), refetchInterval: 10000 })
 const pairOpen = ref(false), detailOpen = ref(false), selectedId = ref<string | null>(null)
 const selected = computed(() => nodes.data.value?.nodes.find(node => node.id === selectedId.value))
@@ -9,10 +10,13 @@ const name = ref('My Docker Node'), pairing = ref<{ token: string; expiresAt: st
 type LizardStatus = { phase: string; nodeId: string | null; error: string | null; retainedStorage: boolean; paused: boolean; expiresAt: number | null }
 const lizard = useQuery({ queryKey: ['lizard-compute-connection'], queryFn: () => api<{ connection: { projectName: string; checkedAt: string } | null; compute: LizardStatus | null }>('/api/compute-providers/lizard'), refetchInterval: 5000 })
 const items = computed(() => [
+  { id: 'server-setup', name: 'Server compute setup', status: '', kind: 'server' as const },
   ...(lizard.data.value?.connection ? [{ id: 'lizard-provider', name: `Lizard · ${lizard.data.value.connection.projectName}`, status: lizard.data.value.compute?.phase === 'ready' ? 'Ready' : lizard.data.value.compute?.phase === 'stopped' ? 'Stopped' : lizard.data.value.compute?.phase === 'failed' ? 'Needs attention' : lizard.data.value.compute ? 'Preparing' : 'Connection verified', kind: 'lizard' as const }] : []),
   ...(nodes.data.value?.nodes ?? []).filter(node => node.capabilities.provider !== 'lizard').map(node => ({ id: node.id, name: node.name, status: !node.enabled ? 'Disabled' : node.capabilities.provider === 'cloudflare-containers' ? 'Managed provider ready' : node.lastSeen && Date.now() - Date.parse(node.lastSeen) < 30000 ? 'Connected' : 'Offline', kind: 'node' as const })),
 ])
 const lizardOpen = ref(false), lizardDetailOpen = ref(false), lizardKey = ref(''), lizardProject = ref(''), lizardProjects = ref<{ id: string; name: string }[]>([])
+const addOpen = ref(false)
+defineExpose({ openCreate: () => { addOpen.value = true } })
 async function checkLizard() {
   busy.value = true
   try {
@@ -66,12 +70,10 @@ async function disable(id: string) {
 </script>
 <template>
   <section class="space-y-3">
-    <h3 class="font-medium">Compute Nodes</h3>
-    <p class="text-sm text-muted">Connect Docker on your VPS or local machine. The Node connects outward to this Server and retains each Task's workspace disk. Docker shares the host kernel; use this provider only for code and users you trust.</p>
     <LayoutLoadError v-if="nodes.error.value" message="Compute Nodes did not load." :retry="nodes.refetch" />
     <LayoutLoadError v-if="lizard.error.value" message="Lizard connection did not load." :retry="lizard.refetch" />
-    <div class="flex flex-wrap gap-3"><UButton label="Connect node" icon="i-ph-plus" @click="pairing=null;pairOpen=true" /><UButton label="Connect Lizard" color="neutral" variant="outline" @click="lizardKey='';lizardProjects=[];lizardOpen=true" /></div>
-    <SettingsList :items="items" :item-key="item => item.id" :search-text="item => item.name" placeholder="Search compute nodes" :noun="['node', 'nodes']" @select="item => { if (item.kind === 'lizard') lizardDetailOpen = true; else { selectedId = item.id; detailOpen = true } }"><template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-cpu" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ item.name }}</span><span class="block text-xs text-muted">{{ item.status }}</span></span></template></SettingsList>
+    <SettingsList :items="items" :item-key="item => item.id" :search-text="item => item.name" placeholder="Search compute nodes" :noun="['node', 'nodes']" @select="item => { if (item.kind === 'server') emit('open-server'); else if (item.kind === 'lizard') lizardDetailOpen = true; else { selectedId = item.id; detailOpen = true } }"><template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-cpu" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ item.name }}</span><span v-if="item.status" class="block text-xs text-muted">{{ item.status }}</span></span></template></SettingsList>
+    <UModal v-model:open="addOpen" title="Add compute"><template #body><div class="flex flex-col gap-3"><UButton label="Connect node" color="neutral" variant="outline" @click="addOpen=false;pairing=null;pairOpen=true" /><UButton label="Connect Lizard" color="neutral" variant="outline" @click="addOpen=false;lizardKey='';lizardProjects=[];lizardOpen=true" /></div></template></UModal>
     <UModal v-model:open="lizardDetailOpen" title="Lizard" description="Connection and compute availability."><template #body><div class="space-y-3"><p class="text-sm">Project: {{ lizard.data.value?.connection?.projectName }}</p><p class="text-sm text-muted">{{ lizard.data.value?.compute?.error || (lizard.data.value?.compute?.phase === 'ready' ? 'Ready to use in a repository environment.' : lizard.data.value?.compute?.phase === 'stopped' ? 'VM stopped. Start it to use compute.' : 'Preparing or stopping compute.') }}</p><p v-if="lizard.data.value?.compute?.retainedStorage" class="text-sm text-muted">Task data is retained on a Lizard disk and storage charges may continue.</p><div class="flex gap-2"><UButton v-if="lizard.data.value?.compute?.phase === 'stopped'" label="Start compute" :loading="busy" @click="changeLizardCompute('start')" /><UButton v-else-if="lizard.data.value?.compute" label="Stop VM" color="neutral" variant="outline" :loading="busy" @click="changeLizardCompute('stop')" /><UButton v-if="lizard.data.value?.compute?.phase === 'stopped' && lizard.data.value.compute.retainedStorage && !lizard.data.value.compute.paused" label="Pause automatic start" color="neutral" variant="outline" :loading="busy" @click="changeLizardCompute('stop')" /><UButton v-if="lizard.data.value?.compute?.phase === 'stopped' && lizard.data.value.compute.retainedStorage" label="Delete unused storage" color="neutral" variant="outline" :loading="busy" @click="discardLizardStorage" /><UButton v-if="!lizard.data.value?.compute || (lizard.data.value.compute.phase === 'stopped' && !lizard.data.value.compute.retainedStorage)" label="Disconnect" color="neutral" variant="ghost" :loading="busy" @click="disconnectLizard();lizardDetailOpen=false" /></div></div></template></UModal>
     <UModal v-model:open="detailOpen" :title="selected?.name ?? 'Compute node'" description="Connection status, capacity and access."><template #body>
     <div v-if="selected" class="flex flex-wrap items-center justify-between gap-3 rounded border border-default p-3">

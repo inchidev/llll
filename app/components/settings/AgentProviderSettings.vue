@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { agentProviderSchema, agentProviderIds, providerNames, agentModelLabel, type AgentProviderId, type AgentProviderDTO, type AgentProviderModel } from '~~/shared/agent-providers'
-const props = defineProps<{ serverId: string; isOwner?: boolean }>()
+const props = withDefaults(defineProps<{ serverId: string; isOwner?: boolean; view?: 'providers' | 'defaults' }>(), { view: 'providers' })
 const noDefault = '__none__'
 const { api } = useApi()
 const qc = useQueryClient(), toast = useToast()
@@ -27,6 +27,7 @@ function edit(provider: AgentProviderDTO | null = null) {
   open.value = true
   if (provider?.configured) void loadModels()
 }
+defineExpose({ openCreate: () => edit() })
 async function refresh() { await Promise.all([catalog.refetch(), qc.invalidateQueries({ queryKey: ['agent-model'] }), qc.invalidateQueries({ queryKey: ['health'] }), qc.invalidateQueries({ queryKey: ['agent-provider-model-options'] }), qc.invalidateQueries({ queryKey: ['ai-functions'] })]) }
 async function loadModels() {
   loadingModels.value = true; modelError.value = ''
@@ -92,6 +93,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
 
 <template>
   <section class="space-y-5" aria-label="Model providers">
+    <template v-if="view === 'defaults'">
     <SettingsAiFunctionSettings v-if="isOwner" :server-id="serverId" />
     <section class="space-y-3 border-b border-default pb-5" aria-label="Model defaults">
       <h2 class="text-sm font-medium text-highlighted">Model defaults</h2>
@@ -99,13 +101,15 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
         <USelectMenu v-model:search-term="modelSearch" :loading="modelOptions.isPending.value" :disabled="!modelOptions.data.value?.models.length && !modelSearch" placeholder="Choose a default model" ignore-filter :model-value="modelOptions.data.value?.defaultModel ?? noDefault" value-key="value" :items="[{ value: noDefault, label: 'No default model' }, ...(modelOptions.data.value?.models ?? []).map(model => ({ value: model.value, label: agentModelLabel(model) }))]" class="w-full" virtualize @update:model-value="setDefault" />
       </UFormField>
     </section>
+    </template>
+    <template v-else>
     <UAlert v-if="modelOptions.data.value?.deploymentProvider" color="neutral" :title="modelOptions.data.value.deploymentProvider" description="Available through this Server’s deployment. Account access, quota and model compatibility are checked when you run it. Select a model explicitly; no default is enabled automatically." />
-    <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-muted">Named connections for Agents and AI functions.</p><UButton v-if="isOwner" label="Add provider" icon="i-ph-plus" @click="edit()" /></div>
     <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
     <LayoutEmptyState v-else-if="!catalog.isPending.value && !visible.length" icon="i-ph-plugs" title="No named connections" description="Connect a model service to use it with Pi." />
     <SettingsList v-else :items="visible" :item-key="provider => provider.id" :search-text="provider => provider.name" :search-from="Infinity" :noun="['provider', 'providers']" @select="edit"><template #row="{ item: provider }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon :name="provider.kind === 'anthropic' ? 'i-ph-sparkle' : 'i-ph-plugs-connected'" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ provider.name }}</span><span class="block truncate text-xs text-muted">{{ providerNames[provider.kind] }} · {{ provider.account || provider.keyPreview || (provider.configured ? 'Connected' : 'Not connected') }} · {{ provider.enabled ? `${provider.models.length} models` : 'Disabled' }}{{ provider.personal ? ' · Your account only' : '' }}</span></span></template></SettingsList>
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
+    </template>
   </section>
   <UModal v-model:open="open" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose models for Agents and AI functions.">
     <template #body>

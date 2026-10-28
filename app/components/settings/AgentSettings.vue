@@ -6,6 +6,7 @@ const props = defineProps<{ serverId: string; isOwner?: boolean }>()
 const { api } = useApi()
 const editing = shallowRef<AgentDTO | null>(null)
 const editorOpen = ref(false)
+const providerSettings = ref<{ openCreate: () => void } | null>(null)
 const tab = ref('agents')
 const query = ref('')
 const page = ref(1)
@@ -17,11 +18,11 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
 
 <template>
   <SettingsHeader title="Agents">
-    <template #actions><UButton :class="{ invisible: tab !== 'agents' }" :tabindex="tab === 'agents' ? undefined : -1" icon="i-ph-plus" label="Create agent" @click="edit()" /></template>
+    <template #actions><UButton v-if="tab === 'agents'" icon="i-ph-plus" label="Create agent" @click="edit()" /><UButton v-else-if="tab === 'providers' && isOwner" icon="i-ph-plus" label="Add provider" @click="providerSettings?.openCreate()" /></template>
   </SettingsHeader>
-  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Execution', value: 'execution', icon: 'i-ph-play-circle' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
+  <UTabs v-model="tab" :items="[{ label: 'Agents', value: 'agents', icon: 'i-ph-robot' }, ...(isOwner ? [{ label: 'Providers', value: 'providers', icon: 'i-ph-plugs-connected' }, { label: 'Defaults', value: 'defaults', icon: 'i-ph-sliders' }, { label: 'Execution', value: 'execution', icon: 'i-ph-play-circle' }, { label: 'Audit', value: 'audit', icon: 'i-ph-list-magnifying-glass' }] : [])]" :content="false" class="mt-6 mb-5" />
   <SettingsAgentExecutionSettings v-if="tab === 'execution' && isOwner" :server-id="serverId" />
-  <SettingsAgentProviderSettings v-else-if="tab === 'providers'" :server-id="serverId" :is-owner="isOwner" />
+  <SettingsAgentProviderSettings v-else-if="tab === 'providers' || tab === 'defaults'" ref="providerSettings" :server-id="serverId" :is-owner="isOwner" :view="tab === 'defaults' ? 'defaults' : 'providers'" />
   <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" @navigate="emit('navigate')" />
   <template v-else>
   <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search agents" aria-label="Search agents" class="w-full" />

@@ -42,6 +42,7 @@ async function refresh(){
  await qc.invalidateQueries({queryKey:['code-environments']})
  await qc.invalidateQueries({queryKey:['agent-repositories']})
 }
+defineExpose({ openConnect: () => { connectOpen.value = true }, refresh })
 async function disconnect(id:string){
  busy.value=true
  try{await api('/api/git-connections/'+id,{method:'DELETE'});await connections.refetch();await qc.invalidateQueries({queryKey:['code-environments']});await qc.invalidateQueries({queryKey:['agent-repositories']})}
@@ -50,9 +51,6 @@ async function disconnect(id:string){
 </script>
 <template>
  <section class="space-y-4">
-  <h2 class="font-medium">Git provider connections</h2>
-  <p class="text-sm text-muted">Connect a GitHub App, then choose the repositories it can access on GitHub. L4 keeps its credentials on this Server and checks each operation against project and Role permissions.</p>
-  <div class="flex flex-wrap gap-3"><UButton v-if="connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="connectOpen=true" /><UButton label="Refresh connections" color="neutral" variant="outline" @click="refresh" /></div>
   <LayoutLoadError v-if="connections.error.value" message="Git connections did not load." :retry="connections.refetch" />
   <SettingsList :items="connections.data.value?.connections ?? []" :item-key="c => c.id" :search-text="c => `${c.name} ${c.account}`" :loading="connections.isPending.value" placeholder="Search connections" :noun="['connection', 'connections']" @select="c => { selectedId = c.id; detailOpen = true }"><template #row="{ item: c }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ c.name }}</span><span class="block text-xs text-muted">{{ c.account }}</span></span><UBadge :label="c.enabled ? 'Active' : 'Disabled'" :color="c.enabled ? 'success' : 'neutral'" /></template></SettingsList>
   <UModal v-model:open="detailOpen" :title="selected?.name ?? 'Git connection'" description="Manage the repositories this connection can access."><template #body><div v-if="selected" class="space-y-4"><p>{{selected.account}} · {{selected.enabled ? 'Active' : 'Disabled'}}</p><div class="flex flex-wrap gap-2"><UButton v-if="selected.enabled && connections.data.value?.canConfigure" :to="selected.setupUrl" target="_blank" label="Choose repositories on GitHub" color="neutral" variant="outline" /><UButton v-if="selected.enabled && connections.data.value?.canConfigure" label="Disable in L4" color="neutral" variant="ghost" :loading="busy" @click="disconnect(selected.id)" /></div></div></template></UModal>

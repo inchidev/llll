@@ -4,6 +4,8 @@ import type { GitConnection } from '~~/shared/git-connections'
 import type { CodeEnvironment, CodeEnvironmentInput } from '~~/shared/code-environments'
 
 defineProps<{ serverId: string }>()
+const providerTab = ref('github')
+const gitConnections = ref<{ openConnect: () => void; refresh: () => void } | null>(null)
 const { api } = useApi()
 const toast = useToast()
 const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: { id: string; name: string; enabled: boolean; capabilities?: { provider?: string } }[] }>('/api/compute-nodes') })
@@ -55,11 +57,13 @@ async function disable(item: CodeEnvironment) {
 
 <template>
   <div class="space-y-6">
-    <SettingsHeader title="Repository environments" description="Choose where agents can read code and propose changes. Assign repository access and agent permissions in Roles."><template #actions><UButton v-if="list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
-    <SettingsGitConnections />
-    <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
-    <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a dedicated GitHub App" description="Create a GitHub App connection above, authorize its repositories on GitHub, then select that connection for Git execution." color="neutral" variant="subtle" />
+    <SettingsHeader title="Repositories"><template #actions><UButton v-if="providerTab === 'github'" icon="i-ph-arrows-clockwise" aria-label="Refresh Git connections" color="neutral" variant="ghost" @click="gitConnections?.refresh()" /><UButton v-if="providerTab === 'github' && connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="gitConnections?.openConnect()" /><UButton v-else-if="providerTab === 'environments' && list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
+    <LayoutSegmentedTabs v-model="providerTab" :items="[{ label: 'GitHub', value: 'github' }, { label: 'GitLab', value: 'gitlab' }, { label: 'Gitea', value: 'gitea' }, { label: 'Environments', value: 'environments' }]" label="Repository providers" />
+    <SettingsGitConnections v-if="providerTab === 'github'" ref="gitConnections" />
+    <p v-else-if="providerTab === 'gitlab' || providerTab === 'gitea'" class="text-sm text-muted">{{ providerTab === 'gitlab' ? 'GitLab' : 'Gitea' }} connections are not available yet.</p>
     <template v-else>
+      <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
+      <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a GitHub App" description="Connect GitHub and authorize repositories before adding an environment." color="neutral" variant="subtle" />
       <SettingsList :items="list.data.value?.environments ?? []" :item-key="item => item.id" :search-text="item => `${item.name} ${item.sourceRepo}`" placeholder="Search environments" :noun="['environment', 'environments']" @select="edit">
         <template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></span><span class="block truncate text-xs text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</span></span></template>
       </SettingsList>

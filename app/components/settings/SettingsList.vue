@@ -26,19 +26,12 @@ const filtered = computed(() => {
   if (!term) return props.items
   return props.items.filter(item => props.searchText(item).toLocaleLowerCase().includes(term))
 })
-const countLabel = computed(() => {
-  const total = props.items.length
-  const shown = filtered.value.length
-  const noun = total === 1 ? props.noun[0] : props.noun[1]
-  return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`
-})
 </script>
 
 <template>
   <div>
     <div v-if="!loading && items.length >= searchFrom" class="mb-3 flex items-center gap-3">
       <UInput v-model="query" icon="i-ph-magnifying-glass" :placeholder="placeholder" :aria-label="placeholder" class="min-w-0 flex-1" />
-      <span class="shrink-0 text-xs text-muted tabular-nums">{{ countLabel }}</span>
     </div>
     <LayoutSkeleton v-if="loading" variant="rows" :rows="4" class="-mx-2" />
     <slot v-else-if="!items.length" name="empty" />
