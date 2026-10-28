@@ -1,6 +1,7 @@
 import type { RunStatus } from '../../shared/agent-execution'
 import type { L4Env } from '../../workers/env'
 import { requireChannelAccessForMember, type ServerMembership } from './channel-access'
+import { readableMentions } from './member-names'
 
 export const RUN_LIST_PAGE_SIZE = 25
 export const runListStatuses = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const satisfies readonly RunStatus[]
@@ -45,8 +46,11 @@ export async function listOwnRuns(env: L4Env, member: ServerMembership, input: {
     catch { allowed.set(channelId, false) }
   }
   const last = page.at(-1)
+  const visible = page.filter(run => allowed.get(run.channelId))
+  // Runs started before prompts were stored with names still hold raw mention tokens.
+  const prompts = await readableMentions(env, visible.map(run => run.prompt))
   return {
-    runs: page.filter(run => allowed.get(run.channelId)),
+    runs: visible.map((run, index) => ({ ...run, prompt: prompts[index]! })),
     nextCursor: results.length > RUN_LIST_PAGE_SIZE && last ? `${last.createdAt}|${last.id}` : null,
     agents: agents.results ?? [],
   }
