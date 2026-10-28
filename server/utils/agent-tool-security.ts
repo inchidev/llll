@@ -5,7 +5,7 @@ import { fail } from './cf'
 export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
 const controls = new Set(['get_current_time', 'search_tools', 'get_tool_details'])
 const reads = new Set(['get_delegated_run', 'list_project_agents', 'list_public_project_repositories', 'inspect_public_project_repository', 'list_private_project_repositories', 'inspect_private_project_repository', 'read_private_project_file', 'factory_status', 'factory_workspace', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_data', 'get_document', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal'])
-const writes = new Set(['delegate_task', 'create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'create_document', 'update_document', 'create_reminder', 'cancel_schedule', 'publish_code_changes'])
+const writes = new Set(['delegate_task', 'create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'create_document', 'update_document', 'create_reminder', 'update_reminder', 'cancel_schedule', 'publish_code_changes'])
 const external = new Set(['read_url', 'search_web', 'read_code_file', 'read_github_issue', 'read_github_pull_request'])
 const publicReads = new Set(['list_public_project_repositories', 'inspect_public_project_repository', 'list_project_agents'])
 /** Reads of Server data that not every Member or outside party may see. */
