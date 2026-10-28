@@ -210,11 +210,17 @@ celld_pid=$!
 
 echo "llll: celld d1 migrations apply ${DATABASE_NAME}"
 i=0
-until celld d1 migrations apply "$DATABASE_NAME" "$CONFIG" \
+# The node takes a moment to register its lease; that wait is expected, so say so instead
+# of printing celld's error. Any other failure is shown as it happens.
+until output=$(celld d1 migrations apply "$DATABASE_NAME" "$CONFIG" \
   --bucket "$CELLD_BUCKET" \
   --endpoint "$S3_ENDPOINT" \
-  --region "$AWS_REGION"
+  --region "$AWS_REGION" 2>&1)
 do
+  case "$output" in
+    *"no node leases"*) [ "$i" -eq 0 ] && echo "llll: waiting for the celld node to join before applying migrations" ;;
+    *) printf '%s\n' "$output" >&2 ;;
+  esac
   i=$((i + 1))
   if ! kill -0 "$celld_pid" 2>/dev/null; then
     fail "celld exited before migrations applied"
@@ -224,6 +230,7 @@ do
   fi
   sleep 3
 done
+printf '%s\n' "$output"
 touch "${CELLD_WATCH}/.migrations-applied"
 echo "llll: celld d1 migrations apply ${DATABASE_NAME} finished"
 

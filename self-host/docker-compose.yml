@@ -58,16 +58,17 @@ services:
         region="${AWS_REGION:-us-east-1}"
         i=0
         while [ "$$i" -lt 30 ]; do
-          if aws s3api head-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" >/dev/null 2>&1; then
+          # Bounded calls: a host that drops container forwarding must fail visibly, not hang.
+          if aws s3api head-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" --cli-connect-timeout 5 --cli-read-timeout 10 >/dev/null 2>&1; then
             exit 0
           fi
-          if aws s3api create-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" --region "$$region"; then
+          if aws s3api create-bucket --bucket "$$bucket" --endpoint-url "$$endpoint" --region "$$region" --cli-connect-timeout 5 --cli-read-timeout 10; then
             exit 0
           fi
           i=$$((i + 1))
           sleep 2
         done
-        echo "could not create s3://$$bucket" >&2
+        echo "could not reach or create s3://$$bucket at $$endpoint. If RustFS is healthy, the host may drop traffic between containers (iptables FORWARD DROP); allow the Compose bridge, e.g. in the DOCKER-USER chain." >&2
         exit 1
 
   llll:

@@ -102,6 +102,12 @@ docker compose exec llll \
 
 The database argument is the `database_name` (`llll` unless you set `DATABASE_NAME`). Concatenate the archive's `database/*.sql` files in order before importing. See [Manual server backups](../docs/deployment.md#manual-server-backups).
 
+## Troubleshooting
+
+- **`bucket-init` fails with "could not reach or create"** while RustFS is healthy: the host drops traffic between containers, typically legacy iptables with `-P FORWARD DROP`. Allow the Compose bridge, for example `iptables -I DOCKER-USER -i br-<id> -j ACCEPT`, and make the rule persistent.
+- **Hosts without systemd** (containers, some minimal images): start `dockerd` yourself and arrange for it to start after a reboot; Compose's `restart: unless-stopped` only applies once Docker is running.
+- **"waiting for the celld node to join"** on first start is expected: migrations apply as soon as the node registers.
+
 ## Coolify
 
 [self-host/coolify](coolify/README.md) is a draft one-click service. It uses Coolify's `SERVICE_FQDN_*` and `SERVICE_PASSWORD_*` variables. Coolify's proxy terminates TLS. Set `ADMIN_EMAIL` before the first deploy.
