@@ -37,7 +37,7 @@ const Link = defineComponent({ props: ['to'], setup: (props, { attrs, slots }) =
 const Alert = defineComponent({ props: ['description'], setup: props => () => h('p', props.description) })
 const Slot = { template: '<div><slot /></div>' }
 const Slideover = defineComponent({ props: ['open'], emits: ['update:open'], template: '<div><div @click="$emit(\'update:open\', !open)"><slot /></div><div v-if="open" role="dialog"><slot name="body" /></div></div>' })
-const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a server</h1>' } }
+const stubs = { UButton: Button, USlideover: Slideover, NuxtLink: Link, UAlert: Alert, UIcon: true, ShellServers, ServerCreate: { template: '<h1>Add a Server</h1>' } }
 
 beforeEach(() => {
   go('/' + id)
@@ -70,7 +70,7 @@ it('opens the mobile server menu and selects a Server without remounting its Cli
   expect(view.find('[role="dialog"]').exists()).toBe(false)
   expect(view.get('iframe').element).toBe(frame)
   await view.get('[aria-label="Open server menu"]').trigger('click')
-  const add = view.findAll('[role="dialog"] button').find(button => button.text() === 'Add a server')!
+  const add = view.findAll('[role="dialog"] button').find(button => button.text() === 'Add a Server')!
   await add.trigger('click')
   await flushPromises()
   expect(route.path).toBe('/create')
@@ -78,19 +78,19 @@ it('opens the mobile server menu and selects a Server without remounting its Cli
   expect(view.get('iframe').element).toBe(frame)
 })
 
-it('opens My servers through the logo without unloading the Client, and keeps + for Add a server', async () => {
+it('opens My Servers through the logo without unloading the Client, and keeps + for Add a Server', async () => {
   view = mount(Shell, { attachTo: document.body, global: { stubs } })
   await flushPromises()
   const frame = view.get('iframe').element
   const rail = view.getComponent({ name: 'CommunityRail' })
   expect(rail.props('homeHref')).toBe('/servers')
-  expect(rail.props('homeLabel')).toBe('My servers')
+  expect(rail.props('homeLabel')).toBe('My Servers')
   const click = new MouseEvent('click', { cancelable: true })
   rail.vm.$emit('home', click)
   expect(click.defaultPrevented).toBe(true)
   expect(selected.value).toBe('')
   await flushPromises()
-  expect(view.get('h1').text()).toBe('My servers')
+  expect(view.get('h1').text()).toBe('My Servers')
   expect(rail.props('homeActive')).toBe(true)
   expect(rail.props('activeOrigin')).toBeUndefined()
   expect(view.get('iframe').element).toBe(frame)
@@ -99,7 +99,7 @@ it('opens My servers through the logo without unloading the Client, and keeps + 
   rail.vm.$emit('connect')
   await flushPromises()
   expect(route.path).toBe('/create')
-  expect(view.get('h1').text()).toBe('Add a server')
+  expect(view.get('h1').text()).toBe('Add a Server')
   expect(rail.props('addActive')).toBe(true)
   expect(rail.props('homeActive')).toBe(false)
   go('/' + id)
@@ -118,7 +118,7 @@ it('clears the selected origin when history opens /servers/ and preserves modifi
   go('/servers/')
   await flushPromises()
   expect(selected.value).toBe('')
-  expect(view.get('h1').text()).toBe('My servers')
+  expect(view.get('h1').text()).toBe('My Servers')
   expect(view.get('iframe').isVisible()).toBe(false)
 })
 
@@ -126,11 +126,11 @@ it('shows public bookmarks and removes only the device connection, including the
   view = mount(ShellServers, { global: { stubs } })
   expect(view.text()).toContain('Saved on this device')
   expect(view.text()).toContain('fixture.customer.workers.dev')
-  expect(view.get('a').attributes('href')).toBe('/' + id)
+  expect(view.find(`a[href="/${id}"]`).text()).toContain('Fixture community')
   expect(view.get('[aria-label="3 unread"]').exists()).toBe(true)
   await view.get('button[aria-label="Remove Fixture community from this device"]').trigger('click')
   expect(forget).toHaveBeenCalledWith(origin)
-  expect(view.text()).toContain('No saved servers yet')
+  expect(view.text()).toContain('Your Servers will appear here')
   expect(view.get('a').attributes('href')).toBe('/create')
 })
 
@@ -148,7 +148,7 @@ it('recognizes a fresh /servers/ route as Shell and sets its browser title', () 
   expect(view.get('main').isVisible()).toBe(true)
   expect(view.get('article').isVisible()).toBe(false)
   const head = headConfig.mock.calls[0]![0]
-  expect(head.title.value).toBe('My servers · L4')
+  expect(head.title.value).toBe('My Servers · L4')
 })
 
 it.each([
@@ -161,14 +161,14 @@ it.each([
   route.fullPath = '/create/?' + new URLSearchParams(query).toString()
   view = mount(Shell, { global: { stubs } })
   await flushPromises()
-  expect(view.get('h1').text()).toBe('Add a server')
+  expect(view.get('h1').text()).toBe('Add a Server')
   expect(shell.connect).not.toHaveBeenCalled()
   go('/servers')
   await flushPromises()
   go('/create')
   route.fullPath += '?' + new URLSearchParams(query).toString()
   await flushPromises()
-  expect(view.get('h1').text()).toBe('Add a server')
+  expect(view.get('h1').text()).toBe('Add a Server')
   expect(shell.connect).not.toHaveBeenCalled()
 })
 it('still connects a plain Server handoff after installation', async () => {

@@ -164,7 +164,7 @@ async function mountServer() {
       <CommunityRail
         :groups="shell.groups.value"
         home-href="/servers"
-        home-label="My servers"
+        home-label="My Servers"
         :home-active="showHome"
         :active-origin="showNavigation ? undefined : shell.selected.value"
         :active-server-id="
@@ -180,21 +180,21 @@ async function mountServer() {
     </div>
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header class="flex shrink-0 items-center gap-2 border-b border-default px-2 pt-[env(safe-area-inset-top)] md:hidden">
-        <USlideover v-model:open="serversOpen" side="left" title="My servers" description="Saved on this device" :ui="{ content: 'max-w-[min(320px,100vw)]', body: 'p-3' }">
+        <USlideover v-model:open="serversOpen" side="left" title="My Servers" description="Saved on this device" :ui="{ content: 'max-w-[min(320px,100vw)]', body: 'p-3' }">
           <UButton icon="i-ph-squares-four" color="neutral" variant="ghost" class="size-11 shrink-0 justify-center" aria-label="Open server menu" />
           <template #body>
             <nav aria-label="Servers" class="space-y-2">
-              <UButton to="/servers" label="My servers" icon="i-ph-house" color="neutral" variant="ghost" block class="min-h-11 justify-start" @click="home" />
+              <UButton to="/servers" label="My Servers" icon="i-ph-house" color="neutral" variant="ghost" block class="min-h-11 justify-start" @click="home" />
               <UButton v-for="server in shell.servers.value" :key="server.origin" color="neutral" :variant="server.origin === shell.selected.value && !showNavigation ? 'soft' : 'ghost'" block class="min-h-12 justify-start" :aria-current="server.origin === shell.selected.value && !showNavigation ? 'page' : undefined" @click="openServer(server.origin, server.id)">
                 <ServerAvatar :name="server.name" :icon-url="server.iconUrl" class="size-9 shrink-0 rounded-xl bg-accented" />
                 <span class="min-w-0 flex-1 truncate text-start">{{ server.name }}</span>
                 <span v-if="server.unread" :aria-label="`${server.unread} unread`" class="shrink-0 text-xs tabular-nums">{{ server.unread }}</span>
               </UButton>
-              <UButton label="Add a server" icon="i-ph-plus" color="neutral" variant="outline" block class="min-h-11 justify-start" @click="connect" />
+              <UButton label="Add a Server" icon="i-ph-plus" color="neutral" variant="outline" block class="min-h-11 justify-start" @click="connect" />
             </nav>
           </template>
         </USlideover>
-        <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ showHome ? 'My servers' : showCreate ? 'Add a server' : activeServer?.name || 'L4' }}</span>
+        <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ showHome ? 'My Servers' : showCreate ? 'Add a Server' : activeServer?.name || 'L4' }}</span>
       </header>
       <section class="relative min-h-0 min-w-0 flex-1">
         <iframe

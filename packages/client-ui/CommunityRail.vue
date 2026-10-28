@@ -35,8 +35,8 @@ const visibleGroups = computed(() => props.groups.filter(group => group.servers.
         </UTooltip>
       </template>
     </section>
-    <UTooltip text="Add a server" :content="{ side: 'right' }">
-      <button aria-label="Add a server" :aria-current="addActive ? 'page' : undefined" :class="addActive ? 'bg-accented text-highlighted ring-2 ring-primary' : 'text-muted'" class="flex size-11 shrink-0 items-center justify-center rounded-2xl hover:bg-accented hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary" @click="emit('connect')"><UIcon name="i-ph-plus" class="size-5" /></button>
+    <UTooltip text="Add a Server" :content="{ side: 'right' }">
+      <button aria-label="Add a Server" :aria-current="addActive ? 'page' : undefined" :class="addActive ? 'bg-accented text-highlighted ring-2 ring-primary' : 'text-muted'" class="flex size-11 shrink-0 items-center justify-center rounded-2xl hover:bg-accented hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary" @click="emit('connect')"><UIcon name="i-ph-plus" class="size-5" /></button>
     </UTooltip>
   </nav>
 </template>

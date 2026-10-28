@@ -9,7 +9,7 @@ function forget(origin: string) {
 
 <template>
   <section>
-    <p class="text-sm leading-6 text-muted">Enter a Server address or invitation link. You’ll sign in on that Server.</p>
+    <p class="text-sm leading-6 text-muted">Paste the Server’s address or an invitation link. You sign in on that Server with its own account.</p>
     <form class="mt-6 space-y-4" @submit.prevent="shell.submitAddress">
       <UFormField label="Server address">
         <UInput v-model="shell.address.value" placeholder="chat.example.com" autocomplete="url" required size="lg" class="w-full" :ui="{ base: 'ring-inverted/50' }" />

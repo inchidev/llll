@@ -8,6 +8,7 @@ import { channelPath, mailPath } from '~~/shared/paths'
 import { useClipboard } from '@vueuse/core'
 import { chatNavigationTarget, hasServerNavigationMenu, serverNavigationSection } from '~~/shared/server-navigation'
 import { publicIconPath } from '~~/shared/server-appearance'
+import ServerAvatar from '../../../packages/client-ui/ServerAvatar.vue'
 
 const props = defineProps<{ serverId: string }>()
 const emit = defineEmits<{ selectSection: [path: string]; selectResource: [navigates: boolean] }>()
@@ -18,6 +19,8 @@ const toast = useToast()
 const session = useSessionStore()
 const live = useLiveStore()
 const nav = useNavActions()
+// Inside the Shell its rail already carries the L4 mark; show this Server's own avatar instead.
+const embedded = useState('llll-embed', () => ({ parent: '', enabled: false }))
 const { copy } = useClipboard()
 const { api, serverUrl } = useApi()
 
@@ -241,6 +244,7 @@ watch(nav.inviteOpen, (open) => {
           >
             <span class="server-avatar flex size-10 items-center justify-center rounded-xl transition-colors group-data-[state=open]:bg-accented">
               <UAvatar v-if="serverIconUrl" size="lg" :src="serverIconUrl" :alt="serverName" class="size-8 rounded-lg" />
+              <ServerAvatar v-else-if="embedded.enabled" :name="serverName || 'Server'" class="size-8 rounded-lg bg-accented text-xs" />
               <BrandLogo v-else size="xl" alt="" />
             </span>
           </button>

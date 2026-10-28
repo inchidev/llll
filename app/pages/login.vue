@@ -57,7 +57,6 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
   }
   catch (err) {
     error.value = errorMessage(err)
-    toast.add({ title: error.value, color: 'error' })
   }
   finally {
     busy.value = false
@@ -94,7 +93,6 @@ async function signInWith(provider: Exclude<AuthLoginMethod, 'email'>) {
   }
   catch (err) {
     error.value = errorMessage(err)
-    toast.add({ title: error.value, color: 'error' })
     socialBusy.value = null
   }
 }
@@ -125,10 +123,9 @@ const canCreateAccount = computed(() => Boolean(
 
 <template>
   <div>
-    <UButton v-if="embedded" label="Sign in in a window" color="neutral" variant="outline" :loading="popupBusy" class="mb-6" @click="signInWindow" />
     <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Sign in</h2>
     <p class="mt-1.5 text-sm text-muted">
-      Welcome back. Sign in to continue to {{ appName }}.
+      Use your account on {{ appName }}.
     </p>
 
     <ULink
@@ -203,5 +200,9 @@ const canCreateAccount = computed(() => Boolean(
       </p>
     </div>
     <UButton to="/recover" label="Use a recovery key" variant="link" class="mt-4" />
+    <p v-if="embedded" class="mt-6 text-sm text-muted">
+      Sign-in blocked inside L4? Your browser may limit embedded pages.
+      <UButton label="Sign in in a new window" variant="link" class="p-0 align-baseline font-medium text-default" :loading="popupBusy" @click="signInWindow" />
+    </p>
   </div>
 </template>

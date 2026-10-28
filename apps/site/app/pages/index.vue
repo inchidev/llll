@@ -2,35 +2,46 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const connectUrl = '/create?tab=connect'
-// Restore these sections once the Server styling and product screenshots are ready.
+const deploymentGuideUrl = `${repoUrl}/blob/main/docs/deployment.md`
+// Restore this section once screenshots of the current Client are ready.
 const showProductPreview = false
-const showAppsSection = false
 const siteUrl = 'https://llll.gg/'
 const pageTitle = 'L4 — One workspace for humans and agents.'
-const pageDescription = 'An open-source workspace for humans and AI agents. Bring conversations, projects, tasks, mail and shared data together on your Cloudflare account or VPS.'
+const pageDescription = 'Open-source workspace where your team and its AI agents share channels, projects and tasks. Run it on your own Cloudflare account or VPS.'
 
-const navigation = computed<NavigationMenuItem[]>(() => [
+const navigation: NavigationMenuItem[] = [
+  { label: 'Agents', to: '#agents' },
   { label: 'Product', to: '#product' },
-  ...(showAppsSection ? [{ label: 'Apps', to: '#app-apps' }] : []),
   { label: 'Ways to run', to: '#run' },
   { label: 'Docs', to: '/docs' },
-])
-
-const primaryActionLabel = 'Install your own'
-const productGroups = [
-  { id: 'chat', name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads, and shared files. Move from a message to a call or a Live room when talking is easier.', note: 'Voice and video are optional.' },
-  { id: 'tasks', name: 'Tasks', icon: 'i-ph-kanban', title: 'Know what happens next.', description: 'Use boards, priorities, due dates, checklists, and dependencies. Assign work to a person or an agent, with a discussion for each task.' },
-  { id: 'projects', name: 'Projects', icon: 'i-ph-folder-simple', title: 'Give the work a home.', description: 'Group tasks around a shared goal. Give people and agents the access they need in each project. Connect repositories when the work involves code.', note: 'Code execution requires GitHub access and a compute node.' },
-  { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Keep email conversations and internal notes together, with access for the people who need it.' },
-  { id: 'data', name: 'Data & Apps', icon: 'i-ph-table', title: 'Keep knowledge and tools together.', description: 'Organize records in tables, boards, lists, and calendars. Keep documents and canvases alongside them. Build internal apps over shared data and publish them to the right roles.' },
-  { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Keep track of what is due.', description: 'Set reminders and schedule agent work. Keep track of upcoming, completed, and cancelled schedules in one place.', note: 'Agent execution requires a configured model provider and permissions.' },
 ]
 
+const createLabel = 'Create your Server'
+const createUrl = '/create?tab=cloudflare'
+
+// Promises here follow docs/workspace-plan.md: describe only accepted workflows
+// and name the connections they need.
+const agentSteps = [
+  { icon: 'i-ph-chats-circle', title: 'Talk to them where work happens', description: 'Mention an agent in a channel or message it directly. It reads the conversation and the tasks it is allowed to see, and replies in a thread.' },
+  { icon: 'i-ph-shield-check', title: 'Give each one a role', description: 'Agents are Members with Roles and Project policies, like people: Developer in one project, Reviewer in another. Nothing is granted by default.' },
+  { icon: 'i-ph-terminal-window', title: 'Hand them real work', description: 'Assign a Task to an agent. With a connected repository and a compute node, it works in an isolated Task workspace and reports back in the Task discussion.' },
+]
+
+const featuredGroups = [
+  { id: 'chat', name: 'Chat', icon: 'i-ph-chats-circle', title: 'Keep the conversation together.', description: 'Channels, direct messages, threads and shared files. Start a voice or video call when talking is easier.', note: 'Calls need an optional RealtimeKit connection.' },
+  { id: 'projects', name: 'Projects & Tasks', icon: 'i-ph-kanban', title: 'Know who does what next.', description: 'Group Tasks around a shared goal with boards, priorities, due dates, checklists and dependencies. Assign each Task to a person or an agent, with its own discussion.' },
+]
+const moreGroups = [
+  { id: 'mail', name: 'Mail', icon: 'i-ph-envelope-simple', title: 'An inbox the team can share.', description: 'Receive and reply from your own domain. Email conversations and internal notes stay together.' },
+  { id: 'data', name: 'Data & Apps', icon: 'i-ph-table', title: 'Knowledge and tools in one place.', description: 'Tables, boards, calendars, documents and canvases. Publish internal apps over shared data to the right Roles.' },
+  { id: 'schedules', name: 'Schedules', icon: 'i-ph-calendar', title: 'Nothing slips.', description: 'Set reminders and schedule agent work. See upcoming, completed and cancelled schedules in one list.' },
+]
+const productGroups = [...featuredGroups, ...moreGroups]
+
 const freedoms = [
-  { title: 'Invite everyone.', description: 'No seat fees. Your team can grow without buying access for each person.' },
-  { title: 'Keep your history.', description: 'No retention tier. Conversations stay searchable until you choose to delete them.' },
-  { title: 'Own your server.', description: 'MIT software. Run independent servers on Cloudflare or your VPS.' },
+  { title: 'Invite everyone.', description: 'No seat fees. Add people and agents without buying access for each one.' },
+  { title: 'Keep your history.', description: 'No retention tier. Conversations stay searchable until you delete them.' },
+  { title: 'Own your Server.', description: 'MIT software on your Cloudflare account or VPS. Your data stays with you.' },
 ]
 
 useSeoMeta({
@@ -48,19 +59,16 @@ useSeoMeta({
   ogImage: 'https://llll.gg/og-image.png',
   ogImageWidth: 1200,
   ogImageHeight: 630,
-  ogImageAlt: 'L4 — Chat. Work. On your terms.',
+  ogImageAlt: pageTitle,
   twitterCard: 'summary_large_image',
   twitterTitle: pageTitle,
   twitterDescription: pageDescription,
   twitterImage: 'https://llll.gg/og-image.png',
-  twitterImageAlt: 'L4 — Chat. Work. On your terms.',
+  twitterImageAlt: pageTitle,
 })
 
 useHead({
-  link: [
-    { rel: 'canonical', href: siteUrl },
-    { rel: 'preload', href: '/fonts/moo-lah-lah-l4.woff2', as: 'font', type: 'font/woff2', crossorigin: '' },
-  ],
+  link: [{ rel: 'canonical', href: siteUrl }],
   script: [{
     type: 'application/ld+json',
     innerHTML: JSON.stringify({
@@ -73,13 +81,13 @@ useHead({
       operatingSystem: 'Web',
       license: 'https://opensource.org/license/mit',
       sameAs: repoUrl,
-      offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account', price: '0', priceCurrency: 'USD' },
+      offers: { '@type': 'Offer', name: 'Free software on your Cloudflare account or VPS', price: '0', priceCurrency: 'USD' },
       featureList: [
         'Chat, Projects and Tasks, Mail, Data and Apps, Schedules',
-        'AI agents in channels and direct messages with permission-controlled tools',
-        'Optional voice, video, and screen sharing through RealtimeKit',
-        'Unlimited customer-owned servers, members, and message history',
-        'Independent servers with local accounts',
+        'AI agents as Members with Roles and Project policies',
+        'Agent work on connected repositories in isolated Task workspaces',
+        'Optional voice, video and screen sharing through RealtimeKit',
+        'Independent Servers with local accounts, unlimited members and history',
       ],
     }),
   }],
@@ -88,78 +96,86 @@ useHead({
 
 <template>
   <div class="landing min-h-screen overflow-x-clip bg-default text-default">
-    <UHeader to="/" title="L4" :toggle="false" class="border-b border-muted/70 bg-default/80 backdrop-blur-xl">
+    <UHeader to="/" title="L4" class="border-b border-muted/70 bg-default/80 backdrop-blur-xl">
       <template #title><BrandLogo :linked="false" /></template>
-      <UNavigationMenu :items="navigation" class="hidden lg:flex" />
+      <UNavigationMenu :items="navigation" />
       <template #right>
+        <UButton to="/servers" label="My Servers" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
         <UButton :to="repoUrl" target="_blank" icon="i-ph-github-logo" aria-label="GitHub repository" color="neutral" variant="ghost" />
+      </template>
+      <template #body>
+        <UNavigationMenu :items="[...navigation, { label: 'My Servers', to: '/servers' }]" orientation="vertical" class="-mx-2.5" />
       </template>
     </UHeader>
 
     <main>
-      <section class="hero relative isolate overflow-hidden border-b border-muted py-16 sm:py-24 lg:py-28">
+      <section class="relative isolate overflow-hidden border-b border-muted py-20 sm:py-28 lg:py-32">
         <UContainer>
-          <div class="mx-auto max-w-5xl text-center">
-            <div class="hero-heading relative isolate py-10 sm:py-14">
-              <span aria-hidden="true" class="hero-wordmark pointer-events-none absolute inset-0 -z-10 flex select-none items-center justify-center text-muted opacity-50">L4</span>
-              <h1 class="display-title hero-title relative font-semibold leading-[1.05] text-highlighted">One workspace for humans and agents.</h1>
+          <div class="mx-auto max-w-4xl text-center">
+            <h1 class="display-title hero-title font-semibold leading-[1.05] text-highlighted">One workspace for humans and agents.</h1>
+            <p class="mx-auto mt-8 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Your team and its AI agents share channels, projects and tasks. Agents work with the access you give them, and with a compute node they can work on your code. Run it on your own Cloudflare account or VPS.</p>
+            <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <UButton :to="createUrl" :label="createLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="#agents" label="See how agents work" color="neutral" variant="outline" size="xl" />
             </div>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">Bring conversations, projects, tasks, mail and shared data together. Run L4 on your own infrastructure.</p>
-            <div class="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
-            </div>
-            <p class="mt-4 text-sm text-dimmed">Open source. MIT licensed. Cloudflare or your VPS. No seat fees.</p>
+            <p class="mt-5 text-sm text-dimmed">Open source. MIT licensed. No seat fees.</p>
           </div>
-          <div v-if="showProductPreview" class="mx-auto mt-10 max-w-5xl sm:mt-12">
+          <div v-if="showProductPreview" class="mx-auto mt-14 max-w-5xl">
             <HeroPreview />
           </div>
         </UContainer>
       </section>
 
-      <section id="product" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
+      <section id="agents" class="scroll-mt-20 border-b border-muted py-16 sm:py-24">
         <UContainer>
           <div class="max-w-3xl">
-            <p class="mb-3 text-sm font-medium text-primary">Inside your workspace</p>
-            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, tasks, mail, data and schedules share one Server, with access controlled by your team.</p>
+            <p class="mb-3 text-sm font-medium text-primary">Agents</p>
+            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Agents work alongside your team.</h2>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">An agent is a Member of your Server, not a chat window on the side. It sees what its Role allows, works in the open and leaves a record people can follow.</p>
           </div>
-          <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted sm:grid-cols-2">
-            <article v-for="app in productGroups" :id="`app-${app.id}`" :key="app.name" class="scroll-mt-24 bg-default p-7 sm:p-8">
+          <ol class="mt-12 grid gap-6 md:grid-cols-3">
+            <li v-for="(step, index) in agentSteps" :key="step.title" class="rounded-md border border-default bg-elevated p-7">
+              <div class="flex items-center justify-between text-primary">
+                <UIcon :name="step.icon" class="size-6" />
+                <span class="font-mono text-sm text-dimmed">0{{ index + 1 }}</span>
+              </div>
+              <h3 class="mt-6 text-xl font-semibold text-highlighted">{{ step.title }}</h3>
+              <p class="mt-3 text-base leading-7 text-muted">{{ step.description }}</p>
+            </li>
+          </ol>
+          <p class="mt-6 text-sm leading-6 text-dimmed">Agents use a model provider you connect. Work on code also needs GitHub access and a compute node on your Cloudflare account or VPS.</p>
+        </UContainer>
+      </section>
+
+      <section id="product" class="scroll-mt-20 border-b border-muted py-16 sm:py-24">
+        <UContainer>
+          <div class="max-w-3xl">
+            <p class="mb-3 text-sm font-medium text-primary">Inside your Server</p>
+            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Less switching. More shared context.</h2>
+            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Conversations, projects, mail, data and schedules live in one Server, so people and agents work from the same context.</p>
+          </div>
+          <div class="mt-12 grid gap-px overflow-hidden rounded-md border border-muted bg-muted md:grid-cols-2">
+            <article v-for="app in featuredGroups" :id="`app-${app.id}`" :key="app.id" class="scroll-mt-24 bg-default p-8 sm:p-10">
               <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
-              <h3 class="mt-6 text-xl font-semibold text-highlighted">{{ app.title }}</h3>
-              <p class="mt-3 text-base leading-7 text-muted">{{ app.description }}</p>
+              <h3 class="display-title mt-6 text-2xl font-semibold text-highlighted sm:text-3xl">{{ app.title }}</h3>
+              <p class="mt-4 text-base leading-7 text-muted">{{ app.description }}</p>
               <p v-if="app.note" class="mt-4 text-xs leading-5 text-dimmed">{{ app.note }}</p>
             </article>
           </div>
-          <div class="mt-8 rounded-md border border-default bg-elevated p-7 sm:p-9">
-            <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon name="i-ph-robot" class="size-5" />AI agents as teammates</div>
-            <h3 class="display-title mt-4 text-2xl font-semibold text-highlighted sm:text-3xl">Bring an agent into the conversation.</h3>
-            <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Connect a model provider, give an agent a profile, and mention it in a channel or talk in a direct message. Agents can read permitted tasks and shared data. Your team controls who can use agents and which tools they can access.</p>
+          <div class="mt-px grid gap-px overflow-hidden rounded-md border border-muted bg-muted md:grid-cols-3">
+            <article v-for="app in moreGroups" :id="`app-${app.id}`" :key="app.id" class="scroll-mt-24 bg-default p-7">
+              <div class="flex items-center gap-2 text-sm font-medium text-primary"><UIcon :name="app.icon" class="size-5" />{{ app.name }}</div>
+              <h3 class="mt-5 text-lg font-semibold text-highlighted">{{ app.title }}</h3>
+              <p class="mt-2 text-sm leading-6 text-muted">{{ app.description }}</p>
+            </article>
           </div>
         </UContainer>
       </section>
 
-      <section v-if="showAppsSection" id="app-apps" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
+      <section class="border-b border-muted py-16 sm:py-24">
         <UContainer>
           <div class="max-w-3xl">
-            <p class="mb-3 text-sm font-medium text-primary">Apps</p>
-            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Want more?</h2>
-            <p class="mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Build tools around the way your team works. Use shared records to build the internal tools your community needs.</p>
-          </div>
-          <div class="mt-10 rounded-md border border-default bg-elevated p-7 sm:p-9">
-            <UBadge label="Built-in Apps · Available now" color="primary" variant="subtle" />
-            <h3 class="display-title mt-5 text-2xl font-semibold text-highlighted sm:text-3xl">Your data. Your tools.</h3>
-            <p class="mt-4 max-w-3xl text-base leading-7 text-muted">Turn your records into shared lists, tables, and metrics: a client directory, a sales console, or a project dashboard. Choose what each app can show or change, then publish it to the right roles.</p>
-            <p class="mt-4 text-base leading-7 text-muted">Create and publish these tools with the built-in Apps editor.</p>
-          </div>
-        </UContainer>
-      </section>
-
-      <section class="border-b border-muted py-14 sm:py-24">
-        <UContainer>
-          <div class="max-w-3xl">
-            <p class="mb-3 text-sm font-medium text-primary">Free stays complete</p>
+            <p class="mb-3 text-sm font-medium text-primary">Everything included</p>
             <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Your team. Your history. Your choice.</h2>
           </div>
           <div class="mt-10 grid gap-8 md:grid-cols-3">
@@ -171,60 +187,62 @@ useHead({
         </UContainer>
       </section>
 
-      <section id="run" class="scroll-mt-20 border-b border-muted py-14 sm:py-24">
+      <section id="run" class="scroll-mt-20 border-b border-muted py-16 sm:py-24">
         <UContainer>
           <div class="mx-auto max-w-3xl text-center">
             <p class="mb-3 text-sm font-medium text-primary">Ways to run</p>
-            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Choose where to run L4.</h2>
-            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">Run on your Cloudflare account, or use celld on your VPS. In either case, you operate the server and own its data.</p>
+            <h2 class="display-title text-4xl font-semibold text-highlighted sm:text-5xl">Choose where your Server runs.</h2>
+            <p class="mx-auto mt-5 max-w-2xl text-base leading-7 text-muted sm:text-lg">On your Cloudflare account or on a VPS you control. Either way, you operate the Server and own its data.</p>
           </div>
           <div class="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
-              <UBadge label="Your account" color="primary" variant="subtle" class="self-start" />
-              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on Cloudflare</h3>
-              <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account, deploy your server and invite your community. Each server has its own database, files and realtime runtime.</p>
+              <UBadge label="From your browser" color="primary" variant="subtle" class="self-start" />
+              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Cloudflare</h3>
+              <p class="mt-4 text-base leading-7 text-muted">Connect your Cloudflare account and deploy a Server. No Git or command line needed. Each Server gets its own database, files and realtime runtime.</p>
               <ul class="my-7 space-y-3 text-sm text-toned">
-                <li>Full MIT product, including projects, shared tools and agents</li>
-                <li>No seats, history tiers, or reduced open-source edition</li>
-                <li>You pay Cloudflare directly for infrastructure usage</li>
+                <li>The full product, including projects and agents</li>
+                <li>Optional compute node for agent work on code</li>
+                <li>You pay Cloudflare directly for usage</li>
               </ul>
-              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
+              <UButton :to="createUrl" label="Deploy on Cloudflare" trailing-icon="i-ph-arrow-right" size="lg" class="mt-auto self-start" />
             </UCard>
             <UCard :ui="{ body: 'flex h-full flex-col p-7 sm:p-9' }">
-              <UBadge label="Your server" color="neutral" variant="outline" class="self-start" />
-              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Run on your VPS</h3>
-              <p class="mt-4 text-base leading-7 text-muted">The same server logic on celld. Keep chat, tasks, documents and files on your own machine. Connect optional calls, AI and mail providers when you need them.</p>
-              <ul class="my-7 space-y-3 text-sm text-toned"><li>Local accounts and your own domain</li><li>One private runtime and database per server</li><li>Separate backups and operator-controlled updates</li></ul>
-              <UButton to="/create?tab=vps" label="VPS setup" color="neutral" variant="outline" size="lg" class="mt-auto self-start" />
+              <UBadge label="One command" color="neutral" variant="outline" class="self-start" />
+              <h3 class="mt-5 text-2xl font-semibold text-highlighted">Your VPS</h3>
+              <p class="mt-4 text-base leading-7 text-muted">Install on a Debian or Ubuntu server with Docker and HTTPS. Chat, tasks, documents and files stay on your machine.</p>
+              <ul class="my-7 space-y-3 text-sm text-toned">
+                <li>Your domain and local accounts</li>
+                <li>Optional compute node on the same VPS</li>
+                <li>Separate backups and updates you control</li>
+              </ul>
+              <UButton to="/create?tab=vps" label="Install on a VPS" color="neutral" variant="outline" size="lg" class="mt-auto self-start" />
             </UCard>
           </div>
         </UContainer>
       </section>
 
-      <section class="py-14 sm:py-24">
+      <section class="py-16 sm:py-24">
         <UContainer>
-          <div class="relative isolate overflow-hidden rounded-md border border-default bg-elevated px-6 py-14 text-center sm:px-12 sm:py-16">
-            <div class="pointer-events-none absolute inset-0 -z-10" />
-            <img src="/brand/logo-128.png" alt="" class="mx-auto size-16" width="64" height="64">
-            <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Give your team a place to work together.</h2>
+          <div class="rounded-md border border-default bg-elevated px-6 py-14 text-center sm:px-12 sm:py-16">
+            <BrandMark class="mx-auto size-12 text-highlighted" />
+            <h2 class="display-title mx-auto mt-6 max-w-2xl text-4xl font-semibold text-highlighted sm:text-5xl">Bring your team and its agents together.</h2>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <UButton to="/create?tab=cloudflare" :label="primaryActionLabel" trailing-icon="i-ph-arrow-right" size="xl" />
-              <UButton :to="connectUrl" label="Connect a server" color="neutral" variant="outline" size="xl" />
+              <UButton :to="createUrl" :label="createLabel" trailing-icon="i-ph-arrow-right" size="xl" />
+              <UButton to="/create" label="Connect a Server" color="neutral" variant="outline" size="xl" />
             </div>
           </div>
         </UContainer>
       </section>
     </main>
 
-    <footer class="relative isolate overflow-hidden border-t border-muted bg-muted/40 pt-12 sm:pt-16">
-      <div class="pointer-events-none absolute inset-0 -z-10 opacity-60" />
+    <footer class="border-t border-muted bg-muted/40 pt-12 sm:pt-16">
       <UContainer>
         <div class="grid grid-cols-2 gap-8 pb-12 sm:grid-cols-3 sm:pb-16">
           <nav aria-label="Footer product">
             <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
             <ul class="space-y-3 text-sm text-muted">
-              <li v-for="app in productGroups" :key="app.name"><a :href="`#app-${app.id}`" class="hover:text-highlighted">{{ app.name }}</a></li>
-              <li v-if="showAppsSection"><a href="#app-apps" class="hover:text-highlighted">Apps</a></li>
+              <li><a href="#agents" class="hover:text-highlighted">Agents</a></li>
+              <li v-for="app in productGroups" :key="app.id"><a :href="`#app-${app.id}`" class="hover:text-highlighted">{{ app.name }}</a></li>
               <li><a href="#run" class="hover:text-highlighted">Ways to run</a></li>
             </ul>
           </nav>
@@ -232,18 +250,17 @@ useHead({
             <p class="mb-4 text-sm font-semibold text-highlighted">Resources</p>
             <ul class="space-y-3 text-sm text-muted">
               <li><NuxtLink to="/docs" class="hover:text-highlighted">Documentation</NuxtLink></li>
-              <li><NuxtLink to="/create?tab=cloudflare" class="hover:text-highlighted">Setup guide</NuxtLink></li>
-              <li><ULink :to="connectUrl" class="hover:text-highlighted">Connect a server</ULink></li>
+              <li><ULink :to="deploymentGuideUrl" target="_blank" class="hover:text-highlighted">Deployment guide</ULink></li>
+              <li><NuxtLink to="/servers" class="hover:text-highlighted">My Servers</NuxtLink></li>
               <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
             </ul>
           </nav>
-          <nav aria-label="Footer company">
-            <p class="mb-4 text-sm font-semibold text-highlighted">Company</p>
+          <nav aria-label="Footer project">
+            <p class="mb-4 text-sm font-semibold text-highlighted">Project</p>
             <ul class="space-y-3 text-sm text-muted">
               <li><NuxtLink to="/privacy" class="hover:text-highlighted">Privacy</NuxtLink></li>
               <li><NuxtLink to="/terms" class="hover:text-highlighted">Terms</NuxtLink></li>
-              <li><ULink :to="`${repoUrl}/issues`" class="hover:text-highlighted">Contact</ULink></li>
-
+              <li><ULink :to="`${repoUrl}/issues`" target="_blank" class="hover:text-highlighted">Issues and feedback</ULink></li>
             </ul>
           </nav>
         </div>
@@ -251,9 +268,7 @@ useHead({
       <div class="border-t border-muted py-8">
         <UContainer class="flex w-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <BrandLogo />
-          <div class="text-xs leading-5 text-dimmed">
-            <p>inchi</p>
-          </div>
+          <p class="text-xs leading-5 text-dimmed">MIT License · Made by Inchi</p>
         </UContainer>
       </div>
     </footer>
@@ -261,34 +276,7 @@ useHead({
 </template>
 
 <style scoped>
-@font-face {
-  font-family: 'Moo Lah Lah';
-  src: url('/fonts/moo-lah-lah-l4.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-.hero-heading {
-  display: grid;
-  min-height: clamp(18rem, 40vw, 27rem);
-  place-items: center;
-}
-.hero-wordmark {
-  font-family: 'Moo Lah Lah', sans-serif;
-  font-weight: 400;
-  font-size: clamp(22rem, 55vw, 36rem);
-  line-height: .8;
-  letter-spacing: -.08em;
-}
 .hero-title {
-  font-size: clamp(2.625rem, 6.8vw, 6rem);
-}
-@media (max-width: 639px) {
-  .hero-wordmark { font-size: clamp(16rem, 72vw, 22rem); }
-}
-@media (min-width: 1024px) and (max-height: 760px) {
-  .hero { padding-block: 3rem; }
-  .hero-heading { min-height: 17rem; padding-block: 2rem; }
-  .hero-wordmark { font-size: 24rem; }
+  font-size: clamp(2.75rem, 7vw, 6.25rem);
 }
 </style>

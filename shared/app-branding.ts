@@ -1,5 +1,5 @@
 export const DEFAULT_APP_NAME = 'L4'
-export const DEFAULT_APP_TITLE = 'One server for humans and agents.'
+export const DEFAULT_APP_TITLE = 'One workspace for humans and agents.'
 export const DEFAULT_APP_SUBTITLE = 'Built on your Cloudflare stack.'
 export const NEUTRAL_APP_SUBTITLE = 'Built on your own stack.'
 

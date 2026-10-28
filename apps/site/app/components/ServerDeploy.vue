@@ -369,25 +369,25 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
     </section>
     <section v-else class="space-y-4 rounded-lg border border-default p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <p class="font-medium">{{ connected ? 'Cloudflare connected' : expired ? 'Cloudflare connection ended' : 'Connect Cloudflare' }}</p>
-        <div class="flex flex-wrap gap-2"><UButton :to="oauthUrl" external :label="connected || expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth || busy || updating" size="sm" /><UButton v-if="connected" label="Disconnect" color="neutral" variant="ghost" size="sm" :disabled="busy || updating" @click="disconnectCloudflare" /></div>
+        <p class="font-medium">{{ connected ? 'Cloudflare connected' : expired ? 'Cloudflare connection ended' : 'Cloudflare account' }}</p>
+        <div class="flex flex-wrap gap-2"><UButton v-if="config?.oauth !== false" :to="oauthUrl" external :label="connected || expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth || busy || updating" size="sm" /><UButton v-if="connected" label="Disconnect" color="neutral" variant="ghost" size="sm" :disabled="busy || updating" @click="disconnectCloudflare" /></div>
       </div>
       <template v-if="connected && session">
         <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy || updating" class="w-full" /></UFormField>
         <p class="text-xs leading-5 text-muted">Cloudflare access: {{ remaining(session.grantExpiresAt) }} · Installer session: {{ remaining(session.sessionExpiresAt) }}.<br>Your Servers keep running when this connection ends.</p>
       </template>
-      <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Authorize L4 to find your Servers and create new ones in your Cloudflare account.' }}</p>
-      <p v-if="config && !config.oauth" class="text-sm text-muted">Cloudflare connection is unavailable here. <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">Manual setup</a> is available.</p>
+      <p v-else-if="config && !config.oauth" class="text-sm text-muted">Connecting Cloudflare is not available on this site. Follow the <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">manual deployment guide</a> instead.</p>
+      <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Sign in to Cloudflare and allow L4 to create a Server in your account. You pay Cloudflare directly, and the Server keeps no Cloudflare credential after setup.' }}</p>
     </section>
 
     <template v-if="!updateMode && !factoryMode">
-    <section class="space-y-3">
+    <section v-if="connected || rows.length || listError" class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-xl font-semibold tracking-tight">{{ connected ? 'Your Servers' : 'Saved on this device' }}</h2>
         <UButton v-if="connected" label="Refresh Servers" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" size="sm" :loading="listing" :disabled="busy" @click="loadServers" />
       </div>
       <p v-if="listing && !rows.length" role="status" class="text-sm text-muted">Finding L4 Servers…</p>
-      <p v-else-if="!rows.length && !listError" class="text-sm text-muted">{{ connected ? 'No L4 Servers found in this account yet.' : 'Servers you open here will stay in this list.' }}</p>
+      <p v-else-if="!rows.length && !listError" class="text-sm text-muted">No L4 Servers found in this account yet.</p>
       <ul v-else-if="rows.length" class="space-y-3">
         <li v-for="entry in rows" :key="entry.origin" class="min-w-0 space-y-3 rounded-lg border border-default p-4">
           <div class="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -420,7 +420,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
         <span>{{ attempt.name }} · {{ attempt.version }}</span><UButton label="Resume setup" color="neutral" variant="outline" :disabled="pending || busy" @click="resumeDeployment(attempt.serverId)" />
       </div>
     </section>
-    <UButton v-if="!creating && !pending" :label="rows.length ? 'Create another Server' : 'Create a Server'" icon="i-ph-plus" :disabled="!connected" @click="creating = true" />
+    <UButton v-if="!creating && !pending && config?.oauth !== false" :label="rows.length ? 'Create another Server' : 'Create a Server'" icon="i-ph-plus" :disabled="!connected" @click="creating = true" />
     <UForm v-if="creating || pending" :schema="pending ? undefined : formSchema" :state="{ accountId, name, ownerEmail, version }" class="space-y-5 border-t border-default pt-6" @submit="deploy">
       <h2 class="text-xl font-semibold">{{ pending ? 'Server deployment' : 'Create a Server' }}</h2>
       <template v-if="!pending">
@@ -473,7 +473,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
           <h2 class="text-xl font-semibold tracking-tight">Update not loaded</h2>
           <p class="text-sm text-muted">Reopen the update from your Server’s Settings. This browser has no saved update request.</p>
         </template>
-        <UButton v-if="!updating" label="Add a server instead" color="neutral" variant="link" @click="leaveUpdate" />
+        <UButton v-if="!updating" label="Add a Server instead" color="neutral" variant="link" @click="leaveUpdate" />
       </section>
       <UAlert v-if="update?.error || updateError" color="error" :description="update?.error || updateError" />
     </template>

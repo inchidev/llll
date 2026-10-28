@@ -1,20 +1,12 @@
 <script setup lang="ts">
 import ServerAvatar from '../../packages/client-ui/ServerAvatar.vue'
-import {
-  DEFAULT_APP_NAME,
-  DEFAULT_APP_SUBTITLE,
-  DEFAULT_APP_TITLE,
-} from '~~/shared/app-branding'
+import { DEFAULT_APP_NAME } from '~~/shared/app-branding'
 
 const session = useSessionStore()
 
+// The sign-in stage introduces this Server, not the L4 product: invited
+// Members arrive for the community, and the product credit stays small.
 const appName = computed(() => session.health?.appName || DEFAULT_APP_NAME)
-const appTitle = computed(() => session.health?.appTitle || DEFAULT_APP_TITLE)
-const appSubtitle = computed(() => session.health?.appSubtitle || DEFAULT_APP_SUBTITLE)
-const appTitleLines = computed(() => appTitle.value
-  .split(/\r?\n/)
-  .map(line => line.trim())
-  .filter(Boolean))
 
 useHead(() => ({ title: appName.value }))
 </script>
@@ -28,19 +20,16 @@ useHead(() => ({ title: appName.value }))
 
       <div class="hidden flex-1 items-center py-12 lg:flex">
         <div class="max-w-lg">
-          <h1 class="font-brand text-3xl sm:text-4xl xl:text-5xl font-semibold tracking-[-0.045em] text-highlighted leading-[1] break-words">
-            <span
-              v-for="(line, index) in appTitleLines"
-              :key="`${index}-${line}`"
-              class="block"
-              :class="{ 'text-primary': appTitleLines.length > 1 && index === appTitleLines.length - 1 }"
-            >{{ line }}</span>
+          <h1 class="font-brand text-3xl sm:text-4xl xl:text-5xl font-semibold tracking-[-0.045em] text-highlighted leading-[1.05] break-words">
+            {{ appName }}
           </h1>
           <p class="mt-7 max-w-md text-base xl:text-lg leading-relaxed text-muted">
-            {{ appSubtitle }}
+            Conversations, projects and tasks for this Server’s people and agents.
           </p>
         </div>
       </div>
+
+      <a href="https://llll.gg" target="_blank" rel="noopener" class="hidden text-xs text-dimmed hover:text-muted lg:block">Powered by L4</a>
     </aside>
 
     <main class="flex min-w-0 flex-col lg:min-h-full">

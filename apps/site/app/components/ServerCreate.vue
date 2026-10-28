@@ -3,8 +3,8 @@ const route = useRoute()
 const router = useRouter()
 const items = [
   { label: 'Connect', value: 'connect', slot: 'connect' as const },
-  { label: 'Cloudflare', value: 'cloudflare', slot: 'cloudflare' as const },
-  { label: 'VPS', value: 'vps', slot: 'vps' as const },
+  { label: 'New on Cloudflare', value: 'cloudflare', slot: 'cloudflare' as const },
+  { label: 'New on a VPS', value: 'vps', slot: 'vps' as const },
 ]
 const tab = computed({
   get: () => ['cloudflare', 'vps'].includes(String(route.query.tab)) ? String(route.query.tab) : 'connect',
@@ -19,9 +19,10 @@ watch(tab, value => { if (value === 'cloudflare') cloudflareOpened.value = true 
 <template>
   <div class="flex min-h-full flex-col">
     <header class="flex shrink-0 items-center border-b border-default px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8">
-      <h1 class="flex h-11 items-center text-xl font-semibold tracking-tight">Add a server</h1>
+      <h1 class="flex h-11 items-center text-xl font-semibold tracking-tight">Add a Server</h1>
     </header>
-    <div class="w-full max-w-xl px-4 py-6 sm:px-8 sm:py-8">
+    <div class="mx-auto w-full max-w-2xl px-4 py-6 sm:px-8 sm:py-8">
+      <p class="mb-6 text-sm leading-6 text-muted">Open a Server you already use, or create your own on your Cloudflare account or VPS. Every Server keeps its own accounts and data.</p>
       <UTabs v-model="tab" :items="items" :unmount-on-hide="false" class="gap-6" :ui="{ list: 'w-full', trigger: 'flex-auto px-1 sm:px-3' }">
         <template #connect><ServerConnect /></template>
         <template #cloudflare><ServerDeploy v-if="cloudflareOpened" /></template>

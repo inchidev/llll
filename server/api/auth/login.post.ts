@@ -40,7 +40,14 @@ export default defineEventHandler(async (event) => {
     if (payload?.code === 'EMAIL_NOT_VERIFIED') {
       fail(403, 'email_not_verified', 'Verify your email before signing in')
     }
-    fail(401, 'invalid_credentials', 'Invalid email or password')
+    if (res.status === 401 || payload?.code === 'INVALID_EMAIL_OR_PASSWORD') {
+      fail(401, 'invalid_credentials', 'Invalid email or password')
+    }
+    // Origin, CSRF and rate-limit refusals are not credential errors; reporting
+    // them as a wrong password sends people to reset a password that works.
+    if (res.status === 429) fail(429, 'rate_limited', 'Too many login attempts')
+    if (res.status === 403) fail(403, 'sign_in_refused', `This Server refused the sign-in request (${payload?.code || 'forbidden'}). Open the Server at its own address and try again.`)
+    fail(502, 'sign_in_failed', 'Sign-in failed. Try again in a moment.')
   }
   for (const cookie of res.headers.getSetCookie?.() ?? []) appendResponseHeader(event, 'set-cookie', cookie)
   const signedIn = await res.json() as { user: { id: string; email: string; name: string; image?: string | null } }
