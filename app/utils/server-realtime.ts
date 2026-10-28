@@ -74,7 +74,36 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
   }
 }
 
+type MessagePages = { pages: Array<{ messages: Array<{ threadId?: string | null }> }> }
+
 export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerRealtimeEvent) {
+  if (event.t === 'channels.changed') {
+    if (event.deletedIds.length) {
+      const ids = new Set(event.deletedIds)
+      const prune = (old: ChannelList | undefined) => old ? {
+        ...old,
+        channels: old.channels.filter(channel => !ids.has(channel.id)),
+        threads: old.threads?.filter(thread => !ids.has(thread.id)),
+      } : old
+      cache.setQueriesData<ChannelList>({ queryKey: ['channels'] }, prune)
+      for (const parentId of event.parentIds) {
+        // The root message stays; only its Thread link goes.
+        cache.setQueryData<MessagePages>(['messages', parentId], old => old ? {
+          ...old,
+          pages: old.pages.map(page => ({
+            ...page,
+            messages: page.messages.map(message => message.threadId && ids.has(message.threadId) ? { ...message, threadId: null } : message),
+          })),
+        } : old)
+      }
+      for (const id of ids) for (const kind of ['channel', 'messages', 'threads', 'files', 'pins', 'message-search', 'readCursor', 'private-channel-members']) {
+        cache.removeQueries({ queryKey: [kind, id] })
+      }
+    }
+    for (const parentId of event.parentIds) void cache.invalidateQueries({ queryKey: ['threads', parentId] })
+    void cache.invalidateQueries({ queryKey: ['channels', event.serverId] })
+    return
+  }
   if (event.t === 'channel.access.changed') {
     if (event.revoked) {
       const ids = new Set(event.conversationIds)

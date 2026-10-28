@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { PresenceStatus, PublicUser } from '../shared/types'
-import type { ServerChannelAccessChangedEvent, ServerChannelActivityEvent, ServerChannelReadEvent, ServerLiveChangedEvent, ServerMailChangedEvent, ServerMembersChangedEvent, ServerTasksChangedEvent } from '../shared/server-realtime'
+import type { ServerChannelAccessChangedEvent, ServerChannelActivityEvent, ServerChannelsChangedEvent, ServerChannelReadEvent, ServerLiveChangedEvent, ServerMailChangedEvent, ServerMembersChangedEvent, ServerTasksChangedEvent } from '../shared/server-realtime'
 import type { L4Env } from './env'
 import { sessionFromTicket, socketSessionActive } from './ticket'
 import { sendServerEvent, type ServerSocketAttachment } from './server-events'
@@ -80,6 +80,12 @@ export class ServerDurableObject extends DurableObject<L4Env> {
 
   async notifyChannelAccessChanged(event: ServerChannelAccessChangedEvent, recipientIds: string[]): Promise<void> {
     sendServerEvent(await this.activeSockets(), new Set(recipientIds), event)
+  }
+
+  /** Without recipients the change concerns server-visible channels, so every Member hears it. */
+  async notifyChannelsChanged(event: ServerChannelsChangedEvent, recipientIds?: string[]): Promise<void> {
+    if (recipientIds) sendServerEvent(await this.activeSockets(), new Set(recipientIds), event)
+    else await this.broadcastMessage(event)
   }
 
   async notifyChannelRead(event: ServerChannelReadEvent, userId: string): Promise<void> {

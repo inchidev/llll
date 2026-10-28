@@ -8,6 +8,7 @@ import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { parseBody } from '../../../utils/validate'
 import { writeAudit } from '../../../utils/messages'
+import { signalChannelsChanged } from '../../../utils/channel-lifecycle'
 
 const bodySchema = z.object({
   name: z.string().min(1).max(80).regex(/^[a-z0-9-_]+$/i),
@@ -21,7 +22,7 @@ export default defineEventHandler(async (event) => {
   const serverId = getRouterParam(event, 'id')!
   const member = await requireMember(event, serverId, Permission.manageChannels)
   const body = parseBody(bodySchema, await readBody(event))
-  const { env } = cf(event)
+  const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
   const id = newId()
   const created = nowIso()
@@ -49,11 +50,13 @@ export default defineEventHandler(async (event) => {
     createdAt: created,
     updatedAt: created,
   } as const
+  let audience: string[] | undefined
   if (body.visibility === 'private') {
     const memberIds = [...new Set([member.user.id, ...(body.memberIds ?? [])])]
     const active = await db.select({ id: users.id }).from(users)
       .where(and(inArray(users.id, memberIds), eq(users.status, 'active')))
     if (active.length !== memberIds.length) fail(400, 'bad_request', 'Private channel member is not active')
+    audience = memberIds
     await db.batch([
       db.insert(channels).values(channel),
       db.insert(channelMembers).values(memberIds.map(userId => ({ channelId: id, userId, hiddenAt: null, joinedAt: created }))),
@@ -63,6 +66,7 @@ export default defineEventHandler(async (event) => {
     await db.insert(channels).values(channel)
   }
   await writeAudit(env, { serverId, actorId: member.user.id, action: 'channel.create', targetType: 'channel', targetId: id, meta: { name } })
+  waitUntil(signalChannelsChanged(env, serverId, {}, audience))
   return {
     channel: {
       id,

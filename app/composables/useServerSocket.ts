@@ -63,13 +63,20 @@ export function useServerSocket(serverId: MaybeRefOrGetter<string>) {
           connection.value = 'connected'
         }
         else if (parsed.t === 'presence') presence.apply(parsed.users)
-        else if (parsed.t === 'channel.access.changed' || parsed.t === 'channel.activity' || parsed.t === 'channel.read' || parsed.t === 'tasks.changed' || parsed.t === 'mail.changed' || parsed.t === 'members.changed' || parsed.t === 'live.changed') {
+        else if (parsed.t === 'channel.access.changed' || parsed.t === 'channels.changed' || parsed.t === 'channel.activity' || parsed.t === 'channel.read' || parsed.t === 'tasks.changed' || parsed.t === 'mail.changed' || parsed.t === 'members.changed' || parsed.t === 'live.changed') {
           const qc = queryClient()
           if (qc) applyServerRealtimeEvent(qc, parsed)
           if (parsed.t === 'channel.access.changed' && parsed.revoked) {
             const params = router.currentRoute.value.params
             const activeChannel = String(params.channel || params.channelId || '')
             if (parsed.conversationIds.includes(activeChannel)) void router.replace('/inbox')
+          }
+          if (parsed.t === 'channels.changed' && parsed.deletedIds.length) {
+            const params = router.currentRoute.value.params
+            const activeChannel = String(params.channel || params.channelId || '')
+            const activeThread = String(params.threadId || '')
+            if (parsed.deletedIds.includes(activeChannel)) void router.replace('/channels')
+            else if (activeThread && parsed.deletedIds.includes(activeThread)) void router.replace(router.currentRoute.value.path.replace(`/threads/${activeThread}`, ''))
           }
           if (parsed.t === 'live.changed') {
             const live = useLiveStore()

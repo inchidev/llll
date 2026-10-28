@@ -46,6 +46,20 @@ export type ServerChannelAccessChangedEvent = {
   revoked: boolean
 }
 
+/**
+ * The Server's channel layout changed: a channel or category was created, renamed, moved or
+ * deleted, or a Thread was deleted. Clients refetch their channel list; deleted conversations
+ * leave their caches at once.
+ */
+export type ServerChannelsChangedEvent = {
+  t: 'channels.changed'
+  serverId: string
+  /** Deleted conversations: a channel with its Threads, or one Thread. */
+  deletedIds: string[]
+  /** Conversations whose Thread list changed. */
+  parentIds: string[]
+}
+
 export type ServerLiveChangedEvent = {
   t: 'live.changed'
   channelId: string
@@ -64,6 +78,7 @@ export type ServerLiveChangedEvent = {
 
 export type ServerRealtimeEvent =
   | ServerChannelAccessChangedEvent
+  | ServerChannelsChangedEvent
   | ServerChannelActivityEvent
   | ServerChannelReadEvent
   | ServerTasksChangedEvent

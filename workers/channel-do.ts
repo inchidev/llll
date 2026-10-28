@@ -32,6 +32,7 @@ import {
 } from './live-room'
 import { signalChannelActivity, signalChannelRead } from './channel-activity'
 import { signalAgentsForMessage } from './agent-ingress'
+import { persistMessageEdit } from './message-edits'
 import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
@@ -650,15 +651,21 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (row.deleted_at) return
     const editedAt = nowIso()
     const mentions = await this.validMentions(extractMentionIds(body.content))
-    await this.env.DB.batch([
-      this.env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').bind(body.content, editedAt, body.id),
-      this.env.DB.prepare('DELETE FROM message_mentions WHERE message_id = ?').bind(body.id),
-      ...mentions.map((userId) => this.env.DB.prepare(
-        'INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)',
-      ).bind(body.id, userId)),
-    ])
+    const added = await persistMessageEdit(this.env, { id: body.id, channelId: this.channelId(), author: sock.user, content: body.content, mentions, editedAt })
     const dto = await this.loadMessage(body.id)
     if (dto) await this.broadcast({ t: 'message.update', message: dto })
+    if (added.length) {
+      this.ctx.waitUntil(signalNotificationOutbox(this.env))
+      this.ctx.waitUntil(signalAgentsForMessage(this.env, {
+        messageId: body.id,
+        channelId: this.channelId(),
+        authorId: sock.userId,
+        authorName: sock.user.displayName,
+        content: body.content,
+        mentionIds: added,
+        edit: true,
+      }))
+    }
   }
 
   private async onDelete(ws: WebSocket, sock: Sock, authz: Authz, id: string) {

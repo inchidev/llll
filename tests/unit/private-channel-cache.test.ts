@@ -26,3 +26,18 @@ it('refreshes discovery for a newly granted channel without deleting existing da
   expect(cache.getQueryData(['messages', 'general'])).toEqual({ messages: ['kept'] })
   cache.clear()
 })
+
+it('drops a deleted Thread and its link from the parent while the channel list refreshes', () => {
+  const cache = new QueryClient()
+  const refresh = vi.spyOn(cache, 'invalidateQueries')
+  cache.setQueryData(['channels', 'server'], { channels: [{ id: 'general' }], threads: [{ id: 'thread', parentId: 'general' }] })
+  cache.setQueryData(['messages', 'general'], { pages: [{ messages: [{ id: 'root', threadId: 'thread' }, { id: 'other', threadId: 'kept' }] }] })
+  cache.setQueryData(['messages', 'thread'], { pages: [] })
+  applyServerRealtimeEvent(cache, { t: 'channels.changed', serverId: 'server', deletedIds: ['thread'], parentIds: ['general'] })
+  expect(cache.getQueryData(['channels', 'server'])).toEqual({ channels: [{ id: 'general' }], threads: [] })
+  expect(cache.getQueryData(['messages', 'general'])).toEqual({ pages: [{ messages: [{ id: 'root', threadId: null }, { id: 'other', threadId: 'kept' }] }] })
+  expect(cache.getQueryData(['messages', 'thread'])).toBeUndefined()
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['threads', 'general'] })
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ['channels', 'server'] })
+  cache.clear()
+})

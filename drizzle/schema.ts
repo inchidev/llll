@@ -487,6 +487,8 @@ export const channels = sqliteTable('channels', {
   /** Legacy metadata retained for forward-compatible migration of existing conversations. */
   dmKind: text('dm_kind', { enum: ['pair', 'group'] }).notNull().default('pair'),
   dmOwnerId: text('dm_owner_id').references(() => users.id, { onDelete: 'set null' }),
+  /** Ordered `low:high` participant IDs of a 1:1 DM; unique, so a pair never gets two DMs. */
+  dmPairKey: text('dm_pair_key'),
   /** The active Live room's RealtimeKit meeting. */
   liveMeetingId: text('live_meeting_id'),
   parentId: text('parent_id').references((): AnySQLiteColumn => channels.id, { onDelete: 'cascade' }),
@@ -498,6 +500,7 @@ export const channels = sqliteTable('channels', {
   index('channels_category_id_idx').on(table.categoryId),
   index('channels_parent_id_idx').on(table.parentId),
   uniqueIndex('channels_thread_root_unique').on(table.parentMessageId).where(sql`${table.type} = 'thread'`),
+  uniqueIndex('channels_dm_pair_key_unique').on(table.dmPairKey).where(sql`${table.dmPairKey} is not null`),
   check('channels_type_check', sql`${table.type} in ('text', 'thread', 'dm')`),
   check('channels_visibility_check', sql`${table.visibility} in ('server', 'private')`),
   check('channels_dm_private_check', sql`${table.type} <> 'dm' or ${table.visibility} = 'private'`),

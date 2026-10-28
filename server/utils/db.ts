@@ -27,6 +27,7 @@ import softwareFactorySql from '../../drizzle/server-migrations/0023_software_fa
 import projectPoliciesSql from '../../drizzle/server-migrations/0024_project_policies.sql?raw'
 import taskDelegationSql from '../../drizzle/server-migrations/0025_task_delegation.sql?raw'
 import rolePoliciesSql from '../../drizzle/server-migrations/0026_role_policies.sql?raw'
+import chatLifecycleSql from '../../drizzle/server-migrations/0028_chat_lifecycle.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -77,6 +78,7 @@ export const INIT_SQL = d1ExecSql([
   projectPoliciesSql,
   taskDelegationSql,
   rolePoliciesSql,
+  chatLifecycleSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

@@ -29,6 +29,8 @@ type NotificationMessage = {
   content: string
   mentions: string[]
   attachmentCount: number
+  /** An edit notifies only the Members it newly mentions; DM participants heard the send. */
+  edit?: boolean
 }
 
 async function channelAndRoot(env: L4Env, channelId: string): Promise<{ channel: ChannelRow; root: ChannelRow } | null> {
@@ -123,6 +125,7 @@ export async function messageNotificationStatement(env: L4Env, message: Notifica
   if (!channels) return null
   const { channel, root } = channels
   const dm = root.type === 'dm'
+  if (dm && message.edit) return null
   const recipientIds = dm
     ? await activeDmRecipients(env, root.id, message.author.id)
     : await accessibleMentions(env, root, message.author.id, message.mentions)
