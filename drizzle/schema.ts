@@ -736,12 +736,38 @@ export const emailMessages = sqliteTable('email_messages', {
   deliveryAttempts: integer('delivery_attempts').notNull().default(0),
   deliveryError: text('delivery_error'),
   deliveredAt: text('delivered_at'),
+  /** `markdown` is sent as sanitized HTML with a text/plain alternative. */
+  bodyFormat: text('body_format', { enum: ['text', 'markdown'] }).notNull().default('text'),
 }, table => [
   uniqueIndex('email_messages_mailbox_rfc_message_id_unique').on(table.mailboxChannelId, table.rfcMessageId).where(sql`${table.rfcMessageId} is not null`),
   uniqueIndex('email_messages_mailbox_client_request_unique').on(table.mailboxChannelId, table.clientRequestId).where(sql`${table.clientRequestId} is not null`),
   index('email_messages_thread_created_idx').on(table.threadChannelId, table.createdAt),
   check('email_messages_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
   check('email_messages_delivery_status_check', sql`${table.deliveryStatus} in ('received', 'pending', 'sent', 'failed')`),
+  check('email_messages_body_format_check', sql`${table.bodyFormat} in ('text', 'markdown')`),
+])
+
+/**
+ * An email being written: private to its author in one mailbox, either a new
+ * email or a reply in one conversation. Attachments are the author's unsent uploads.
+ */
+export const mailDrafts = sqliteTable('mail_drafts', {
+  id: text('id').primaryKey(),
+  mailboxChannelId: text('mailbox_channel_id').notNull().references(() => emailMailboxes.channelId, { onDelete: 'cascade' }),
+  threadChannelId: text('thread_channel_id').references(() => emailThreads.channelId, { onDelete: 'cascade' }),
+  authorId: text('author_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  toJson: text('to_json').notNull().default('[]'),
+  ccJson: text('cc_json').notNull().default('[]'),
+  bccJson: text('bcc_json').notNull().default('[]'),
+  subject: text('subject').notNull().default(''),
+  content: text('content').notNull().default(''),
+  bodyFormat: text('body_format', { enum: ['text', 'markdown'] }).notNull().default('text'),
+  attachmentIdsJson: text('attachment_ids_json').notNull().default('[]'),
+  ...isoTimestamps(),
+}, table => [
+  index('mail_drafts_author_mailbox_idx').on(table.authorId, table.mailboxChannelId, table.updatedAt),
+  uniqueIndex('mail_drafts_author_thread_unique').on(table.authorId, table.threadChannelId).where(sql`${table.threadChannelId} is not null`),
+  check('mail_drafts_body_format_check', sql`${table.bodyFormat} in ('text', 'markdown')`),
 ])
 
 /** Pending live-file deletion keys survive removal of their mailbox. */
@@ -1159,6 +1185,7 @@ export const schema = {
   projectPolicyAssignments,
   mcpOutboundConnections,
   fileDeletions,
+  mailDrafts,
   serverSchema,
   serverUpdateControl,
   serverIdentity,
