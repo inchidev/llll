@@ -9,6 +9,14 @@ import type { L4Env } from './env'
 
 export type ServerEmailAddress = string | { email: string, name: string }
 
+/** A file carried by every transport: base64 content, as Email Sending and the JSON gateways take it. */
+export type ServerEmailAttachment = {
+  filename: string
+  type: string
+  content: string
+  disposition: 'attachment'
+}
+
 export type ServerEmailMessage = {
   from: ServerEmailAddress
   to: ServerEmailAddress | ServerEmailAddress[]
@@ -19,6 +27,7 @@ export type ServerEmailMessage = {
   text?: string
   html?: string
   headers?: Record<string, string>
+  attachments?: ServerEmailAttachment[]
 }
 
 type MailGatewayResponse = {
@@ -132,6 +141,7 @@ function emailApiBody(message: ServerEmailMessage) {
     ...(message.headers ? { headers: message.headers } : {}),
     ...(message.text !== undefined ? { text: message.text } : {}),
     ...(message.html !== undefined ? { html: message.html } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
   }
 }
 
@@ -184,10 +194,19 @@ function safeAddress(address: ServerEmailAddress): ServerEmailAddress {
   return typeof address === 'string' ? address : { email, name: safeHeaderText(address.name, 200) }
 }
 
+function safeAttachment(attachment: ServerEmailAttachment): ServerEmailAttachment {
+  const type = attachment.type.trim().toLowerCase()
+  if (!/^[a-z0-9][\w.+-]*\/[a-z0-9][\w.+-]*$/u.test(type)) throw new Error('Attachment type is invalid')
+  if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(attachment.content)) throw new Error('Attachment content must be base64')
+  return { filename: safeHeaderText(attachment.filename, 160) || 'attachment', type, content: attachment.content, disposition: 'attachment' }
+}
+
 function safeMessage(message: ServerEmailMessage): ServerEmailMessage {
   const addresses = (value: ServerEmailAddress | ServerEmailAddress[]) => Array.isArray(value) ? value.map(safeAddress) : safeAddress(value)
+  const { attachments, ...rest } = message
   return {
-    ...message,
+    ...rest,
+    ...(attachments?.length ? { attachments: attachments.map(safeAttachment) } : {}),
     subject: safeHeaderText(message.subject, 500),
     from: safeAddress(message.from),
     to: addresses(message.to),

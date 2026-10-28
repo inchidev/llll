@@ -3,7 +3,7 @@ import { getServerId } from '../shared/server-id'
 import PostalMime, { type Address } from 'postal-mime'
 import { newId, nowIso } from '../shared/ids'
 import { MAIL_EXTERNAL_USER_ID, MAIL_LIMITS, mailAddressList, mergeMailAddresses } from '../shared/mail'
-import { sniffMime } from '../shared/mime'
+import { mailAttachmentFilename, mailAttachmentType, mailFilesAvailable } from '../shared/mail-attachments'
 import { plainMailBody } from '../shared/mail-content'
 import type { L4Env } from './env'
 import { signalMailChanged } from './mail-events'
@@ -37,11 +37,6 @@ function referenceIds(inReplyTo?: string, references?: string): string[] {
   const source = `${inReplyTo || ''} ${references || ''}`
   const bracketed = source.match(/<[^>]+>/gu)
   return [...new Set((bracketed?.length ? bracketed : source.split(/\s+/u)).map(value => value.trim()).filter(Boolean))].slice(0, 50)
-}
-
-function safeFilename(value: string | null, index: number): string {
-  const normalized = (value || `attachment-${index + 1}`).replace(/[\\/\0]/gu, '-').trim()
-  return normalized.slice(0, 160) || `attachment-${index + 1}`
 }
 
 function formatBytes(bytes: number): string {
@@ -146,14 +141,14 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   const created = nowIso()
   const messageId = newId()
   const subject = (parsed.subject || '(no subject)').replace(/[\r\n]+/gu, ' ').trim().slice(0, 500)
-  const files = env.FILES || env.TICKETS ? fileStorage(env) : null
+  const files = mailFilesAvailable(env) ? fileStorage(env) : null
   const rawKey = `${serverId}/mail/raw/${messageId}.eml`
 
   // Keep attachments within the limits; the message says what was left out.
   const omitted: string[] = []
   const attachmentRows = parsed.attachments.flatMap((attachment, index) => {
     const content = typeof attachment.content === 'string' ? new TextEncoder().encode(attachment.content) : new Uint8Array(attachment.content)
-    const filename = safeFilename(attachment.filename, index)
+    const filename = mailAttachmentFilename(attachment.filename, index)
     if (!content.byteLength) return []
     if (content.byteLength > MAIL_LIMITS.attachmentBytes) {
       omitted.push(`${filename} (${formatBytes(content.byteLength)})`)
@@ -163,9 +158,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
     return [{
       id,
       filename,
-      contentType: /\.(?:html?|svg|xml|xhtml)$/iu.test(filename) || /^(?:text\/html|image\/svg\+xml|application\/(?:xml|xhtml\+xml))$/iu.test(attachment.mimeType || '')
-        ? 'application/octet-stream'
-        : sniffMime(content, filename) || 'application/octet-stream',
+      contentType: mailAttachmentType(content, filename, attachment.mimeType),
       content,
       size: content.byteLength,
       key: `${serverId}/mail/attachments/${messageId}/${id}-${filename}`,

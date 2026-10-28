@@ -12,7 +12,9 @@ export default defineEventHandler(async (event) => {
   const db = getDb(env.DB)
   const row = (await db.select().from(attachments).where(eq(attachments.id, id)).limit(1))[0]
   if (!row) fail(404, 'not_found', 'File not found')
-  await requireChannelMember(event, row.channelId)
+  const access = await requireChannelMember(event, row.channelId)
+  // An upload not yet sent (or on a draft) belongs to its uploader alone.
+  if (!row.messageId && row.uploaderId !== access.user.id) fail(404, 'not_found', 'File not found')
   if (row.messageId) {
     const parent = (await db.select({ deletedAt: messages.deletedAt }).from(messages).where(eq(messages.id, row.messageId)).limit(1))[0]
     if (!parent || parent.deletedAt) fail(404, 'not_found', 'File not found')

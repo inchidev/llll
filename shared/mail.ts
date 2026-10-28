@@ -35,7 +35,7 @@ export function outboundRecipients(input: { to: string[]; cc?: string[]; bcc?: s
 
 /**
  * A new email forwarding an earlier one: `Fwd:` subject and the original quoted under
- * the usual header block, with room to write above it. Attachments are not copied.
+ * the usual header block, with room to write above it. Files are copied separately, through an access-checked upload.
  */
 export function forwardedEmail(original: { subject: string; fromName: string | null; fromAddress: string; date: string; to: string[]; cc: string[]; content: string }) {
   const from = original.fromName ? `${original.fromName} <${original.fromAddress}>` : original.fromAddress

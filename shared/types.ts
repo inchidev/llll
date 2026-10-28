@@ -304,6 +304,8 @@ export type MailboxDTO = {
   enabled: boolean
   permission: MailboxPermission
   unreadCount: number
+  /** Whether outbound email can carry attachments: the Server has file storage. */
+  attachments?: boolean
 }
 
 export type MailThreadDTO = {

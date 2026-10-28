@@ -8,6 +8,8 @@ import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage, mailThreadDto } from '../../../../utils/mail-data'
 import { deliverOutboundEmail } from '../../../../utils/mail-outbound'
 import { findOutboundRequest, isUniqueViolation } from '../../../../utils/mail-requests'
+import { attachMailStatements, isAttachmentTaken, pendingMailAttachments } from '../../../../utils/mail-attachments'
+import { MAIL_OUTBOUND_LIMITS } from '../../../../../shared/mail-attachments'
 import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
@@ -17,6 +19,8 @@ const schema = z.object({
   bcc: z.array(z.string().trim().email().max(254)).max(50).default([]),
   subject: z.string().trim().min(1).max(500).transform(value => value.replace(/[\r\n]+/gu, ' ').trim()),
   content: z.string().trim().min(1).max(100_000),
+  /** Your own uploads from this mailbox, attached in this order. */
+  attachmentIds: z.array(z.string().trim().min(1).max(80)).max(MAIL_OUTBOUND_LIMITS.attachments).default([]),
   /** Set by the client for each email, so retrying one is not emailed twice. */
   clientId: z.string().trim().min(8).max(80).optional(),
 })
@@ -42,6 +46,7 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
     const { to: recipients, cc, bcc, total } = outboundRecipients(body, mailbox.address)
     if (!recipients.length) fail(400, 'bad_request', 'Enter at least one external recipient')
     if (total > MAIL_LIMITS.addresses) fail(400, 'bad_request', `An email can have at most ${MAIL_LIMITS.addresses} recipients`)
+    const files = await pendingMailAttachments(env, { mailboxId, userId: access.user.id, ids: body.attachmentIds })
     const created = nowIso()
     messageId = newId()
     threadId = newId()
@@ -66,9 +71,11 @@ export default defineEventHandler(async (event): Promise<{ threadId: string; thr
             rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at)
            VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, NULL, NULL, '[]', 'pending', NULL, ?, ?)`,
         ).bind(messageId, threadId, mailboxId, mailbox.address, mailbox.displayName, JSON.stringify(recipients), JSON.stringify(cc), JSON.stringify(bcc), body.clientId ?? null, created),
+        ...attachMailStatements(env, files, messageId, mailboxId),
       ])
     }
     catch (error) {
+      if (isAttachmentTaken(error)) fail(409, 'conflict', 'An attachment was already sent with another email')
       // The same email arrived twice at once; the other request created it.
       const raced = body.clientId && isUniqueViolation(error) ? await findOutboundRequest(env, mailboxId, body.clientId) : null
       if (!raced) throw error

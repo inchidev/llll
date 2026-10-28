@@ -8,6 +8,8 @@ import { parseBody } from '../../../../utils/validate'
 import { loadMailMessage } from '../../../../utils/mail-data'
 import { deliverOutboundEmail, replyRecipients, replyThreading } from '../../../../utils/mail-outbound'
 import { findOutboundRequest, isUniqueViolation } from '../../../../utils/mail-requests'
+import { attachMailStatements, isAttachmentTaken, pendingMailAttachments } from '../../../../utils/mail-attachments'
+import { MAIL_OUTBOUND_LIMITS } from '../../../../../shared/mail-attachments'
 import { serverEmailAvailable } from '../../../../../workers/mail-transport'
 import { signalMailChanged } from '../../../../../workers/mail-events'
 
@@ -17,6 +19,8 @@ const schema = z.object({
   bcc: z.array(z.string().trim().email().max(254)).max(MAIL_LIMITS.addresses).default([]),
   replyAll: z.boolean().default(false),
   content: z.string().trim().min(1).max(100_000),
+  /** Your own uploads from this mailbox, attached in this order. */
+  attachmentIds: z.array(z.string().trim().min(1).max(80)).max(MAIL_OUTBOUND_LIMITS.attachments).default([]),
   /** Set by the client for each reply, so retrying one is not emailed twice. */
   clientId: z.string().trim().min(8).max(80).optional(),
 })
@@ -48,6 +52,7 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
     }, mailbox.address)
     if (!recipients.length) fail(409, 'no_recipient', 'This conversation has no external recipient')
     if (total > MAIL_LIMITS.addresses) fail(400, 'bad_request', `An email can have at most ${MAIL_LIMITS.addresses} recipients`)
+    const files = await pendingMailAttachments(env, { mailboxId: access.mailboxId, userId: access.user.id, ids: body.attachmentIds })
     const participants = await env.DB.prepare('SELECT participants_json AS json FROM email_threads WHERE channel_id = ?').bind(id).first<{ json: string }>()
     // New To and Cc people join the conversation, so Reply all reaches them later; Bcc stays private.
     const nextParticipants = mergeMailAddresses(mailAddressList(participants?.json), [...recipients, ...cc])
@@ -69,9 +74,11 @@ export default defineEventHandler(async (event): Promise<{ message: MailMessageD
           threading.inReplyTo, JSON.stringify(threading.references), body.clientId ?? null, created,
         ),
         env.DB.prepare('UPDATE email_threads SET participants_json = ?, last_message_at = ?, updated_at = ? WHERE channel_id = ?').bind(JSON.stringify(nextParticipants), created, created, id),
+        ...attachMailStatements(env, files, messageId, id),
       ])
     }
     catch (error) {
+      if (isAttachmentTaken(error)) fail(409, 'conflict', 'An attachment was already sent with another email')
       // The same reply arrived twice at once; the other request created it.
       const raced = body.clientId && isUniqueViolation(error) ? await findOutboundRequest(env, access.mailboxId, body.clientId) : null
       if (!raced) throw error

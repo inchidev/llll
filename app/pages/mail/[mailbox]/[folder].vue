@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
+import type { AttachmentDTO, MailboxDTO, MailMessageDTO, MailThreadDTO, MailThreadPageDTO, MailThreadStatus } from '~~/shared/types'
 import { forwardedEmail, mailReplyRecipients, mergeMailAddresses } from '~~/shared/mail'
 import { formatDateTime } from '~~/shared/format'
 import { isMailFolder, mailPath, type MailFolder } from '~~/shared/paths'
@@ -45,8 +45,9 @@ const composeBody = ref('')
 const composeCc = ref('')
 const composeBcc = ref('')
 const composeCopies = ref(false)
-/** Forwarding copies the text; files stay in the original conversation. */
-const forwardedFiles = ref(0)
+const composeFiles = ref<AttachmentDTO[]>([])
+const replyFiles = ref<AttachmentDTO[]>([])
+const uploadingFiles = ref(0)
 /** Searches the open folder of this mailbox. */
 const searchInput = ref('')
 const search = refDebounced(computed(() => searchInput.value.trim()), 300)
@@ -68,6 +69,7 @@ const mailboxesQ = useQuery({
 const mailboxes = computed(() => mailboxesQ.data.value?.mailboxes ?? [])
 const activeMailbox = computed(() => mailboxes.value.find(mailbox => mailbox.channelId === activeMailboxId.value) ?? null)
 const canSend = computed(() => activeMailbox.value?.permission === 'send' || activeMailbox.value?.permission === 'manage')
+const filesAvailable = computed(() => activeMailbox.value?.attachments !== false)
 const threadsKey = computed(() => ['mail-threads', activeMailboxId.value, folder.value, search.value] as const)
 const threadsQ = useInfiniteQuery({
   queryKey: threadsKey,
@@ -138,6 +140,7 @@ watch(activeThreadId, () => {
   replyCc.value = ''
   replyBcc.value = ''
   replyCopies.value = false
+  replyFiles.value = []
 })
 watch(folder, () => { searchInput.value = '' })
 
@@ -155,7 +158,7 @@ watch(() => [activeThreadId.value, threadQ.isPlaceholderData.value ? null : mess
     .catch(() => readUpTo.delete(threadId))
 }, { immediate: true })
 
-function pendingMessage(threadId: string, content: string, key: string): MailMessageDTO {
+function pendingMessage(threadId: string, content: string, key: string, attachments: AttachmentDTO[]): MailMessageDTO {
   const user = session.user!
   return {
     id: `tmp:${key}`,
@@ -165,7 +168,7 @@ function pendingMessage(threadId: string, content: string, key: string): MailMes
     content,
     replyTo: null,
     mentions: [],
-    attachments: [],
+    attachments,
     reactions: [],
     pin: null,
     threadId: null,
@@ -199,16 +202,20 @@ function deliveryFailed(message: MailMessageDTO, kind: 'reply' | 'email' = 'repl
 async function send() {
   const threadId = activeThreadId.value
   const content = draft.value.trim()
-  if (!threadId || !content || !canSend.value) return
+  if (!threadId || !content || !canSend.value || uploadingFiles.value) return
   const mode = composerMode.value
   const key = replyKey.value
-  const pending = pendingMessage(threadId, content, key)
+  const files = mode === 'reply' ? replyFiles.value : []
+  const pending = pendingMessage(threadId, content, key, files)
   qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withMessage(detail, pending))
   draft.value = ''
+  if (mode === 'reply') replyFiles.value = []
   try {
     const result = await api<{ message: MailMessageDTO }>(`/api/mail/threads/${threadId}/${mode}`, {
       method: 'POST',
-      body: mode === 'reply' ? { content, clientId: key, to: replyAddresses.value, cc: addressesIn(replyCc.value), bcc: addressesIn(replyBcc.value) } : { content },
+      body: mode === 'reply'
+        ? { content, clientId: key, to: replyAddresses.value, cc: addressesIn(replyCc.value), bcc: addressesIn(replyBcc.value), attachmentIds: files.map(file => file.id) }
+        : { content },
     })
     replyKey.value = newRequestKey()
     if (mode === 'reply') { replyCc.value = ''; replyBcc.value = '' }
@@ -222,6 +229,7 @@ async function send() {
     // Nothing was confirmed: put the text back so it can be sent again with the same key.
     qc.setQueryData<MailThreadDetail>(['mail-thread', threadId], detail => withoutMessage(detail, pending.id))
     if (!draft.value) draft.value = content
+    if (mode === 'reply' && !replyFiles.value.length) replyFiles.value = files
     toast.add({ title: errorMessage(error), color: 'error' })
   }
 }
@@ -275,14 +283,17 @@ async function move(status: MailThreadStatus) {
 
 async function compose() {
   const mailboxId = activeMailboxId.value
-  if (!mailboxId || !canSend.value || !composeSubject.value.trim() || !composeBody.value.trim()) return
+  if (!mailboxId || !canSend.value || !composeSubject.value.trim() || !composeBody.value.trim() || uploadingFiles.value) return
   const to = addressesIn(composeTo.value)
   if (!to.length) return
   sending.value = true
   try {
     const result = await api<{ threadId: string; thread: MailThreadDTO; message: MailMessageDTO }>(`/api/mail/mailboxes/${mailboxId}/send`, {
       method: 'POST',
-      body: { to, cc: addressesIn(composeCc.value), bcc: addressesIn(composeBcc.value), subject: composeSubject.value.trim(), content: composeBody.value.trim(), clientId: composeKey.value },
+      body: {
+        to, cc: addressesIn(composeCc.value), bcc: addressesIn(composeBcc.value), subject: composeSubject.value.trim(), content: composeBody.value.trim(),
+        attachmentIds: composeFiles.value.map(file => file.id), clientId: composeKey.value,
+      },
     })
     composeKey.value = newRequestKey()
     nav.composeOpen.value = false
@@ -292,7 +303,7 @@ async function compose() {
     composeCc.value = ''
     composeBcc.value = ''
     composeCopies.value = false
-    forwardedFiles.value = 0
+    composeFiles.value = []
     qc.setQueryData<MailThreadDetail>(['mail-thread', result.threadId], { thread: result.thread, messages: [result.message] })
     // A conversation you start is in Sent; it reaches the Inbox once someone replies.
     qc.setQueryData<MailThreadPages>(['mail-threads', mailboxId, 'sent', ''], data => withThreadFirst(data, result.thread))
@@ -303,9 +314,10 @@ async function compose() {
   finally { sending.value = false }
 }
 
-/** Forward opens a new email with the original quoted, like any mail client. */
-function forward(message: MailMessageDTO) {
-  if (!message.email) return
+/** Forward opens a new email with the original quoted, like any mail client, and copies its files. */
+async function forward(message: MailMessageDTO) {
+  const mailboxId = activeMailboxId.value
+  if (!message.email || !mailboxId) return
   const forwarded = forwardedEmail({ subject: thread.value?.subject ?? '', date: formatDateTime(message.createdAt), content: message.content, ...message.email })
   composeTo.value = ''
   composeCc.value = ''
@@ -313,11 +325,21 @@ function forward(message: MailMessageDTO) {
   composeCopies.value = false
   composeSubject.value = forwarded.subject
   composeBody.value = forwarded.body
-  forwardedFiles.value = message.attachments.length
+  composeFiles.value = []
   composeKey.value = newRequestKey()
   nav.composeOpen.value = true
+  if (!message.attachments.length) return
+  if (!filesAvailable.value) { toast.add({ title: 'Attachments are not forwarded: this Server has no file storage', color: 'warning' }); return }
+  uploadingFiles.value += 1
+  try {
+    for (const attachment of message.attachments) {
+      const result = await api<{ attachment: AttachmentDTO }>(`/api/mail/mailboxes/${mailboxId}/attachments`, { method: 'POST', body: { forwardAttachmentId: attachment.id } })
+      composeFiles.value = [...composeFiles.value, result.attachment]
+    }
+  }
+  catch (error) { toast.add({ title: `Not every attachment was copied: ${errorMessage(error)}`, color: 'error' }) }
+  finally { uploadingFiles.value -= 1 }
 }
-watch(() => nav.composeOpen.value, (open) => { if (!open) forwardedFiles.value = 0 })
 
 const folderLabel = computed(() => folder.value.charAt(0).toUpperCase() + folder.value.slice(1))
 
@@ -470,8 +492,9 @@ const deliveryBadge = {
               <UFormField label="Bcc" hint="Hidden from other recipients"><UInput v-model="replyBcc" class="w-full" /></UFormField>
             </div>
             <UTextarea v-model="draft" :placeholder="composerMode === 'reply' ? 'Reply by email' : 'Write a note for the server'" autoresize :maxrows="8" class="w-full" />
-            <div class="mt-2 flex justify-end">
-              <UButton type="submit" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim() || (composerMode === 'reply' && !replyAddresses.length)" />
+            <div class="mt-2 flex items-start justify-between gap-2">
+              <MailAttachments v-if="composerMode === 'reply' && activeMailboxId" v-model="replyFiles" v-model:uploading="uploadingFiles" :mailbox-id="activeMailboxId" :available="filesAvailable" class="min-w-0" />
+              <UButton type="submit" class="ms-auto shrink-0" :label="composerMode === 'reply' ? 'Send reply' : 'Add note'" trailing-icon="i-ph-paper-plane-tilt" :disabled="!draft.trim() || uploadingFiles > 0 || (composerMode === 'reply' && !replyAddresses.length)" />
             </div>
           </form>
           <div v-else class="border-t border-default p-4 text-sm text-muted">Read only</div>
@@ -499,12 +522,12 @@ const deliveryBadge = {
           </template>
           <UFormField label="Subject"><UInput v-model="composeSubject" class="w-full" /></UFormField>
           <UFormField label="Message"><UTextarea v-model="composeBody" :rows="8" class="w-full" /></UFormField>
-          <p v-if="forwardedFiles" class="text-xs text-muted">{{ forwardedFiles === 1 ? 'The attachment is' : `${forwardedFiles} attachments are` }} not forwarded. Download and send files separately.</p>
+          <MailAttachments v-if="activeMailboxId" v-model="composeFiles" v-model:uploading="uploadingFiles" :mailbox-id="activeMailboxId" :available="filesAvailable" />
         </div>
       </template>
       <template #footer>
         <UButton label="Cancel" color="neutral" variant="ghost" @click="nav.composeOpen.value = false" />
-        <UButton label="Send email" trailing-icon="i-ph-paper-plane-tilt" :loading="sending" :disabled="!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()" @click="compose" />
+        <UButton label="Send email" trailing-icon="i-ph-paper-plane-tilt" :loading="sending" :disabled="!composeTo.trim() || !composeSubject.trim() || !composeBody.trim() || uploadingFiles > 0" @click="compose" />
       </template>
     </UModal>
   </div>

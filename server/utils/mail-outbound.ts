@@ -1,5 +1,7 @@
 import type { L4Env } from '../../workers/env'
-import { sendServerEmail } from '../../workers/mail-transport'
+import { sendServerEmail, type ServerEmailAttachment } from '../../workers/mail-transport'
+import { fileStorage } from '../../shared/file-storage'
+import { MAIL_FILES_UNAVAILABLE, mailFilesAvailable } from '../../shared/mail-attachments'
 import { mailAddressList, mailReplyRecipients, mailDeliveryUncertain } from '../../shared/mail'
 
 type OutboundRow = {
@@ -62,6 +64,7 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
   const references = parseReferences(row.referencesJson)
   let result: Awaited<ReturnType<typeof sendServerEmail>>
   try {
+    const attachments = await outboundAttachments(env, messageId)
     result = await sendServerEmail(env, {
       from: row.fromName ? { email: row.fromAddress, name: row.fromName } : row.fromAddress,
       to: mailAddressList(row.toJson),
@@ -69,6 +72,7 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
       ...(mailAddressList(row.bccJson).length ? { bcc: mailAddressList(row.bccJson) } : {}),
       subject: isReply && !/^re:/iu.test(row.subject) ? `Re: ${row.subject}` : row.subject,
       text: row.content,
+      ...(attachments.length ? { attachments } : {}),
       headers: {
         ...(isRfcMessageId(row.inReplyTo) ? { 'In-Reply-To': row.inReplyTo } : {}),
         ...(references.length ? { References: references.join(' ') } : {}),
@@ -86,6 +90,27 @@ export async function deliverOutboundEmail(env: L4Env, messageId: string, option
     `UPDATE email_messages SET delivery_status = 'sent', provider_message_id = ?, rfc_message_id = ?, delivered_at = ?, delivery_error = NULL
      WHERE message_id = ? AND delivery_attempts = ?`,
   ).bind(result.messageId, isRfcMessageId(result.messageId) ? result.messageId : null, new Date().toISOString(), messageId, row.deliveryAttempts + 1).run()
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return btoa(binary)
+}
+
+/** The files stored on an outbound email, read back for each delivery attempt. */
+async function outboundAttachments(env: L4Env, messageId: string): Promise<ServerEmailAttachment[]> {
+  const rows = (await env.DB.prepare(
+    'SELECT r2_key as r2Key, filename, content_type as contentType FROM attachments WHERE message_id = ? ORDER BY created_at, id',
+  ).bind(messageId).all<{ r2Key: string; filename: string; contentType: string }>()).results ?? []
+  if (!rows.length) return []
+  if (!mailFilesAvailable(env)) throw new Error(MAIL_FILES_UNAVAILABLE)
+  const files = fileStorage(env)
+  return Promise.all(rows.map(async (row) => {
+    const object = await files.get(row.r2Key)
+    if (!object) throw new Error(`Attachment ${row.filename} is no longer available`)
+    return { filename: row.filename, type: row.contentType, content: base64(new Uint8Array(await object.arrayBuffer())), disposition: 'attachment' as const }
+  }))
 }
 
 function isRfcMessageId(value: string | null): value is string {

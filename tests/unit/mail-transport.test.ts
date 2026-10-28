@@ -102,6 +102,42 @@ describe('server mail transport', () => {
   })
 })
 
+describe('attachments and HTML on every transport', () => {
+  const file = { filename: 'invoice\r\n.pdf', type: 'Application/PDF', content: Buffer.from('%PDF-1.7').toString('base64'), disposition: 'attachment' as const }
+  const rich = { ...message, html: '<p>World</p>', attachments: [file] }
+  const expected = { filename: 'invoice .pdf', type: 'application/pdf', content: file.content, disposition: 'attachment' }
+
+  it('passes base64 files and both bodies to the Email binding', async () => {
+    const send = vi.fn(async () => ({ messageId: 'ok' }))
+    await sendServerEmail({ MAIL_EMAIL: { send } } as never, rich)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ text: 'World', html: '<p>World</p>', attachments: [expected] }))
+  })
+
+  it('sends attachments in the Email Sending REST body', async () => {
+    const fetcher = vi.fn(async () => Response.json({ success: true, result: { delivered: ['person@example.net'], queued: [] } }))
+    vi.stubGlobal('fetch', fetcher)
+    await sendServerEmail({ CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), CLOUDFLARE_API_TOKEN: 't'.repeat(32) } as never, rich)
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({ text: 'World', html: '<p>World</p>', attachments: [expected] })
+  })
+
+  it.each([
+    ['HTTP gateway', { MAIL_GATEWAY_URL: 'https://mail.example.com/send', MAIL_GATEWAY_TOKEN: 'token' }],
+    ['SMTP gateway', { SMTP_GATEWAY_URL: 'https://smtp.example.com/send', SMTP_GATEWAY_TOKEN: 'token' }],
+  ])('sends attachments in the %s JSON', async (_name, env) => {
+    const fetcher = vi.fn(async () => Response.json({ messageId: 'gateway-message' }))
+    vi.stubGlobal('fetch', fetcher)
+    await sendServerEmail(env as never, rich)
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({ html: '<p>World</p>', attachments: [expected] })
+  })
+
+  it('refuses a malformed type or content before any transport sees it', async () => {
+    const send = vi.fn(async () => ({ messageId: 'ok' }))
+    await expect(sendServerEmail({ MAIL_EMAIL: { send } } as never, { ...message, attachments: [{ ...file, type: 'text/html\r\nX: y' }] })).rejects.toThrow('type')
+    await expect(sendServerEmail({ MAIL_EMAIL: { send } } as never, { ...message, attachments: [{ ...file, content: 'not base64!' }] })).rejects.toThrow('base64')
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
 describe('primary mail ingress', () => {
   it('compares ingress credentials without comparing their raw values', async () => {
     await expect(secureTokenEqual('same', 'same')).resolves.toBe(true)
