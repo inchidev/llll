@@ -41,6 +41,14 @@ describe('mentions', () => {
     expect(applyMentionTokens('email@Ada', members)).toBe('email@Ada')
   })
 
+  it('leaves a name two members share as plain text instead of guessing', () => {
+    const owner = '01900000-0000-7000-8000-000000000001'
+    const agent = '01900000-0000-7000-8000-000000000002'
+    const members = [{ id: owner, displayName: 'Owner' }, { id: agent, displayName: 'Helper', nickname: 'owner' }]
+    expect(applyMentionTokens('ping @Owner and @Helper', members)).toBe(`ping @Owner and <@${agent}>`)
+    expect(applyMentionTokens('@Ada', [{ id: owner, displayName: 'Ada', nickname: 'Ada' }])).toBe(`<@${owner}>`)
+  })
+
   it('turns tokens back into names for editing', () => {
     const id = '01900000-0000-7000-8000-000000000001'
     expect(humanizeMentions(`hi <@${id}> and <@01900000-0000-7000-8000-000000000009>`, { [id]: 'Ada Lovelace' }))

@@ -5,6 +5,7 @@ import {
   listBrowserLinks,
   readBrowserMarkdown,
 } from '../../workers/agent-browser'
+import { chromiumQuickAction, type CdpClient } from '../../workers/browser-cdp'
 
 describe('assertPublicHttpUrl', () => {
   it('accepts a public https URL', () => {
@@ -28,8 +29,66 @@ describe('assertPublicHttpUrl', () => {
     expect(() => assertPublicHttpUrl(url)).toThrow()
   })
 
+  it.each([
+    'http://[::]/',
+    'http://[0:0:0:0:0:0:0:1]/',
+    'http://localhost./',
+    'http://LOCALHOST../',
+    'http://app.localhost./',
+    'http://printer.local./',
+    'http://nas.home.arpa/',
+    'http://llll:8080/',
+    'http://rustfs:9000/',
+    'http://0x7f.1/',
+    'http://2130706433/',
+    'http://127.0.0.1./',
+    'http://0.0.0.0/',
+    'http://100.64.0.1/',
+    'http://100.127.255.254/',
+    'http://198.18.0.1/',
+    'http://198.19.255.255/',
+    'http://224.0.0.1/',
+    'http://240.0.0.1/',
+    'http://255.255.255.255/',
+    'http://[::ffff:127.0.0.1]/',
+    'http://[::ffff:7f00:1]/',
+    'http://[::ffff:a00:1]/',
+    'http://[::ffff:8.8.8.8]/',
+    'http://[::127.0.0.1]/',
+    'http://[::a00:1]/',
+    'http://[64:ff9b::127.0.0.1]/',
+    'http://[64:ff9b::a9fe:a9fe]/',
+    'http://[64:ff9b:1::a00:1]/',
+    'http://[::ffff:0:7f00:1]/',
+    'http://[fe80::1]/',
+    'http://[febf::1]/',
+    'http://[fec0::1]/',
+    'http://[fc00::1]/',
+    'http://[fd12:3456::1]/',
+    'http://[ff02::1]/',
+    'http://[2002:7f00:1::]/',
+    'http://[2001::1]/',
+    'http://[2001:db8::1]/',
+  ])('rejects non-public address %s', (url) => {
+    expect(() => assertPublicHttpUrl(url)).toThrow('not a public website')
+  })
+
+  it.each([
+    'https://example.com/',
+    'https://1.1.1.1/',
+    'https://8.8.8.8/',
+    'https://100.128.0.1/',
+    'https://[2606:4700::1111]/',
+    'https://[2001:4860:4860::8888]/',
+    'https://example.com./',
+  ])('accepts %s', (url) => {
+    expect(() => assertPublicHttpUrl(url)).not.toThrow()
+  })
+
   it('rejects the server origin', () => {
     expect(() => assertPublicHttpUrl('https://chat.example.com/api/me', ['chat.example.com']))
+      .toThrow('server origin')
+    expect(() => assertPublicHttpUrl('https://chat.example.com./api/me', ['chat.example.com']))
       .toThrow('server origin')
   })
 })
@@ -86,5 +145,31 @@ describe('Browser Run tools', () => {
     const quickAction = vi.fn(async () => new Response('limit', { status: 429 }))
     await expect(readBrowserMarkdown({ BROWSER: { quickAction } }, 'https://example.com/'))
       .rejects.toThrow(/rate limit|Workers Paid/i)
+  })
+})
+
+describe('Chromium final URL check', () => {
+  function clientEndingAt(finalUrl: string): CdpClient {
+    return {
+      async send(method) {
+        if (method === 'Target.createTarget') return { targetId: 'target-1' }
+        if (method === 'Target.attachToTarget') return { sessionId: 'session-1' }
+        if (method === 'Target.getTargetInfo') return { targetInfo: { url: finalUrl } }
+        if (method === 'Runtime.evaluate') return { result: { value: 'secret' } }
+        return {}
+      },
+      async waitFor() {},
+      async close() {},
+    }
+  }
+
+  it('refuses content when navigation redirected to a private address', async () => {
+    await expect(chromiumQuickAction(clientEndingAt('http://rustfs:9000/'), 'markdown', 'https://example.com/', url => assertPublicHttpUrl(url)))
+      .rejects.toThrow('did not end on a public website')
+  })
+
+  it('returns content when the final URL is public', async () => {
+    const response = await chromiumQuickAction(clientEndingAt('https://www.example.com/'), 'markdown', 'https://example.com/', url => assertPublicHttpUrl(url))
+    expect(await response.json()).toEqual({ result: 'secret' })
   })
 })

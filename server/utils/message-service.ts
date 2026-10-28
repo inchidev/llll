@@ -15,6 +15,66 @@ import type { ServerMembership as Membership } from './channel-access'
 import { messageNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
+import { removeMessageData } from '../../shared/file-cleanup'
+
+export type RateRule = { key: string; limit: number; windowMs: number }
+
+/** One budget for every send path: HTTP, MCP, scheduled reminders and the chat socket. */
+export const messageSendRate = (userId: string): RateRule => ({ key: `user:${userId}:msg`, limit: 30, windowMs: 10_000 })
+export const reactionRate = (userId: string): RateRule => ({ key: `user:${userId}:reaction`, limit: 30, windowMs: 10_000 })
+export const uploadRate = (userId: string): RateRule => ({ key: `user:${userId}:upload`, limit: 40, windowMs: 10 * 60_000 })
+export const UPLOAD_BYTES_PER_HOUR = 250 * 1024 * 1024
+
+/** Only a runtime without the binding (plain `nuxt dev`) skips limits; a limiter error propagates. */
+export async function takeRate(env: L4Env, rule: RateRule): Promise<boolean> {
+  if (!env.RATE_LIMIT_DO) return true
+  return asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(rule.key)).take(rule.limit, rule.windowMs)
+}
+
+/** Fails closed: a limiter outage refuses the write rather than lifting the limit, like the chat socket. */
+export async function requireRate(env: L4Env, rule: RateRule, message: string) {
+  let allowed: boolean
+  try { allowed = await takeRate(env, rule) }
+  catch { fail(503, 'rate_limit_unavailable', 'Rate limiting is temporarily unavailable. Try again in a moment.') }
+  if (!allowed) fail(429, 'rate_limited', message)
+}
+
+/** Authors may always remove their own message; Manage channels moderates server channels, never DMs or mailboxes. */
+export function messageDeleteRole(authorId: string, actorId: string, access: { perms: number; mailbox: boolean }): 'author' | 'moderator' | null {
+  if (authorId === actorId) return 'author'
+  return !access.mailbox && hasPermission(access.perms, Permission.manageChannels) ? 'moderator' : null
+}
+
+/** Shared by HTTP and the chat socket; the caller fans out and retries file cleanup. Returns whether a pin was removed. */
+export async function removeChannelMessage(env: L4Env, input: { id: string; channelId: string; authorId: string; actorId: string; serverId: string; moderator: boolean; authorization?: AuthorizationContext }) {
+  const pin = await env.DB.prepare('SELECT message_id FROM message_pins WHERE message_id = ?').bind(input.id).first()
+  await removeMessageData(env, input.id, nowIso())
+  if (input.moderator) {
+    await (await auditStatement(env, { serverId: input.serverId, actorId: input.actorId, action: 'message.delete', targetType: 'message',
+      targetId: input.id, meta: { channelId: input.channelId, authorId: input.authorId }, authorization: input.authorization })).run()
+  }
+  return Boolean(pin)
+}
+
+export async function deleteChannelMessage(env: L4Env, actor: Membership, id: string) {
+  const row = await env.DB.prepare('SELECT channel_id as channelId, author_id as authorId, deleted_at as deletedAt FROM messages WHERE id = ?')
+    .bind(id).first<{ channelId: string; authorId: string; deletedAt: string | null }>()
+  if (!row) fail(404, 'not_found', 'Message not found')
+  // Read access is enough, so a frozen DM or a denied Send messages still lets authors remove their words.
+  const access = await requireChannelAccessForMember(env, actor, row.channelId)
+  const role = messageDeleteRole(row.authorId, access.user.id, { perms: access.perms, mailbox: access.mailPermission !== null })
+  if (!role) fail(403, 'forbidden', 'Not your message')
+  if (row.deletedAt) return { ok: true }
+  const pinned = await removeChannelMessage(env, { id, channelId: row.channelId, authorId: row.authorId, actorId: access.user.id,
+    serverId: access.serverId, moderator: role === 'moderator', authorization: access.authorization })
+  try {
+    const stub = asRpc<{ fanout: (msg: unknown) => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${row.channelId}`))
+    await stub.fanout({ t: 'message.delete', id })
+    if (pinned) await stub.fanout({ t: 'pin', messageId: id, pin: null })
+  }
+  catch { /* local without DO */ }
+  return { ok: true }
+}
 
 export const sendMessageSchema = z.object({
   content: z.string().max(2000),
@@ -121,6 +181,7 @@ export async function sendChannelMessage(env: L4Env, actor: Membership, channelI
   if (body.attachmentIds?.length && !hasPermission(member.perms, Permission.attachFiles)) {
     fail(403, 'forbidden', 'Missing permission')
   }
+  await requireRate(env, messageSendRate(actor.user.id), 'Too many messages. Slow down.')
 
   if (body.replyToId) {
     const reply = await env.DB.prepare(

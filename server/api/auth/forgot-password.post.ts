@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { loadAuthRuntimeConfig, publicAuthConfig } from '../../utils/auth-config'
 import { authFromEvent, authRequestContext } from '../../utils/better-auth'
-import { asRpc, cf, fail } from '../../utils/cf'
+import { cf, fail } from '../../utils/cf'
 import { ensureMigrated } from '../../utils/db'
 import { parseBody } from '../../utils/validate'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 
 const bodySchema = z.object({
   email: z.string().email().max(200),
@@ -19,16 +20,11 @@ export default defineEventHandler(async (event) => {
     fail(503, 'password_reset_unavailable', 'Password reset email is not configured')
   }
 
-  const ip = getHeader(event, 'cf-connecting-ip') || getHeader(event, 'x-forwarded-for') || 'local'
-  let allowed = true
-  try {
-    const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ip:${ip}:password-reset`))
-    allowed = await limiter.take(5, 60 * 60 * 1000)
-  }
-  catch {
-    // nuxt cloudflare-dev does not export DOs
-  }
-  if (!allowed) fail(429, 'rate_limited', 'Too many password reset attempts')
+  // The account budget stops reset mail from being sent to one address over and over.
+  await requireRateLimit(event, [
+    { key: `ip:${clientIp(event)}:password-reset`, limit: 5, windowMs: 60 * 60 * 1000 },
+    { key: `account:${body.email.trim().toLowerCase()}:password-reset`, limit: 3, windowMs: 60 * 60 * 1000 },
+  ], 'Too many password reset attempts')
 
   const baseURL = authContext.baseURL
   const auth = await authFromEvent(event)

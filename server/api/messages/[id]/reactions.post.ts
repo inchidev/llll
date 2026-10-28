@@ -7,6 +7,7 @@ import { cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { fanoutDm } from '../../../utils/dms'
 import { parseBody } from '../../../utils/validate'
+import { reactionRate, requireRate } from '../../../utils/message-service'
 
 const bodySchema = z.object({
   emoji: z.string().min(1).max(16),
@@ -20,6 +21,7 @@ export default defineEventHandler(async (event) => {
   if (!row) fail(404, 'not_found', 'Message not found')
   const access = await requireChannelAccess(event, row.channelId)
   const body = parseBody(bodySchema, await readBody(event))
+  await requireRate(env, reactionRate(access.user.id), 'Too many reactions. Slow down.')
   const existing = (await db.select().from(messageReactions).where(and(
     eq(messageReactions.messageId, id),
     eq(messageReactions.userId, access.user.id),

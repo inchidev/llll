@@ -1,5 +1,6 @@
 import { authFromEvent } from '../../utils/better-auth'
 import { cf } from '../../utils/cf'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 
 export default defineEventHandler(async (event) => {
   const path = event.path.split('?')[0]
@@ -8,6 +9,10 @@ export default defineEventHandler(async (event) => {
     || path === '/api/auth/sign-in/social'
     || path === '/api/auth/request-password-reset') {
     throw createError({ statusCode: 404, statusMessage: 'Not found' })
+  }
+  // Better Auth sends this mail without a session; keep it from becoming a mail cannon.
+  if (path === '/api/auth/send-verification-email') {
+    await requireRateLimit(event, [{ key: `ip:${clientIp(event)}:verification-email`, limit: 5, windowMs: 60 * 60 * 1000 }], 'Too many verification emails')
   }
   const auth = await authFromEvent(event)
   const request = toWebRequest(event)

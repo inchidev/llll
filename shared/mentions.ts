@@ -17,16 +17,18 @@ function escapeRegExp(value: string): string {
 /**
  * Turns `@Name` into a mention token. Names may contain spaces, as the composer's
  * autocomplete inserts them; the longest matching name wins, so `@Ada Lovelace`
- * never stops at a member called `Ada`.
+ * never stops at a member called `Ada`. A name two members share stays plain text:
+ * guessing could address an Agent that copied a person's name.
  */
 export function applyMentionTokens(content: string, members: Mentionable[]): string {
-  const byName = new Map<string, string>()
+  const byName = new Map<string, string | null>()
   for (const member of members) {
-    for (const name of [member.displayName, member.nickname]) {
-      const key = name?.trim().toLowerCase()
-      if (key && key.length <= 64 && !byName.has(key)) byName.set(key, member.id)
+    for (const name of new Set([member.displayName, member.nickname].map(value => value?.trim().toLowerCase()))) {
+      if (!name || name.length > 64) continue
+      byName.set(name, byName.has(name) && byName.get(name) !== member.id ? null : member.id)
     }
   }
+  for (const [name, id] of byName) if (!id) byName.delete(name)
   if (!byName.size) return content
   const names = [...byName.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp)
   const pattern = new RegExp(`(^|\\s)@(${names.join('|')})(?=$|[\\s.,!?;:)\\]'"])`, 'gi')

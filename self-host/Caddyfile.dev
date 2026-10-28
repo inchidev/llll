@@ -5,7 +5,9 @@
 :80 {
   @backend path /api/* /ws/* /.well-known/* /.llll/*
   handle @backend {
-    reverse_proxy llll:8080
+    reverse_proxy llll:8080 {
+      header_up -CF-Connecting-IP
+    }
   }
   handle {
     header Content-Security-Policy "frame-ancestors 'self' {$LLLL_SHELL_ORIGIN}"

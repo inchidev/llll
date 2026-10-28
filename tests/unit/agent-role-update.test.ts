@@ -82,9 +82,22 @@ it('never allows the Owner role to be assigned to an agent', async () => {
   await expect(call()).rejects.toMatchObject({ statusCode: 403 })
 })
 it('continues to allow profile-only editing without role-management permission', async () => {
-  state.perms = Permission.manageAgents; state.body = { displayName: 'Renamed' }
+  state.perms = Permission.manageAgents | Permission.sendMessages; state.body = { displayName: 'Renamed' }
   await expect(call()).resolves.toMatchObject({ agent: { roleId: 'weak-role', displayName: 'Renamed' } })
   expect(revalidate).not.toHaveBeenCalled()
+})
+it.each(['power-role', 'wide-role', 'admin-role'])('refuses profile edits of an Agent whose %s exceeds the editor', async role => {
+  state.perms = Permission.manageAgents | Permission.sendMessages
+  db.prepare("UPDATE users SET role_id=? WHERE id='target-agent'").run(role)
+  state.body = { instructions: 'Planted instructions' }
+  await expect(call()).rejects.toMatchObject({ statusCode: 403 })
+  expect(db.prepare("SELECT instructions FROM agents WHERE user_id='target-agent'").get()).toMatchObject({ instructions: 'Before' })
+})
+it('refuses a name another Member already uses, ignoring case', async () => {
+  state.body = { displayName: ' owner ' }
+  await expect(call()).rejects.toMatchObject({ statusCode: 409 })
+  state.body = { displayName: 'Helper' }
+  await expect(call()).resolves.toMatchObject({ agent: { displayName: 'Helper' } })
 })
 it('rejects missing roles and removed agents', async () => {
   state.body = { roleId: 'missing-role' }

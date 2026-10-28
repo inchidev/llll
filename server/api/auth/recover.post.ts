@@ -4,6 +4,7 @@ import { ensureMigrated } from '../../utils/db'
 import { hashPassword } from '../../utils/password'
 import { recoveryDigest } from '../../utils/recovery'
 import { parseBody } from '../../utils/validate'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 const schema = z.object({
   email: z.string().email(),
   code: z.string().regex(/^[a-f0-9]{64}$/),
@@ -14,12 +15,10 @@ export default defineEventHandler(async (event) => {
   const body = parseBody(schema, await readBody(event))
   const { env } = cf(event)
   await ensureMigrated(env.DB, env)
-  const ip = getHeader(event, 'cf-connecting-ip') || 'local'
-  const limiter = asRpc<{
-    take: (limit: number, windowMs: number) => Promise<boolean>
-  }>(env.RATE_LIMIT_DO.getByName(`ip:${ip}:recovery`))
-  if (!(await limiter.take(5, 3600000)))
-    fail(429, 'rate_limited', 'Too many recovery attempts')
+  await requireRateLimit(event, [
+    { key: `ip:${clientIp(event)}:recovery`, limit: 5, windowMs: 60 * 60 * 1000 },
+    { key: `account:${body.email.trim().toLowerCase()}:recovery`, limit: 10, windowMs: 60 * 60 * 1000 },
+  ], 'Too many recovery attempts')
   const digest = await recoveryDigest(body.code)
   const row = await env.DB.prepare(
     'SELECT r.user_id FROM account_recovery r JOIN auth_users u ON u.id=r.user_id WHERE r.code_hash=? AND u.email=?',

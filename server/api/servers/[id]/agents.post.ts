@@ -12,6 +12,7 @@ import { getDb } from '../../../utils/db'
 import { writeAudit } from '../../../utils/messages'
 import { parseBody } from '../../../utils/validate'
 import { signalMembersChanged } from '../../../../workers/member-events'
+import { assertAgentNameAvailable } from '../../../utils/member-names'
 
 const bodySchema = z.object({
   harness: z.literal('pi').optional(),
@@ -41,6 +42,7 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     selectedRole = role
   }
 
+  await assertAgentNameAvailable(env, body.displayName)
   const id = newId()
   const now = nowIso()
   await db.batch([

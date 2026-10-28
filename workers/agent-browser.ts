@@ -28,37 +28,68 @@ function serverHostsFrom(env: { PUBLIC_ORIGIN?: string, LLLL_APP_HOSTNAME?: stri
   return [...new Set(hosts.filter(Boolean))]
 }
 
+const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa', '.lan', '.localdomain']
+
 function isIpv4(host: string): boolean {
   return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)
 }
 
 function parseIpv4(host: string): number | null {
+  if (!isIpv4(host)) return null
   const parts = host.split('.').map(part => Number(part))
-  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return null
+  if (parts.some(part => part > 255)) return null
   return ((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0
 }
+
+const PRIVATE_IPV4: Array<[number, number]> = [
+  [0x00000000, 0xff000000], // 0.0.0.0/8
+  [0x0a000000, 0xff000000], // 10.0.0.0/8
+  [0x64400000, 0xffc00000], // 100.64.0.0/10
+  [0x7f000000, 0xff000000], // 127.0.0.0/8
+  [0xa9fe0000, 0xffff0000], // 169.254.0.0/16
+  [0xac100000, 0xfff00000], // 172.16.0.0/12
+  [0xc0000000, 0xffffff00], // 192.0.0.0/24
+  [0xc0000200, 0xffffff00], // 192.0.2.0/24
+  [0xc0a80000, 0xffff0000], // 192.168.0.0/16
+  [0xc6120000, 0xfffe0000], // 198.18.0.0/15
+  [0xc6336400, 0xffffff00], // 198.51.100.0/24
+  [0xcb007100, 0xffffff00], // 203.0.113.0/24
+  [0xe0000000, 0xe0000000], // 224.0.0.0/3: multicast, reserved, broadcast
+]
 
 function isPrivateIpv4(host: string): boolean {
   const ip = parseIpv4(host)
   if (ip === null) return true
-  const nets: Array<[number, number]> = [
-    [0x00000000, 0xff000000],
-    [0x0a000000, 0xff000000],
-    [0x7f000000, 0xff000000],
-    [0xac100000, 0xfff00000],
-    [0xc0a80000, 0xffff0000],
-    [0xa9fe0000, 0xffff0000],
-    [0xe0000000, 0xf0000000],
-  ]
-  return nets.some(([net, mask]) => ((ip & mask) >>> 0) === net)
+  return PRIVATE_IPV4.some(([net, mask]) => ((ip & mask) >>> 0) === net)
 }
 
+function parseIpv6(host: string): number[] | null {
+  let value = host.toLowerCase().replace(/%.*$/, '')
+  const dotted = value.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/)
+  if (dotted) {
+    const ip = parseIpv4(dotted[2]!)
+    if (ip === null) return null
+    value = `${dotted[1]}${(ip >>> 16).toString(16)}:${(ip & 0xffff).toString(16)}`
+  }
+  const halves = value.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves[1] ? halves[1].split(':') : []
+  const fill = 8 - head.length - tail.length
+  if (halves.length === 1 ? fill !== 0 : fill < 1) return null
+  const groups = [...head, ...Array<string>(fill).fill('0'), ...tail]
+  if (groups.some(group => !/^[0-9a-f]{1,4}$/.test(group))) return null
+  return groups.map(group => Number.parseInt(group, 16))
+}
+
+/** Allows only global unicast 2000::/3, minus ranges that tunnel to or embed IPv4 or are reserved. */
 function isPrivateIpv6(host: string): boolean {
-  const value = host.toLowerCase()
-  if (value === '::' || value === '::1') return true
-  if (value.startsWith('fe80:') || value.startsWith('fc') || value.startsWith('fd')) return true
-  const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-  if (mapped) return isPrivateIpv4(mapped[1]!)
+  const groups = parseIpv6(host)
+  if (!groups) return true
+  const [first, second] = groups as [number, number]
+  if ((first & 0xe000) !== 0x2000) return true
+  if (first === 0x2002) return true // 6to4
+  if (first === 0x2001 && (second < 0x0200 || second === 0x0db8)) return true // IETF special-purpose incl. Teredo; documentation
   return false
 }
 
@@ -79,22 +110,17 @@ export function assertPublicHttpUrl(raw: string, serverHosts: string[] = []): UR
   if (parsed.username || parsed.password) {
     throw new Error('URLs with credentials are not allowed')
   }
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
   if (!host) throw new Error('Enter a valid http or https URL')
-  if (
-    BLOCKED_HOSTS.has(host)
-    || host === 'localhost'
-    || host.endsWith('.localhost')
-    || host.endsWith('.local')
-    || host.endsWith('.internal')
-  ) {
-    throw new Error('That address is not a public website')
-  }
-  if (serverHosts.some(serverHost => host === serverHost.toLowerCase())) {
+  if (serverHosts.some(serverHost => host === serverHost.toLowerCase().replace(/\.+$/, ''))) {
     throw new Error('Agents cannot browse the server origin')
   }
-  if (isIpv4(host) && isPrivateIpv4(host)) throw new Error('That address is not a public website')
-  if (host.includes(':') && isPrivateIpv6(host)) throw new Error('That address is not a public website')
+  const isPrivate = host.includes(':')
+    ? isPrivateIpv6(host)
+    : isIpv4(host)
+      ? isPrivateIpv4(host)
+      : BLOCKED_HOSTS.has(host) || !host.includes('.') || BLOCKED_SUFFIXES.some(suffix => host.endsWith(suffix))
+  if (isPrivate) throw new Error('That address is not a public website')
   return parsed
 }
 
@@ -114,13 +140,15 @@ type BrowserEnv = {
   BROWSER_CDP_URL?: string
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
+  PUBLIC_ORIGIN?: string
+  LLLL_APP_HOSTNAME?: string
 }
 
 export function browserBindingFor(env: BrowserEnv): BrowserBinding | null {
   if (env.BROWSER) return env.BROWSER
   if (cloudflareRestConfigured(env)) return cloudflareBrowser(env)
   const cdpUrl = env.BROWSER_CDP_URL?.trim()
-  if (cdpUrl) return chromiumBrowser(cdpUrl)
+  if (cdpUrl) return chromiumBrowser(cdpUrl, finalUrl => assertPublicHttpUrl(finalUrl, serverHostsFrom(env)))
   return null
 }
 

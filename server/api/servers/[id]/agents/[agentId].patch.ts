@@ -12,6 +12,7 @@ import { parseBody } from '../../../../utils/validate'
 import { assertRoleAssignable, assertRoleManageable } from '../../../../utils/role-policy'
 import { revalidateLiveRooms } from '../../../../utils/live'
 import { signalMembersChanged } from '../../../../../workers/member-events'
+import { assertAgentNameAvailable } from '../../../../utils/member-names'
 
 const bodySchema = z.object({
   harness: z.literal('pi').optional(),
@@ -35,16 +36,18 @@ export default defineEventHandler(async (event): Promise<{ agent: AgentDTO }> =>
     .limit(1))[0]
   if (!current) fail(404, 'not_found', 'Agent not found')
 
+  // Any edit, not only a role change: instructions run with the authority of whoever
+  // next invokes the Agent, so editing a higher-Role Agent would plant them there.
+  const currentRole = (await db.select().from(roles).where(eq(roles.id, current.user.roleId ?? '')).limit(1))[0]
+  if (!currentRole) fail(404, 'not_found', 'Role not found')
+  assertRoleManageable(actor, currentRole)
   if (body.roleId !== undefined) {
     if (!actor.isOwner && !hasPermission(actor.perms, Permission.manageRoles)) fail(403, 'forbidden', 'Manage roles is required to change an agent role')
-    const [currentRole, nextRole] = await Promise.all([
-      db.select().from(roles).where(eq(roles.id, current.user.roleId ?? '')).limit(1),
-      db.select().from(roles).where(eq(roles.id, body.roleId)).limit(1),
-    ])
-    if (!currentRole[0] || !nextRole[0]) fail(404, 'not_found', 'Role not found')
-    assertRoleManageable(actor, currentRole[0])
-    assertRoleAssignable(actor, nextRole[0])
+    const nextRole = (await db.select().from(roles).where(eq(roles.id, body.roleId)).limit(1))[0]
+    if (!nextRole) fail(404, 'not_found', 'Role not found')
+    assertRoleAssignable(actor, nextRole)
   }
+  if (body.displayName !== undefined && body.displayName !== current.user.displayName) await assertAgentNameAvailable(env, body.displayName, agentId)
   const roleId = body.roleId ?? current.user.roleId
   const roleChanged = roleId !== current.user.roleId
   const harness = 'pi'

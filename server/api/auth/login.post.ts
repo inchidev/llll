@@ -4,6 +4,7 @@ import { authFromEvent } from '../../utils/better-auth'
 import { cf, fail } from '../../utils/cf'
 import { ensureMigrated } from '../../utils/db'
 import { parseBody } from '../../utils/validate'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 
 const bodySchema = z.object({
   email: z.string().email().max(200),
@@ -14,18 +15,12 @@ export default defineEventHandler(async (event) => {
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
   await ensureMigrated(env.DB, env)
-  const ip = getHeader(event, 'cf-connecting-ip') || getHeader(event, 'x-forwarded-for') || 'local'
-  let allowed = true
-  try {
-    const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ip:${ip}:login`))
-    allowed = await limiter.take(5, 15 * 60 * 1000)
-  }
-  catch {
-    // nuxt cloudflare-dev does not export DOs
-  }
-  if (!allowed) fail(429, 'rate_limited', 'Too many login attempts')
-
   const email = body.email.trim().toLowerCase()
+  // Address and account budgets: rotating addresses cannot keep guessing one account.
+  await requireRateLimit(event, [
+    { key: `ip:${clientIp(event)}:login`, limit: 5, windowMs: 15 * 60 * 1000 },
+    { key: `account:${email}:login`, limit: 20, windowMs: 15 * 60 * 1000 },
+  ], 'Too many login attempts')
   const auth = await authFromEvent(event)
   const res = await auth.api.signInEmail({
     headers: event.headers,

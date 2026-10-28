@@ -19,6 +19,8 @@ const props = withDefaults(defineProps<{
   channelName?: string
   isDm?: boolean
   canPin?: boolean
+  /** Manage channels here: delete other people's messages. */
+  canModerate?: boolean
   showIntro?: boolean
   /** Threads cannot hold threads of their own. */
   allowThreads?: boolean
@@ -433,7 +435,7 @@ function actionsFor(message: MessageDTO): DropdownMenuItem[][] {
   copyItems.push({ label: 'Copy message link', icon: 'i-ph-link', onSelect: () => { void copy(messageLink(message), 'Link') } })
   copyItems.push({ label: 'Copy message ID', icon: 'i-ph-identification-badge', onSelect: () => { void copy(message.id, 'ID') } })
   const groups = [main, copyItems]
-  if (mine) groups.push([{ label: 'Delete message', icon: 'i-ph-trash', color: 'error', onSelect: () => remove(message.id) }])
+  if (mine || props.canModerate) groups.push([{ label: 'Delete message', icon: 'i-ph-trash', color: 'error', onSelect: () => remove(message.id) }])
   return groups
 }
 
@@ -525,7 +527,7 @@ function onRowKey(event: KeyboardEvent) {
   else if (key === 'r') { event.preventDefault(); emit('reply', message.id) }
   else if (key === 't' && props.allowThreads) { event.preventDefault(); emit('thread', message) }
   else if (key === 'p' && props.canPin) { event.preventDefault(); void togglePin(message) }
-  else if ((key === 'delete' || key === 'backspace') && mine) { event.preventDefault(); remove(message.id, event.shiftKey) }
+  else if ((key === 'delete' || key === 'backspace') && (mine || props.canModerate)) { event.preventDefault(); remove(message.id, event.shiftKey) }
 }
 
 /* ------------------------------------------------------------------ jumping */

@@ -1,5 +1,6 @@
 import { authorizedPublicationMessage } from '../server/utils/run-publication'
-import { removeMessageData, retryDeletedFiles } from '../shared/file-cleanup'
+import { retryDeletedFiles } from '../shared/file-cleanup'
+import { messageDeleteRole, messageSendRate, removeChannelMessage, takeRate } from '../server/utils/message-service'
 import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-access'
 import { getServerId } from '../shared/server-id'
 import { DurableObject } from 'cloudflare:workers'
@@ -36,6 +37,8 @@ import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
 import { mailPermissionAllows } from '../shared/mail'
 import { createSerialQueue } from './serial-queue'
 import { authorizedSockets } from './socket-access'
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60_000
 
 type Sock = { userId: string; user: PublicUser; sessionId?: string }
 type Authz = { serverId: string; perms: number; ownerId: string; type: string; frozen: boolean; canManageAgents: boolean; mailbox: boolean }
@@ -480,17 +483,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       fail('bad_request', 'Empty message')
       return
     }
-    const limiter = asRpc<{ take: (n: number, w: number) => Promise<boolean> }>(this.env.RATE_LIMIT_DO.getByName(`user:${sock.userId}:msg`))
-    const ok = await limiter.take(30, 10_000)
-    if (!ok) {
-      fail('rate_limited', 'Slow down')
+    const idemKey = `idem:${sock.userId}:${body.clientId}`
+    const existing = await this.ctx.storage.get<{ id: string; at: number } | string>(idemKey)
+    const existingId = typeof existing === 'string' ? existing : existing && Date.now() - existing.at < IDEMPOTENCY_TTL_MS ? existing.id : null
+    if (existingId) {
+      this.send(ws, { t: 'ack', clientId: body.clientId, id: existingId })
       return
     }
-
-    const idemKey = `${sock.userId}:${body.clientId}`
-    const existing = await this.ctx.storage.get<string>(`idem:${idemKey}`)
-    if (existing) {
-      this.send(ws, { t: 'ack', clientId: body.clientId, id: existing })
+    if (!await takeRate(this.env, messageSendRate(sock.userId))) {
+      fail('rate_limited', 'Slow down')
       return
     }
 
@@ -561,7 +562,8 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       attachmentCount: attachments.length,
     }))
     this.ctx.waitUntil(signalChannelRead(this.env, sock.userId, this.channelId(), id))
-    await this.ctx.storage.put(`idem:${idemKey}`, id)
+    await this.ctx.storage.put(idemKey, { id, at: Date.now() })
+    await this.pruneIdempotency()
     await this.broadcast({ t: 'message', message: dto })
     this.send(ws, { t: 'ack', clientId: body.clientId, id })
     this.ctx.waitUntil(signalAgentsForMessage(this.env, {
@@ -660,27 +662,36 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async onDelete(ws: WebSocket, sock: Sock, authz: Authz, id: string) {
-    if (!hasPermission(authz.perms, Permission.sendMessages)) {
-      this.send(ws, { t: 'error', code: 'forbidden', message: 'Cannot delete messages in this channel' })
-      return
-    }
     const row = await this.env.DB.prepare(
-      'SELECT author_id, channel_id FROM messages WHERE id = ?',
-    ).bind(id).first<{ author_id: string; channel_id: string }>()
+      'SELECT author_id, channel_id, deleted_at FROM messages WHERE id = ?',
+    ).bind(id).first<{ author_id: string; channel_id: string; deleted_at: string | null }>()
     if (!row || row.channel_id !== this.channelId()) {
       this.send(ws, { t: 'error', code: 'not_found', message: 'Message not found' })
       return
     }
-    if (row.author_id !== sock.userId) {
+    const role = messageDeleteRole(row.author_id, sock.userId, { perms: authz.perms, mailbox: authz.mailbox })
+    if (!role) {
       this.send(ws, { t: 'error', code: 'forbidden', message: 'Not your message' })
       return
     }
-    const deletedAt = nowIso()
-    const pin = await this.env.DB.prepare('SELECT message_id FROM message_pins WHERE message_id = ?').bind(id).first()
-    await removeMessageData(this.env, id, deletedAt)
+    if (row.deleted_at) return
+    const pinned = await removeChannelMessage(this.env, { id, channelId: row.channel_id, authorId: row.author_id, actorId: sock.userId,
+      serverId: authz.serverId, moderator: role === 'moderator' })
     this.ctx.waitUntil(retryDeletedFiles(this.env))
     await this.broadcast({ t: 'message.delete', id })
-    if (pin) await this.broadcast({ t: 'pin', messageId: id, pin: null })
+    if (pinned) await this.broadcast({ t: 'pin', messageId: id, pin: null })
+  }
+
+  /** Sweeps a bounded slice of idempotency keys per send, so old keys expire without a scan. */
+  private async pruneIdempotency() {
+    const cursor = await this.ctx.storage.get<string>('idemCursor')
+    const page = await this.ctx.storage.list<{ id: string; at: number } | string>({ prefix: 'idem:', ...(cursor ? { startAfter: cursor } : {}), limit: 32 })
+    const now = Date.now()
+    const expired = [...page].filter(([, value]) => typeof value !== 'object' || now - value.at >= IDEMPOTENCY_TTL_MS).map(([key]) => key)
+    if (expired.length) await this.ctx.storage.delete(expired)
+    const last = [...page.keys()].at(-1)
+    if (page.size < 32 || !last) await this.ctx.storage.delete('idemCursor')
+    else await this.ctx.storage.put('idemCursor', last)
   }
 
   private async onRead(sock: Sock, _authz: Authz, messageId: string) {

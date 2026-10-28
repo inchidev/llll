@@ -138,6 +138,8 @@ const liveActionHint = computed(() => {
 const joinedHere = computed(() => live.connection === 'connected' && live.currentChannelId === channelId.value)
 const showStage = computed(() => joinedHere.value && live.expanded)
 // Mirrors the server's host rule: the starter, or someone who manages this Channel.
+// Mirrors the server's moderation rule: Manage channels after channel overrides, never in DMs.
+const canModerate = computed(() => !isDm.value && hasPermission(effectivePermissions.value, Permission.manageChannels))
 const canEndLive = computed(() => Boolean(
   live.state?.active
   && (live.state.startedBy === session.user?.id
@@ -450,6 +452,7 @@ defineShortcuts({
         :channel-name="headerName"
         :is-dm="isDm"
         :can-pin="canPin"
+        :can-moderate="canModerate"
         :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
@@ -509,6 +512,7 @@ defineShortcuts({
         :server-id="serverId"
         :members="members"
         :can-pin="canPin"
+        :can-moderate="canModerate"
       />
       <LayoutMemberRail
         v-else-if="(!detailsOverlay && ui.rightPanelOpen) || (detailsOverlay && ui.mobilePane === 'members')"

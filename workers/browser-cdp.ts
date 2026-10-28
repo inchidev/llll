@@ -38,7 +38,12 @@ export async function resolveCdpWebSocketUrl(cdpUrl: string, fetcher: typeof fet
   return body.webSocketDebuggerUrl
 }
 
-export async function chromiumQuickAction(client: CdpClient, action: BrowserAction, url: string): Promise<Response> {
+export async function chromiumQuickAction(
+  client: CdpClient,
+  action: BrowserAction,
+  url: string,
+  assertFinalUrl?: (finalUrl: string) => unknown,
+): Promise<Response> {
   const created = await client.send('Target.createTarget', { url: 'about:blank' }) as { targetId?: string }
   const targetId = created.targetId
   if (!targetId) throw new Error('Chromium did not open a page')
@@ -53,6 +58,17 @@ export async function chromiumQuickAction(client: CdpClient, action: BrowserActi
     }
     catch {
       // A page that never finishes loading can still have readable text.
+    }
+    if (assertFinalUrl) {
+      const info = await client.send('Target.getTargetInfo', { targetId }) as { targetInfo?: { url?: string } }
+      const finalUrl = info.targetInfo?.url
+      if (!finalUrl) throw new Error('Chromium did not report the page URL')
+      try {
+        assertFinalUrl(finalUrl)
+      }
+      catch {
+        throw new Error('The page did not end on a public website')
+      }
     }
     if (action === 'screenshot') {
       const shot = await client.send('Page.captureScreenshot', { format: 'png' }, sessionId) as { data?: string }
@@ -156,7 +172,7 @@ export async function connectCdp(webSocketUrl: string): Promise<CdpClient> {
   }
 }
 
-export function chromiumBrowser(cdpUrl: string): {
+export function chromiumBrowser(cdpUrl: string, assertFinalUrl?: (finalUrl: string) => unknown): {
   quickAction: (action: BrowserAction, options: { url: string }) => Promise<Response>
 } {
   return {
@@ -164,7 +180,7 @@ export function chromiumBrowser(cdpUrl: string): {
       const socketUrl = await resolveCdpWebSocketUrl(cdpUrl)
       const client = await connectCdp(socketUrl)
       try {
-        return await chromiumQuickAction(client, action, options.url)
+        return await chromiumQuickAction(client, action, options.url, assertFinalUrl)
       }
       finally {
         await client.close()

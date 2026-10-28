@@ -8,6 +8,7 @@ import { cf, fail } from '../../utils/cf'
 import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { parseBody } from '../../utils/validate'
 import { recordOnboardingAcceptance, requireCurrentOnboardingAcceptance } from '../../utils/onboarding'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 
 const bodySchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -41,16 +42,7 @@ export default defineEventHandler(async (event) => {
     fail(403, 'invite_required', 'A valid invite is required')
   }
   const onboarding = await requireCurrentOnboardingAcceptance(env, body.onboardingRevisionId, body.accepted)
-  const ip = getHeader(event, 'cf-connecting-ip') || getHeader(event, 'x-forwarded-for') || 'local'
-  let allowed = true
-  try {
-    const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ip:${ip}:signup`))
-    allowed = await limiter.take(5, 60 * 60 * 1000)
-  }
-  catch {
-    // nuxt cloudflare-dev does not export DOs
-  }
-  if (!allowed) fail(429, 'rate_limited', 'Too many signup attempts')
+  await requireRateLimit(event, [{ key: `ip:${clientIp(event)}:signup`, limit: 5, windowMs: 60 * 60 * 1000 }], 'Too many signup attempts')
 
   const callback = new URL('/login', (await authRequestContext(event)).baseURL)
   callback.searchParams.set('verified', '1')

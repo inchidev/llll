@@ -9,6 +9,7 @@ import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { ensureServerMailFromEnv } from '../../utils/server-mail'
 import { readOwnerSetup, verifyOwnerSetupToken } from '../../utils/owner-setup'
 import { parseBody } from '../../utils/validate'
+import { clientIp, requireRateLimit } from '../../utils/rate-limit'
 
 const bodySchema = z.object({
   token: z.string().min(32).max(256),
@@ -26,16 +27,7 @@ export default defineEventHandler(async (event) => {
   const setup = await readOwnerSetup(env.DB, env)
   if (!setup) fail(503, 'setup_unavailable', 'Owner setup is not configured')
 
-  const ip = getHeader(event, 'cf-connecting-ip') || getHeader(event, 'x-forwarded-for') || 'local'
-  let allowed = true
-  try {
-    const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ip:${ip}:owner-setup`))
-    allowed = await limiter.take(5, 60 * 60 * 1000)
-  }
-  catch {
-    // nuxt cloudflare-dev does not export DOs
-  }
-  if (!allowed) fail(429, 'rate_limited', 'Too many setup attempts')
+  await requireRateLimit(event, [{ key: `ip:${clientIp(event)}:owner-setup`, limit: 5, windowMs: 60 * 60 * 1000 }], 'Too many setup attempts')
   if (!await verifyOwnerSetupToken(setup, body.token)) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
 
   const handle = (setup.email.split('@')[0] || 'owner').slice(0, 32)

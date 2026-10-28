@@ -181,7 +181,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
   }, async ({ channelId, ...input }) => result(await readChannelMessages(env, await requireMessageMember(env, principal.authorization, 'messages:read'), channelId, input)))
 
   server.registerTool('send_message', {
-    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly.',
+    description: 'Send as the connected member in an accessible chat or thread using the same permissions as the interface. Put <@member-id> tokens from list_members into content to tag members. Agent invocation requires the same management rights and Agent chat access as the interface. Replies must target a message in this channel. This sends a new message on every call; do not retry blindly. Sends share the member\'s chat rate limit (30 per 10 seconds) and fail with rate_limited when it is exhausted.',
     inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

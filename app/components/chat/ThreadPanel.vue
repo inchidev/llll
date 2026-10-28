@@ -10,6 +10,7 @@ const props = defineProps<{
   serverId: string
   members: MemberDTO[]
   canPin?: boolean
+  canModerate?: boolean
   agentId?: string
 }>()
 const ui = useUiStore()
@@ -99,6 +100,7 @@ defineShortcuts({
       :channel-name="threadTitle"
       :show-intro="false"
       :can-pin="props.canPin"
+      :can-moderate="props.canModerate"
       :allow-threads="false"
       :link-path="linkPath"
       @root-message="rootMessage = $event"

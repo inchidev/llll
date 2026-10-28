@@ -3,5 +3,8 @@
 }
 
 {$LLLL_SITE_ADDRESS} {
-  reverse_proxy llll:8080
+  # Only Cloudflare's edge may assert CF-Connecting-IP; never forward a client's copy.
+  reverse_proxy llll:8080 {
+    header_up -CF-Connecting-IP
+  }
 }

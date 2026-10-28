@@ -11,7 +11,11 @@ import { ChannelDurableObject } from '../../workers/channel-do'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class { constructor(protected ctx: unknown, protected env: unknown) {} } }))
 const state = vi.hoisted(() => ({ env: null as L4Env | null, id: 'message1', userId: 'owner', pending: [] as Promise<unknown>[] }))
-vi.mock('../../server/utils/guards', () => ({ requireChannelMember: async () => ({ user: { id: state.userId } }), requireChannelAccess: async () => ({}) }))
+vi.mock('../../server/utils/guards', async () => {
+  const { requireMemberForUser } = await import('../../server/utils/channel-access')
+  return { requireMember: () => requireMemberForUser(state.env!, { id: state.userId, kind: 'human', displayName: 'Owner', avatarR2Key: null }, '00000000-0000-4000-8000-000000000001'),
+    requireChannelMember: async () => ({ user: { id: state.userId } }), requireChannelAccess: async () => ({}) }
+})
 vi.mock('../../server/utils/cf', async original => ({ ...await original<typeof import('../../server/utils/cf')>(), cf: () => ({ env: state.env!, waitUntil: (p: Promise<unknown>) => state.pending.push(p) }) }))
 let sqlite: DatabaseSync
 let remove: ReturnType<typeof vi.fn>
@@ -20,6 +24,7 @@ beforeEach(() => {
   sqlite.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'00000000-0000-4000-8000-000000000001');
     INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('member','member','Member',0);
     INSERT INTO users(id,display_name,status,role_id,joined_at) VALUES('owner','Owner','active','member','2026-01-01');
+    INSERT INTO server(id,name,owner_id) VALUES('00000000-0000-4000-8000-000000000001','Test','owner');
     INSERT INTO channels(id,name,type,visibility) VALUES('chat','Chat','text','server');
     INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('message1','chat','owner','hello','2026-01-01');
     INSERT INTO attachments(id,message_id,channel_id,uploader_id,r2_key,filename,content_type,size_bytes,created_at)
