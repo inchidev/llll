@@ -527,6 +527,7 @@ defineShortcuts({
           :agent-busy="agentBusy"
           :agent-id="directAgentId"
           :placeholder="composerPlaceholder"
+          :group-mentions="!isDm"
           primary
         />
         <!-- In the composer's bottom padding, so it never pushes the layout. -->

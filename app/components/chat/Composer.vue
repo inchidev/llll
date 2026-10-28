@@ -2,7 +2,7 @@
 import type { ClientMsg, MemberDTO, MessageDTO } from '~~/shared/types'
 import { formatAudioDuration } from '~~/shared/audio'
 import { claimComposerSubmission, type ComposerSubmission } from '~~/shared/composer'
-import { activeTrigger, applyMentionTokens, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
+import { activeTrigger, applyMentionTokens, GROUP_MENTIONS, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
 import { Permission } from '~~/shared/permissions'
 import { replaceShortcodes, searchEmoji } from '~~/shared/emoji'
 import { MAX_ATTACHMENT_BYTES } from '~~/shared/mime'
@@ -27,6 +27,8 @@ const props = defineProps<{
   agentId?: string
   /** The conversation's main composer: focuses on open and when typing anywhere. */
   primary?: boolean
+  /** False where `@channel` and `@here` would reach nobody, as in a Direct Message. */
+  groupMentions?: boolean
 }>()
 
 const MAX_LENGTH = 2000
@@ -67,6 +69,8 @@ const names = computed(() => {
 const viewer = usePermissions(() => props.members)
 // Only Roles this Member may mention are offered; the server ignores the rest.
 const roles = computed(() => mentionRoles(props.members, viewer.can(Permission.manageChannels)))
+// The same people may use `@channel` and `@here`; the server keeps anyone else's as plain text.
+const groups = computed(() => props.groupMentions !== false && viewer.can(Permission.manageChannels))
 
 type Page = { messages: MessageDTO[]; nextCursor: string | null }
 
@@ -198,8 +202,12 @@ const suggestions = computed<Suggestion[]>(() => {
   const needle = active.query.toLowerCase()
   // Roles appear once something is typed, after the matching Members.
   const roleMatches = needle
-    ? roles.value.filter(role => role.name.toLowerCase().includes(needle)).slice(0, 3)
-      .map(role => ({ key: `&${role.id}`, label: role.name, detail: 'Role', insert: `@${role.name}`, role: true }))
+    ? [
+        ...(groups.value ? GROUP_MENTIONS.filter(group => group.startsWith(needle)) : [])
+          .map(group => ({ key: `!${group}`, label: group, detail: group === 'here' ? 'Everyone online here' : 'Everyone in this conversation', insert: `@${group}`, role: true })),
+        ...roles.value.filter(role => role.name.toLowerCase().includes(needle)).slice(0, 3)
+          .map(role => ({ key: `&${role.id}`, label: role.name, detail: 'Role', insert: `@${role.name}`, role: true })),
+      ]
     : []
   const members = props.members
     .map((member) => {
@@ -384,7 +392,7 @@ async function submit() {
   if (!submission) return
 
   const members = props.members.map((m) => ({ id: m.user.id, displayName: m.user.displayName, nickname: m.nickname }))
-  const content = replaceShortcodes(applyMentionTokens(submission.draft, members, roles.value)).trim()
+  const content = replaceShortcodes(applyMentionTokens(submission.draft, members, roles.value, groups.value)).trim()
   if (!content && !submission.files.length) return
 
   const clientId = newId()

@@ -4,7 +4,7 @@ import type { InfiniteData } from '@tanstack/vue-query'
 import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { ChannelThreadDTO, MemberDTO, MessageContextResponse, MessageDTO, MessagePinDTO, MessageSearchHitDTO, MessageSearchResponse, TaskSourceLinkDTO } from '~~/shared/types'
 import { formatDayLabel, formatFullDateTime, formatMessageTime, sameDay } from '~~/shared/format'
-import { applyMentionTokens, extractMentionIds, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
+import { applyMentionTokens, extractGroupMentions, extractMentionIds, humanizeMentions, mentionRoles, roleDisplayName } from '~~/shared/mentions'
 import { replaceShortcodes } from '~~/shared/emoji'
 import { channelPath } from '~~/shared/paths'
 import { nowIso } from '~~/shared/ids'
@@ -208,7 +208,9 @@ function mentionsMe(message: MessageDTO) {
   const me = session.user?.id
   if (!me || message.author.id === me) return false
   const role = viewer.mine.value?.role.id
-  return message.mentions.includes(me) || Boolean(role && message.roleMentions?.includes(role)) || message.replyTo?.authorId === me
+  // A stored `<!channel>` or `<!here>` was allowed when sent; anyone else's reads as plain text.
+  return message.mentions.includes(me) || Boolean(role && message.roleMentions?.includes(role))
+    || extractGroupMentions(message.content).length > 0 || message.replyTo?.authorId === me
 }
 
 /* ------------------------------------------------------------------ scrolling */
@@ -408,7 +410,7 @@ function startEdit(message: MessageDTO) {
 
 async function saveEdit(message: MessageDTO) {
   const draft = ui.composerState(props.channelId).editDraft
-  const content = replaceShortcodes(applyMentionTokens(draft, mentionables.value, roleMentionables.value)).trim()
+  const content = replaceShortcodes(applyMentionTokens(draft, mentionables.value, roleMentionables.value, viewer.can(Permission.manageChannels))).trim()
   if (!content && !message.attachments.length) {
     // An emptied message is a delete, as in Discord; ask first.
     ui.cancelEditing(props.channelId)
