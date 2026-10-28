@@ -1,6 +1,6 @@
 import type { AuthorizationContext } from '../../shared/authorization'
-import { hasPermission, Permission } from '../../shared/permissions'
-import { projectAssignmentSchema, projectAssignmentPatchSchema, projectPolicySchema, projectPolicyPatchSchema, ProjectPolicyGrants, projectPermissionAllowed, type ProjectAssignment, type ProjectPolicy, type ProjectPolicyGrant } from '../../shared/project-access'
+import { hasPermission, Permission, PermissionGrants } from '../../shared/permissions'
+import { projectAssignmentSchema, projectAssignmentPatchSchema, projectPolicySchema, projectPolicyPatchSchema, ProjectPolicyPermissions, projectPermissionAllowed, type ProjectAssignment, type ProjectPolicy, type ProjectPolicyGrant } from '../../shared/project-access'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
@@ -18,7 +18,7 @@ export function requirePolicyManager(auth: AuthorizationContext) {
 }
 function assertPolicyGrant(auth: AuthorizationContext, permissions: number, projectId?: string) {
   if (auth.principal.isOwner) return
-  for (const grant of ProjectPolicyGrants) if ((permissions & grant.flag) && !(projectId
+  for (const grant of PermissionGrants) if ((permissions & grant.flag) && !(projectId
     ? projectPermissionAllowed(auth, projectId, grant.flag)
     : hasPermission(auth.principal.permissions, grant.flag))) fail(403, 'policy_denied', 'Cannot grant project permissions you do not have')
 }
@@ -31,9 +31,16 @@ export async function saveProjectPolicy(env: L4Env, auth: AuthorizationContext, 
   assertPolicyGrant(auth, input.permissions)
   const policyId = id ?? newId()
   if (id) {
+    if (id === 'server-policy-owner' || id === 'server-policy-admin' || id === 'server-policy-member') fail(403, 'policy_denied', 'System policies cannot be changed')
     const previous = await env.DB.prepare('SELECT permissions_bitmask AS permissions FROM project_policies WHERE id=?').bind(id).first<{ permissions: number }>()
     if (!previous) fail(404, 'not_found', 'Policy not found')
     assertPolicyGrant(auth, previous.permissions)
+    const roleAssignment = await env.DB.prepare('SELECT role_id FROM role_policies WHERE policy_id=? LIMIT 1').bind(id).first()
+    if (roleAssignment && !auth.principal.isOwner) fail(403, 'policy_denied', 'Only the owner can edit a policy assigned to a role')
+    if ((input.permissions & ~ProjectPolicyPermissions) !== 0) {
+      const projectAssignment = await env.DB.prepare('SELECT id FROM project_policy_assignments WHERE policy_id=? LIMIT 1').bind(id).first()
+      if (projectAssignment) fail(400, 'policy_scope', 'Policies assigned in projects cannot include server permissions')
+    }
     // Editing a reusable policy affects every assignment. A scoped manager may
     // not use a definition edit to expand another project's authority.
     if (!auth.principal.isOwner) {
@@ -68,6 +75,7 @@ export async function assignProjectPolicy(env: L4Env, auth: AuthorizationContext
   await assignmentAuthority(env, auth, projectId)
   const input = projectAssignmentSchema.parse(request), policy = (await listProjectPolicies(env)).find(p => p.id === input.policyId)
   if (!policy) fail(404, 'not_found', 'Policy not found')
+  if ((policy.permissions & ~ProjectPolicyPermissions) !== 0) fail(400, 'policy_scope', 'This policy includes server permissions and cannot be assigned within a project')
   assertPolicyGrant(auth, policy.permissions, projectId)
   const target = input.memberId
     ? await env.DB.prepare("SELECT id FROM users WHERE id=? AND status='active'").bind(input.memberId).first()
@@ -94,6 +102,7 @@ export async function replaceProjectPolicy(env: L4Env, auth: AuthorizationContex
   if (!current) fail(404, 'not_found', 'Assignment not found')
   const input = projectAssignmentPatchSchema.parse(request), policy = (await listProjectPolicies(env)).find(p => p.id === input.policyId)
   if (!policy) fail(404, 'not_found', 'Policy not found')
+  if ((policy.permissions & ~ProjectPolicyPermissions) !== 0) fail(400, 'policy_scope', 'This policy includes server permissions and cannot be assigned within a project')
   assertPolicyGrant(auth, current.permissions, projectId); assertPolicyGrant(auth, policy.permissions, projectId)
   if (policy.id === current.policyId) return current
   // A replacement gets a fresh identity. Changing A -> B -> A must not revive

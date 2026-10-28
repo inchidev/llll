@@ -68,7 +68,7 @@ beforeEach(async () => {
   expect(response.status, await response.clone().text()).toBe(200)
   ownerId = (await response.json()).user.id
   cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
-  sqlite.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('owner-role','owner','Owner',0), ('member-role','member','Member',?), ('agent-role','agent','Agent',?)")
+  sqlite.prepare("INSERT INTO roles (id,key,name,permissions_bitmask) VALUES ('owner-role','custom:owner-test','Owner',0), ('member-role','custom:member-test','Member',?), ('agent-role','custom:agent-test','Agent',?)")
     .run(Permission.manageTasks | Permission.mcpConnect, Permission.manageTasks | Permission.manageDatabases | Permission.mcpConnect)
   sqlite.prepare("INSERT INTO users (id,display_name,status,role_id,joined_at) VALUES (?,'Owner','active','owner-role','2026-10-21'), ('other-human','Other','active','member-role','2026-10-21')").run(ownerId)
   sqlite.exec("INSERT INTO users (id,kind,display_name,status,role_id,joined_at) VALUES ('agent-member','agent','Builder','active','agent-role','2026-10-21')")

@@ -20,6 +20,9 @@ const qc = useQueryClient()
 const { copy } = useClipboard()
 /** Exposed so `/server/:id/settings?section=…` can deep-link, and so the section survives reopening. */
 const section = defineModel<string>('section', { default: 'overview' })
+const rolesSettings = ref<{ createRole: () => void } | null>(null)
+const policiesSettings = ref<{ createPolicy: () => void } | null>(null)
+const rolesListVisible = ref(true)
 
 const saving = ref(false)
 const memberChannelId = ref<string | null>(null)
@@ -80,8 +83,7 @@ const updatesQ = useQuery({
 const serverNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'overview' as const, label: 'Overview', icon: 'i-ph-house', keywords: ['name', 'icon', 'rename'] }] : []),
   ...(can(Permission.manageChannels) ? [{ id: 'channels' as const, label: 'Channels', icon: 'i-ph-hash', keywords: ['categories', 'private'] }] : []),
-  ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles', icon: 'i-ph-shield', keywords: ['permissions', 'admin', 'access'] }] : []),
-  ...(can(Permission.manageRoles) ? [{ id: 'project-policies' as const, label: 'Project policies', icon: 'i-ph-shield-check', keywords: ['projects', 'developer', 'reviewer', 'permissions'] }] : []),
+  ...(can(Permission.manageRoles) ? [{ id: 'roles' as const, label: 'Roles & Policies', icon: 'i-ph-shield', aliases: ['roles', 'project-policies'], keywords: ['permissions', 'admin', 'access', 'projects', 'developer', 'reviewer'] }] : []),
   ...(can(Permission.manageRoles) || can(Permission.kick) ? [{ id: 'members' as const, label: 'Members', icon: 'i-ph-users', keywords: ['people', 'kick', 'assign role'] }] : []),
   ...(can(Permission.invite) && session.health?.authMode !== 'access' ? [{ id: 'invites' as const, label: 'Invites', icon: 'i-ph-user-plus', keywords: ['invite link', 'join', 'share'] }] : []),
 ])
@@ -531,19 +533,16 @@ function roleLabel(name: string) {
           @click="createCategoryOpen = true"
         />
       </div>
-      <ul class="mt-6 divide-y divide-default">
-        <li v-for="category in categories" :key="category.id">
-          <button type="button" class="flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-3 text-start hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`Edit category ${category.name}`" @click="selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true">
-            <UIcon name="i-ph-folder" class="size-5 text-muted" />
-            <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ category.name }}</span><span class="text-xs text-muted">{{ serverChannels.filter(channel => channel.categoryId === category.id).length }} channels</span></span>
-            <UIcon name="i-ph-pencil-simple" class="size-4 text-muted" />
-          </button>
-        </li>
-        <li v-if="!categories.length" class="py-4 text-sm text-muted">No categories yet.</li>
-      </ul>
+      <SettingsList class="mt-6" :items="categories" :item-key="category => category.id" :search-text="category => category.name" placeholder="Search categories" :noun="['category', 'categories']" @select="category => { selectedCategoryId = category.id; categoryName = category.name; editCategoryOpen = true }">
+        <template #row="{ item: category }">
+          <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-folder" class="size-4" /></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ category.name }}</span><span class="text-xs text-muted">{{ serverChannels.filter(channel => channel.categoryId === category.id).length }} channels</span></span>
+        </template>
+        <template #empty><p class="py-4 text-sm text-muted">No categories yet.</p></template>
+      </SettingsList>
       <h2 class="mt-10 text-sm font-semibold text-highlighted">Channels</h2>
-      <ul class="mt-2 divide-y divide-default">
-        <li v-for="channel in serverChannels" :key="channel.id" class="flex items-center gap-3 py-3">
+      <ul class="mt-2 divide-y divide-default overflow-hidden rounded-lg border border-default">
+        <li v-for="channel in serverChannels" :key="channel.id" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
           <UIcon name="i-ph-hash" class="size-5 shrink-0 text-muted" />
           <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ channel.name }}</span>
           <UButton
@@ -618,11 +617,22 @@ function roleLabel(name: string) {
       <SettingsToolsSettings :server-id="serverId" @roles="section = 'roles'" />
     </template>
 
-    <template v-else-if="section === 'roles'">
-      <SettingsRolesSettings :server-id="serverId" />
-    </template>
-    <template v-else-if="section === 'project-policies'">
-      <SettingsProjectPolicies :server-id="serverId" />
+    <template v-else-if="section === 'roles' || section === 'project-policies'">
+      <SettingsHeader title="Roles &amp; Policies">
+        <template #actions>
+          <UButton v-if="section === 'roles' && rolesListVisible" icon="i-ph-plus" label="Create role" size="sm" @click="rolesSettings?.createRole()" />
+          <UButton v-else-if="section === 'project-policies'" icon="i-ph-plus" label="Create policy" size="sm" @click="policiesSettings?.createPolicy()" />
+        </template>
+      </SettingsHeader>
+      <LayoutSegmentedTabs
+        :model-value="section"
+        :items="[{ value: 'roles', label: 'Roles' }, { value: 'project-policies', label: 'Policies' }]"
+        label="Roles and policies"
+        class="mt-5 mb-6"
+        @update:model-value="section = $event"
+      />
+      <SettingsRolesSettings v-if="section === 'roles'" ref="rolesSettings" :server-id="serverId" @list-visible="rolesListVisible = $event" />
+      <SettingsProjectPolicies v-else ref="policiesSettings" :server-id="serverId" :is-owner="isOwner" />
     </template>
 
     <template v-else-if="section === 'environments'">
@@ -636,8 +646,8 @@ function roleLabel(name: string) {
     <template v-else-if="section === 'members'">
       <h1 class="text-xl font-semibold text-highlighted">Members</h1>
       <p class="mt-1 text-sm text-muted">{{ memberCount }} {{ memberCount === 1 ? 'member' : 'members' }} in this server.</p>
-      <ul class="mt-6 divide-y divide-default">
-        <li v-for="m in membersQ.data.value?.members ?? []" :key="m.user.id" class="flex items-center gap-3 py-3">
+      <ul class="mt-6 divide-y divide-default overflow-hidden rounded-lg border border-default">
+        <li v-for="m in membersQ.data.value?.members ?? []" :key="m.user.id" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
           <UserAvatar :user="m.user" size="sm" />
           <div class="min-w-0 flex-1">
             <p class="font-medium truncate">{{ m.nickname || m.user.displayName }}</p>
@@ -675,8 +685,8 @@ function roleLabel(name: string) {
         <UButton v-if="inviteUrl" label="Copy" @click="copyInvite()" />
         <UButton v-if="can(Permission.invite)" :loading="inviting" label="Create Invite" @click="makeInvite" />
       </div>
-      <ul v-if="invitesQ.data.value?.invites.length" class="mt-8 divide-y divide-default">
-        <li v-for="inv in invitesQ.data.value.invites" :key="inv.code" class="flex items-center gap-3 py-3">
+      <ul v-if="invitesQ.data.value?.invites.length" class="mt-8 divide-y divide-default overflow-hidden rounded-lg border border-default">
+        <li v-for="inv in invitesQ.data.value.invites" :key="inv.code" class="flex min-h-14 items-center gap-3 px-4 py-2.5">
           <div class="min-w-0 flex-1">
             <p class="font-mono text-sm text-highlighted truncate">{{ inv.code }}</p>
             <p class="text-xs text-muted">

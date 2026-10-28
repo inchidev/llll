@@ -217,8 +217,16 @@ describe('MCP messages use the interface channel and send pipeline', () => {
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES ('mailbox-chat','domain-1','inbox','Inbox');
       INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('mailbox-chat','member-user','read');
     `)
+    await expect(read('mailbox-chat')).rejects.toMatchObject({ statusCode: 404 })
+    sqlite.exec("INSERT INTO roles(id,key,name,permissions_bitmask) VALUES ('mail-only-role','custom:mail-only','Mail only',0); UPDATE users SET role_id='mail-only-role' WHERE id='member-user'")
+    sqlite.prepare('INSERT INTO project_policies(id,name,permissions_bitmask) VALUES (?,?,?)').run('mail-reader', 'Mail reader', Permission.readMail | Permission.mcpConnect)
+    sqlite.prepare('INSERT INTO role_policies(role_id,policy_id) VALUES (?,?)').run('mail-only-role', 'mail-reader')
     await expect(read('mailbox-chat')).resolves.toHaveProperty('messages')
     await expect(send('mailbox-chat')).rejects.toMatchObject({ statusCode: 403 })
+    sqlite.exec("UPDATE email_mailbox_access SET permission='send' WHERE channel_id='mailbox-chat'")
+    await expect(send('mailbox-chat')).rejects.toMatchObject({ statusCode: 403 })
+    sqlite.prepare('UPDATE project_policies SET permissions_bitmask=? WHERE id=?').run(Permission.readMail | Permission.sendMail | Permission.mcpConnect, 'mail-reader')
+    await expect(send('mailbox-chat')).resolves.toHaveProperty('message.author.id', 'member-user')
     sqlite.exec("DELETE FROM email_mailbox_access WHERE channel_id='mailbox-chat'")
     await expect(read('mailbox-chat')).rejects.toMatchObject({ statusCode: 404 })
   })

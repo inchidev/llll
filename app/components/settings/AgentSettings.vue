@@ -28,15 +28,12 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
   <LayoutSkeleton v-if="agentsQ.isPending.value" variant="nav" class="mt-6" :rows="3" />
   <LayoutLoadError v-else-if="agentsQ.error.value" message="Agents did not load." :retry="agentsQ.refetch" />
   <LayoutEmptyState v-else-if="!agentsQ.data.value?.agents.length" icon="i-ph-robot" title="No agents yet" description="Create an agent, then assign its Role and permissions." />
-  <ul v-else class="mt-6 divide-y divide-default">
-    <li v-for="agent in visible" :key="agent.id">
-      <button type="button" class="flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-3 text-start hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`Edit ${agent.displayName}`" @click="edit(agent)">
+  <SettingsList v-else class="mt-6" :items="visible" :item-key="agent => agent.id" :search-text="agent => agent.displayName" :search-from="Infinity" :noun="['agent', 'agents']" @select="edit">
+      <template #row="{ item: agent }">
         <UserAvatar :user="{ ...agent, kind: 'agent' }" size="md" />
         <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-highlighted">{{ agent.displayName }}</span><span class="block text-xs text-muted">{{ agent.status === 'paused' ? 'Paused' : 'Active' }}</span></span>
-        <UIcon name="i-ph-pencil-simple" class="size-4 text-muted" />
-      </button>
-    </li>
-  </ul>
+      </template>
+  </SettingsList>
   <UPagination v-if="(agentsQ.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="agentsQ.data.value?.total ?? 0" />
   </template>
   <SettingsAgentEditorModal v-model:open="editorOpen" :server-id="serverId" :agent="editing" @saved="editing = $event" />

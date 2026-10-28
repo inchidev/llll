@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { DataResourcesDTO, TaskBoardDTO, MemberDTO, RoleDTO } from '~~/shared/types'
-import { hasPermission, Permission, permissionBitmask, PermissionGrants, type PermissionGrantKey } from '~~/shared/permissions'
+import type { MemberDTO, RoleDTO } from '~~/shared/types'
+import { Permission } from '~~/shared/permissions'
+import type { ProjectPolicy } from '~~/shared/project-access'
 
-import { cloneResourceAccess, type ResourceAccess, type ResourceKind } from '~~/shared/resource-access'
 
 const props = defineProps<{ serverId: string }>()
+const emit = defineEmits<{ 'list-visible': [visible: boolean] }>()
 
 const { api } = useApi()
 const qc = useQueryClient()
@@ -32,29 +33,14 @@ type Tab = 'display' | 'permissions' | 'members'
 const selectedRoleId = ref<string | null>(null)
 const tab = ref<Tab>('permissions')
 const selectedRole = computed(() => roles.value.find(role => role.id === selectedRoleId.value) ?? null)
+watch(selectedRole, role => emit('list-visible', !role), { immediate: true })
 const readOnly = computed(() => !selectedRole.value || selectedRole.value.isSystem || !canManage.value)
 
 const tabs = computed(() => [
   { value: 'display' as const, label: 'Display' },
-  { value: 'permissions' as const, label: 'Permissions' },
+  { value: 'permissions' as const, label: 'Policies' },
   { value: 'members' as const, label: 'Members', count: selectedRole.value?.memberCount ?? roleMembers.value.length },
 ])
-
-// Grants grouped by what they govern, so a role reads as a policy rather than a flat list.
-const grantGroups: Array<{ label: string, keys: PermissionGrantKey[] }> = [
-  { label: 'Projects', keys: ['readProjects', 'manageProjects', 'readTasks', 'writeTasks', 'manageTasks', 'executeTasks', 'useComputer', 'proposeCode'] },
-  { label: 'Data', keys: ['readData', 'writeData', 'manageDatabases'] },
-  { label: 'Chat', keys: ['manageChannels', 'sendMessages', 'attachFiles', 'startLive'] },
-  { label: 'Email', keys: [] },
-  { label: 'Apps', keys: ['useGadgets', 'manageGadgets'] },
-  { label: 'Agents', keys: ['useAgents', 'manageAgents', 'approveAgentActions', 'manageSchedules', 'browseWeb'] },
-  { label: 'Integrations', keys: ['mcp.connect', 'useExternalTools'] },
-  { label: 'Server', keys: ['manageServer', 'manageRoles', 'invite', 'kick'] },
-]
-const groupedGrants = grantGroups.map(group => ({
-  label: group.label,
-  grants: group.keys.map(key => PermissionGrants.find(grant => grant.key === key)!).filter(Boolean),
-}))
 
 function roleLabel(role: Pick<RoleDTO, 'name'>) {
   if (role.name === 'owner') return 'Owner'
@@ -63,68 +49,31 @@ function roleLabel(role: Pick<RoleDTO, 'name'>) {
   return role.name
 }
 
-function grantCount(permissions: number) {
-  return PermissionGrants.filter(grant => hasPermission(permissions, grant.flag)).length
-}
-
 function permissionSummary(role: RoleDTO) {
-  const count = grantCount(role.permissions)
-  if (role.key === 'owner' || count === PermissionGrants.length) return 'All permissions'
-  return `${count} of ${PermissionGrants.length} permissions`
+  const count = role.policyCount ?? 0
+  return `${count} ${count === 1 ? 'policy' : 'policies'}`
 }
 
-// Draft edits, compared against the saved role to drive the save bar.
-const roleResourceAccess = ref<ResourceAccess>({})
-const resourceSection: Record<ResourceKind, string> = { projects: 'Projects', boards: 'Projects', repositories: 'Projects', databases: 'Data', documents: 'Data', canvases: 'Data' }
-const resourceGroups: Array<{ kind: ResourceKind; label: string }> = [
-  { kind: 'projects', label: 'Projects' }, { kind: 'boards', label: 'Task boards' }, { kind: 'databases', label: 'Tables' },
-  { kind: 'repositories', label: 'Repositories' }, { kind: 'documents', label: 'Documents' }, { kind: 'canvases', label: 'Canvases' },
-]
-const projectResources = useQuery({ queryKey: computed(() => ['projects', props.serverId]), queryFn: () => api<{ projects: Array<{ id: string; name: string }> }>(`/api/servers/${props.serverId}/projects`), enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readProjects)) })
-const boardResources = useQuery({
-  queryKey: computed(() => ['boards', props.serverId]),
-  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${props.serverId}/boards`),
-  enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readTasks)),
-})
-const dataResources = useQuery({
-  queryKey: computed(() => ['data-resources', props.serverId]),
-  queryFn: () => api<DataResourcesDTO>(`/api/servers/${props.serverId}/data-resources`),
-  enabled: computed(() => Boolean(selectedRole.value) && can(Permission.readData)),
-})
-const environments = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ environments: Array<{ sourceRepo: string; sourceRepoId: number }> }>('/api/code-environments'), enabled: computed(() => Boolean(selectedRole.value)) })
-function resourceOptions(kind: ResourceKind) {
-  if (kind === 'projects') return (projectResources.data.value?.projects ?? []).map(p => ({ label: p.name, value: p.id }))
-  if (kind === 'repositories') return [...new Map((environments.data.value?.environments ?? []).map(item => [item.sourceRepoId, { label: item.sourceRepo, value: String(item.sourceRepoId) }])).values()]
-  if (kind === 'boards') return (boardResources.data.value?.boards ?? []).map(row => ({ label: row.name, value: row.id }))
-  const data = dataResources.data.value
-  if (kind === 'databases') return (data?.databases ?? []).map(row => ({ label: row.name, value: row.id }))
-  if (kind === 'documents' || kind === 'canvases') return (data?.[kind] ?? []).map(row => ({ label: row.title, value: row.id }))
-  return []
-}
-function setResourceMode(kind: ResourceKind, mode: string) {
-  roleResourceAccess.value = { ...roleResourceAccess.value, [kind]: mode === 'all' ? null : [] }
-}
 const roleName = ref('')
-const rolePermissions = ref(0)
 const saving = ref(false)
 const creating = ref(false)
 const createOpen = ref(false)
 const newRoleName = ref('')
+function showCreateRole() { newRoleName.value = ''; createOpen.value = true }
+defineExpose({ createRole: showCreateRole })
 const deleteOpen = ref(false)
 const deleting = ref(false)
 
 function resetDraft() {
   const role = selectedRole.value
   roleName.value = role ? roleLabel(role) : ''
-  rolePermissions.value = role?.permissions ?? 0
-  roleResourceAccess.value = cloneResourceAccess(role?.resourceAccess ?? {})
 }
 watch(selectedRole, resetDraft, { immediate: true })
 
 const dirty = computed(() => {
   const role = selectedRole.value
   if (!role || readOnly.value) return false
-  return roleName.value.trim() !== roleLabel(role) || rolePermissions.value !== role.permissions || JSON.stringify(roleResourceAccess.value) !== JSON.stringify(role.resourceAccess ?? {})
+  return roleName.value.trim() !== roleLabel(role)
 })
 
 function openRole(role: RoleDTO) {
@@ -137,21 +86,22 @@ function backToList() {
   selectedRoleId.value = null
 }
 
-function toggleGrant(key: PermissionGrantKey, enabled: boolean) {
-  const active = PermissionGrants
-    .filter(grant => grant.key !== key && hasPermission(rolePermissions.value, grant.flag))
-    .map(grant => grant.key)
-  if (enabled) active.push(key)
-  rolePermissions.value = permissionBitmask(active)
-}
-
-function setGroup(keys: PermissionGrantKey[], enabled: boolean) {
-  const active = new Set(PermissionGrants.filter(grant => hasPermission(rolePermissions.value, grant.flag)).map(grant => grant.key))
-  for (const key of keys) {
-    if (enabled) active.add(key)
-    else active.delete(key)
-  }
-  rolePermissions.value = permissionBitmask(active)
+const policiesQ = useQuery({ queryKey: computed(() => ['project-policies', props.serverId]), queryFn: () => api<{ policies: ProjectPolicy[] }>(`/api/servers/${props.serverId}/project-policies`) })
+const rolePoliciesQ = useQuery({ queryKey: computed(() => ['role-policies', props.serverId, selectedRoleId.value]), queryFn: () => api<{ policyIds: string[] }>(`/api/servers/${props.serverId}/roles/${selectedRoleId.value}/policies`), enabled: computed(() => Boolean(selectedRoleId.value)) })
+const rolePolicyIds = ref<string[]>([])
+const policySaving = ref(false)
+watch(() => rolePoliciesQ.data.value, value => { rolePolicyIds.value = [...(value?.policyIds ?? [])] }, { immediate: true })
+const policiesDirty = computed(() => [...rolePolicyIds.value].sort().join('\0') !== [...(rolePoliciesQ.data.value?.policyIds ?? [])].sort().join('\0'))
+function togglePolicy(id: string, enabled: boolean) { rolePolicyIds.value = enabled ? [...rolePolicyIds.value, id] : rolePolicyIds.value.filter(item => item !== id) }
+async function savePolicies() {
+  if (!selectedRoleId.value) return
+  policySaving.value = true
+  try {
+    await api(`/api/servers/${props.serverId}/roles/${selectedRoleId.value}/policies`, { method: 'PUT', body: { policyIds: rolePolicyIds.value } })
+    await Promise.all([rolePoliciesQ.refetch(), refreshRoles()])
+    toast.add({ title: 'Role policies saved', color: 'success' })
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { policySaving.value = false }
 }
 
 async function refreshRoles() {
@@ -168,7 +118,7 @@ async function createRole() {
     const name = newRoleName.value.trim()
     const res = await api<{ role: RoleDTO }>(`/api/servers/${props.serverId}/roles`, {
       method: 'POST',
-      body: { name, permissions: 0 },
+      body: { name },
     })
     createOpen.value = false
     await qc.invalidateQueries({ queryKey: ['roles', props.serverId] })
@@ -190,7 +140,7 @@ async function saveRole() {
   try {
     await api(`/api/servers/${props.serverId}/roles/${role.id}`, {
       method: 'PATCH',
-      body: { name: roleName.value.trim(), permissions: rolePermissions.value, resourceAccess: roleResourceAccess.value },
+      body: { name: roleName.value.trim() },
     })
     await refreshRoles()
     toast.add({ title: 'Role saved', color: 'success' })
@@ -278,15 +228,11 @@ watch(addMemberId, async (userId) => {
 <template>
   <div>
     <UModal v-model:open="createOpen" title="Create role" :dismissible="!creating">
-      <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name" help="New roles start with no permissions. Choose grants after creation."><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
+      <template #body><UForm :state="{ name: newRoleName }" class="space-y-4" @submit="createRole"><UFormField label="Name" help="New roles start without policies. Choose policies after creation."><UInput v-model="newRoleName" autofocus maxlength="80" class="w-full" /></UFormField><UButton type="submit" label="Create role" :disabled="!newRoleName.trim()" :loading="creating" /></UForm></template>
     </UModal>
     <!-- Role list -->
     <template v-if="!selectedRole">
-      <SettingsHeader title="Roles" description="Every member has one role. A role decides what its members can do across the server.">
-        <template #actions>
-          <UButton v-if="canManage" icon="i-ph-plus" label="Create role" size="sm" :loading="creating" @click="newRoleName = ''; createOpen = true" />
-        </template>
-      </SettingsHeader>
+      <SettingsHeader title="Roles" description="Every member has one server role. Policies define what its members can do." />
 
       <SettingsList
         class="mt-6"
@@ -342,46 +288,16 @@ watch(addMemberId, async (userId) => {
         </div>
       </div>
 
-      <div v-else-if="tab === 'permissions'" class="mt-6 space-y-8">
-        <section v-for="group in groupedGrants" :key="group.label">
-          <div class="mb-1 flex items-center justify-between gap-3">
-            <h2 class="text-[11px] font-bold uppercase tracking-wide text-muted">{{ group.label }}</h2>
-            <div v-if="!readOnly" class="flex gap-1">
-              <UButton v-if="group.grants.length" size="xs" color="neutral" variant="ghost" label="All" @click="setGroup(group.grants.map(grant => grant.key), true)" />
-              <UButton v-if="group.grants.length" size="xs" color="neutral" variant="ghost" label="None" @click="setGroup(group.grants.map(grant => grant.key), false)" />
-            </div>
-          </div>
-          <p v-if="group.label === 'Email'" class="text-sm text-muted">Read, send and manage access is currently assigned per mailbox in Mail settings. This Role does not override mailbox access.</p>
-          <div v-if="group.grants.length" class="divide-y divide-default rounded-lg border border-default">
-            <label
-              v-for="grant in group.grants"
-              :key="grant.key"
-              class="flex items-start justify-between gap-6 px-4 py-3"
-              :class="readOnly ? '' : 'cursor-pointer hover:bg-elevated/40'"
-            >
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-highlighted">{{ grant.label }}</span>
-                <span class="mt-0.5 block text-xs text-muted">{{ grant.description }}</span>
-              </span>
-              <USwitch
-                :model-value="hasPermission(rolePermissions, grant.flag)"
-                :disabled="readOnly"
-                :aria-label="grant.label"
-                @update:model-value="toggleGrant(grant.key, Boolean($event))"
-              />
-            </label>
-          </div>
-          <div v-if="resourceGroups.some(r => resourceSection[r.kind] === group.label)" class="mt-4 space-y-3">
-            <p class="text-sm text-muted">Choose where these permissions apply. Resource selection does not grant an operation.</p>
-          <UFormField v-for="resource in resourceGroups.filter(r => resourceSection[r.kind] === group.label)" :key="resource.kind" :label="resource.label">
-            <div class="space-y-2">
-              <USelect :model-value="roleResourceAccess[resource.kind] == null ? 'all' : 'selected'" :items="[{ label: 'All resources', value: 'all' }, { label: 'Selected resources', value: 'selected' }]" :disabled="readOnly" class="w-full" @update:model-value="setResourceMode(resource.kind, $event)" />
-              <USelectMenu v-if="roleResourceAccess[resource.kind] != null" :model-value="roleResourceAccess[resource.kind] ?? []" multiple :items="resourceOptions(resource.kind)" value-key="value" placeholder="Choose resources" :disabled="readOnly" class="w-full" @update:model-value="roleResourceAccess = { ...roleResourceAccess, [resource.kind]: $event }" />
-            </div>
-          </UFormField>
-          </div>
-        </section>
-
+      <div v-else-if="tab === 'permissions'" class="mt-6 space-y-4">
+        <p class="text-sm text-muted">Policies define what this role can do.</p>
+        <LayoutLoadError v-if="policiesQ.error.value || rolePoliciesQ.error.value" message="Policies did not load." :retry="() => { policiesQ.refetch(); rolePoliciesQ.refetch() }" />
+        <div class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+          <label v-for="policy in policiesQ.data.value?.policies ?? []" :key="policy.id" class="flex items-center justify-between gap-4 px-4 py-3">
+            <span class="min-w-0"><span class="block text-sm font-medium">{{ policy.name }}</span><span class="block text-xs text-muted">{{ policy.description }}</span></span>
+            <UCheckbox :model-value="rolePolicyIds.includes(policy.id)" :disabled="readOnly || policySaving" :aria-label="policy.name" @update:model-value="togglePolicy(policy.id, Boolean($event))" />
+          </label>
+        </div>
+        <UButton v-if="!readOnly" label="Save policies" :loading="policySaving" :disabled="!policiesDirty" @click="savePolicies" />
       </div>
 
       <div v-else class="mt-6">

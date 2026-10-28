@@ -24,6 +24,7 @@ const baseBranch = ref('main')
 const requiredChecks = ref('')
 const previewHosts = ref('')
 const editingId = ref<string>()
+const selectedEnvironment = computed(() => list.data.value?.environments.find(item => item.id === editingId.value))
 const open = ref(false)
 const saving = ref(false)
 function edit(item?: CodeEnvironment) {
@@ -46,7 +47,7 @@ async function save() {
 }
 async function disable(item: CodeEnvironment) {
   saving.value = true
-  try { await api(`/api/code-environments/${item.id}`, { method: 'DELETE' }); await list.refetch() }
+  try { await api(`/api/code-environments/${item.id}`, { method: 'DELETE' }); open.value = false; await list.refetch() }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { saving.value = false }
 }
@@ -54,18 +55,16 @@ async function disable(item: CodeEnvironment) {
 
 <template>
   <div class="space-y-6">
-    <SettingsHeader title="Repository environments" description="Choose where agents can read code and propose changes. Assign repository access and agent permissions in Roles." />
+    <SettingsHeader title="Repository environments" description="Choose where agents can read code and propose changes. Assign repository access and agent permissions in Roles."><template #actions><UButton v-if="list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
     <SettingsGitConnections />
     <SettingsFactorySetup />
     <details><summary class="cursor-pointer text-sm">Advanced: remote Compute Nodes</summary><SettingsComputeNodes /></details>
     <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
     <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a dedicated GitHub App" description="Create a GitHub App connection above, authorize its repositories on GitHub, then select that connection for Git execution." color="neutral" variant="subtle" />
     <template v-else>
-      <UButton label="Add environment" icon="i-ph-plus" color="neutral" @click="edit()" />
-      <div v-for="item in list.data.value?.environments" :key="item.id" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-default p-4">
-        <div class="min-w-0"><p class="font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></p><p class="break-all text-sm text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</p><p class="break-all text-xs text-muted">Working repository: {{ item.workRepo }}<br>Compute Node: {{ nodes.data.value?.nodes.find(node => node.id === item.computeNodeId)?.capabilities?.provider === 'lizard' ? 'Lizard' : nodes.data.value?.nodes.find(node => node.id === item.computeNodeId)?.name || 'Not connected' }} · Required CI: {{ item.requiredChecks.join(', ') }}</p></div>
-        <div class="flex gap-2"><UButton label="Edit" color="neutral" variant="outline" @click="edit(item)" /><UButton v-if="item.enabled" label="Disable" color="neutral" variant="ghost" :loading="saving" @click="disable(item)" /></div>
-      </div>
+      <SettingsList :items="list.data.value?.environments ?? []" :item-key="item => item.id" :search-text="item => `${item.name} ${item.sourceRepo}`" placeholder="Search environments" :noun="['environment', 'environments']" @select="edit">
+        <template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></span><span class="block truncate text-xs text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</span></span></template>
+      </SettingsList>
     </template>
     <UModal v-model:open="open" :title="editingId ? 'Edit environment' : 'Add environment'" description="Saving changes revokes Runs and scheduled mandates using the previous configuration.">
       <template #body><div class="space-y-4">
@@ -80,7 +79,7 @@ async function disable(item: CodeEnvironment) {
         <UFormField label="Required CI checks" help="One exact check or commit-status name per line. Missing checks keep the proposal unverified."><UTextarea v-model="requiredChecks" class="w-full" :rows="3" /></UFormField>
         <UFormField label="Allowed Preview domains" help="One domain per line, for example dev.example.com. Preview links must use HTTPS."><UTextarea v-model="previewHosts" class="w-full" :rows="2" /></UFormField>
       </div></template>
-      <template #footer><UButton label="Save environment" color="neutral" :loading="saving" :disabled="!name.trim() || !sourceId || !workId || !requiredChecks.trim()" @click="save" /></template>
+      <template #footer><div class="flex w-full justify-between gap-2"><UButton v-if="selectedEnvironment?.enabled" label="Disable" color="error" variant="ghost" :loading="saving" @click="disable(selectedEnvironment)" /><span v-else /><UButton label="Save environment" color="neutral" :loading="saving" :disabled="!name.trim() || !sourceId || !workId || !requiredChecks.trim()" @click="save" /></div></template>
     </UModal>
   </div>
 </template>

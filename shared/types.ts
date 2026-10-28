@@ -589,6 +589,7 @@ export type RoleDTO = {
   position: number
   isSystem: boolean
   memberCount?: number
+  policyCount?: number
 }
 
 export type MemberDTO = {

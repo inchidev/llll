@@ -4,6 +4,7 @@ import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { users } from '../../drizzle/schema'
 import { newId, nowIso } from '../../shared/ids'
+import { hasPermission, Permission } from '../../shared/permissions'
 import { asRpc } from '../../workers/env'
 import type { L4Env } from '../../workers/env'
 import type { MailboxPermission } from '../../shared/types'
@@ -163,6 +164,7 @@ export async function requireMailboxPermission(event: H3Event, channelId: string
   const access = await requireChannelAccess(event, channelId)
   if (!access.mailPermission) fail(404, 'not_found', 'Mailbox not found')
   if (!mailPermissionAllows(access.mailPermission, needed)) fail(403, 'forbidden', 'Missing mailbox permission')
+  if (needed !== 'read' && !access.isOwner && !hasPermission(access.perms, Permission.sendMail)) fail(403, 'forbidden', 'Missing email policy')
   const mailboxId = access.channel.type === 'thread' && access.channel.parentId ? access.channel.parentId : access.channel.id
   return { ...access, mailboxId, mailPermission: access.mailPermission }
 }

@@ -15,7 +15,7 @@ const notify = vi.fn(async () => {}), revalidate = vi.fn(async () => {})
 const pending: Promise<unknown>[] = []
 beforeEach(() => {
   state.target = 'target-user'; state.body = {}; state.owner = false
-  state.perms = Permission.manageRoles | Permission.kick | Permission.sendMessages; state.access = { boards: ['allowed'] }
+  state.perms = Permission.manageRoles | Permission.kick | Permission.sendMessages | Permission.attachFiles | Permission.startLive; state.access = { boards: ['allowed'] }
   notify.mockClear(); revalidate.mockClear(); pending.length = 0
   for (const [name, value] of Object.entries({ defineEventHandler: (fn: unknown) => fn, getRouterParam: (_: unknown, key: string) => key === 'id' ? '00000000-0000-4000-8000-000000000001' : state.target, readBody: async () => state.body, asRpc: (v: unknown) => v, createError })) vi.stubGlobal(name, value)
   db = new DatabaseSync(':memory:'); db.exec(INIT_SQL)
@@ -55,7 +55,7 @@ it.each(['memberPatch', 'memberDelete'] as const)('denies %s for a more powerful
   expect(db.prepare('SELECT count(*) AS count FROM audit_log').get()).toMatchObject({ count: 0 })
 })
 it.each(['rolePatch', 'roleDelete'] as const)('denies %s of current permissions/resources even when replacing them with less', async action => {
-  state.body = { permissions: Permission.sendMessages, resourceAccess: { boards: ['allowed'] } }
+  state.body = { name: 'Renamed' }
   for (const role of ['power-role', 'wide-role']) {
     state.target = role
     await expect(call(action)).rejects.toMatchObject({ statusCode: 403 })
@@ -85,4 +85,15 @@ it('rejects removed or missing targets without writing a kick audit', async () =
   state.target = 'missing'
   await expect(call('memberDelete')).rejects.toMatchObject({ statusCode: 404 })
   expect(db.prepare('SELECT count(*) AS count FROM audit_log').get()).toMatchObject({ count: 0 })
+})
+it('assigns reusable policies to a role and rejects permissions the manager does not have', async () => {
+  state.target = 'weak-role'
+  db.prepare('INSERT INTO project_policies(id,name,permissions_bitmask) VALUES (?,?,?)').run('chat-policy', 'Chat', Permission.sendMessages)
+  state.body = { policyIds: ['chat-policy'] }
+  const handler = (await import('../../server/api/servers/[id]/roles/[roleId]/policies/index.put')).default
+  await handler({ context: { cloudflare: { env, context: { waitUntil: (p: Promise<unknown>) => pending.push(p) } } } } as never)
+  expect(db.prepare('SELECT permissions_bitmask AS permissions FROM roles WHERE id=?').get('weak-role')).toMatchObject({ permissions: Permission.sendMessages })
+  state.body = { policyIds: ['server-policy-owner'] }
+  await expect(handler({ context: { cloudflare: { env, context: { waitUntil: (p: Promise<unknown>) => pending.push(p) } } } } as never)).rejects.toMatchObject({ statusCode: 403 })
+  expect(db.prepare('SELECT policy_id FROM role_policies WHERE role_id=?').get('weak-role')).toMatchObject({ policy_id: 'chat-policy' })
 })

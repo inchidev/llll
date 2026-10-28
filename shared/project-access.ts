@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { hasPermission, Permission, PermissionGrants, type PermissionFlag } from './permissions'
+import { ALL_PERMISSIONS, hasPermission, Permission, PermissionGrants, type PermissionFlag } from './permissions'
 import { resourceAccessAllows, type ResourceKind } from './resource-access'
 import type { AuthorizationContext } from './authorization'
 
@@ -9,7 +9,7 @@ export const ProjectPolicyPermissions = Permission.readProjects | Permission.rea
 export const ProjectPolicyGrants = PermissionGrants.filter(grant => (ProjectPolicyPermissions & grant.flag) === grant.flag)
 export const projectPolicySchema = z.object({
   name: z.string().trim().min(1).max(80), description: z.string().trim().max(2000).default(''),
-  permissions: z.number().int().min(0).max(ProjectPolicyPermissions).refine(value => (value & ~ProjectPolicyPermissions) === 0, 'Only project permissions are allowed'),
+  permissions: z.number().int().min(0).max(ALL_PERMISSIONS).refine(value => (value & ~ALL_PERMISSIONS) === 0, 'Unknown permissions'),
 }).strict()
 export const projectPolicyPatchSchema = projectPolicySchema.extend({ version: z.number().int().positive() })
 export const projectAssignmentSchema = z.object({ policyId: z.string().min(1).max(200), memberId: z.string().min(1).max(200).nullable().default(null), roleId: z.string().min(1).max(200).nullable().default(null) })

@@ -42,7 +42,7 @@ beforeEach(() => {
   sqlite.exec(INIT_SQL)
   sqlite.exec(`
     INSERT INTO server_identity(singleton,id) VALUES(1,'00000000-0000-4000-8000-000000000001');
-    INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('manager-role','admin','Manager',${Permission.manageChannels | Permission.sendMessages}),('member-role','member','Member',${Permission.sendMessages});
+    INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('manager-role','custom:manager','Manager',${Permission.manageChannels | Permission.sendMessages}),('member-role','member','Member',${Permission.sendMessages});
     INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES
       ('owner-001','human','Owner','active','manager-role','2026-10-23'),
       ('manager-001','human','Manager','active','manager-role','2026-10-23'),
@@ -115,7 +115,9 @@ describe('private channel member management', () => {
   it('rejects Mailbox membership changes through the channel API', async () => {
     sqlite.exec(`INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES('domain-001','zone','test.example','test.example');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES('mailbox-001','domain-001','mail','Mail');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES('mailbox-001','manager-001','manage');`)
+      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES('mailbox-001','manager-001','manage');
+      INSERT INTO project_policies(id,name,permissions_bitmask) VALUES('manager-mail','Manager mail',${Permission.manageChannels | Permission.sendMessages | Permission.readMail | Permission.sendMail});
+      INSERT INTO role_policies(role_id,policy_id) VALUES('manager-role','manager-mail');`)
     state.channel = 'mailbox-001'
     for (const operation of [list, add, remove]) await expect(operation()).rejects.toMatchObject({ statusCode: 403 })
   })

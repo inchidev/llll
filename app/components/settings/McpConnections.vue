@@ -49,8 +49,8 @@ async function revoke() {
     <UAlert v-if="error" class="mt-6" color="error" variant="subtle" title="Connections could not be updated" :description="error" />
     <p v-if="loading" role="status" class="mt-6 text-sm text-muted">Loading connections…</p>
     <p v-else-if="!connections.length && !error" class="mt-6 text-sm text-muted">No OAuth connections. Add the MCP Server URL in your client and sign in to authorize access.</p>
-    <ul v-else class="mt-6 divide-y divide-default">
-      <li v-for="connection in connections" :key="connection.id" class="flex flex-wrap items-start gap-4 py-5">
+    <ul v-else class="mt-6 divide-y divide-default overflow-hidden rounded-lg border border-default">
+      <li v-for="connection in connections" :key="connection.id" class="flex flex-wrap items-start gap-4 px-4 py-3">
         <div class="min-w-0 flex-1">
           <p class="break-words font-medium text-highlighted">{{ connection.clientName }}</p>
           <p class="mt-1 text-sm text-muted">Acts as {{ connection.subject.displayName }}{{ connection.subject.kind === 'agent' ? ' · Agent' : '' }}</p>

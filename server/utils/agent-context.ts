@@ -5,8 +5,11 @@ import type { L4Env } from '../../workers/env'
 /** A shared conversation is a scheduling boundary, never permission to share private model memory. */
 export async function compatibleRunHistory(env: L4Env, run: AgentRun): Promise<boolean> {
   const mixed = await env.DB.prepare(`SELECT 1 FROM agent_runs WHERE session_id=? AND id<>? AND
-    (initiated_by<>? OR task_id IS NOT ? OR mandate_json<>? OR environment_json IS NOT ? OR model<>? OR instructions<>?) LIMIT 1`)
-    .bind(run.sessionId, run.id, run.initiatedBy, run.taskId, run.mandateJson, run.environmentJson, run.model, run.instructions).first()
+    (initiated_by<>? OR task_id IS NOT ? OR
+      CASE WHEN json_valid(mandate_json) THEN json_remove(mandate_json,'$.rootRunId') ELSE mandate_json END <>
+      CASE WHEN json_valid(?) THEN json_remove(?,'$.rootRunId') ELSE ? END
+      OR environment_json IS NOT ? OR model<>? OR instructions<>?) LIMIT 1`)
+    .bind(run.sessionId, run.id, run.initiatedBy, run.taskId, run.mandateJson, run.mandateJson, run.mandateJson, run.environmentJson, run.model, run.instructions).first()
   return !mixed
 }
 

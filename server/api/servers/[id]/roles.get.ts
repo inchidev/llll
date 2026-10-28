@@ -17,13 +17,15 @@ export default defineEventHandler(async (event) => {
   }
   const { env } = cf(event)
   const db = getDb(env.DB)
-  const [roleRows, memberRows] = await Promise.all([
+  const [roleRows, memberRows, policyRows] = await Promise.all([
     db.select().from(roles).orderBy(roles.position),
     db.select({ roleId: users.roleId }).from(users).where(eq(users.status, 'active')),
+    env.DB.prepare('SELECT role_id AS roleId, count(*) AS count FROM role_policies GROUP BY role_id').all<{ roleId: string; count: number }>(),
   ])
   const counts = new Map<string, number>()
   for (const member of memberRows) {
     if (member.roleId) counts.set(member.roleId, (counts.get(member.roleId) ?? 0) + 1)
   }
-  return { roles: roleRows.map(role => toRoleDto(role, serverId, counts.get(role.id) ?? 0)) }
+  const policyCounts = new Map(policyRows.results.map(row => [row.roleId, row.count]))
+  return { roles: roleRows.map(role => ({ ...toRoleDto(role, serverId, counts.get(role.id) ?? 0), policyCount: policyCounts.get(role.id) ?? 0 })) }
 })

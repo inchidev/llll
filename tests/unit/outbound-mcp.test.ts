@@ -31,16 +31,16 @@ it('encrypts credentials with Server/connection scope and excludes them from DTO
   expect(JSON.stringify(c.tools.descriptors)).not.toMatch(/synthetic-secret|ciphertext|Ignore all policies/)
   expect(c.tool.name.length).toBeLessThanOrEqual(64)
 })
-it('keeps the scoped read adapter tested while production discovery and execution require review', async () => {
+it('executes an explicitly granted read tool within the Run', async () => {
   const connection = await f.connect()
   const c = await toolCall(connection.id)
   expect(c.tool.provenance?.connectionId).toBe(connection.id)
   const call = { callId: 'read-once', name: c.tool.name, arguments: { query: 'Workers' } }
-  await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).rejects.toMatchObject({ statusCode: 403 })
-  expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(0)
+  await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).resolves.toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation' })
+  expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(1)
   const result = await c.tools.call(c.tool.name, call.arguments)
   expect(result).toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation', content: [{ type: 'text', text: expect.stringContaining('Verified source') }] })
-  expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(1)
+  expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(2)
   expect(JSON.stringify(f.db.prepare("SELECT meta_json FROM audit_log WHERE action='tool.connection.call'").all())).toContain(c.run.id)
 })
 it('requires explicit grants for both the Agent and initiating Member, even when the initiator is Owner', async () => {
@@ -178,7 +178,7 @@ it('supports explicit Role grants for both sides of a delegated Run', async () =
   await f.connect(f.input({ grants: { agentIds: [], memberIds: [], roleIds: [ids.agentRole, ids.memberRole] } }))
   const member = await f.run(ids.member)
   expect(await mcpRunTools(f.env, member.authorization, member.run)).toHaveLength(1)
-  expect((await toolsForRun(f.env, member.authorization, () => {}, member.run)).descriptors.some(t => t.name.startsWith('mcp_'))).toBe(false)
+  expect((await toolsForRun(f.env, member.authorization, () => {}, member.run)).descriptors.some(t => t.name.startsWith('mcp_'))).toBe(true)
 })
 it('completes an attributed read when the provider duplicates large text in structured content', async () => {
   const connection = await f.connect()

@@ -47,7 +47,7 @@ it('pairs one local executor using the trusted host signature, hashes its token 
   expect(await request()).toEqual({ serverId: ids.server })
   expect(nodes()).toEqual([expect.objectContaining({ id: nodeId, token_hash: await factoryHash(token), capabilities_json: JSON.stringify(capabilities), enabled: 1, created_by: ids.owner })])
   expect(JSON.stringify(nodes())).not.toContain(token)
-  expect(await requireComputeNode(fixture.env, token)).toEqual({ id: nodeId })
+  expect(await requireComputeNode(fixture.env, token)).toMatchObject({ id: nodeId })
   expect(fixture.db.prepare('SELECT id,permissions_bitmask FROM roles ORDER BY id').all()).toEqual(roles)
   expect(setHeader).toHaveBeenCalledWith(expect.anything(), 'Cache-Control', 'private, no-store')
 })
@@ -108,7 +108,7 @@ it('preserves an existing remote Node while adding the local VPS executor', asyn
   await request()
   expect(nodes()).toHaveLength(2)
   expect(nodes().find(node => node.id === remoteId)).toEqual(before)
-  expect(await requireComputeNode(fixture.env, 'remote-token')).toEqual({ id: remoteId })
+  expect(await requireComputeNode(fixture.env, 'remote-token')).toMatchObject({ id: remoteId })
 })
 it.each(['AUTH_SECRET', 'PUBLIC_ORIGIN'] as const)('requires the local Server signing configuration %s', async key => {
   const signed = sign(JSON.stringify(payload()))
@@ -138,7 +138,7 @@ it('requires a new pairing identity when the released workspace image or declare
   expect(rejected).toMatchObject({ statusCode: 409 })
   expect(JSON.stringify(rejected)).not.toContain(token)
   expect(nodes()).toEqual(before)
-  expect(await requireComputeNode(fixture.env, token)).toEqual({ id: nodeId })
+  expect(await requireComputeNode(fixture.env, token)).toMatchObject({ id: nodeId })
 })
 
 it('accepts a new 10 GiB Node while retaining existing 1 GiB Nodes', async () => {

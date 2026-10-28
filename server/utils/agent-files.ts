@@ -23,9 +23,11 @@ export async function requireRunFiles(env: L4Env, auth: AuthorizationContext, ru
 export async function previousRunFiles(env: L4Env, run: AgentRun) {
   // Private artifacts must not inherit data from a different initiator or changed authority.
   if (!await compatibleRunHistory(env, run)) return null
-  const previous = await env.DB.prepare(`SELECT files_key as filesKey FROM agent_runs WHERE session_id=? AND initiated_by=? AND mandate_json=? AND task_id IS ?
+  const previous = await env.DB.prepare(`SELECT files_key as filesKey FROM agent_runs WHERE session_id=? AND initiated_by=? AND
+    CASE WHEN json_valid(mandate_json) THEN json_remove(mandate_json,'$.rootRunId') ELSE mandate_json END =
+    CASE WHEN json_valid(?) THEN json_remove(?,'$.rootRunId') ELSE ? END AND task_id IS ?
     AND environment_json IS ? AND status='completed' AND files_key IS NOT NULL AND id<>? AND created_at<? ORDER BY created_at DESC,id DESC LIMIT 1`)
-    .bind(run.sessionId, run.initiatedBy, run.mandateJson, run.taskId, run.environmentJson, run.id, run.createdAt).first<{ filesKey: string }>()
+    .bind(run.sessionId, run.initiatedBy, run.mandateJson, run.mandateJson, run.mandateJson, run.taskId, run.environmentJson, run.id, run.createdAt).first<{ filesKey: string }>()
   return previous?.filesKey ?? null
 }
 export async function runtimeFiles(env: L4Env, run: AgentRun): Promise<Response> {

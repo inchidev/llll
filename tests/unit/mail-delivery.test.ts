@@ -83,6 +83,8 @@ beforeEach(() => {
   sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('member', 'member', 'Member', 0);
     INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'member', '2026-09-01T00:00:00.000Z'), ('mail-external', 'Email', 'removed', NULL, NULL);
+    INSERT INTO server_identity(singleton,id) VALUES(1,'00000000-0000-4000-8000-000000000001');
+    INSERT INTO server(id,name,owner_id) VALUES('00000000-0000-4000-8000-000000000001','Mail test','owner');
     INSERT INTO channels (id, name, type, visibility) VALUES ('support', 'support', 'text', 'private'), ('sales', 'sales', 'text', 'private');
     INSERT INTO email_domains (id, zone_id, domain, app_hostname) VALUES ('main', 'zone', 'example.com', 'chat.example.com');
     INSERT INTO email_mailboxes (channel_id, domain_id, local_part, display_name) VALUES ('support', 'main', 'support', 'Support'), ('sales', 'main', 'sales', 'Sales');

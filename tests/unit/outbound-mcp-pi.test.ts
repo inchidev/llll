@@ -14,7 +14,7 @@ afterEach(() => vi.unstubAllGlobals())
 it('uses real embedded Pi to read a malicious Task while refusing injected external capabilities', async () => {
   const f = mcpFixture(), remote = remoteMcp()
   try {
-    const connection = await f.connect(f.input({ credential: 'synthetic-pi-secret' }))
+    const connection = await f.connect(f.input({ credential: 'synthetic-pi-secret', grants: { agentIds: [], memberIds: [ids.owner], roleIds: [] } }))
     f.db.prepare('INSERT INTO task_boards(id,name,created_by) VALUES(?,?,?)').run('docs-board', 'Research', ids.owner)
     const taskId = crypto.randomUUID()
     f.db.prepare("INSERT INTO tasks(id,board_id,title,status,assignee_id,created_by,channel_id,created_at,updated_at) VALUES(?,'docs-board','Research public docs','ready',?,?,'public-chat','2026-10-25','2026-10-25')").run(taskId, ids.agent, ids.owner)

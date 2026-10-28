@@ -58,22 +58,20 @@ it('does not send an unchanged role with a profile-only save', async () => {
     expect(call?.[1]?.body).not.toHaveProperty('roleId')
   } finally { close() }
 })
-it('explicitly creates a bounded task role and uses it for a new agent', async () => {
+it('creates a new agent with the default role without creating a role implicitly', async () => {
   const { view, api, close } = await editor(false, false)
   try {
     expect(api.mock.calls.some(([, opts]) => opts?.method === 'POST')).toBe(false)
-    await view.findAll('button').find(button => button.text() === 'Use task agent role')!.trigger('click'); await flushPromises()
-    expect(api).toHaveBeenCalledWith('/api/servers/fixture-server/roles', expect.objectContaining({ method: 'POST', body: { name: 'Task agent', permissions: TaskAgentPermissions, resourceAccess: { boards: ['allowed'] } } }))
-    expect((view.get('[aria-label="Agent role"]').element as HTMLSelectElement).value).toBe(taskRole.id)
     await view.get('input').setValue('Helper')
     await view.get('form').trigger('submit'); await flushPromises()
-    expect(api).toHaveBeenCalledWith('/api/servers/fixture-server/agents', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ roleId: taskRole.id }) }))
+    expect(api.mock.calls.some(([path, opts]) => path.endsWith('/roles') && opts?.method === 'POST')).toBe(false)
+    expect(api).toHaveBeenCalledWith('/api/servers/fixture-server/agents', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ roleId: undefined }) }))
   } finally { close() }
 })
-it('reuses an existing task role without changing its permissions', async () => {
+it('lets a new agent use an existing role without changing its policies', async () => {
   const { view, api, close } = await editor()
   try {
-    await view.findAll('button').find(button => button.text() === 'Use task agent role')!.trigger('click'); await flushPromises()
+    await view.get('[aria-label="Agent role"]').setValue(taskRole.id)
     expect(api.mock.calls.some(([path, opts]) => path.endsWith('/roles') && opts?.method === 'POST')).toBe(false)
     expect((view.get('[aria-label="Agent role"]').element as HTMLSelectElement).value).toBe(taskRole.id)
   } finally { close() }

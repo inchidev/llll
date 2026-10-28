@@ -186,14 +186,15 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       throw new Error('Agent cannot send messages in this channel')
     }
     const agent = await this.env.DB.prepare(
-      `SELECT u.id, u.kind, u.display_name as displayName, u.avatar_r2_key as avatarR2Key
-       FROM users u JOIN agents a ON a.user_id = u.id
+      `SELECT u.id, u.kind, u.display_name as displayName, u.avatar_r2_key as avatarR2Key, r.permissions_bitmask as permissions
+       FROM users u JOIN agents a ON a.user_id = u.id JOIN roles r ON r.id=u.role_id
        WHERE u.id = ? AND u.kind = 'agent' AND u.status = 'active' AND a.status = 'active'`,
     ).bind(body.agentId).first<{
       id: string
       kind: 'agent'
       displayName: string
       avatarR2Key: string | null
+      permissions: number
     }>()
     if (!agent) throw new Error('Agent is unavailable')
 
@@ -214,7 +215,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
        LEFT JOIN email_mailbox_access a ON a.channel_id = mb.channel_id AND a.user_id = ?
        WHERE mb.channel_id = ?`,
     ).bind(agent.id, accessChannelId).first<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>()
-    if (mailbox && (!mailbox.enabled || !mailbox.permission || !mailPermissionAllows(mailbox.permission, 'send'))) {
+    if (mailbox && (!mailbox.enabled || !mailbox.permission || !mailPermissionAllows(mailbox.permission, 'send') || !hasPermission(agent.permissions, Permission.sendMail))) {
       throw new Error('Agent cannot send in this mailbox')
     }
 
@@ -954,10 +955,12 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
        WHERE mb.channel_id = ?`,
     ).bind(userId, accessRoot.id).first<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>()
     if (mailbox) {
-      if (!mailbox.enabled || !mailbox.permission) return null
+      if (!mailbox.enabled || !mailbox.permission || (membership.ownerId !== userId && !hasPermission(membership.perms, Permission.readMail))) return null
       perms &= ~Permission.startLive
-      if (!mailPermissionAllows(mailbox.permission, 'send')) {
+      if (!mailPermissionAllows(mailbox.permission, 'send') || (membership.ownerId !== userId && !hasPermission(membership.perms, Permission.sendMail))) {
         perms &= ~(Permission.sendMessages | Permission.attachFiles)
+      } else {
+        perms |= Permission.sendMessages | Permission.attachFiles
       }
     }
     return { serverId: (await getServerId(this.env.DB)), type, perms, ownerId: membership.ownerId, frozen: false, canManageAgents, mailbox: Boolean(mailbox) }

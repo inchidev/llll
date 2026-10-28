@@ -26,6 +26,9 @@ export function mcpFixture() {
     INSERT INTO server(id,name,owner_id) VALUES('${ids.server}','Fixture','${ids.owner}');
     INSERT INTO agents(user_id,created_by,harness,model) VALUES('${ids.agent}','${ids.owner}','pi','');
     INSERT INTO channels(id,name,type,visibility) VALUES('public-chat','Research','text','server');`)
+  db.exec(`DELETE FROM role_policies WHERE role_id='${ids.memberRole}';
+    INSERT INTO project_policies(id,name,permissions_bitmask) VALUES ('fixture-member','Fixture member',${grant | Permission.useAgents}), ('fixture-agent','Fixture agent',${grant});
+    INSERT INTO role_policies(role_id,policy_id) VALUES ('${ids.memberRole}','fixture-member'), ('${ids.agentRole}','fixture-agent');`)
   const env = { DB: d1(db), AUTH_SECRET: 'synthetic-mcp-encryption-secret-longer-than-32', AI: {}, AGENT_MODEL: '@cf/test', FILES: {},
     AGENT_RUN_DO: { getByName: () => ({ wake: async () => {} }) } } as unknown as L4Env
   const actor = async (id = ids.owner) => (await loadAuthorizationContext(env, { principalId: id, credential: { kind: 'session' } }))!

@@ -1,4 +1,6 @@
 export const Permission = {
+  readMail: 1 << 29,
+  sendMail: 1 << 30,
   delegateTasks: 1 << 28,
   readProjects: 1 << 26,
   manageProjects: 1 << 27,
@@ -33,7 +35,7 @@ export const Permission = {
 export type PermissionFlag = (typeof Permission)[keyof typeof Permission]
 
 export const ALL_PERMISSIONS =
-  Permission.delegateTasks | Permission.readProjects | Permission.manageProjects | Permission.useExternalTools | Permission.proposeCode | Permission.manageServer
+  Permission.readMail | Permission.sendMail | Permission.delegateTasks | Permission.readProjects | Permission.manageProjects | Permission.useExternalTools | Permission.proposeCode | Permission.manageServer
   | Permission.manageChannels
   | Permission.manageRoles
   | Permission.invite
@@ -54,6 +56,8 @@ export const MemberPermissions =
   Permission.sendMessages | Permission.attachFiles | Permission.startLive
 
 export const PermissionGrants = [
+  { key: 'readMail', flag: Permission.readMail, label: 'Read email', description: 'Read email in mailboxes shared with this member.' },
+  { key: 'sendMail', flag: Permission.sendMail, label: 'Send email', description: 'Send email from mailboxes shared with this member.' },
   { key: 'delegateTasks', flag: Permission.delegateTasks, label: 'Delegate project tasks', description: 'Start tasks assigned to other agents in the same project, within the initiating person’s scope and shared run budget.' },
   { key: 'readProjects', flag: Permission.readProjects, label: 'Read projects', description: 'View authorized projects and their repository references. Does not grant Git credentials or repository operations.' },
   { key: 'manageProjects', flag: Permission.manageProjects, label: 'Manage projects', description: 'Create and configure authorized projects and repository references. Does not grant merge, release or computer execution.' },
@@ -96,6 +100,7 @@ export function permissionBitmask(enabled: Iterable<PermissionGrantKey>): number
 
 export function hasPermission(bitmask: number, flag: PermissionFlag): boolean {
   if ((bitmask & flag) === flag) return true
+  if (flag === Permission.readMail) return (bitmask & Permission.sendMail) !== 0
   if (flag === Permission.readProjects) return (bitmask & Permission.manageProjects) !== 0
   if (flag === Permission.readTasks || flag === Permission.writeTasks) return (bitmask & Permission.manageTasks) !== 0
   if (flag === Permission.readData || flag === Permission.writeData) return (bitmask & Permission.manageDatabases) !== 0

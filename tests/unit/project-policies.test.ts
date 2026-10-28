@@ -22,9 +22,9 @@ const assign = async (memberId: string, projectId: string, policy = 'developer')
 const task = async (projectId: string | null) => createTask(f.env, await f.actor(), 'shared-board', { projectId, title: 'Work', description: 'Private body', priority: 'normal', dueAt: null, assigneeId: null, channelId: null, labelIds: [], dependencyIds: [] }, () => {})
 
 it('seeds reusable policies without assigning or expanding anyone’s existing role', async () => {
-  const policies = await listProjectPolicies(f.env)
-  expect(policies.map(p => p.name)).toEqual(['Coordinator', 'Developer', 'Reviewer', 'Task coordinator'])
-  expect(policies.every(p => (p.permissions & ~ProjectPolicyPermissions) === 0)).toBe(true)
+  const policies = (await listProjectPolicies(f.env)).filter(p => !p.id.startsWith('fixture-'))
+  expect(policies.map(p => p.name)).toEqual(['Coordinator', 'Developer', 'Reviewer', 'Server administrator', 'Server member', 'Server owner', 'Task coordinator'])
+  expect(policies.filter(p => p.id.startsWith('project-policy-')).every(p => (p.permissions & ~ProjectPolicyPermissions) === 0)).toBe(true)
   expect(f.db.prepare('SELECT count(*) AS n FROM project_policy_assignments').get()!.n).toBe(0)
   expect((await f.actor(ids.member)).principal.permissions).toBe(MemberPermissions)
 })
@@ -77,7 +77,8 @@ it('supports role assignments and direct assignments without changing the Server
 })
 it('denies self-assignment and cannot smuggle Server administration into a project policy', async () => {
   await expect(assignProjectPolicy(f.env,await f.actor(ids.member),a,{policyId:'project-policy-developer',memberId:ids.member})).rejects.toMatchObject({statusCode:403})
-  await expect(saveProjectPolicy(f.env,await f.actor(),{name:'Escalation',permissions:Permission.manageServer})).rejects.toThrow()
+  const serverPolicy = await saveProjectPolicy(f.env,await f.actor(),{name:'Server access',permissions:Permission.manageServer})
+  await expect(assignProjectPolicy(f.env,await f.actor(),a,{policyId:serverPolicy.id,memberId:ids.member})).rejects.toMatchObject({statusCode:400})
   await expect(saveProjectPolicy(f.env,await f.actor(),{name:'Overflow',permissions:2 ** 32 + Permission.readProjects})).rejects.toThrow()
 })
 it('revokes fresh access immediately and versions changes to reusable policies', async () => {
@@ -87,6 +88,23 @@ it('revokes fresh access immediately and versions changes to reusable policies',
   const current=(await listProjectPolicies(f.env)).find(p=>p.id==='project-policy-reviewer')!
   expect(await saveProjectPolicy(f.env,await f.actor(),{name:current.name,description:'Updated',permissions:current.permissions,version:current.version},current.id)).toMatchObject({version:current.version+1})
   await expect(saveProjectPolicy(f.env,await f.actor(),{name:current.name,description:'Stale',permissions:current.permissions,version:current.version},current.id)).rejects.toMatchObject({statusCode:409})
+})
+it('derives a role’s permissions from its policies and removes them on revocation', async () => {
+  f.db.prepare('DELETE FROM role_policies WHERE role_id=?').run(ids.agentRole)
+  const policy = await saveProjectPolicy(f.env, await f.actor(), { name: 'Data reader', permissions: Permission.readData })
+  const second = await saveProjectPolicy(f.env, await f.actor(), { name: 'Task reader', permissions: Permission.readTasks })
+  f.db.prepare('INSERT INTO role_policies(role_id,policy_id) VALUES (?,?)').run(ids.agentRole, policy.id)
+  f.db.prepare('INSERT INTO role_policies(role_id,policy_id) VALUES (?,?)').run(ids.agentRole, second.id)
+  let auth = await f.actor(ids.agent)
+  expect(auth.principal.permissions & (Permission.readData | Permission.readTasks)).toBe(Permission.readData | Permission.readTasks)
+  await saveProjectPolicy(f.env, await f.actor(), { name: policy.name, description: '', permissions: Permission.writeData, version: policy.version }, policy.id)
+  auth = await f.actor(ids.agent)
+  expect(auth.principal.permissions & Permission.readData).toBe(0)
+  expect(auth.principal.permissions & Permission.writeData).toBe(Permission.writeData)
+  f.db.prepare('DELETE FROM role_policies WHERE role_id=? AND policy_id=?').run(ids.agentRole, second.id)
+  expect((await f.actor(ids.agent)).principal.permissions & Permission.readTasks).toBe(0)
+  f.db.prepare('DELETE FROM project_policies WHERE id=?').run(policy.id)
+  expect((await f.actor(ids.agent)).principal.permissions & Permission.writeData).toBe(0)
 })
 it('bounds an Agent Run to its project and original grants, then stops it after access is revoked', async () => {
   const assigned = await assign(ids.agent,a)

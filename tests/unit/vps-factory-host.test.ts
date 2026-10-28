@@ -45,7 +45,7 @@ sed -n "s/^LLLL_BIND='\\(.*\\)'/\\1/p" "$stage/.env"
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
-it('creates a missing lock directory and names the failure when it cannot', () => {
+it.skipIf(process.platform !== 'linux')('creates a missing lock directory and names the failure when it cannot', () => {
   const directory = mkdtempSync(join(tmpdir(), 'llll-lock-'))
   const locks = join(directory, 'locks')
   const blocked = join(directory, 'not-a-directory')

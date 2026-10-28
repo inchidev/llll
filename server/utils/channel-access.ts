@@ -143,12 +143,13 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
   const mailbox = mailboxes[0]
   if (mailbox) {
     if (!mailbox.enabled) fail(404, 'not_found', 'Channel not found')
+    if (!baseMember.isOwner && !hasPermission(baseMember.perms, Permission.readMail)) fail(404, 'not_found', 'Channel not found')
     const grant = grants[0]
     if (!grant) fail(404, 'not_found', 'Channel not found')
     if (flag === Permission.manageChannels) fail(403, 'forbidden', 'Manage mailboxes in email settings')
     if (flag === Permission.startLive) fail(403, 'forbidden', 'Live sessions are unavailable for mailboxes')
     const mutationWithoutFlag = !['GET', 'HEAD'].includes(method) && flag === undefined
-    if ((mutationWithoutFlag || flag === Permission.sendMessages || flag === Permission.attachFiles) && !mailPermissionAllows(grant.permission, 'send')) {
+    if ((mutationWithoutFlag || flag === Permission.sendMessages || flag === Permission.attachFiles) && (!mailPermissionAllows(grant.permission, 'send') || (!baseMember.isOwner && !hasPermission(baseMember.perms, Permission.sendMail)))) {
       fail(403, 'forbidden', 'Mailbox is read only')
     }
   }
@@ -196,6 +197,9 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
       eq(channelRoleOverrides.roleId, baseMember.roleId),
     )).limit(1))[0]
     perms = resolveChannelPermissions(perms, override)
+  }
+  if (mailbox && mailPermissionAllows(grants[0]!.permission, 'send') && (baseMember.isOwner || hasPermission(baseMember.perms, Permission.sendMail))) {
+    perms |= Permission.sendMessages | Permission.attachFiles
   }
   if (flag !== undefined && !hasPermission(perms, flag)) {
     fail(403, 'forbidden', 'Missing permission')

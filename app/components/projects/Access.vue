@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { ProjectAssignment, ProjectPolicy } from '~~/shared/project-access'
+import { ProjectPolicyPermissions, type ProjectAssignment, type ProjectPolicy } from '~~/shared/project-access'
 import type { MemberDTO, RoleDTO } from '~~/shared/types'
 const props = defineProps<{ projectId: string }>()
 const { api } = useApi(), { serverId } = useServer(), toast = useToast(), cache = useQueryClient()
@@ -38,7 +38,7 @@ async function revoke() {
       <template #body><form class="space-y-5" @submit.prevent="save">
         <template v-if="!editing"><UFormField label="Assign to"><USelect v-model="kind" :items="[{ label: 'Person or agent', value: 'member' }, { label: 'Server role', value: 'role' }]" class="w-full" /></UFormField><UFormField :label="kind === 'member' ? 'Member' : 'Server role'"><USelectMenu v-model="target" :items="targets" value-key="value" placeholder="Choose a participant" class="w-full" /></UFormField></template>
         <p v-else class="font-medium">{{ editing.name }}</p>
-        <UFormField label="Policy"><USelect v-model="policyId" :items="(query.data.value?.policies ?? []).map(p => ({ label: p.name, value: p.id }))" placeholder="Choose permissions" class="w-full" /></UFormField>
+        <UFormField label="Policy"><USelect v-model="policyId" :items="(query.data.value?.policies ?? []).filter(p => (p.permissions & ~ProjectPolicyPermissions) === 0).map(p => ({ label: p.name, value: p.id }))" placeholder="Choose permissions" class="w-full" /></UFormField>
         <p class="text-sm text-muted">{{ query.data.value?.policies.find(p => p.id === policyId)?.description }}</p>
         <div class="flex flex-wrap justify-between gap-2"><UButton v-if="editing" label="Remove assignment" color="error" variant="ghost" :loading="busy" @click="revoke" /><span v-else /><div class="flex gap-2"><UButton label="Cancel" color="neutral" variant="outline" :disabled="busy" @click="open = false" /><UButton type="submit" label="Save access" :loading="busy" :disabled="!policyId || (!editing && !target)" /></div></div>
       </form></template>
