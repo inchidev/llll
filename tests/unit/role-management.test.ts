@@ -97,3 +97,21 @@ it('assigns reusable policies to a role and rejects permissions the manager does
   await expect(handler({ context: { cloudflare: { env, context: { waitUntil: (p: Promise<unknown>) => pending.push(p) } } } } as never)).rejects.toMatchObject({ statusCode: 403 })
   expect(db.prepare('SELECT policy_id FROM role_policies WHERE role_id=?').get('weak-role')).toMatchObject({ policy_id: 'chat-policy' })
 })
+
+it('lets only the Owner add policies to Member and Admin, keeping their built-in policy', async () => {
+  const handler = (await import('../../server/api/servers/[id]/roles/[roleId]/policies/index.put')).default
+  const put = () => handler({ context: { cloudflare: { env, context: { waitUntil: (p: Promise<unknown>) => pending.push(p) } } } } as never)
+  db.prepare('INSERT INTO project_policies(id,name,permissions_bitmask) VALUES (?,?,?)').run('agents-policy', 'Agents', Permission.useAgents)
+  state.target = 'member-role'
+  state.body = { policyIds: ['server-policy-member', 'agents-policy'] }
+  await expect(put()).rejects.toMatchObject({ statusCode: 403 })
+  state.owner = true; state.perms = ALL_PERMISSIONS; state.access = {}
+  await put()
+  const permissions = (db.prepare('SELECT permissions_bitmask AS permissions FROM roles WHERE id=?').get('member-role') as { permissions: number }).permissions
+  expect(permissions & Permission.useAgents).toBe(Permission.useAgents)
+  expect(permissions & Permission.sendMessages).toBe(Permission.sendMessages)
+  state.body = { policyIds: ['agents-policy'] }
+  await expect(put()).rejects.toMatchObject({ statusCode: 400 })
+  state.target = 'owner-role'; state.body = { policyIds: ['server-policy-owner', 'agents-policy'] }
+  await expect(put()).rejects.toMatchObject({ statusCode: 403 })
+})

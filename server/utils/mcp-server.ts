@@ -175,7 +175,7 @@ export function createL4McpServer({ env, principal, schedule }: McpServerContext
     cursor: z.string().min(1).max(100).optional(),
   }
   server.registerTool('list_channels', {
-    description: 'List accessible chat channels, DMs and threads with IDs, participants and canSend. Email mailboxes and task discussions use their own navigation and are excluded. Page with nextCursor.',
+    description: 'List accessible chat channels, DMs and threads with IDs, participants, canSend, unread state (unread, unreadCount, lastMessageAt) for the acting member. Use it to answer what needs catching up. Email mailboxes and task discussions use their own navigation and are excluded. Page with nextCursor.',
     inputSchema: { ...pageSchema, name: z.string().trim().min(1).max(100).optional() },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async (input) => result(await listMessageChannels(env, await requireMessageMember(env, principal.authorization, 'messages:read'), input)))

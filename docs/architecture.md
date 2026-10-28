@@ -55,7 +55,7 @@ Mailbox that received the email, so one email sent to two Mailboxes lands in
 both and a reply never joins another Mailbox's conversation. A reply goes to
 Reply-To of the latest received email, falling back to its sender. Reply all is an explicit choice that also includes To and Cc, excluding the Mailbox itself.
 
-Inbox lists conversations in the inbox that contain received email; a
+A Mailbox's Inbox folder lists conversations that contain received email; a
 conversation a Member starts appears there once it gets a reply. Sent lists every
 conversation with sent email, by when it was last sent, except those in Spam or
 Trash. Archive, Spam, and Trash list conversations moved there. New mail brings Archive back to Inbox but preserves Spam and Trash.

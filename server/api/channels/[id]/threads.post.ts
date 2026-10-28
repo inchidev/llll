@@ -5,7 +5,7 @@ import { newId, nowIso } from '../../../../shared/ids'
 import { messageThreadTitle, updateNewThreadTitle } from '../../../utils/thread-title'
 import { Permission } from '../../../../shared/permissions'
 import { requireChannelAccess } from '../../../utils/guards'
-import { cf, fail } from '../../../utils/cf'
+import { asRpc, cf, fail } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { parseBody } from '../../../utils/validate'
 
@@ -46,6 +46,9 @@ export default defineEventHandler(async (event) => {
     createdAt: created,
     updatedAt: created,
   }).returning())[0]!
+  // Other open clients learn about the thread chip without reloading; a lost event never fails creation.
+  waitUntil((async () => asRpc<{ fanout: (event: unknown) => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${parentId}`))
+    .fanout({ t: 'thread.created', messageId: body.messageId, threadId: row.id }))().catch(() => {}))
   if (!body.name?.trim()) waitUntil(updateNewThreadTitle(env, access.authorization, row.id, title))
   return { channel: { ...row, title }, created: true }
 })

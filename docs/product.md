@@ -26,6 +26,19 @@ Preserve existing implementations while stabilizing the community core and opera
 
 Agents have the Server's local permission boundary. Their current scope is conversation and authorized tools, not a computer, shell or repository worker. External email sending requires human approval. Mail delivery needs its own Provider configuration. Neither Mail nor Agents is required for the first community conversation.
 
+## Inbox
+
+Inbox is the first rail section and the one place to catch up. It lists only what needs the signed-in Member, each with one next step:
+
+- **Approvals:** pending review-mode workspace actions and sharing reviews from Runs they started.
+- **Mentions:** unread messages that mention them, in conversations they can still open.
+- **Agent work:** their Runs while queued or running and for three days after, with the draft pull request when one was opened.
+- **My tasks:** Tasks assigned to them, and Tasks they created that wait for review.
+- **Mail:** Mailboxes they can read with unread mail.
+- **Unread chats:** unread Channels, Direct Messages and Agent chats. A row opens the unread thread when only thread replies are new, and can be marked read without opening it.
+
+The rail badge counts approvals and mentions only, so standing work does not keep it lit. Unread mail is listed per Mailbox; individual Email Conversations stay in Mail.
+
 ## Deployment boundary
 
 The normal topology is an independent Server with an optional Shell. Site, Shell and installer deploy independently; they are not mandatory infrastructure for customer content or identity. The root Nuxt runtime is one Server; the Server owns local identity and routing. See [the architecture decision](adr/0003-server-schema-lineage.md).

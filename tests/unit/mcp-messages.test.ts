@@ -210,6 +210,15 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     expect((await listMessageChannels(env, member, { cursor: page.nextCursor! })).channels.map(x => x.id)).toEqual(['member-dm'])
   })
 
+  it('reports unread state per conversation so a client can catch up in one call', async () => {
+    sqlite.exec(`INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES ('m1','public-chat','other-user','Seen','2026-10-22T10:00:00Z'),
+      ('m2','public-chat','other-user','New','2026-10-22T11:00:00Z'),('m3','member-dm','other-user','Read','2026-10-22T12:00:00Z');
+      INSERT INTO channel_reads(channel_id,user_id,last_read_message_id,updated_at) VALUES ('public-chat','member-user','m1','2026-10-22'),('member-dm','member-user','m3','2026-10-22');`)
+    const { channels } = await listMessageChannels(env, await requireMessageMember(env, context(), 'messages:read'))
+    expect(channels.find(channel => channel.id === 'public-chat')).toMatchObject({ unread: true, unreadCount: 1, lastMessageAt: '2026-10-22T11:00:00Z' })
+    expect(channels.find(channel => channel.id === 'member-dm')).toMatchObject({ unread: false, unreadCount: 0 })
+  })
+
   it('keeps mailbox reads separate from writes even though MCP uses HTTP POST for both', async () => {
     sqlite.exec(`
       INSERT INTO channels(id,name,type,visibility) VALUES ('mailbox-chat','Inbox','text','server');

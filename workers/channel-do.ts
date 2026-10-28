@@ -7,7 +7,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { z } from 'zod'
 import type { AttachmentDTO, LiveState, MessageDTO, PublicUser, ServerMsg } from '../shared/types'
 import { extractMentionIds } from '../shared/mentions'
-import { canAccessAgentConversation, isDmType } from '../shared/dm'
+import { canAccessAgentConversation, dmFrozen, isDmType } from '../shared/dm'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission } from '../shared/permissions'
 import { liveKindFor } from '../shared/live'
 import { resolveChannelPermissions } from '../shared/channel-permissions'
@@ -947,7 +947,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
         const still = await this.env.DB.prepare(
           `SELECT id FROM users WHERE id IN (${placeholders}) AND status = 'active'`,
         ).bind(...ids).all<{ id: string }>()
-        frozen = (still.results ?? []).length !== ids.length
+        frozen = dmFrozen(ids.length, (still.results ?? []).length)
       }
       const perms = directMessagePermissions(membership.perms, membership.ownerId === userId, frozen)
       return { serverId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false }

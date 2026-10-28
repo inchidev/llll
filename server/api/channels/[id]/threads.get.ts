@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, max } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull, max } from 'drizzle-orm'
 import { channels, messages } from '../../../../drizzle/schema'
 import type { ChannelThreadDTO } from '../../../../shared/types'
 import { messageThreadTitle } from '../../../utils/thread-title'
@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
     db.select().from(messages).where(inArray(messages.id, parentMessageIds)),
     db.select({ channelId: messages.channelId, replyCount: count(messages.id), lastReplyAt: max(messages.createdAt) })
       .from(messages)
-      .where(inArray(messages.channelId, threadIds))
+      .where(and(inArray(messages.channelId, threadIds), isNull(messages.deletedAt)))
       .groupBy(messages.channelId),
   ])
   const { hydrateMessages } = await import('../../../utils/messages')

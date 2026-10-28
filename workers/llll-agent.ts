@@ -3,6 +3,7 @@ import { createAgentRun } from '../server/utils/agent-run-service'
 import { loadAuthorizationContext } from '../server/utils/authorization'
 import type { L4Env } from './env'
 import { ensureAgentReplyTarget } from './agent-replies'
+import { readableMentions } from '../server/utils/member-names'
 
 export type AgentMessageInput = {
   messageId: string
@@ -37,9 +38,19 @@ export class L4Agent extends DurableObject<L4Env> {
       const parent = this.env.CHANNEL_DO.getByName(`channel:${target.parentChannelId}`) as DurableObjectStub & { fanout: (event: unknown) => Promise<void> }
       await parent.fanout({ t: 'thread.created', messageId: target.parentMessageId, threadId: target.channelId })
     }
-    const run = await createAgentRun(this.env, actor, { agentId: this.agentId, channelId: target.channelId, prompt: input.content || 'The user attached an image. Visual input is unavailable in this runtime; explain that limitation without claiming to inspect it.',
+    const run = await createAgentRun(this.env, actor, { agentId: this.agentId, channelId: target.channelId, prompt: await this.prompt(input),
       sourceMessageId: input.messageId, idempotencyKey: input.messageId })
     return run.id
+  }
+
+  /** The model reads mentions as names, as people do; a bare mention is a ping, not an empty request. */
+  private async prompt(input: AgentMessageInput): Promise<string> {
+    if (!input.content.replace(new RegExp(`<@${this.agentId}>`, 'giu'), '').trim()) {
+      return input.hasImages
+        ? 'The user attached an image. Visual input is unavailable in this runtime; explain that limitation without claiming to inspect it.'
+        : `${input.authorName} mentioned you without any other text. Reply briefly and ask what they need.`
+    }
+    return (await readableMentions(this.env, [input.content]))[0]!
   }
 
   async controlConversation(input: {

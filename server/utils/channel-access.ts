@@ -9,6 +9,7 @@ import { resolveChannelPermissions } from '../../shared/channel-permissions'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
 import { mailPermissionAllows } from '../../shared/mail'
 import type { ChannelType, MailboxPermission, PublicUser } from '../../shared/types'
+import { dmFrozen } from '../../shared/dm'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
@@ -163,7 +164,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
       fail(404, 'not_found', 'Channel not found')
     }
     const stillIn = new Set(userRows.filter(row => row.status === 'active').map(row => row.id))
-    const frozen = parts.some((p) => !stillIn.has(p.userId))
+    const frozen = dmFrozen(parts.length, parts.filter(p => stillIn.has(p.userId)).length)
     const perms = directMessagePermissions(baseMember.perms, baseMember.isOwner, frozen)
     if (flag === Permission.startLive && frozen) fail(403, 'forbidden', 'This direct message can no longer start calls')
     if (flag !== undefined && !frozen && !hasPermission(perms, flag) && flag !== Permission.sendMessages) {

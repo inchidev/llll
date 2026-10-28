@@ -1,5 +1,5 @@
 import { dmTitle } from './dm'
-import type { ChannelDTO, PublicUser, TaskPriority, TaskStatus } from './types'
+import type { ChannelDTO, PublicUser, SidebarThreadDTO, TaskPriority, TaskStatus } from './types'
 
 export type InboxMentionDTO = { messageId: string; path: string; conversation: string; author: PublicUser; excerpt: string; createdAt: string }
 /** A decision only the initiating Member can make: a review-mode workspace action, or sharing a private result. */
@@ -34,4 +34,24 @@ export function conversationTitle(channel: ChannelDTO, userId: string): string {
 export function unreadConversations(channels: ChannelDTO[], serverId: string): ChannelDTO[] {
   return [...new Map(channels.filter(channel => channel.serverId === serverId && channel.unread).map(channel => [channel.id, channel])).values()]
     .sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt) || a.id.localeCompare(b.id))
+}
+
+/**
+ * Where an unread conversation should open. When only replies in a followed thread are new,
+ * opening the channel would leave the member hunting for them, so the row opens that thread.
+ */
+export function unreadTarget(channel: ChannelDTO, threads: readonly SidebarThreadDTO[]): { threadId?: string; summary: string } {
+  const unreadThreads = threads.filter(thread => thread.parentId === channel.id && thread.unread)
+    .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+  const replies = unreadThreads.reduce((sum, thread) => sum + thread.unreadCount, 0)
+  const messages = Math.max(0, (channel.unreadCount ?? 0) - replies)
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const latest = unreadThreads[0]
+  if (latest && !messages) {
+    const where = unreadThreads.length === 1 ? `“${latest.title}”` : count(unreadThreads.length, 'thread', 'threads')
+    return { threadId: latest.id, summary: `${count(replies, 'new reply', 'new replies')} in ${where}` }
+  }
+  if (!messages) return { summary: 'New messages' }
+  const summary = count(messages, 'new message', 'new messages')
+  return { summary: replies ? `${summary}, ${count(replies, 'reply', 'replies')} in threads` : summary }
 }

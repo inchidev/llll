@@ -17,13 +17,13 @@ const response = (from: Source) => from === 'inbox' ? inbox : from === 'mailboxe
   : { channels: [channel(from === 'dms' ? 'dm-conversation' : 'channel-conversation', from === 'dms' ? 'dm' : 'text')] }
 const settle = async () => { await flushPromises(); await new Promise(resolve => setTimeout(resolve, 20)); await flushPromises() }
 function render(api: ReturnType<typeof vi.fn>) {
-  for (const [name, value] of Object.entries({ computed, ref, toValue, definePageMeta: () => {}, useInbox, useApi: () => ({ api }), useServer: () => ({ serverId: ref('server') }), useSessionStore: () => ({ user: { id: 'me' } }), useRoute: () => ({ query: {} }), useMessagePrefetch: () => ({ intent() {}, cancel() {}, prefetch() {} }) })) vi.stubGlobal(name, value)
+  for (const [name, value] of Object.entries({ computed, ref, toValue, definePageMeta: () => {}, useInbox, useApi: () => ({ api }), useServer: () => ({ serverId: ref('server') }), useSessionStore: () => ({ user: { id: 'me' } }), useRoute: () => ({ query: {} }), useMessagePrefetch: () => ({ intent() {}, cancel() {}, prefetch() {} }), useToast: () => ({ add() {} }) })) vi.stubGlobal(name, value)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client)
   const view = mount(InboxPage, { global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: {
     LayoutPageHeader: { template: '<header><slot name="meta"/><slot name="actions"/></header>' },
     LayoutLoadError: { props: ['message', 'retry'], template: '<aside>{{ message }}<button @click="retry()">Retry failed</button></aside>' },
     LayoutSkeleton: { template: '<p>Loading inbox</p>' }, LayoutEmptyState: { props: ['title'], template: '<p>{{ title }}</p>' },
-    UButton: { props: ['label'], template: '<button>{{ label }}</button>' }, NuxtLink: { template: '<a><slot/></a>' }, UIcon: true, UBadge: true, UserAvatar: true,
+    UButton: { props: ['label'], template: '<button>{{ label }}</button>' }, NuxtLink: { template: '<a><slot/></a>' }, UIcon: true, UBadge: true, UserAvatar: true, UTooltip: { template: '<span><slot/></span>' },
   } } }); wrappers.push(view); return view
 }
 

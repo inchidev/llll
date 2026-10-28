@@ -34,6 +34,10 @@ A Channel is a conversation in one Server. A Thread is a child conversation. A D
 
 A Mailbox is a shared inbox with its own access rules and email address. An Email Conversation groups incoming mail, outgoing replies and internal notes. Both belong to one Server.
 
+## Inbox
+
+The Server rail's Inbox is one Member's queue of what is waiting on them: decisions on Runs they started (review-mode workspace actions and sharing reviews), unread mentions, their Agent work, Tasks assigned to them or waiting for their review, unread mail in Mailboxes they can read, and unread chats. A Mailbox's Inbox folder is a different thing: received email in one Mailbox. Say "Inbox" for the rail section and "the Mailbox's Inbox folder" for mail.
+
 ## Agent
 
 A non-human Member with explicit permissions. An Agent can participate in authorized conversations and use authorized tools. It is not a login Account. External email sending requires human approval.

@@ -6,6 +6,7 @@ import type { L4Env } from '../../workers/env'
 import { requireChannelAccessForMember, type ServerChannelAccess, type ServerMembership } from './channel-access'
 import { anyProjectPermission } from '../../shared/project-access'
 import { listTasks } from './task-service'
+import { readableMentions } from './member-names'
 
 const MENTION_LIMIT = 20
 const FINISHED_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
@@ -18,18 +19,6 @@ function conversationPath(access: ServerChannelAccess): string {
   if (access.mailPermission) return mailPath(root, 'inbox', thread ?? undefined)
   const section = access.accessRootType === 'dm' && access.participants.some(member => member.kind === 'agent') ? 'agents' : 'channels'
   return thread ? `/${section}/${root}/threads/${thread}` : `/${section}/${root}`
-}
-
-/** Replaces `<@id>` tokens with display names so an excerpt reads as it does in chat. */
-async function humanize(env: L4Env, texts: string[]): Promise<string[]> {
-  const ids = [...new Set(texts.flatMap(text => [...text.matchAll(/<@([0-9a-f-]{36})>/giu)].map(match => match[1]!.toLowerCase())))]
-  const names = new Map<string, string>()
-  for (let i = 0; i < ids.length; i += 50) {
-    const chunk = ids.slice(i, i + 50)
-    const rows = await env.DB.prepare(`SELECT id, COALESCE(nickname, display_name) AS name FROM users WHERE id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).all<{ id: string; name: string }>()
-    for (const row of rows.results ?? []) names.set(row.id, row.name)
-  }
-  return texts.map(text => text.replace(/<@([0-9a-f-]{36})>/giu, (token, id: string) => names.has(id.toLowerCase()) ? `@${names.get(id.toLowerCase())}` : token))
 }
 
 async function unreadMentions(env: L4Env, member: ServerMembership): Promise<InboxDTO['mentions']> {
@@ -55,7 +44,7 @@ async function unreadMentions(env: L4Env, member: ServerMembership): Promise<Inb
     if (channel) visible.push({ row, channel })
     if (visible.length === MENTION_LIMIT) break
   }
-  const excerpts = await humanize(env, visible.map(({ row }) => row.content.slice(0, 400)))
+  const excerpts = await readableMentions(env, visible.map(({ row }) => row.content.slice(0, 400)))
   return visible.map(({ row, channel }, index) => ({
     messageId: row.id,
     path: conversationPath(channel),

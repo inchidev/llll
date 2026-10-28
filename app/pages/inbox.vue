@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { channelPath, mailPath } from '~~/shared/paths'
 import { formatMessageTime } from '~~/shared/format'
-import { conversationTitle, inboxSection, isAgentChat, type InboxApprovalDTO, type InboxRunDTO, type InboxTaskDTO } from '~~/shared/inbox'
+import { conversationTitle, inboxSection, isAgentChat, unreadTarget, type InboxApprovalDTO, type InboxRunDTO, type InboxTaskDTO } from '~~/shared/inbox'
 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
 const { serverId } = useServer()
 const session = useSessionStore()
 const route = useRoute()
-const { inbox, unreadConversations, unreadMailboxes, pending, error, retryFailed, refresh } = useInbox(() => serverId.value || '')
+const { inbox, threads, unreadConversations, unreadMailboxes, pending, error, retryFailed, refresh, markRead } = useInbox(() => serverId.value || '')
+const toast = useToast()
+const marking = ref<string | null>(null)
+async function clear(ids: string[], key: string) {
+  marking.value = key
+  try { await markRead(ids) }
+  catch { toast.add({ title: 'Could not mark as read', description: 'Try again in a moment.', color: 'error' }) }
+  finally { marking.value = null }
+}
+const chats = computed(() => unreadConversations.value.map(channel => ({ channel, ...unreadTarget(channel, threads.value) })))
 const section = computed(() => inboxSection(route.query.section))
 const shows = (name: string) => section.value === 'all' || section.value === name
 const warm = useMessagePrefetch()
@@ -144,14 +153,20 @@ const emptyText: Record<string, string> = {
           </section>
 
           <section v-if="shows('chats') && counts.chats" aria-labelledby="inbox-chats">
-            <h3 id="inbox-chats" class="mb-2 text-xs font-medium text-muted">Unread chats</h3>
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <h3 id="inbox-chats" class="text-xs font-medium text-muted">Unread chats</h3>
+              <UButton label="Mark all as read" icon="i-ph-check" size="xs" color="neutral" variant="ghost" :loading="marking === 'all'" :disabled="Boolean(marking)" @click="clear(unreadConversations.map(channel => channel.id), 'all')" />
+            </div>
             <ul class="divide-y divide-default">
-              <li v-for="channel in unreadConversations" :key="channel.id">
-                <NuxtLink :to="channelPath(channel)" :title="conversationTitle(channel, session.user?.id || '')" class="flex min-h-12 items-center gap-3 rounded-md px-2 py-2.5 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" @pointerenter="warm.intent(channel.id)" @pointerleave="warm.cancel()" @focus="warm.prefetch(channel.id)">
+              <li v-for="{ channel, threadId, summary } in chats" :key="channel.id" class="group flex items-center gap-1">
+                <NuxtLink :to="channelPath(channel, threadId)" :title="conversationTitle(channel, session.user?.id || '')" class="flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" @pointerenter="warm.intent(threadId ?? channel.id)" @pointerleave="warm.cancel()" @focus="warm.prefetch(threadId ?? channel.id)">
                   <UIcon :name="chatIcon(channel)" class="size-5 shrink-0 text-muted" />
-                  <p class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ conversationTitle(channel, session.user?.id || '') }}</p>
-                  <UBadge color="neutral" variant="subtle" :label="channel.unreadCount ? `${channel.unreadCount > 99 ? '99+' : channel.unreadCount} unread` : 'Unread'" />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium text-highlighted">{{ conversationTitle(channel, session.user?.id || '') }}</p>
+                    <p class="mt-0.5 truncate text-xs text-muted">{{ summary }}</p>
+                  </div>
                 </NuxtLink>
+                <UTooltip text="Mark as read"><UButton icon="i-ph-check" :aria-label="`Mark ${conversationTitle(channel, session.user?.id || '')} as read`" size="sm" color="neutral" variant="ghost" :loading="marking === channel.id" :disabled="Boolean(marking)" @click="clear([channel.id], channel.id)" /></UTooltip>
               </li>
             </ul>
           </section>

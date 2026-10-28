@@ -14,6 +14,11 @@ export function dmTitle(name: string | null | undefined, participants: PublicUse
   return `${first.join(', ')} and ${others.length - 3} others`
 }
 
+/** Only a 1:1 ends with its other person; a group keeps talking after someone departs. */
+export function dmFrozen(participants: number, active: number): boolean {
+  return participants === 2 && active < participants
+}
+
 export function isDmType(type: string): boolean {
   return type === 'dm'
 }

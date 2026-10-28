@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationTitle, inboxAttention, inboxSection, isAgentChat, unreadConversations, type InboxDTO } from '../../shared/inbox'
+import { conversationTitle, inboxAttention, inboxSection, isAgentChat, unreadConversations, unreadTarget, type InboxDTO } from '../../shared/inbox'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
 
 const human: PublicUser = { id: 'me', kind: 'human', displayName: 'Owner', avatarR2Key: null }
@@ -43,6 +43,15 @@ describe('conversation navigation and Inbox', () => {
     expect(inboxAttention({ ...empty, runs: [{ id: 'r', status: 'running', createdAt: '', updatedAt: '', agentName: 'Jev', taskTitle: null, conversation: 'general', pullNumber: null }] })).toBe(0)
     expect(inboxAttention({ ...empty, approvals: [{ id: 'a', kind: 'workspace', runId: 'r', agentName: 'Jev', taskTitle: null, operation: 'exec', createdAt: '' }],
       mentions: [{ messageId: 'm', path: '/channels/c', conversation: 'general', author: agent, excerpt: '@Owner look', createdAt: '' }] })).toBe(2)
+  })
+
+  it('opens the newest unread thread when only thread replies are new, and says so', () => {
+    const thread = (id: string, unreadCount: number, lastMessageAt: string, parentId = 'channel') => ({ id, parentId, title: id, lastMessageAt, opened: true, unread: unreadCount > 0, unreadCount })
+    expect(unreadTarget(conversation('channel', { unreadCount: 3 }), [thread('plan', 3, '2026-10-22')])).toEqual({ threadId: 'plan', summary: '3 new replies in “plan”' })
+    expect(unreadTarget(conversation('channel', { unreadCount: 3 }), [thread('old', 1, '2026-10-21'), thread('new', 2, '2026-10-22'), thread('other', 5, '2026-10-23', 'elsewhere')]))
+      .toEqual({ threadId: 'new', summary: '3 new replies in 2 threads' })
+    expect(unreadTarget(conversation('channel', { unreadCount: 4 }), [thread('plan', 1, '2026-10-22')])).toEqual({ summary: '3 new messages, 1 reply in threads' })
+    expect(unreadTarget(conversation('channel', { unreadCount: 1 }), [])).toEqual({ summary: '1 new message' })
   })
 
   it('uses the DM title and identifies the other participant', () => {

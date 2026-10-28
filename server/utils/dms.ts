@@ -1,7 +1,7 @@
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
 import { channels, channelMembers, users } from '../../drizzle/schema'
-import { dmTitle } from '../../shared/dm'
+import { dmFrozen, dmTitle } from '../../shared/dm'
 import { newId, nowIso } from '../../shared/ids'
 import type { ChannelDTO, PublicUser } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
@@ -19,11 +19,12 @@ export async function loadParticipants(env: L4Env, channelId: string): Promise<P
   return rows.map(toPublicUser)
 }
 
-export async function dmFrozen(env: L4Env, participantIds: string[]): Promise<boolean> {
+export async function participantsFrozen(env: L4Env, participantIds: string[]): Promise<boolean> {
+  if (participantIds.length !== 2) return false
   const db = getDb(env.DB)
   const rows = await db.select({ userId: users.id }).from(users)
     .where(and(inArray(users.id, participantIds), eq(users.status, 'active')))
-  return rows.length !== participantIds.length
+  return dmFrozen(participantIds.length, rows.length)
 }
 
 export async function toDmDto(
@@ -37,7 +38,7 @@ export async function toDmDto(
   const agent = participants.length === 2 ? participants.find(p => p.kind === 'agent') : null
   const snippet = agent ? await env.DB.prepare(`SELECT m.content FROM messages m WHERE m.author_id=? AND m.deleted_at IS NULL AND (m.channel_id=? OR m.channel_id IN (SELECT id FROM channels WHERE parent_id=?)) ORDER BY m.id DESC LIMIT 1`).bind(agent.id, ch.id, ch.id).first<{ content: string }>() : null
   const working = agent ? await env.DB.prepare("SELECT id FROM agent_runs WHERE agent_id=? AND (channel_id=? OR channel_id IN (SELECT id FROM channels WHERE parent_id=?)) AND status='running' LIMIT 1").bind(agent.id, ch.id, ch.id).first() : null
-  const frozen = await dmFrozen(env, participants.map((p) => p.id))
+  const frozen = await participantsFrozen(env, participants.map((p) => p.id))
   let live: ChannelDTO['live'] = null
   if (ch.liveMeetingId) {
     try {

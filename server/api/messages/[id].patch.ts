@@ -5,7 +5,7 @@ import { extractMentionIds } from '../../../shared/mentions'
 import { nowIso } from '../../../shared/ids'
 import { Permission } from '../../../shared/permissions'
 import { requireChannelMember } from '../../utils/guards'
-import { cf, fail } from '../../utils/cf'
+import { asRpc, cf, fail } from '../../utils/cf'
 import { getDb } from '../../utils/db'
 import { hydrateMessages } from '../../utils/messages'
 import { parseBody } from '../../utils/validate'
@@ -42,10 +42,11 @@ export default defineEventHandler(async (event) => {
     ).bind(id, userId)),
   ])
   const updated = (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
-  const [dto] = await hydrateMessages(env, [updated])
+  const [dto] = await hydrateMessages(env, [updated], member.user.id)
   try {
     const stub = asRpc<{ fanout: (msg: unknown) => Promise<void> }>(env.CHANNEL_DO.getByName(`channel:${row.channelId}`))
-    await stub.fanout({ t: 'message.update', message: dto })
+    // The broadcast copy carries no viewer; each client keeps its own reaction highlight.
+    await stub.fanout({ t: 'message.update', message: { ...dto!, reactions: dto!.reactions.map(reaction => ({ ...reaction, me: false })) } })
   }
   catch { /* ignore */ }
   return { message: dto }

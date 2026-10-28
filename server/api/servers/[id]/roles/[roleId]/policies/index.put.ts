@@ -18,9 +18,12 @@ export default defineEventHandler(async (event) => {
   const { env, waitUntil } = cf(event)
   const role = (await getDb(env.DB).select().from(roles).where(eq(roles.id, roleId)).limit(1))[0]
   if (!role) fail(404, 'not_found', 'Role not found')
-  if (role.isSystem) fail(403, 'forbidden', 'System roles cannot be changed')
+  // The Owner may extend Admin and Member with more policies, e.g. Use agents for everyone.
+  // Their built-in policy always stays, and the Owner role is never edited.
+  if (role.isSystem && (role.key === 'owner' || !actor.isOwner)) fail(403, 'forbidden', 'Only the Server Owner can add policies to Admin and Member')
   assertRoleManageable(actor, role)
   const { policyIds } = parseBody(schema, await readBody(event))
+  if (role.isSystem && !policyIds.includes(`server-policy-${role.key}`)) fail(400, 'system_policy_required', 'A system role keeps its built-in policy')
   if (new Set(policyIds).size !== policyIds.length) fail(400, 'duplicate_policy', 'Duplicate policy')
   const policies = await Promise.all(policyIds.map(id => env.DB.prepare('SELECT permissions_bitmask AS permissions FROM project_policies WHERE id=?').bind(id).first<{ permissions: number }>()))
   if (policies.some(policy => !policy)) fail(404, 'not_found', 'Policy not found')

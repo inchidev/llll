@@ -15,6 +15,7 @@ import type { ServerMembership as Membership } from './channel-access'
 import { messageNotificationStatement, signalNotificationOutbox } from '../../workers/notifications'
 import { signalChannelActivity, signalChannelRead } from '../../workers/channel-activity'
 import { signalAgentsForMessage } from '../../workers/agent-ingress'
+import { channelLastMessageTimes, channelUnreadCounts } from '../../workers/unread'
 import { removeMessageData } from '../../shared/file-cleanup'
 
 export type RateRule = { key: string; limit: number; windowMs: number }
@@ -126,7 +127,16 @@ export async function listMessageChannels(env: L4Env, member: Membership, input:
       throw error
     }
   }))
-  return { channels: channels.filter(channel => channel !== null), nextCursor: (rows.results?.length ?? 0) > limit ? page.at(-1)?.id ?? null : null }
+  const visible = channels.filter(channel => channel !== null)
+  // The same counts as the Inbox: threads count only once the member has opened them.
+  const [unread, lastMessages] = await Promise.all([
+    channelUnreadCounts(env.DB, member.user.id, visible.map(channel => channel.id)),
+    channelLastMessageTimes(env.DB, visible.map(channel => channel.id)),
+  ])
+  return {
+    channels: visible.map(channel => ({ ...channel, unread: (unread.get(channel.id) ?? 0) > 0, unreadCount: unread.get(channel.id) ?? 0, lastMessageAt: lastMessages.get(channel.id) ?? null })),
+    nextCursor: (rows.results?.length ?? 0) > limit ? page.at(-1)?.id ?? null : null,
+  }
 }
 
 export async function listMessageMembers(env: L4Env, member: Membership, input: { limit?: number; cursor?: string; name?: string; kind?: 'human' | 'agent' } = {}) {

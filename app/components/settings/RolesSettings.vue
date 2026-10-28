@@ -36,6 +36,9 @@ const tab = ref<Tab>('permissions')
 const selectedRole = computed(() => roles.value.find(role => role.id === selectedRoleId.value) ?? null)
 watch(selectedRole, role => emit('list-visible', !role), { immediate: true })
 const readOnly = computed(() => !selectedRole.value || selectedRole.value.isSystem || !canManage.value)
+// The Owner can add policies to Admin and Member; their name and built-in policy stay fixed.
+const policiesReadOnly = computed(() => !selectedRole.value || !canManage.value || (selectedRole.value.isSystem && (selectedRole.value.key === 'owner' || !isOwner.value)))
+const lockedPolicy = computed(() => selectedRole.value?.isSystem ? `server-policy-${selectedRole.value.key}` : null)
 
 const tabs = computed(() => [
   { value: 'display' as const, label: 'Display' },
@@ -269,7 +272,7 @@ watch(addMemberId, async (userId) => {
         </template>
       </SettingsHeader>
       <p v-if="selectedRole.isSystem" class="mt-1 text-sm text-muted">
-        System roles are built in. Their name and permissions are fixed, but you can change who has them.
+        {{ selectedRole.key === 'owner' ? 'The Owner role is built in and has every permission. You can change who has it.' : isOwner ? 'System roles are built in. Their name and built-in policy are fixed; you can add policies, for example to let every member use agents.' : 'System roles are built in. Only the Server Owner can add policies to them.' }}
       </p>
 
       <UButton v-if="!readOnly" class="mt-3" label="Save changes" :loading="saving" :disabled="!dirty || !roleName.trim()" @click="saveRole" />
@@ -292,10 +295,10 @@ watch(addMemberId, async (userId) => {
         <div class="divide-y divide-default overflow-hidden rounded-lg border border-default">
           <label v-for="policy in policiesQ.data.value?.policies ?? []" :key="policy.id" class="flex items-center justify-between gap-4 px-4 py-3">
             <span class="min-w-0"><span class="block text-sm font-medium">{{ policy.name }}</span><span class="block text-xs text-muted">{{ policy.description }}</span></span>
-            <UCheckbox :model-value="rolePolicyIds.includes(policy.id)" :disabled="readOnly || policySaving" :aria-label="policy.name" @update:model-value="togglePolicy(policy.id, Boolean($event))" />
+            <UCheckbox :model-value="rolePolicyIds.includes(policy.id)" :disabled="policiesReadOnly || policySaving || policy.id === lockedPolicy" :aria-label="policy.name" @update:model-value="togglePolicy(policy.id, Boolean($event))" />
           </label>
         </div>
-        <UButton v-if="!readOnly" label="Save policies" :loading="policySaving" :disabled="!policiesDirty" @click="savePolicies" />
+        <UButton v-if="!policiesReadOnly" label="Save policies" :loading="policySaving" :disabled="!policiesDirty" @click="savePolicies" />
       </div>
 
       <div v-else class="mt-6">
