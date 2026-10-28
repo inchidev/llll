@@ -78,6 +78,7 @@ function inline(src: string): string {
     /&lt;@&amp;([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})&gt;/gi,
     (_m, id: string) => hold(`<span class="mention" data-role-id="${id}">@Role</span>`),
   )
+  out = out.replace(/&lt;!(channel|here)&gt;/gi, (_m, group: string) => hold(`<span class="mention" data-group="${group.toLowerCase()}">@${group.toLowerCase()}</span>`))
 
   out = out.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">$1</span>')
   out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')

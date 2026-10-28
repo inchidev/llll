@@ -1,6 +1,11 @@
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const MENTION_RE = new RegExp(`<@(${UUID})>`, 'gi')
 const ROLE_MENTION_RE = new RegExp(`<@&(${UUID})>`, 'gi')
+const GROUP_MENTION_RE = /<!(channel|here)>/gi
+
+/** `@channel` reaches everyone who can read a conversation, `@here` only those of them online. */
+export type GroupMention = 'channel' | 'here'
+export const GROUP_MENTIONS: readonly GroupMention[] = ['channel', 'here']
 
 type Mentionable = { id: string; displayName: string; nickname?: string | null }
 /** A Role the author may mention, under the name people see. */
@@ -22,6 +27,25 @@ export function extractMentionIds(content: string): string[] {
 /** Role mention tokens, `<@&roleId>`. */
 export function extractRoleMentionIds(content: string): string[] {
   return tokenIds(content, ROLE_MENTION_RE)
+}
+
+/** Group mention tokens, `<!channel>` and `<!here>`. */
+export function extractGroupMentions(content: string): GroupMention[] {
+  return GROUP_MENTIONS.filter(group => tokenIds(content, GROUP_MENTION_RE).includes(group))
+}
+
+/** A group mention is recorded in place of a Role ID, under a marker no Role ID can take. */
+export function groupMentionMarker(group: GroupMention): string {
+  return `!${group}`
+}
+
+export function isGroupMentionMarker(roleId: string): boolean {
+  return roleId.startsWith('!')
+}
+
+/** Group mention tokens someone may not use are kept as the text they typed. */
+export function plainGroupMentions(content: string): string {
+  return content.replace(GROUP_MENTION_RE, (_full, group: string) => `@${group.toLowerCase()}`)
 }
 
 /** The built-in Roles are stored lowercase but shown capitalized. */
@@ -54,8 +78,9 @@ function escapeRegExp(value: string): string {
  * never stops at a member called `Ada`. A name two members share stays plain text:
  * guessing could address an Agent that copied a person's name. Roles become
  * `<@&id>` under the same rule, so a name a Role shares with a Member or another Role stays text too.
+ * With `groups`, `@channel` and `@here` become `<!channel>` and `<!here>`, unless a Member or Role uses that name.
  */
-export function applyMentionTokens(content: string, members: Mentionable[], roles: MentionRole[] = []): string {
+export function applyMentionTokens(content: string, members: Mentionable[], roles: MentionRole[] = [], groups = false): string {
   const byName = new Map<string, string | null>()
   const add = (names: Array<string | null | undefined>, token: string) => {
     for (const name of new Set(names.map(value => value?.trim().toLowerCase()))) {
@@ -65,6 +90,7 @@ export function applyMentionTokens(content: string, members: Mentionable[], role
   }
   for (const member of members) add([member.displayName, member.nickname], `<@${member.id}>`)
   for (const role of roles) add([role.name], `<@&${role.id}>`)
+  if (groups) for (const group of GROUP_MENTIONS) add([group], `<!${group}>`)
   for (const [name, token] of byName) if (!token) byName.delete(name)
   if (!byName.size) return content
   const names = [...byName.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp)
@@ -77,16 +103,16 @@ export function applyMentionTokens(content: string, members: Mentionable[], role
 
 /**
  * The reverse of applyMentionTokens, for putting a sent message back into an editor.
- * Member names are keyed by ID and Role names by `&` and the ID.
+ * Member names are keyed by ID and Role names by `&` and the ID; group mentions read as `@channel` and `@here`.
  */
 export function humanizeMentions(content: string, names: Record<string, string>): string {
   const named = (full: string, key: string) => {
     const name = names[key.toLowerCase()] ?? names[key]
     return name ? `@${name}` : full
   }
-  return content
+  return plainGroupMentions(content
     .replace(ROLE_MENTION_RE, (full, id: string) => named(full, `&${id}`))
-    .replace(MENTION_RE, (full, id: string) => named(full, id))
+    .replace(MENTION_RE, (full, id: string) => named(full, id)))
 }
 
 /** The `@query` being typed at the caret, if any, for mention autocomplete. */

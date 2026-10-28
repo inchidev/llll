@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from '../../shared/markdown'
-import { activeTrigger, extractMentionIds, extractRoleMentionIds, applyMentionTokens, humanizeMentions, mentionRoles } from '../../shared/mentions'
+import { activeTrigger, extractGroupMentions, extractMentionIds, extractRoleMentionIds, applyMentionTokens, humanizeMentions, mentionRoles, plainGroupMentions } from '../../shared/mentions'
 
 describe('markdown', () => {
   it('escapes html', () => {
@@ -93,6 +93,20 @@ describe('mentions', () => {
     expect(humanizeMentions(`<@&${role}> and <@${member}>`, names)).toBe('@Design <team> and @Ada')
     expect(renderMarkdown(`hi <@&${role}>`, names)).toContain(`<span class="mention" data-role-id="${role}">@Design &lt;team&gt;</span>`)
     expect(renderMarkdown(`hi <@&${role}>`)).toContain(`<span class="mention" data-role-id="${role}">@Role</span>`)
+  })
+
+  it('tokenizes, reads and renders @channel and @here only for someone who may use them', () => {
+    const members = [{ id: '01900000-0000-7000-8000-000000000001', displayName: 'Ada' }]
+    expect(applyMentionTokens('@channel standup, @here too', members)).toBe('@channel standup, @here too')
+    expect(applyMentionTokens('@channel standup, @here too', members, [], true)).toBe('<!channel> standup, <!here> too')
+    // A Member called "here" makes the name ambiguous, so it stays text.
+    expect(applyMentionTokens('@here', [...members, { id: '01900000-0000-7000-8000-000000000002', displayName: 'here' }], [], true)).toBe('@here')
+    expect(extractGroupMentions('<!here> and <!CHANNEL> and <!here>')).toEqual(['channel', 'here'])
+    expect(extractGroupMentions('<!everyone> @channel')).toEqual([])
+    expect(plainGroupMentions('<!channel> deploy <!here>')).toBe('@channel deploy @here')
+    expect(humanizeMentions('<!channel> and <!here>', {})).toBe('@channel and @here')
+    expect(renderMarkdown('hi <!channel> and <!here>')).toContain('<span class="mention" data-group="channel">@channel</span> and <span class="mention" data-group="here">@here</span>')
+    expect(renderMarkdown('`<!channel>`')).not.toContain('class="mention"')
   })
 
   it('finds the mention or emoji being typed at the caret', () => {
