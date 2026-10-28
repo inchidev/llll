@@ -2,7 +2,7 @@
 # The build stage is the only place Node runs. celld executes the Worker.
 
 ARG NODE_VERSION=24.21.0
-ARG CELLD_VERSION=0.6.2
+ARG CELLD_VERSION=0.6.3
 
 FROM node:${NODE_VERSION}-bookworm-slim AS build
 

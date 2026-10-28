@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest'
 const read = (path: string) => readFileSync(path, 'utf8')
 
 describe('self-host docker stack', () => {
-  it('builds L4 with a 6144 MiB heap and runs celld 0.6.2', () => {
+  it('builds L4 with a 6144 MiB heap and runs celld 0.6.3', () => {
     const dockerfile = read('self-host/Dockerfile')
     expect(dockerfile).toContain('NODE_OPTIONS=--max-old-space-size=6144')
-    expect(dockerfile).toContain('ARG CELLD_VERSION=0.6.2')
+    expect(dockerfile).toContain('ARG CELLD_VERSION=0.6.3')
     expect(dockerfile).toContain('ghcr.io/denoland/celld:${CELLD_VERSION}')
     expect(dockerfile).toContain('self-host/entrypoint.sh')
     expect(dockerfile).toContain('self-host/healthcheck.sh')

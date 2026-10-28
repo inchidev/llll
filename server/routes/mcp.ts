@@ -1,8 +1,7 @@
-import { createMcpHandler } from 'agents/mcp/server'
 import { toWebRequest } from 'h3'
 import { cf } from '../utils/cf'
 import { authenticateMcpRequest } from '../utils/mcp-access'
-import { createL4McpServer } from '../utils/mcp-server'
+import { serveMcpRequest } from '../utils/mcp-server'
 import { mcpOrigin } from '../utils/mcp-consent'
 
 export default defineEventHandler(async (event) => {
@@ -21,15 +20,5 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const hostname = new URL(request.url).hostname
-  const handler = createMcpHandler(
-    () => createL4McpServer({ env, principal, schedule: waitUntil }),
-    {
-      route: '/mcp',
-      corsOptions: false,
-      allowedHostnames: [hostname],
-      allowedOriginHostnames: [hostname],
-    },
-  )
-  return handler.fetch(request)
+  return serveMcpRequest(request, { env, principal, schedule: waitUntil })
 })

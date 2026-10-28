@@ -1,10 +1,9 @@
-import { createMcpHandler } from 'agents/mcp/server'
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { version as packageVersion } from '../../package.json'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { INIT_SQL } from '../../server/utils/db'
-import { createL4McpServer } from '../../server/utils/mcp-server'
+import { serveMcpRequest } from '../../server/utils/mcp-server'
 import type { L4Env } from '../../workers/env'
 import type { McpPrincipal } from '../../server/utils/mcp-principal'
 
@@ -60,11 +59,7 @@ function ownerPrincipal(): McpPrincipal {
 }
 
 function createHandler(principal = ownerPrincipal()) {
-  return createMcpHandler(() => createL4McpServer({
-    env: { DB: d1(sqlite) } as L4Env,
-    principal,
-    schedule: () => {},
-  }), { allowedHostnames: ['localhost'], allowedOriginHostnames: ['localhost'] })
+  return { fetch: (request: Request) => serveMcpRequest(request, { env: { DB: d1(sqlite) } as L4Env, principal, schedule: () => {} }) }
 }
 
 async function call(handler: ReturnType<typeof createHandler>, message: Record<string, unknown>) {
@@ -86,6 +81,17 @@ async function call(handler: ReturnType<typeof createHandler>, message: Record<s
 }
 
 describe('L4 MCP server', () => {
+  it('refuses requests from another site or a rebound host', async () => {
+    const request = (headers: Record<string, string>) => createHandler().fetch(new Request('https://localhost/mcp', {
+      method: 'POST',
+      headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    }))
+    expect((await request({ Host: 'localhost', Origin: 'https://evil.example' })).status).toBe(403)
+    expect((await request({ Host: 'evil.example' })).status).toBe(403)
+    expect((await request({ Host: 'localhost', Origin: 'https://localhost' })).status).toBe(200)
+  })
+
   it('reports the package version during MCP initialization', async () => {
     const { payload } = await call(createHandler(), {
       jsonrpc: '2.0',

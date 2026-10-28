@@ -220,7 +220,6 @@
     "@tiptap/vue-3": "^3.31.0",
     "@vueuse/core": "^14.4.0",
     "@vueuse/nuxt": "^14.4.0",
-    "agents": "0.30.1",
     "ai": "7.0.92",
     "aws4fetch": "1.0.20",
     "better-auth": "^1.7.12",

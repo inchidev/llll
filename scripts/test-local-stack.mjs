@@ -34,7 +34,7 @@ const compose = ['--context', config.LLLL_DOCKER_CONTEXT, 'compose', '--project-
 const env = { ...process.env, ...fixture, LLLL_ENV_FILE: envFile }
 // Use the already built dev runtime image, without rebuilding another image.
 const imageOverride = resolve(directory, `${project}.yml`)
-await writeFile(imageOverride, `services:\n  llll:\n    image: ${config.LLLL_PROJECT}-dev:celld-0.6.2\n`, { mode: 0o600 })
+await writeFile(imageOverride, `services:\n  llll:\n    image: ${config.LLLL_PROJECT}-dev:celld-0.6.3\n`, { mode: 0o600 })
 compose.push('-f', imageOverride)
 function docker(args, capture = false) {
   const result = spawnSync('docker', [...compose, ...args], { cwd: root, env, stdio: capture ? 'pipe' : 'inherit', encoding: 'utf8' })

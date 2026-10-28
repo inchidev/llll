@@ -1,6 +1,6 @@
 # Self-host on celld
 
-L4 runs as one Nuxt Worker. On Cloudflare that Worker uses Workers AI, Browser Rendering, Email Routing, and RealtimeKit when you bind them. [celld](https://celld.dev) (and other Workers runtimes with D1, KV, R2, and Durable Objects) can run the same build. This page is the celld path. It was exercised on celld 0.6.2 with [RustFS](https://github.com/rustfs/rustfs) as the S3 bucket.
+L4 runs as one Nuxt Worker. On Cloudflare that Worker uses Workers AI, Browser Rendering, Email Routing, and RealtimeKit when you bind them. [celld](https://celld.dev) (and other Workers runtimes with D1, KV, R2, and Durable Objects) can run the same build. This page is the celld path. It was exercised on celld 0.6.3 with [RustFS](https://github.com/rustfs/rustfs) as the S3 bucket.
 
 For one machine, [self-host/README.md](../../self-host/README.md) runs that node under the shared Docker Compose, using a verified loaded image or the explicit source-build override. `pnpm dev:stack` provides [local development](../local-development.md) with Client HMR. The rest of this page is the same deployment without Docker.
 
@@ -55,7 +55,7 @@ Server file objects land under `r2/<bucket_name>/` inside that same bucket. Depl
 
 ## Build and deploy
 
-Install celld 0.6.2 or newer from <https://celld.dev>, then from this repository:
+Install celld 0.6.3 or newer from <https://celld.dev>, then from this repository:
 
 ```bash
 pnpm install
@@ -70,7 +70,7 @@ Edit `wrangler.celld.json`:
 
 `AUTH_SECRET` and `SETUP_TOKEN` in that file are the placeholders `invalid`. Both are shorter than 32 characters, so they do not pass validation: owner setup ignores the token, and session signing rejects the secret. Leave those placeholders in the tracked `wrangler.celld.json`. Each real value must be a random string of at least 32 characters.
 
-celld 0.6.2 has no secrets store. Setting `CELLD_VARS_FILE` or any `CELLD_VAR_*` variable makes the process exit:
+celld 0.6.3 has no secrets store. Setting `CELLD_VARS_FILE` or any `CELLD_VAR_*` variable makes the process exit:
 
 ```text
 CELLD_VARS_FILE is removed; set `vars` in the Wrangler config, or `.dev.vars` for `celld dev`

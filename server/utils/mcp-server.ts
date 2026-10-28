@@ -1,5 +1,5 @@
 import { listAuthorizedTables } from './table-catalog'
-import { McpServer } from '@modelcontextprotocol/server'
+import { McpServer, createMcpHandler, hostHeaderValidationResponse, originValidationResponse } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
 import type { L4Env } from '../../workers/env'
@@ -24,6 +24,17 @@ const dueAtSchema = z.string().refine(value => !Number.isNaN(Date.parse(value)),
 const prioritySchema = z.enum(['low', 'normal', 'high', 'urgent'])
 const statusSchema = z.enum(['backlog', 'ready', 'review', 'done', 'failed'])
 const taskReferenceSchema = z.union([z.string().trim().min(1), z.number().int().positive()])
+
+/**
+ * Serves one stateless MCP HTTP request. Only this Server's own hostname may appear in
+ * Host and Origin, which keeps DNS-rebound and cross-site pages off the endpoint.
+ */
+export function serveMcpRequest(request: Request, context: McpServerContext): Promise<Response> {
+  const hostname = new URL(request.url).hostname
+  const rejected = hostHeaderValidationResponse(request, [hostname]) ?? originValidationResponse(request, [hostname])
+  if (rejected) return Promise.resolve(rejected)
+  return createMcpHandler(() => createL4McpServer(context)).fetch(request)
+}
 
 export function createL4McpServer({ env, principal, schedule }: McpServerContext): McpServer {
   const server = new McpServer({ name: 'L4', version: packageVersion })

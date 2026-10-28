@@ -1,6 +1,6 @@
 services:
   llll:
-    image: ${LLLL_PROJECT:-llll}-dev:celld-0.6.2
+    image: ${LLLL_PROJECT:-llll}-dev:celld-0.6.3
     build:
       context: ..
       dockerfile: self-host/Dockerfile

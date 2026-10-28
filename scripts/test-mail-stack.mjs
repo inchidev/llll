@@ -45,7 +45,7 @@ const fixture = {
 const envFile = resolve(directory, `${project}.env`)
 const override = resolve(directory, `${project}.yml`)
 await writeFile(envFile, Object.entries(fixture).map(([key, value]) => `${key}=${value}`).join('\n'), { mode: 0o600, flag: 'wx' })
-await writeFile(override, `services:\n  llll:\n    image: ${config.LLLL_PROJECT}-dev:celld-0.6.2\n    extra_hosts:\n      - host.docker.internal:host-gateway\n`, { mode: 0o600, flag: 'wx' })
+await writeFile(override, `services:\n  llll:\n    image: ${config.LLLL_PROJECT}-dev:celld-0.6.3\n    extra_hosts:\n      - host.docker.internal:host-gateway\n`, { mode: 0o600, flag: 'wx' })
 const compose = ['--context', config.LLLL_DOCKER_CONTEXT, 'compose', '--project-name', project, '--env-file', envFile,
   '-f', resolve(root, 'self-host/docker-compose.yml'), '-f', resolve(root, 'self-host/compose.dev.yml'), '-f', override]
 const env = { ...process.env, ...fixture, LLLL_ENV_FILE: envFile }
