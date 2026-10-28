@@ -16,5 +16,5 @@ export default defineNuxtConfig({
       devProxy: { '/api': { target: `${process.env.LLLL_DEV_SHELL_API_ORIGIN}/api`, changeOrigin: false } },
     } : {}),
   },
-  app: { head: { htmlAttrs: { lang: 'en' }, meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#090909' }], link: [{rel:'icon', href:'/favicon.svg'}, {rel:'manifest', href:'/site.webmanifest'}] } },
+  app: { head: { htmlAttrs: { lang: 'en' }, meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#000000' }], link: [{rel:'icon', href:'/favicon.svg'}, {rel:'manifest', href:'/site.webmanifest'}] } },
 })

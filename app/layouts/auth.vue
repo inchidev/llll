@@ -13,7 +13,7 @@ useHead(() => ({ title: appName.value }))
 
 <template>
   <div class="h-full min-h-0 overflow-y-auto bg-default lg:grid lg:grid-cols-[var(--df-auth-stage-width)_minmax(0,1fr)]">
-    <aside class="flex min-w-0 flex-col border-b border-default bg-muted px-6 pb-6 pt-[max(1.5rem,var(--df-safe-area-top))] sm:px-8 lg:min-h-full lg:border-r lg:border-b-0 lg:p-10 lg:pb-[max(2.5rem,var(--df-safe-area-bottom))] lg:pt-[max(2.5rem,var(--df-safe-area-top))] xl:p-12">
+    <aside class="flex min-w-0 flex-col border-b border-default bg-muted dark:bg-black px-6 pb-6 pt-[max(1.5rem,var(--df-safe-area-top))] sm:px-8 lg:min-h-full lg:border-r lg:border-b-0 lg:p-10 lg:pb-[max(2.5rem,var(--df-safe-area-bottom))] lg:pt-[max(2.5rem,var(--df-safe-area-top))] xl:p-12">
       <BrandWordmark :name="appName" size="lg">
         <template v-if="session.health?.iconUrl" #icon><ServerAvatar :name="appName" :icon-url="session.health.iconUrl" class="size-10 rounded-lg bg-accented" /></template>
       </BrandWordmark>

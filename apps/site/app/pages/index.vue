@@ -235,7 +235,7 @@ useHead({
       </section>
     </main>
 
-    <footer class="border-t border-muted bg-muted/40 pt-12 sm:pt-16">
+    <footer class="border-t border-muted pt-12 sm:pt-16">
       <UContainer>
         <div class="grid grid-cols-2 gap-8 pb-12 sm:grid-cols-3 sm:pb-16">
           <nav aria-label="Footer product">

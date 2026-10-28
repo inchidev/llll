@@ -6,4 +6,17 @@ const path = computed(() => normalizeRoutePath(route.path))
 const shell = computed(() => ['/servers', '/create'].includes(path.value) || /^\/[a-f0-9]{8}-[a-f0-9-]{27}(?:\/|$)/i.test(path.value))
 useHead({ title: computed(() => path.value === '/servers' ? 'My Servers · L4' : path.value === '/create' ? 'Add a Server · L4' : shell.value ? 'L4' : undefined) })
 </script>
-<template><UApp><ClientOnly><Shell v-show="shell" /></ClientOnly><div v-show="!shell"><NuxtPage /></div></UApp></template>
+<template>
+  <UApp>
+    <ClientOnly>
+      <Shell v-show="shell" />
+      <!-- The Shell renders only in the browser; show the same mark as the Client's loading screen meanwhile. -->
+      <template #fallback>
+        <div v-if="shell" role="status" class="flex h-dvh items-center justify-center bg-default">
+          <BrandMark class="size-12 animate-pulse text-highlighted" /><span class="sr-only">Opening L4</span>
+        </div>
+      </template>
+    </ClientOnly>
+    <div v-show="!shell"><NuxtPage /></div>
+  </UApp>
+</template>

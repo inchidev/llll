@@ -68,7 +68,7 @@ defineShortcuts({
   <aside
     v-if="ui.threadId"
     id="channel-details"
-    class="absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-30 flex min-h-0 w-full shrink-0 flex-col border-l border-default bg-elevated pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] lg:relative lg:inset-auto lg:z-auto lg:w-[var(--df-right-panel-width)] lg:p-0"
+    class="absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-30 flex min-h-0 w-full shrink-0 flex-col border-l border-default bg-elevated dark:bg-black pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] lg:relative lg:inset-auto lg:z-auto lg:w-[var(--df-right-panel-width)] lg:p-0"
     :style="{ '--df-right-panel-width': `${ui.rightPanelWidth}px` }"
     aria-label="Thread"
   >
@@ -80,7 +80,7 @@ defineShortcuts({
       side="start"
       label="Resize thread panel"
     />
-    <header class="flex h-12 shrink-0 min-w-0 items-center gap-2 border-b border-default bg-elevated px-2">
+    <header class="flex h-12 shrink-0 min-w-0 items-center gap-2 border-b border-default bg-elevated px-2 dark:bg-black">
       <UTooltip text="Close thread">
         <UButton class="size-10 shrink-0 justify-center md:size-8" size="sm" color="neutral" variant="ghost" icon="i-ph-arrow-right" aria-label="Close thread" @click="close" />
       </UTooltip>

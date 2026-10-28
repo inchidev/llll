@@ -198,18 +198,18 @@ async function mountServer() {
           <UButton :to="shell.ownerSetupUrl(shell.selected.value)" external target="_blank" rel="noopener" label="Finish setup on your Server" />
         </div>
         <div v-else-if="!showNavigation && shell.selected.value && !shell.ready.value[shell.selected.value]" role="status" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-default p-6 text-center">
-          <UIcon v-if="!frameSlow" name="i-ph-circle-notch" class="size-7 animate-spin text-muted" />
-          <p class="text-sm text-muted">{{ frameSlow ? 'The Server is taking longer to open.' : 'Opening your Server…' }}</p>
-          <template v-if="frameSlow"><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /></template>
+          <!-- Same mark, size and place as the Client's own loading screen, so the hand-off does not flicker. -->
+          <BrandMark v-if="!frameSlow" class="size-12 animate-pulse text-highlighted" />
+          <span v-if="!frameSlow" class="sr-only">Opening your Server…</span>
+          <template v-else><p class="text-sm text-muted">The Server is taking longer to open.</p><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /></template>
         </div>
         <div
           v-if="checkingAddress"
-          class="flex h-full flex-col items-center justify-center gap-3 text-muted"
+          role="status"
+          class="flex h-full items-center justify-center bg-default"
         >
-          <UIcon name="i-ph-circle-notch" class="size-6 animate-spin" />
-          <p class="text-sm">
-            Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…
-          </p>
+          <BrandMark class="size-12 animate-pulse text-highlighted" />
+          <span class="sr-only">Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…</span>
         </div>
         <div
           v-else-if="showHome"

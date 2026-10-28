@@ -6,11 +6,11 @@ const embedded = useState('llll-embed', () => ({ parent: '', enabled: import.met
 
 useSeoMeta({
   ogTitle: 'L4',
-  ogDescription: 'Independent communities, together on infrastructure you control.',
+  ogDescription: 'One workspace for humans and agents.',
   ogImage: image,
   twitterCard: 'summary_large_image',
   twitterTitle: 'L4',
-  twitterDescription: 'Independent communities, together on infrastructure you control.',
+  twitterDescription: 'One workspace for humans and agents.',
   twitterImage: image,
 })
 </script>
