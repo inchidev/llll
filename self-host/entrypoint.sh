@@ -218,7 +218,7 @@ until output=$(celld d1 migrations apply "$DATABASE_NAME" "$CONFIG" \
   --region "$AWS_REGION" 2>&1)
 do
   case "$output" in
-    *"no node leases"*) [ "$i" -eq 0 ] && echo "llll: waiting for the celld node to join before applying migrations" ;;
+    *"no node leases"*|*"no node in the fleet is reachable"*) [ "$i" -eq 0 ] && echo "llll: waiting for the celld node to join before applying migrations" ;;
     *) printf '%s\n' "$output" >&2 ;;
   esac
   i=$((i + 1))
