@@ -132,6 +132,8 @@ const config = {
     AUTH_REGISTRATION_MODE: 'invite_only',
     EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
     ACCOUNT_ID: account,
+    // Every app response carries Server-Timing for D1 and Durable Object waits.
+    SERVER_TIMING: '1',
   },
   // DO state is isolated per Preview and deleted with it; each binding must be
   // declared here or the Preview fails with error 1101.

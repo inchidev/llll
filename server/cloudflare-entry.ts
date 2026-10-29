@@ -12,6 +12,7 @@ import { routeServerEmail } from '../workers/server-mail-router'
 import { agentGateway } from './utils/agent-gateway'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 import { renewCloudflareAccess } from './utils/cloudflare-account-access'
+import { requestTiming } from './utils/request-timing'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
@@ -53,12 +54,14 @@ export default {
       if (ab.byteLength) body = Buffer.from(ab)
     }
 
-    return nitroApp.localFetch(url.pathname + url.search, {
+    // Opt-in measurement (Previews set SERVER_TIMING=1): counts can reveal which branch a request took.
+    const timing = env.SERVER_TIMING === '1' ? requestTiming(env) : null
+    const response = await nitroApp.localFetch(url.pathname + url.search, {
       context: {
         waitUntil: (p: Promise<unknown>) => context.waitUntil(p),
         _platform: {
           cf: request.cf,
-          cloudflare: { request, env, context, url },
+          cloudflare: { request, env: timing?.env ?? env, context, url },
         },
       },
       host: url.host,
@@ -67,6 +70,11 @@ export default {
       headers: request.headers,
       body,
     } as Parameters<typeof nitroApp.localFetch>[1])
+    if (!timing) return response
+    const timed = new Response(response.body, response)
+    timed.headers.append('Server-Timing', timing.header())
+    console.log('request.timing', { method: request.method, path: url.pathname, status: response.status, ...timing.summary() })
+    return timed
   },
   async email(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
     await routeServerEmail(message, env)

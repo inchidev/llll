@@ -129,7 +129,8 @@
     "vars": {
       "PUBLIC_ORIGIN": "https://server-preview.dev.llll.gg",
       "ADMIN_EMAIL": "owner@example.com",
-      "AUTH_REGISTRATION_MODE": "invite_only"
+      "AUTH_REGISTRATION_MODE": "invite_only",
+      "SERVER_TIMING": "1"
     },
     "durable_objects": {
       "bindings": [
