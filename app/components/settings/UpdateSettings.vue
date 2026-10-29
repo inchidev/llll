@@ -132,7 +132,8 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
               <USelect v-model="selected" class="w-full" :items="choices.map(r => ({ label: r.tagName, value: r.tagName }))" :disabled="active || busy" />
             </UFormField>
             <a v-if="selectedRelease" :href="selectedRelease.url" target="_blank" rel="noopener noreferrer" class="text-sm underline">View {{ selectedRelease.tagName }} release notes</a>
-            <p v-if="selectedRelease?.notes" class="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted">{{ selectedRelease.notes }}</p>
+            <!-- Release notes are Markdown; the release title repeats the version, so it is dropped. -->
+            <div v-if="selectedRelease?.notes" class="release-notes max-h-72 overflow-y-auto rounded-md border border-default p-3 text-sm text-muted"><ChatMarkdownView :content="selectedRelease.notes.replace(/^#\s+[^\n]*\n+/u, '')" /></div>
             <p class="text-sm text-muted">{{ status.updateControl?.backupDestination === 'download' ? 'Download a backup of the database and files to your computer before continuing in the installer.' : 'Database and files are saved to the separate backup bucket and verified before the update.' }} Existing Accounts, UUID and storage are kept.</p>
             <UButton label="Back up and update" icon="i-ph-cloud-arrow-up" :loading="busy" :disabled="active || !selectedRelease" @click="start" />
           </template>
@@ -142,3 +143,10 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
     </template>
   </div>
 </template>
+
+<style scoped>
+.release-notes :deep(h2) { margin-top: 0.75rem; font-weight: 600; color: var(--ui-text-highlighted); }
+.release-notes :deep(h2:first-child) { margin-top: 0; }
+.release-notes :deep(ul) { margin-top: 0.25rem; padding-inline-start: 1.25rem; list-style: disc; }
+.release-notes :deep(li) { margin-top: 0.125rem; }
+</style>
