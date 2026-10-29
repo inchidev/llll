@@ -141,7 +141,10 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
           <UButton v-if="job.stage === 'complete' && ($pwa?.waiting.value || staleClient)" :label="`Load the ${installed} interface`" data-client-update-action :loading="$pwa?.updating.value" @click="loadClient" />
         </div>
       </section>
-      <UAlert v-if="!status.updateControl?.available" color="neutral" title="Operator-managed deployment" :description="status.updateControl?.reason || 'Use your deployment operator to update this Server.'" />
+      <template v-if="!status.updateControl?.available">
+        <UAlert color="neutral" title="Updates are managed outside L4" :description="status.updateControl?.reason || 'Use your deployment operator to update this Server.'" />
+        <p v-if="status.updateAvailable && status.latestRelease" class="text-sm text-muted">L4 {{ status.latestRelease.tagName }} is available. <a :href="status.latestRelease.url" target="_blank" rel="noopener noreferrer" class="underline">Release notes</a></p>
+      </template>
       <template v-else>
         <section class="space-y-4">
           <UCheckbox v-model="prereleases" label="Include prereleases" :disabled="busy || active" />

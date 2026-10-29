@@ -17,7 +17,9 @@ export default defineEventHandler(async (event): Promise<UpdateStatusDTO> => {
     const config = await updateConfiguration(event, env, serverId)
     status.updateControl = { available: true, configured: true, mode: 'installer', backupDestination: env.BACKUPS ? 'bucket' : 'download', source: null, job: config.value.job, buildUrl: null, launchUrl: await serverUpdateLaunchUrl(env, config.value.job, getRequestURL(event).origin), reason: null }
   } catch {
-    status.updateControl!.reason = 'Cloudflare updates need the published L4 installer. On a VPS use llll upgrade.'
+    status.updateControl!.reason = env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld'
+      ? 'This Server runs from a Docker image, so it is updated where it is deployed. In Coolify or Docker Compose, use ghcr.io/inchidev/llll:latest or set a newer release version, then redeploy. A VPS installer Server uses llll upgrade.'
+      : 'Cloudflare updates need the published L4 installer.'
   }
   try {
     const prereleases = getQuery(event).prereleases === 'true'

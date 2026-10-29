@@ -1,12 +1,28 @@
-# Coolify operator template
+# Coolify
 
-This is an advanced standalone-Server template, not a published one-click catalog entry. For the shared Compose and local development flow see [self-host setup](../README.md) and [local development](../../docs/local-development.md). VPS/celld transport must be verified separately from Cloudflare; the VPS installer is follow-up work.
+[`docker-compose.yaml`](docker-compose.yaml) runs one standalone Server in Coolify: L4 on a single celld node with private RustFS storage. Coolify's proxy owns the domain and TLS. It is not yet a published catalog entry.
 
-1. Download the intended release's `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS` on the Coolify host. Verify the archive, then load it with `docker load --input llll-runtime-linux-amd64.tar.gz`.
-2. Create a Docker Compose resource using `docker-compose.yaml`. Set `LLLL_VERSION` to the exact loaded version, such as `0.1.0-alpha.1`, without `v`. The template uses the local image and does not pull a registry tag.
-3. Set the owner email and keep generated authentication, setup and storage credentials private. Configure the public origin and TLS before inviting anyone. RustFS stays private.
-4. Verify owner setup, membership, files, realtime and direct-link reloads. Resource creation or health 200 alone does not establish readiness.
+## Install
 
-Coolify supplies `SERVICE_URL_LLLL_8080`, `SERVICE_FQDN_LLLL_8080`, `SERVICE_PASSWORD_64_AUTHSECRET`, `SERVICE_PASSWORD_64_SETUPTOKEN`, `SERVICE_USER_RUSTFS` and `SERVICE_PASSWORD_64_RUSTFS` for the existing template. Preserve those values and storage volumes when updating. Do not apply the fresh alpha baselines to prototype databases.
+1. Create a Docker Compose resource from `docker-compose.yaml`.
+2. Set `ADMIN_EMAIL` and the Server's domain. Coolify generates `SERVICE_URL_LLLL_8080`, `SERVICE_FQDN_LLLL_8080`, `SERVICE_PASSWORD_64_AUTHSECRET`, `SERVICE_PASSWORD_64_SETUPTOKEN`, `SERVICE_USER_RUSTFS` and `SERVICE_PASSWORD_64_RUSTFS`; keep them private and never regenerate them. `AUTH_SECRET` signs sessions and encrypts stored credentials.
+3. Deploy. The Server is ready once `/api/setup/health` answers 200. Open `/setup#claim=<SETUP_TOKEN>` with the generated setup token and create the owner.
 
-Provider credentials are optional and separate from identity. Backups need a destination independent of live storage. Catalog submission, if pursued later, follows the then-current [Coolify contribution guide](https://coolify.io/docs/contribute/service).
+To serve more domains, add them in Coolify and list every origin in `LLLL_ORIGINS`, comma-separated. RustFS has no public port.
+
+## Updates
+
+The image is `ghcr.io/inchidev/llll`, built for `linux/amd64` and `linux/arm64`. Only stable releases are published: an exact version (`0.3.4`), its minor line (`0.3`) and `latest`. Prereleases are not published as images.
+
+Updates are controlled in Coolify, not in L4 Settings:
+
+- `LLLL_VERSION` unset uses `latest`. Redeploy the service to pull the newest stable release.
+- To pin, set `LLLL_VERSION` to an exact version and change it to update.
+
+On start, the new version applies its database migrations; ones already applied are skipped. Migrations only go forward, so an older image refuses to start on data a newer one has migrated: set a version at least as new as the one in the error. Settings → Updates shows when a newer release is available.
+
+## Backups
+
+Optional, but recommended before an update. Settings → Backups downloads the database and files, or sends them to an S3 destination. For a full copy, stop the service and archive the `rustfs-data` and `celld-data` volumes; a copy taken while it runs may be inconsistent. Keep backups outside these volumes.
+
+Provider credentials (Cloudflare, AI, mail) are optional; see [self-host setup](../README.md#optional-integrations).
