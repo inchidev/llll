@@ -22,7 +22,7 @@ type AgentReceiveMessage = Omit<AgentIngressMessage, 'mentionIds' | 'edit'> & {
 export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMessage): Promise<void> {
   if (!env.AGENT_DO) return
   const image = await env.DB.prepare(
-    "SELECT id FROM attachments WHERE message_id = ? AND content_type LIKE 'image/%' LIMIT 1",
+    "SELECT id FROM attachments WHERE message_id = ? AND (content_type LIKE 'image/%' OR content_type LIKE 'audio/%') LIMIT 1",
   ).bind(message.messageId).first<{ id: string }>()
   const hasImages = Boolean(image)
   if (!message.content.trim() && !hasImages) return

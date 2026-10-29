@@ -1,17 +1,17 @@
 import { agentConnectionId } from '../../../../../shared/agent-providers'
 import { decryptSecret } from '../../../../../shared/encrypted-secret'
 import { agentProviderKey, agentProviderScope, loadAgentProvider, type ChatGPTCredentials } from '../../../../utils/agent-providers'
-import { requireMember } from '../../../../utils/guards'
-import { cf, fail } from '../../../../utils/cf'
+import { providerManager } from '../../../../utils/agent-provider-access'
+import { cf } from '../../../../utils/cf'
 import { writeAudit } from '../../../../utils/messages'
 import { parseBody } from '../../../../utils/validate'
 export default defineEventHandler(async event => {
-  const actor = await requireMember(event, getRouterParam(event, 'id')!)
-  if (!actor.isOwner) fail(403, 'forbidden', 'Only the owner can remove connections')
+  const manager = await providerManager(event), actor = manager.actor
   const id = parseBody(agentConnectionId, getRouterParam(event, 'provider'))
   const { env } = cf(event)
   // Delete locally first: neither in-flight refresh nor an old callback may restore it.
   const current = await loadAgentProvider(env, id)
+  manager.require(current?.kind, current)
   await env.DB.prepare('DELETE FROM server_settings WHERE key=?').bind(agentProviderKey(id)).run()
   let revoked = true
   if (current?.kind === 'chatgpt' && current.secret && env.AUTH_SECRET) {

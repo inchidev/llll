@@ -13,7 +13,8 @@ async function setup(manager: boolean, paused: boolean) {
   const messageAgent = vi.fn()
   for (const [name, value] of Object.entries({ computed, ref, shallowRef,
     definePageMeta: () => {}, useServer: () => ({ serverId: ref('server') }),
-    useApi: () => ({ api: vi.fn(async () => ({ agents: [] })) }),
+    useApi: () => ({ api: vi.fn(async () => ({ agents: [] })), serverUrl: (path: string) => path }),
+    userAvatarSrc: () => 'data:image/svg+xml,',
     useRoleGrants: () => ({ can: (permission: number) => permission === Permission.manageAgents ? manager : true }),
     useNavActions: () => ({ createAgentOpen: ref(false) }),
     useAgentDirectory: () => ({ agents: directory, members: { isPending: ref(false), error: ref(null) }, messageAgent, opening: ref(null) }),

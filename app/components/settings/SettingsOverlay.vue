@@ -231,7 +231,8 @@ function onEscape(event: KeyboardEvent) {
           class="min-w-0 flex-1 bg-default dark:bg-black md:flex md:flex-[1_1_800px]"
           :class="isMobile && mobileView === 'nav' ? 'hidden' : 'flex'"
         >
-          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:max-w-[740px] md:py-[60px]">
+          <!-- The whole pane scrolls, so the wheel works beside the content; only the content keeps its reading width. -->
+          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:py-[60px] md:[&>*]:max-w-[660px]">
             <div class="mb-4 flex items-center gap-1 md:hidden">
               <UButton
                 icon="i-ph-arrow-left"

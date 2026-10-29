@@ -4,9 +4,10 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { decryptSecret, encryptSecret } from '../../shared/encrypted-secret'
 import { readServerSetting, writeServerSetting } from '../../shared/server-settings'
 import type { L4Env } from '../../workers/env'
-import { agentProviderKey, agentProviderScope, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
+import { agentProviderKey, agentProviderScope, chatGPTUsableBy, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
 import { discoverAgentModels } from './agent-provider-models'
 import { fail } from './cf'
+import { Permission, hasPermission } from '../../shared/permissions'
 import { writeAudit } from './messages'
 const issuer = 'https://auth.openai.com'
 const resource = 'https://api.openai.com/v1'
@@ -71,7 +72,9 @@ export async function completeChatGPT(env: L4Env, callback: URL, keySet: JWTVeri
   const pending = await loadChatGPTAttempt(env, state)
   if (`${callback.origin}${callback.pathname}` !== pending.redirectUri) fail(400, 'invalid_callback', 'Callback does not match this sign-in')
   const owner = await env.DB.prepare('SELECT owner_id as id,id as serverId FROM server LIMIT 1').first<{ id: string; serverId: string }>()
-  if (owner?.id !== pending.actorId) fail(403, 'forbidden', 'Only the current Server owner can finish this connection')
+  // The member who started the sign-in must still be active, and the Owner or allowed to use agents.
+  const member = await env.DB.prepare("SELECT r.permissions_bitmask AS permissions FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active' AND u.kind='human'").bind(pending.actorId).first<{ permissions: number | null }>()
+  if (!owner || !member || (owner.id !== pending.actorId && !hasPermission(member.permissions ?? 0, Permission.useAgents))) fail(403, 'forbidden', 'Only the member who started this sign-in can finish it')
   const clientId = callback.searchParams.get('client_id') ?? pending.clientId
   if (!clientId || clientId === 'dynamic_agent_client' || (pending.clientId && clientId !== pending.clientId)) fail(400, 'invalid_client', 'ChatGPT registration is incomplete')
   // Claiming the outcome is the replay guard; the attempt stays readable until it settles.
@@ -117,7 +120,7 @@ async function exchangeChatGPT(env: L4Env, callback: URL, pending: Pending, owne
 }
 export async function chatGPTAccessToken(env: L4Env, connectionId: string, actorId: string): Promise<string> {
   let provider = await loadAgentProvider(env, connectionId)
-  if (!provider?.enabled || provider.kind !== 'chatgpt' || !provider.secret || provider.connectedBy !== actorId) fail(403, 'personal_provider', 'This ChatGPT account is not available to this member')
+  if (!provider?.enabled || provider.kind !== 'chatgpt' || !provider.secret || !chatGPTUsableBy(provider, actorId)) fail(403, 'personal_provider', 'This ChatGPT account is not available to this member')
   let credentials = JSON.parse(await decryptSecret(env.AUTH_SECRET!, agentProviderScope(connectionId), provider.secret)) as ChatGPTCredentials
   if (credentials.expiresAt > Date.now() + 60000) return credentials.accessToken
   // A database lease serializes refresh across Workers and Durable Objects, including token rotation.
@@ -129,7 +132,7 @@ export async function chatGPTAccessToken(env: L4Env, connectionId: string, actor
   try {
     const original = await readServerSetting(env.DB, agentProviderKey(connectionId))
     provider = await loadAgentProvider(env, connectionId)
-    if (!provider?.enabled || !provider.secret || provider.connectedBy !== actorId) fail(403, 'connection_changed', 'ChatGPT connection is no longer available')
+    if (!provider?.enabled || !provider.secret || !chatGPTUsableBy(provider, actorId)) fail(403, 'connection_changed', 'ChatGPT connection is no longer available')
     credentials = JSON.parse(await decryptSecret(env.AUTH_SECRET!, agentProviderScope(connectionId), provider.secret)) as ChatGPTCredentials
     if (credentials.expiresAt > Date.now() + 60000) return credentials.accessToken
     const tokens = await tokenRequest(new URLSearchParams({ grant_type: 'refresh_token', client_id: credentials.clientId, refresh_token: credentials.refreshToken, resource }))

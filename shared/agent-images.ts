@@ -4,6 +4,9 @@
  * checking it still belongs to the initiating member's conversation.
  */
 export const agentImageTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+/** Voice messages reach agents as transcripts from the Voice transcription function. */
+export const agentAudioTypes = ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/mpeg'] as const
+export const agentAttachmentTypes = [...agentImageTypes, ...agentAudioTypes] as const
 export const agentImageLimit = 4
 export const agentImageMaxBytes = 5_000_000
 const marker = /\[l4-image:([A-Za-z0-9_-]{8,64})\]/gu
