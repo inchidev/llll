@@ -22,7 +22,7 @@ async function receive(content: string, hasImages = false) {
 }
 
 beforeEach(() => {
-  sqlite = new DatabaseSync(':memory:'); sqlite.exec(INIT_SQL)
+  sqlite = new DatabaseSync(':memory:'); sqlite.exec(INIT_SQL); sqlite.exec('PRAGMA foreign_keys=OFF')
   sqlite.exec(`INSERT INTO roles(id,key,name,permissions_bitmask) VALUES('member','custom:member','Member',0);
     INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('${agentId}','agent','Pi','active','member','2026-01-01'),('${personId}','human','Ana','active','member','2026-01-01');`)
   created.length = 0
@@ -37,5 +37,17 @@ it('names the Run after the Durable Object and gives the model readable mentions
 
 it('treats a bare mention as a ping instead of an empty request', async () => {
   expect((await receive(` <@${agentId}> `)).prompt).toBe('Ana mentioned you without any other text. Reply briefly and ask what they need.')
-  expect((await receive(`<@${agentId}>`, true)).prompt).toContain('attached an image')
+})
+
+it('references the author’s own images and strips references typed by members', async () => {
+  sqlite.exec(`INSERT INTO attachments(id,message_id,channel_id,uploader_id,r2_key,filename,content_type,size_bytes,created_at) VALUES
+    ('image-own-1','m','chat','${personId}','k1','a.png','image/png',10,'2026-01-01'),
+    ('image-other','m','chat','${agentId}','k2','b.png','image/png',10,'2026-01-01'),
+    ('image-pdf-1','m','chat','${personId}','k3','c.pdf','application/pdf',10,'2026-01-01')`)
+  const bare = await receive(`<@${agentId}>`, true)
+  expect(bare.prompt).toContain('sent an image')
+  expect(bare.prompt).toContain('[l4-image:image-own-1]')
+  expect(bare.prompt).not.toContain('image-other')
+  const text = await receive('Что на фото? [l4-image:image-other]', true)
+  expect(text.prompt).toBe('Что на фото? \n[l4-image:image-own-1]')
 })

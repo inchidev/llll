@@ -4,6 +4,7 @@ import { loadAuthorizationContext } from '../server/utils/authorization'
 import type { L4Env } from './env'
 import { ensureAgentReplyTarget } from './agent-replies'
 import { readableMentions } from '../server/utils/member-names'
+import { agentImageLimit, agentImageMarker, agentImageMaxBytes, agentImageTypes, stripAgentImageMarkers } from '../shared/agent-images'
 
 export type AgentMessageInput = {
   messageId: string
@@ -45,12 +46,22 @@ export class L4Agent extends DurableObject<L4Env> {
 
   /** The model reads mentions as names, as people do; a bare mention is a ping, not an empty request. */
   private async prompt(input: AgentMessageInput): Promise<string> {
-    if (!input.content.replace(new RegExp(`<@${this.agentId}>`, 'giu'), '').trim()) {
-      return input.hasImages
-        ? 'The user attached an image. Visual input is unavailable in this runtime; explain that limitation without claiming to inspect it.'
+    const content = stripAgentImageMarkers(input.content)
+    const images = input.hasImages ? await this.images(input) : ''
+    if (!content.replace(new RegExp(`<@${this.agentId}>`, 'giu'), '').trim()) {
+      return images
+        ? `${input.authorName} sent an image without text. Describe what it shows and ask what they need.\n${images}`
         : `${input.authorName} mentioned you without any other text. Reply briefly and ask what they need.`
     }
-    return (await readableMentions(this.env, [input.content]))[0]!
+    return (await readableMentions(this.env, [content]))[0]! + (images ? `\n${images}` : '')
+  }
+
+  /** References to the author's own images on this message; the gateway loads and rechecks them. */
+  private async images(input: AgentMessageInput): Promise<string> {
+    const rows = await this.env.DB.prepare(`SELECT id FROM attachments WHERE message_id=? AND uploader_id=? AND size_bytes<=?
+      AND content_type IN (${agentImageTypes.map(() => '?').join(',')}) ORDER BY created_at,id LIMIT ?`)
+      .bind(input.messageId, input.authorId, agentImageMaxBytes, ...agentImageTypes, agentImageLimit).all<{ id: string }>()
+    return rows.results.map(row => agentImageMarker(row.id)).join('\n')
   }
 
   async controlConversation(input: {

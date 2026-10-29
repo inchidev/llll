@@ -233,6 +233,8 @@ function scrollToBottom(smooth = false) {
   else el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
   pinned.value = true
   unseen.value = 0
+  // Rows are estimated until measured; land on the measured end once they render.
+  if (!smooth) requestAnimationFrame(() => { if (pinned.value && scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight })
 }
 
 function markReadIfVisible() {
@@ -253,10 +255,16 @@ watch(() => messages.value.at(-1)?.id, async (id, previous) => {
 })
 
 let loadingOlder = false
+let lastScrollTop = 0
 function onScroll() {
   const el = scroller.value
   if (!el) return
-  pinned.value = distanceFromBottom() <= BOTTOM_SLACK
+  // Only the reader scrolling up unpins. Newly measured rows grow the content
+  // under a programmatic scroll and must not count as leaving the bottom.
+  const near = distanceFromBottom() <= BOTTOM_SLACK
+  if (near) pinned.value = true
+  else if (el.scrollTop < lastScrollTop - 2) pinned.value = false
+  lastScrollTop = el.scrollTop
   if (pinned.value) unseen.value = 0
   if (el.scrollTop < 400 && q.hasNextPage.value && !q.isFetchingNextPage.value && !loadingOlder) void loadOlder()
   markReadIfVisible()
@@ -674,7 +682,7 @@ defineExpose({ focusMessage })
       <UContextMenu v-if="messages.length" :items="contextItems" :modal="false">
         <div
           ref="content"
-          class="relative shrink-0 pb-2"
+          class="relative shrink-0"
           :style="{ height: `${virtualizer.getTotalSize()}px` }"
           @contextmenu.capture="onContextMenu"
           @pointerover="onPointerOver"
@@ -731,6 +739,8 @@ defineExpose({ focusMessage })
           </div>
         </div>
       </UContextMenu>
+      <!-- Breathing room above the composer; the measured content height leaves none. -->
+      <div class="h-6 shrink-0" aria-hidden="true" />
     </div>
 
     <Transition

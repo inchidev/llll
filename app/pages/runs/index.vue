@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAgentPrompt } from '~~/shared/agent-images'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import type { RunListPage } from '~~/server/utils/agent-run-list'
 import { runStatusColor } from '~~/shared/agent-run-status'
@@ -53,7 +54,7 @@ const filtered = computed(() => status.value !== allValue || agentId.value !== a
               <span class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ run.agentName }}<span v-if="run.taskNumber" class="font-normal text-muted"> · Task #{{ run.taskNumber }}</span></span>
               <UBadge :label="run.status" :color="runStatusColor(run.status)" variant="subtle" size="sm" />
             </div>
-            <p class="mt-1 line-clamp-2 text-sm text-muted">{{ run.prompt }}</p>
+            <p class="mt-1 line-clamp-2 text-sm text-muted">{{ displayAgentPrompt(run.prompt) }}</p>
             <p class="mt-1 text-xs text-muted">{{ new Date(run.createdAt).toLocaleString() }} · {{ run.modelCalls }} model calls · {{ run.totalTokens }} tokens</p>
           </NuxtLink>
         </li>

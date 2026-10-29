@@ -4,7 +4,7 @@ export const agentProviderIds = ['openrouter', 'anthropic', 'chatgpt'] as const
 export type AgentProviderId = typeof agentProviderIds[number]
 export const providerNames: Record<AgentProviderId, string> = { openrouter: 'OpenRouter', anthropic: 'Claude', chatgpt: 'ChatGPT / Codex' }
 export const agentConnectionId = z.string().regex(/^[a-z0-9-]{1,64}$/u)
-export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160), label: z.string().max(200).optional(), tools: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
+export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160), label: z.string().max(200).optional(), tools: z.boolean().optional(), images: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
 export const agentProviderSchema = z.object({
   // An empty connection name falls back to the provider name; the field shows that name rather than a placeholder.
   kind: z.enum(agentProviderIds).optional(), name: z.string().trim().max(80, 'Connection name must be 80 characters or fewer').optional(),

@@ -12,6 +12,7 @@ import { runtimeFiles } from './agent-files'
 import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
 import { modelForRun } from '../../workers/ai-runtime'
+import { agentImageResolver, modelAcceptsImages } from './agent-images'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import type { AgentRun } from '../../shared/agent-execution'
 
@@ -22,9 +23,9 @@ const modelRequest = z.object({
   stream: z.boolean().optional(),
 })
 
-function messagesForModel(input: z.infer<typeof modelRequest>['messages']): ModelMessage[] {
+async function messagesForModel(input: z.infer<typeof modelRequest>['messages'], images: ReturnType<typeof agentImageResolver>): Promise<ModelMessage[]> {
   const toolNames = new Map(input.flatMap(message => (message.tool_calls ?? []).map(call => [call.id, call.function.name] as const)))
-  return input.map(message => {
+  return Promise.all(input.map(async (message): Promise<ModelMessage> => {
     const text = typeof message.content === 'string' ? message.content : Array.isArray(message.content)
       ? message.content.map((part: unknown) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? part.text : '').join('\n') : ''
     if (message.role === 'tool') return { role: 'tool', content: [{ type: 'tool-result', toolCallId: message.tool_call_id || '', toolName: toolNames.get(message.tool_call_id || '') || 'unknown', output: { type: 'text', value: text } }] }
@@ -32,14 +33,17 @@ function messagesForModel(input: z.infer<typeof modelRequest>['messages']): Mode
       ...(text ? [{ type: 'text' as const, text }] : []),
       ...(message.tool_calls ?? []).map(call => ({ type: 'tool-call' as const, toolCallId: call.id, toolName: call.function.name, input: JSON.parse(call.function.arguments) })),
     ] }
-    return { role: message.role, content: text }
-  })
+    if (message.role === 'user') return { role: 'user', content: await images.parts(text) }
+    return { role: 'system', content: text }
+  }))
 }
 
 async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof modelRequest>, signal: AbortSignal): Promise<Response> {
   const maxOutputTokens = 4096
-  // Conservative reservation includes input bytes, output allowance and protocol overhead.
-  const reservation = new TextEncoder().encode(JSON.stringify(input)).byteLength + maxOutputTokens + 2048
+  const images = agentImageResolver(env, run, () => modelAcceptsImages(env, run.model))
+  const imageCount = images.count(JSON.stringify(input.messages.filter(message => message.role === 'user')))
+  // Conservative reservation includes input bytes, images, output allowance and protocol overhead.
+  const reservation = new TextEncoder().encode(JSON.stringify(input)).byteLength + imageCount * 2000 + maxOutputTokens + 2048
   const admitted = await reserveRunInference(env, run, reservation)
   if (!admitted.ok) return Response.json({ error: { code: admitted.code, message: admitted.message } }, { status: admitted.status })
   await env.DB.prepare("INSERT INTO agent_model_calls(run_id,call_number,model,status,started_at) VALUES(?,?,?,'running',?)").bind(run.id, admitted.callNumber, run.model, new Date().toISOString()).run()
@@ -60,7 +64,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const time = await agentTimeContext(env)
   const instructions = `Current time: ${time.utc}. Server timezone: ${time.timezone}. Local date and time: ${time.localTime}. Ask for a timezone when the user’s scheduling timezone is unclear.\n` + input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
   let providerFailure: unknown
-  const settings = { model, instructions, maxRetries: 2, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: messagesForModel(input.messages.filter(message => message.role !== 'system')), tools, maxOutputTokens,
+  const settings = { model, instructions, maxRetries: 2, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: await messagesForModel(input.messages.filter(message => message.role !== 'system'), images), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }
   if (input.stream) {
     const abort = new AbortController()
