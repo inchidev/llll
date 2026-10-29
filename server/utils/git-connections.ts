@@ -29,20 +29,22 @@ export async function prepareGithubSetup(env: L4Env, actor: AuthorizationContext
   let origin: URL
   try { origin = new URL(env.PUBLIC_ORIGIN || '') } catch { fail(409, 'git_origin', 'Configure this Server’s public origin before connecting GitHub') }
   if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)))) fail(409, 'git_origin', 'GitHub setup needs a configured HTTPS Server origin')
+  const account = input.organization ? input.account! : ''
+  const name = input.name || `L4 ${origin.hostname}`.slice(0, 34).trim()
   const state = [...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join(''), now = nowIso()
   const admitted = await env.DB.prepare(`INSERT INTO git_setup_requests(state_hash,name,account,actor_id,origin,status,created_at,expires_at)
     SELECT ?,?,?,?,?,'pending',?,? WHERE (SELECT count(*) FROM git_setup_requests WHERE actor_id=? AND expires_at>?)<5 AND (SELECT count(*) FROM git_connections)<20 RETURNING state_hash`)
-    .bind(await digest(state),input.name,input.account,actor.principal.id,origin.origin,now,new Date(Date.now()+600000).toISOString(),actor.principal.id,now).first()
+    .bind(await digest(state),name,account,actor.principal.id,origin.origin,now,new Date(Date.now()+600000).toISOString(),actor.principal.id,now).first()
   if (!admitted) fail(429, 'git_setup_budget', 'GitHub setup limit reached; finish an existing request or wait for expiry')
-  return { actionUrl: input.organization ? `https://github.com/organizations/${input.account}/settings/apps/new?state=${state}` : `https://github.com/settings/apps/new?state=${state}`,
-    manifest: { name: input.name, url: origin.origin, redirect_url: `${origin.origin}/api/git-connections/github/callback`, public: false,
+  return { actionUrl: input.organization ? `https://github.com/organizations/${account}/settings/apps/new?state=${state}` : `https://github.com/settings/apps/new?state=${state}`,
+    manifest: { name, url: origin.origin, redirect_url: `${origin.origin}/api/git-connections/github/callback`, public: false,
       description: 'L4 project code collaboration. Access is limited by selected repositories and L4 authorization.',
       setup_url: `${origin.origin}/server/${actor.serverId}/settings?section=environments`,
       // No webhook is used: GitHub rejects localhost webhook URLs even when inactive.
       // Omitting the webhook also avoids registering an unused public endpoint.
       default_permissions: { contents: 'write', pull_requests: 'write', issues: 'read', checks: 'read', statuses: 'read', actions: 'read', deployments: 'read', metadata: 'read' }, default_events: [] } }
 }
-const resultSchema = z.object({ id: z.number().int().positive(), slug: z.string().regex(/^[A-Za-z0-9-]+$/u), pem: z.string().min(100).max(20000), owner: z.object({ login: z.string() }) })
+const resultSchema = z.object({ id: z.number().int().positive(), slug: z.string().regex(/^[A-Za-z0-9-]+$/u), name: z.string().min(1).max(100).optional(), pem: z.string().min(100).max(20000), owner: z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/u), type: z.string().optional() }) })
 /** Explicit owner recovery for an unconsumed state after a slow GitHub sign-in
  * or approval. Never reopen an exchange whose outcome may be uncertain. */
 export async function reopenGithubSetup(env: L4Env, actor: AuthorizationContext, state: string) {
@@ -72,13 +74,16 @@ export async function completeGithubSetup(env: L4Env, actor: AuthorizationContex
     const bytes = await readLimitedStream(r.body,64000)
     if (!bytes.ok) throw Error('GitHub exchange unavailable')
     const parsed = resultSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes.bytes)))
-    if (!parsed.success || parsed.data.owner.login.toLowerCase() !== claimed.account.toLowerCase() || !/-----BEGIN (?:RSA )?PRIVATE KEY-----/u.test(parsed.data.pem)) throw Error('GitHub identity mismatch')
+    // An organization setup must come back owned by that organization. A personal
+    // setup has no expected login and is owned by whoever GitHub signed in.
+    const expected = claimed.account ? parsed.data?.owner.login.toLowerCase() === claimed.account.toLowerCase() : parsed.data?.owner.type !== 'Organization'
+    if (!parsed.success || !expected || !/-----BEGIN (?:RSA )?PRIVATE KEY-----/u.test(parsed.data.pem)) throw Error('GitHub identity mismatch')
     const data=parsed.data
     await importPKCS8(githubPkcs8(data.pem), 'RS256')
     const id=newId(),now=nowIso(),server=await getServerId(env.DB)
     const encrypted=JSON.stringify(await encryptSecret(env.AUTH_SECRET,scope(server,id),data.pem))
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO git_connections(id,name,provider,host,account,app_id,app_slug,credential_json,created_by,created_at,updated_at) VALUES(?,?,'github','https://github.com',?,?,?,?,?,?,?)").bind(id,claimed.name,claimed.account,String(data.id),data.slug,encrypted,actor.principal.id,now,now),
+      env.DB.prepare("INSERT INTO git_connections(id,name,provider,host,account,app_id,app_slug,credential_json,created_by,created_at,updated_at) VALUES(?,?,'github','https://github.com',?,?,?,?,?,?,?)").bind(id,data.name||claimed.name,data.owner.login,String(data.id),data.slug,encrypted,actor.principal.id,now,now),
       env.DB.prepare("UPDATE git_setup_requests SET status='complete' WHERE state_hash=? AND status='exchanging'").bind(stateHash),
     ])
     await writeAudit(env,{serverId:server,actorId:actor.principal.id,action:'git.connection.create',targetType:'git_connection',targetId:id,authorization:actor})

@@ -19,7 +19,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4">
-    <p>{{ !valid ? 'This GitHub setup link is invalid. Return to Repositories settings and start again.' : expired ? 'This setup took longer than expected. Resume the existing connection to finish without creating another App.' : 'Finishing your GitHub connection…' }}</p>
+    <p>{{ !valid ? 'This GitHub setup link is invalid. Return to Git settings and start again.' : expired ? 'This setup took longer than expected. Resume the existing connection to finish without creating another App.' : 'Finishing your GitHub connection…' }}</p>
     <UAlert v-if="failure" color="error" :title="failure" />
     <UButton v-if="valid && expired" label="Resume connection" :loading="resuming" @click="resume" />
   </div>

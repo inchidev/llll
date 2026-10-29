@@ -5,7 +5,7 @@ Run this procedure against the published immutable 0.2.14 release and record its
 ## Fresh installations
 
 1. Install a fresh Cloudflare Server through `/create` on Workers Free with Basic KV and no R2. Claim Owner; save UUID, a Role, Project, Task, file and Git connection. Confirm no Factory container application was allocated.
-2. On that same Server choose Settings → Repositories → Enable Factory. Exercise Free/permission/unavailable states without upgrading plans. After the operator explicitly chooses Workers Paid, review compute/storage/network costs, choose limits and authorize provisioning. Activate only after provider readiness. Confirm the original UUID, accounts, content, secrets, repositories and files remain. R2 stays optional.
+2. On that same Server choose Settings → Git → Enable Factory. Exercise Free/permission/unavailable states without upgrading plans. After the operator explicitly chooses Workers Paid, review compute/storage/network costs, choose limits and authorize provisioning. Activate only after provider readiness. Confirm the original UUID, accounts, content, secrets, repositories and files remain. R2 stays optional.
 3. On a fresh supported amd64 VPS use the published installer with `LLLL_FACTORY=true LLLL_SHARED_KERNEL_TRUSTED=1`, or enable after claiming Owner with `sudo llll factory enable --trust-shared-kernel`. Check `llll factory status` and Settings readiness. No registry, source clone, manual image build or second machine should be required. Confirm actual hard quota and reserved Server capacity.
 
 ## Real Agent flow on both recommended backends

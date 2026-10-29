@@ -39,6 +39,16 @@ it('prepares an Owner-bound, expiring manifest from the configured origin withou
  expect(row.hash).not.toBe(state(p));expect(row.status).toBe('pending')
  expect(await listGitConnections(f.env)).toEqual([])
 })
+it('prepares a personal App without an account and stores the GitHub owner',async()=>{
+ const p=await prepareGithubSetup(f.env,await f.actor(),{})
+ expect(p.actionUrl).toMatch(/^https:\/\/github.com\/settings\/apps\/new\?state=[a-f0-9]{64}$/u)
+ expect(p.manifest.name).toBe('L4 server.example.test')
+ const remote=vi.fn(async()=>Response.json({id:4242,slug:'l4-code',name:'L4 code',pem,owner:{login:'someone',type:'User'}}))
+ expect(await completeGithubSetup(f.env,await f.actor(),'test-code',state(p),remote)).toMatchObject({account:'someone',name:'L4 code'})
+ const org=await prepareGithubSetup(f.env,await f.actor(),{})
+ await expect(completeGithubSetup(f.env,await f.actor(),'test-code',state(org),vi.fn(async()=>Response.json({id:4243,slug:'l4-org',pem,owner:{login:'acme',type:'Organization'}})))).rejects.toMatchObject({statusCode:502})
+ await expect(prepareGithubSetup(f.env,await f.actor(),{organization:true})).rejects.toThrow()
+})
 it('rejects non-Owner and delegated setup without exposing or exchanging credentials',async()=>{
  await expect(prepareGithubSetup(f.env,await f.actor(ids.member),{name:'Other',account:'inchidev'})).rejects.toMatchObject({statusCode:403})
  const owner=await f.actor()

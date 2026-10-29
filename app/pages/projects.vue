@@ -67,7 +67,7 @@ async function remove(id: string) {
      <UFormField label="Provider origin"><UInput v-model="host" placeholder="https://github.com" class="w-full" /></UFormField>
      <UFormField label="Repository path"><UInput v-model="slug" placeholder="organization/repository" class="w-full" /></UFormField>
      <UFormField label="Default branch"><UInput v-model="branch" class="w-full" /></UFormField>
-     <UFormField label="Coding environment" help="Configure GitHub access in Server settings → Repositories, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name + ' · ' + e.sourceRepo, value: e.id }))]" class="w-full" /></UFormField>
+     <UFormField label="Coding environment" help="Configure GitHub access in Server settings → Git, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name + ' · ' + e.sourceRepo, value: e.id }))]" class="w-full" /></UFormField>
      <UButton type="submit" label="Attach reference" :disabled="!slug || !host" :loading="busy" />
     </form></template></UModal>
    </section>

@@ -17,10 +17,12 @@ export default defineEventHandler(async event=>{
   if ((error as { statusCode?: number }).statusCode !== 401) throw error
   return sendRedirect(event, '/git-connections/github/complete?' + new URLSearchParams(input))
  }
- try { await completeGithubSetup(env,actor.authorization,input.code,input.state) }
+ let connection
+ try { connection = await completeGithubSetup(env,actor.authorization,input.code,input.state) }
  catch (error) {
   if ((error as { data?: { error?: { code?: string } } }).data?.error?.code !== 'git_setup_expired') throw error
   return sendRedirect(event, '/git-connections/github/complete?' + new URLSearchParams({ ...input, expired: '1' }))
  }
- return sendRedirect(event,`/server/${serverId}/settings?section=environments`)
+ // Continue straight to repository selection; GitHub returns to the manifest setup_url.
+ return sendRedirect(event,connection.setupUrl)
 })
