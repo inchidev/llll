@@ -11,6 +11,7 @@ import type { L4Env } from '../workers/env'
 import { routeServerEmail } from '../workers/server-mail-router'
 import { agentGateway } from './utils/agent-gateway'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
+import { renewCloudflareAccess } from './utils/cloudflare-account-access'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
@@ -71,6 +72,9 @@ export default {
     await routeServerEmail(message, env)
   },
   async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
+    // A renewal failure must not skip the backup; Settings shows when access needs reconnecting.
+    try { await renewCloudflareAccess(env) }
+    catch (error) { console.warn('cloudflare.access.renew_failed', { code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' }) }
     if (env.BACKUPS && (env.FILES || env.TICKETS)) {
       const createdAt = new Date().toISOString()
       await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, fileStorage(env), createdAt, version))

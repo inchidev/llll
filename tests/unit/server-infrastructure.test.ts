@@ -7,7 +7,7 @@ describe('server infrastructure ownership', () => {
   it('does not call a public control plane when reading local deployment metadata', async () => {
     const network = vi.spyOn(globalThis, 'fetch')
     try {
-      await expect(readManagedServerDomains({} as L4Env)).resolves.toEqual({ managed: false, source: 'operator', primary: null, origins: [], pending: [], zones: [], appDomain: null, emailDomains: [] })
+      await expect(readManagedServerDomains({} as L4Env)).resolves.toEqual({ managed: false, source: 'operator', direct: false, primary: null, origins: [], pending: [], zones: [], appDomain: null, emailDomains: [] })
       expect(network).not.toHaveBeenCalled()
     }
     finally { network.mockRestore() }

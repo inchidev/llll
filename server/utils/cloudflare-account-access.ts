@@ -82,13 +82,13 @@ export async function disconnectCloudflareAccess(env: L4Env) {
 }
 
 /** A usable Cloudflare API bearer token, refreshing and re-sealing a rotated OAuth grant. */
-export async function cloudflareAccessToken(env: L4Env, refresh: typeof refreshCloudflareGrant = refreshCloudflareGrant): Promise<{ token: string; accountId: string }> {
+export async function cloudflareAccessToken(env: L4Env, refresh: typeof refreshCloudflareGrant = refreshCloudflareGrant, options: { force?: boolean } = {}): Promise<{ token: string; accountId: string }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const stored = await load(env)
     if (!stored) fail(409, 'cloudflare_access_missing', 'Connect Cloudflare to this Server first')
     const access = stored.access
     if (access.kind === 'token') return { token: access.token, accountId: access.accountId }
-    if (access.grant.expiresAt - Date.now() > 120_000) return { token: access.grant.accessToken, accountId: access.accountId }
+    if (!options.force && access.grant.expiresAt - Date.now() > 120_000) return { token: access.grant.accessToken, accountId: access.accountId }
     let grant: CloudflareGrant
     try { grant = await refresh(access.grant) }
     catch { fail(409, 'cloudflare_access_expired', 'Cloudflare access on this Server expired. Reconnect Cloudflare.') }
@@ -96,4 +96,15 @@ export async function cloudflareAccessToken(env: L4Env, refresh: typeof refreshC
     // Another request refreshed first; use its newer grant.
   }
   fail(409, 'cloudflare_access_busy', 'Cloudflare access is being renewed. Try again.')
+}
+
+/**
+ * Renew a kept OAuth grant from the weekly cron, so a Server that changes
+ * nothing for months still holds a live refresh token when it next updates.
+ */
+export async function renewCloudflareAccess(env: L4Env, refresh: typeof refreshCloudflareGrant = refreshCloudflareGrant) {
+  const status = await cloudflareAccessStatus(env)
+  if (!status.connected || status.kind !== 'oauth') return false
+  await cloudflareAccessToken(env, refresh, { force: true })
+  return true
 }

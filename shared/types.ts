@@ -439,6 +439,8 @@ export type RealtimeKitSettingsAdminDTO = {
   participantPreset: string
   /** Settings saved before hosts and participants had separate presets; reconnecting splits them. */
   sharedPreset: boolean
+  /** Live uses the Server's kept Cloudflare access rather than a pasted token. */
+  serverAccess?: boolean
 }
 
 export type AttachmentDTO = {

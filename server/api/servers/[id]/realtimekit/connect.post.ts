@@ -9,6 +9,7 @@ import {
   loadRealtimeKitConfig,
   RealtimeKitHttpError,
   REALTIMEKIT_SECRET_SCOPE,
+  REALTIMEKIT_SERVER_ACCESS,
   realtimekitConfigured,
   realtimekitSettingsAdminDto,
   testRealtimeKitConnection,
@@ -16,6 +17,7 @@ import {
 } from '../../../../../workers/realtimekit'
 import { callsProvider } from '../../../../../workers/env'
 import { authSecret } from '../../../../utils/auth-config'
+import { cloudflareAccessToken } from '../../../../utils/cloudflare-account-access'
 import { cf, fail } from '../../../../utils/cf'
 import { getDb } from '../../../../utils/db'
 import { requireMember } from '../../../../utils/guards'
@@ -27,6 +29,8 @@ const bodySchema = z.object({
   /** Omitted to reconnect with the saved token, for example to provision split presets. */
   apiToken: z.string().trim().min(1).max(4000).optional(),
   accountId: z.string().trim().regex(/^[a-f0-9]{32}$/iu).optional(),
+  /** Use this Server's kept Cloudflare access instead of a separate token. */
+  useServerAccess: z.boolean().optional(),
 })
 
 /**
@@ -51,14 +55,15 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
     fail(409, 'auth_secret_required', 'Set AUTH_SECRET for this Server before connecting RealtimeKit; the token is encrypted with it. Locally, run pnpm env:init or pnpm dev:stack.')
   }
 
-  const apiToken = body.apiToken || (current.secretReadable ? current.apiToken : '')
+  const access = body.useServerAccess ? await cloudflareAccessToken(env) : null
+  const apiToken = access?.token || body.apiToken || (current.secretReadable ? current.apiToken : '')
   if (!apiToken) fail(400, 'api_token_required', 'Paste a Cloudflare API token to connect')
 
   const origin = getRequestURL(event)
   let connection: Awaited<ReturnType<typeof connectRealtimeKit>>
   try {
     connection = await connectRealtimeKit(apiToken, {
-      accountId: body.accountId ?? (body.apiToken ? undefined : current.accountId || undefined),
+      accountId: access?.accountId ?? body.accountId ?? (body.apiToken ? undefined : current.accountId || undefined),
       appName: `L4 ${origin.host}`,
     })
     if ('accounts' in connection) return connection
@@ -71,7 +76,8 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
     fail(502, 'realtimekit_connection_failed', error instanceof Error ? error.message : 'RealtimeKit connection failed')
   }
 
-  const encrypted = await encryptSecret(authSecret(env), REALTIMEKIT_SECRET_SCOPE, apiToken)
+  // Kept access rotates; store a marker so each call resolves the current token.
+  const encrypted = await encryptSecret(authSecret(env), REALTIMEKIT_SECRET_SCOPE, access || (!body.apiToken && current.serverAccess) ? REALTIMEKIT_SERVER_ACCESS : apiToken)
   // Rooms started in another app, or through the REST fallback, could not be
   // ended once this connection takes over, so end them while they still can be.
   const sameApp = realtimekitConfigured(current)
@@ -100,7 +106,7 @@ export default defineEventHandler(async (event): Promise<{ realtimekit: Realtime
     action: 'realtimekit.settings.connect',
     targetType: 'server',
     targetId: (await getServerId(cf(event).env.DB)),
-    meta: { appId: connection.appId, token: body.apiToken ? 'replaced' : 'unchanged' },
+    meta: { appId: connection.appId, token: access ? 'server_access' : body.apiToken ? 'replaced' : 'unchanged' },
   })
   return { realtimekit: realtimekitSettingsAdminDto(await loadRealtimeKitConfig(env)) }
 })
