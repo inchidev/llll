@@ -70,6 +70,12 @@
   outline: none;
 }
 
+/* A tab panel is a container; Reka focuses it after switching tabs, which
+   drew a white frame around a whole page section. The tabs keep their focus. */
+[role="tabpanel"]:focus-visible {
+  outline: none;
+}
+
 /* The composer is a typing surface: the caret shows focus. The container also
    clips outlines, which turns this ring into stray left and right borders. */
 .df-composer textarea:focus-visible {
