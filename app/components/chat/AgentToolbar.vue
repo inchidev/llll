@@ -73,8 +73,6 @@ async function steer(run: Run) {
     </ul>
     <LayoutLoadError v-if="runs.error.value" inline message="Agent queue did not refresh." :retry="runs.refetch" />
     <div v-if="!replyingHere" class="flex min-w-0 items-center gap-0.5 px-2 py-1">
-      <!-- Same 36px column as the composer's attach button, so both icons line up. -->
-      <span class="flex w-9 shrink-0 justify-center"><UIcon name="i-ph-robot" class="size-5 text-muted" /></span>
       <UButton v-if="phone && (models.length || search)" :disabled="disabled || saving" :loading="saving" size="xs" variant="ghost" color="neutral" trailing-icon="i-ph-caret-down" class="min-w-0 flex-1 justify-between" :ui="{ label: 'truncate' }" aria-label="Provider / model" :label="selectedModel ? agentModelLabel(selectedModel) : 'Choose provider / model'" @click="sheetOpen = true" />
       <USelectMenu v-else-if="models.length || search" v-model:search-term="search" :loading="searching" ignore-filter :model-value="state.data.value?.selected ?? undefined" :items="models" value-key="value" virtualize :disabled="disabled || saving" size="xs" variant="ghost" class="min-w-0 flex-1" :ui="{ base: 'min-w-0', value: 'truncate' }" placeholder="Choose provider / model" aria-label="Provider / model" @update:model-value="model => select(model)">
         <template #item-trailing="{ item }"><AgentsModelCapabilities :inputs="item.inputs" :reasoning="item.reasoning" /></template>

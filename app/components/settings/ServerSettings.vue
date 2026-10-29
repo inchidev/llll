@@ -109,10 +109,10 @@ const communicationNav = computed(() => [
   ...(can(Permission.manageServer) ? [{ id: 'email' as const, label: 'Mail', icon: 'i-ph-envelope-simple', keywords: ['email', 'mailbox', 'inbox', 'domain'] }] : []),
   ...(isOwner.value ? [{ id: 'live' as const, label: 'Live', icon: 'i-ph-waveform', keywords: ['calls', 'video', 'audio', 'screen share', 'realtimekit'] }] : []),
 ])
-// The path to an agent that opens pull requests, in setup order.
+// The path to an agent that opens pull requests, in setup order: no models, no agents.
 const agentNav = computed(() => [
-  ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks', 'execution', 'limits', 'audit'] }] : []),
   ...(isOwner.value ? [{ id: 'models' as const, label: 'Models', icon: 'i-ph-plugs-connected', aliases: ['models', 'model-defaults'], keywords: ['providers', 'openrouter', 'anthropic', 'claude', 'chatgpt', 'api key', 'default model'] }] : []),
+  ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks', 'execution', 'limits', 'audit'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Git', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork', 'repositories'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'compute' as const, label: 'Compute', icon: 'i-ph-cpu', keywords: ['nodes', 'lizard', 'execution', 'containers', 'vps'] }] : []),
   ...(can(Permission.useAgents) || can(Permission.manageAgents) || can(Permission.useExternalTools) ? [{ id: 'tools' as const, label: 'Tools', icon: 'i-ph-wrench', keywords: ['mcp', 'connections', 'capabilities', 'permissions', 'approvals'] }] : []),

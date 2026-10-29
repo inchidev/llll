@@ -16,7 +16,12 @@ const modelSearch = ref('')
 const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId, query.value, page.value]), queryFn: () => api<{ providers: AgentProviderDTO[]; total: number }>(`/api/servers/${props.serverId}/agent-providers/connections`, { query: { search: query.value, page: page.value } }) })
 const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null; deploymentProvider?: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
 const connecting = useQuery({ queryKey: computed(() => ['agent-provider-connecting', props.serverId, editing.value?.id]), queryFn: () => api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${editing.value!.id}`), enabled: computed(() => Boolean(connection.value && editing.value)), refetchInterval: 2000 })
-const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value] }))
+const providerCards: Record<AgentProviderId, { icon: string; description: string }> = {
+  openrouter: { icon: 'i-ph-shuffle', description: 'Hundreds of models with one API key' },
+  anthropic: { icon: 'i-ph-asterisk', description: 'Claude models with an Anthropic API key' },
+  chatgpt: { icon: 'i-ph-open-ai-logo', description: 'Your ChatGPT plan, for your own requests' },
+}
+const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value], ...providerCards[value] }))
 const visible = computed(() => catalog.data.value?.providers ?? [])
 // The catalog is for adding; the chosen models are listed below it, each removable.
 const modelItems = computed(() => availableModels.value.filter(m => !state.models.some(chosen => chosen.id === m.id)).map(m => ({ ...m, label: m.label ?? m.id })))
@@ -74,7 +79,13 @@ async function connectChatGPT() {
   } catch (error) { popup?.close(); toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
-const helperCommand = computed(() => connection.value && import.meta.client ? `node connect-chatgpt.mjs '${location.origin}' '${connection.value.authorizationUrl}'` : '')
+// One pasteable command: it fetches this Server's helper and runs it, so nothing needs downloading first.
+const helperCommand = computed(() => connection.value && import.meta.client ? `curl -fsSL '${location.origin}/connect-chatgpt.mjs' | node --input-type=module - '${location.origin}' '${connection.value.authorizationUrl}'` : '')
+const copied = ref(false)
+async function copyCommand() {
+  try { await navigator.clipboard.writeText(helperCommand.value); copied.value = true; setTimeout(() => { copied.value = false }, 2000) }
+  catch { toast.add({ title: 'Copy failed. Select the command and copy it.', color: 'error' }) }
+}
 watch(() => connecting.data.value, value => {
   if (!connection.value || !editing.value) return
   if (connection.value.expiresAt < Date.now()) { connection.value = null; toast.add({ title: 'Sign-in expired', description: 'Continue with ChatGPT again.', color: 'warning' }); return }
@@ -119,20 +130,39 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
     </template>
   </section>
-  <SettingsEditor v-model:open="open" back="Agents" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose models for Agents and AI functions.">
+  <SettingsEditor v-model:open="open" back="Models" :title="editing ? `Configure ${editing.name}` : 'Add provider'" description="Connect an account and choose models for Agents and AI functions.">
     <template #body>
       <UForm id="agent-provider-form" :schema="agentProviderSchema.omit({ apiKey: true })" :state="state" class="space-y-4" @submit="save">
-        <UFormField name="kind" label="Provider"><USelect v-model="state.kind" :items="kinds" :disabled="Boolean(editing)" class="w-full" /></UFormField>
+        <UFormField name="kind" label="Provider">
+          <div v-if="!editing" class="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Provider">
+            <button v-for="kind in kinds" :key="kind.value" type="button" role="radio" :aria-checked="state.kind === kind.value" class="flex flex-col items-start gap-1.5 rounded-md border p-3 text-start transition-colors" :class="state.kind === kind.value ? 'border-primary bg-elevated' : 'border-default hover:bg-elevated/50'" @click="state.kind = kind.value">
+              <UIcon :name="kind.icon" class="size-6 text-highlighted" />
+              <span class="text-sm font-medium text-highlighted">{{ kind.label }}</span>
+              <span class="text-xs text-muted">{{ kind.description }}</span>
+            </button>
+          </div>
+          <div v-else class="flex items-center gap-2 text-sm"><UIcon :name="providerCards[state.kind].icon" class="size-5" /><span>{{ providerNames[state.kind] }}</span></div>
+        </UFormField>
         <UFormField name="name" label="Connection name" description="Distinguish work, personal, or other accounts. Left empty, it uses the provider name."><UInput v-model="state.name" class="w-full" /></UFormField>
         <template v-if="state.kind === 'chatgpt'">
           <p class="text-sm text-muted">{{ editing?.account ? `Connected as ${editing.account}.` : 'Use your ChatGPT plan with Pi.' }} This connection is available only for your requests.</p>
           <UButton label="Continue with ChatGPT" color="neutral" variant="outline" :loading="busy" @click="connectChatGPT" />
           <template v-if="connection">
             <div v-if="local" class="space-y-2"><p class="text-sm text-muted">Finish signing in in the new tab. This page will update automatically.</p><UButton :to="connection.authorizationUrl" target="_blank" label="Open ChatGPT sign-in" color="neutral" variant="link" /></div>
-            <div v-else class="space-y-3">
-              <p class="text-sm text-muted">OpenAI returns sign-in to your computer. Download the helper, then run this command in its folder. It opens your browser and returns the connection to this Server.</p>
-              <UButton to="/connect-chatgpt.mjs" download="connect-chatgpt.mjs" label="Download sign-in helper" icon="i-ph-download" color="neutral" variant="outline" />
-              <pre class="max-h-32 overflow-auto rounded-md bg-elevated p-3 text-xs whitespace-pre-wrap break-all">{{ helperCommand }}</pre>
+            <div v-else class="space-y-3 rounded-md border border-default p-3">
+              <p class="text-sm font-medium text-highlighted">Finish sign-in from your computer</p>
+              <p class="text-sm text-muted">OpenAI only returns ChatGPT sign-in to the computer you sign in on, not to a website. A small helper from this Server receives it there and passes the connection back. It needs Node.js 24 and stops after sign-in.</p>
+              <ol class="list-decimal space-y-1 ps-5 text-sm text-default">
+                <li>Copy the command.</li>
+                <li>Paste it into Terminal and press Return. Your browser opens ChatGPT.</li>
+                <li>Approve access. This page updates by itself.</li>
+              </ol>
+              <div class="flex flex-wrap items-center gap-2">
+                <UButton :label="copied ? 'Copied' : 'Copy command'" :icon="copied ? 'i-ph-check' : 'i-ph-copy'" color="neutral" @click="copyCommand" />
+                <UButton to="/connect-chatgpt.mjs" download="connect-chatgpt.mjs" label="Download helper instead" icon="i-ph-download" color="neutral" variant="link" />
+              </div>
+              <details class="text-xs text-muted"><summary class="cursor-pointer">Show command</summary><pre class="mt-2 max-h-32 overflow-auto rounded-md bg-elevated p-3 whitespace-pre-wrap break-all">{{ helperCommand }}</pre></details>
+              <p class="text-xs text-muted">The sign-in link expires in 10 minutes.</p>
             </div>
           </template>
         </template>

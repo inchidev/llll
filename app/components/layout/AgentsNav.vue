@@ -10,6 +10,8 @@ const selectedAgent = computed(() => {
   const conversation = conversations.data.value?.channels.find(channel => channel.serverId === props.serverId && channel.id === route.params.channel)
   return conversation?.participants?.length === 2 ? conversation.participants.find(user => user.kind === 'agent')?.id : undefined
 })
+// With a thread open, only the thread row is highlighted; its agent just stays readable.
+const threadOpen = computed(() => Boolean(route.params.threadId))
 function conversationFor(id: string) { return conversations.data.value?.channels.find(c => c.serverId === props.serverId && c.participants?.some(p => p.id === id)) }
 </script>
 
@@ -18,12 +20,12 @@ function conversationFor(id: string) { return conversations.data.value?.channels
     <LayoutSkeleton v-if="members.isPending.value" variant="nav" :rows="3" />
     <LayoutLoadError v-else-if="members.error.value" inline message="Agents did not load." :retry="members.refetch" />
     <p v-else-if="!agents.length" class="px-2 py-2 text-sm text-muted">No agents yet.</p>
-    <ul v-else>
+    <ul v-else class="space-y-1">
       <li v-for="agent in agents" :key="agent.user.id">
         <button
           type="button"
           class="flex min-h-16 w-full items-center gap-2 rounded-md px-2 py-2 text-start hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary"
-          :class="[selectedAgent === agent.user.id ? 'bg-accented text-highlighted' : 'text-muted', { 'cursor-not-allowed opacity-60': agent.agentStatus === 'paused' }]"
+          :class="[selectedAgent === agent.user.id ? (threadOpen ? 'text-highlighted' : 'bg-accented text-highlighted') : 'text-muted', { 'cursor-not-allowed opacity-60': agent.agentStatus === 'paused' }]"
           :aria-label="`Open the conversation with ${agent.user.displayName}`"
           :title="agent.user.displayName"
           :disabled="agent.agentStatus === 'paused'"
@@ -35,6 +37,7 @@ function conversationFor(id: string) { return conversations.data.value?.channels
         </button>
         <LayoutNavThreads
           v-if="conversationFor(agent.user.id)"
+          class="mt-1"
           :channel="conversationFor(agent.user.id)!"
           :threads="conversations.data.value?.threads?.filter(thread => thread.parentId === conversationFor(agent.user.id)?.id) ?? []"
           :label="agent.user.displayName"
