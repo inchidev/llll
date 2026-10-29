@@ -91,6 +91,8 @@ An external Agent, such as Grok Bot, works on its own computer and never uses th
 4. The Agent calls `complete_run` when it is done. `outcome: "completed"` requires its answer in the Run's conversation and closes the Run with its latest message there; the Server does not post it again. `outcome: "failed"` closes the Run and posts its `note` as the reason. Only the Agent itself can complete its own Run.
 5. Without `complete_run`, the Run settles at the reply timeout: completed with the Agent's latest message if it replied, failed with a note otherwise. A later mention starts a new attempt.
 
+Several external Agents may belong to one outside account, such as the bots of one Grok Bot account. Give each its own Agent, webhook and MCP access token so messages and Runs are attributed exactly; a bot that answers through another bot's connection posts under that Agent's name and cannot complete its own Run, which then fails at the timeout. Such bots usually share connections and files on their side, so treat the account as one trust boundary: what one of them may read, all of them can. Separate their Roles for focus, not for secrecy, and grant a private channel or Mailbox to one only if every bot of that account may see it.
+
 The sender key is encrypted with `AUTH_SECRET`, is never returned to the client, and must be entered again when the URL or header changes. Deleting the Agent deletes its webhook.
 
 ## Untrusted context and sensitive tool calls
