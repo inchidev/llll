@@ -25,8 +25,20 @@ export function parseFrontmatter(source) {
   return { data, body: source.slice(match[0].length) }
 }
 
+/** Text outside `<…>` tags; an unclosed `<` drops the rest. */
+function stripTags(html) {
+  let text = ''
+  let inTag = false
+  for (const character of String(html)) {
+    if (character === '<') inTag = true
+    else if (character === '>' && inTag) inTag = false
+    else if (!inTag) text += character
+  }
+  return text
+}
+
 export function slugify(text) {
-  return String(text).toLowerCase().replace(/<[^>]+>/g, '').replace(/[<>]/g, '').replace(/&[a-z]+;|&#\d+;/g, '').replace(/[`*_~]/g, '')
+  return stripTags(text).toLowerCase().replace(/&[a-z]+;|&#\d+;/g, '').replace(/[`*_~]/g, '')
     .replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-')
 }
 
@@ -88,7 +100,7 @@ export function renderMarkdown(markdown, { link = href => href, screenshots = ne
         const count = used.get(id) || 0
         used.set(id, count + 1)
         if (count) id += '-' + count
-        if (depth === 2 || depth === 3) toc.push({ id, text: plainText(inner.replace(/<[^>]+>/g, '').replace(/[<>]/g, '')), depth })
+        if (depth === 2 || depth === 3) toc.push({ id, text: plainText(stripTags(inner)), depth })
         return `<h${depth} id="${id}"><a class="heading-anchor" href="#${id}">${inner}</a></h${depth}>\n`
       },
       link({ href, title, tokens }) {
