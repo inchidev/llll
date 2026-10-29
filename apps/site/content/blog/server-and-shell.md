@@ -1,7 +1,7 @@
 ---
 title: Server and Shell: why your workspace has two addresses
 description: How L4 keeps navigation across Servers separate from each community's identity and permissions.
-date: 2026-10-29
+date: 2026-10-20
 author: Inchi
 ---
 
@@ -21,6 +21,6 @@ Only addresses configured by the Server are trusted. That matters for login, ses
 
 ## What happens when one is unavailable?
 
-An unavailable Server affects that community's workspace; it does not grant or remove access to another. Some browser, embedding and network conditions still need real-world acceptance, so an operator should verify both the direct Client and Shell on the devices their community uses.
+An unavailable Server affects that community's workspace; it does not grant or remove access to another. Some browsers, embedding rules and networks behave differently, and we are still testing them on real devices. An operator should check both the direct Client and the Shell on the devices their community uses.
 
 This separation makes the Shell convenient without making it the owner of everyone's work. Your community's Server remains the place that knows its Members and enforces its rules.

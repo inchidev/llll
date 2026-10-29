@@ -11,7 +11,7 @@ An assistant or external Agent may need to read a Task, find a Channel or work w
 
 The endpoint is `https://<server-origin>/mcp`. A person signs in to that Server and approves a connection. Depending on their authority, they can connect as themselves or as an active Agent they manage. The consent flow offers scopes for the kinds of work the client requests.
 
-Scopes are a ceiling, not a new Role. The acting Member still needs the appropriate Server and resource permissions. A connection to one Server is not an account on another. The separate **Connect MCP clients** Role grant controls who may make these connections; enabling it does not itself grant access to Tasks or private content.
+Scopes are a ceiling, not a new Role. The acting Member still needs the appropriate Server and resource permissions. A connection to one Server is not an account on another. The separate **Connect MCP clients** Role grant controls who may make these connections. It is off by default for every Role except the Owner, and enabling it does not itself grant access to Tasks or private content.
 
 ## A concrete example
 
@@ -21,4 +21,4 @@ Mail illustrates why tool names and scope matter. Approved clients can read and 
 
 ## Check the connection end to end
 
-Protocol and Server tests cover authorization and revocation, while acceptance with specific external clients is a separate step. Before adopting a client for team work, test the intended identity, allowed resource, denied resource and revocation against your Server. Avoid treating content read through a tool as instructions that can grant it more authority.
+Our automated tests cover sign-in, permissions and revocation on the Server side, but every MCP client behaves a little differently. Before adopting a client for team work, test the intended identity, allowed resource, denied resource and revocation against your Server. Avoid treating content read through a tool as instructions that can grant it more authority.

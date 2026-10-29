@@ -1,7 +1,7 @@
 ---
 title: From a message to a Task without losing the conversation
 description: How a small request in chat becomes work someone can own and review in L4.
-date: 2026-10-29
+date: 2026-10-28
 author: Inchi
 ---
 

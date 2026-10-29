@@ -1,7 +1,7 @@
 ---
 title: Where did we decide that? A workplace detective story
 description: The case of the missing decision, featuring three tabs, two screenshots and one very tired teammate.
-date: 2026-10-29
+date: 2026-10-28
 author: Inchi
 ---
 
@@ -17,9 +17,7 @@ Detective Morgan opened a notebook. The first suspect was a screenshot named `fi
 
 A team makes a decision in conversation, acts on it somewhere else and later needs to understand why. If the link between the two disappears, every new teammate has to reconstruct the plot from fragments.
 
-L4 lets a message become a Task with a link back to its source. A Server also keeps conversations, Tasks, Data and Documents in the same community workspace. That doesn't automatically produce perfect documentation—no software can force someone to write down what “the second option” means—but it gives the team a way to keep work connected to the discussion that started it.
-
-Access still matters. A Task link doesn't expose a private conversation to someone who can't read it. If the source message is deleted, the Task remains and says the source was deleted.
+In L4, conversations, Tasks, Data and Documents live in the same Server, and a message can [become a Task that links back to it](/blog/from-message-to-task). That doesn't produce perfect documentation. No software can force someone to write down what “the second option” means. But it gives the team a way to keep work connected to the discussion that started it.
 
 ## The detective's advice
 

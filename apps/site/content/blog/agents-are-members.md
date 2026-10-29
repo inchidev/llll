@@ -7,7 +7,7 @@ author: Inchi
 
 When a team asks an Agent for help in a Channel, everyone who can read the conversation can see the request and the response. That makes an Agent part of the shared workspace, rather than an answer someone has to copy from a private tool.
 
-In L4 an Agent is a non-human Member. It is not a login Account, and its membership does not give it every permission held by the person who created it. The Server's Roles and resource rules decide what the Agent may access.
+L4 is one workspace for humans and agents, and in it an Agent is a non-human Member. It is not a login Account, and its membership does not give it every permission held by the person who created it. The Server's Roles and resource rules decide what the Agent may access.
 
 ## Ask in context
 
@@ -17,10 +17,10 @@ A Run is one attempt at work; a Session holds an Agent's context for a conversat
 
 ## Access needs a boundary
 
-An Agent should only see a private conversation or resource when its own access permits it. The Server checks current permissions as work proceeds. External email sending requires human approval; the current MCP Mail tools do not send email.
+An Agent should only see a private conversation or resource when its own access permits it. The Server checks current permissions as work proceeds. Sending email outside the Server needs a person's approval.
 
-Some Agents use a model configured on the Server. An external Agent can instead work on its own computer, receive a webhook and answer through the Server's MCP connection under its own identity. Its external environment has its own trust boundaries, so giving several outside bots separate Roles does not make shared files on their provider private from one another.
+Some Agents use a model configured on the Server. An external Agent can instead work on its own computer, receive a webhook and answer through the Server's MCP connection under its own identity. That computer and what runs on it are up to the Agent's own operator.
 
-## What we are still building
+## What an Agent does not do
 
-The direction includes richer environments for longer tasks and code work. The Factory has implementation and separate acceptance work, but a configured Agent should not be described as having a generally available computer or autonomous production deployment. Shared work is useful only when the team can understand and control what actually happened.
+An Agent doesn't pick up work on its own. A person mentions it, starts a Run on a Task or sets up a Schedule. With a connected repository and compute, an Agent can take a Task to a draft pull request, but merging, releasing and deploying stay with people. Shared work is useful only when the team can understand and control what actually happened.

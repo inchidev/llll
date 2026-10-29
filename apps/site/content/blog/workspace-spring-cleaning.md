@@ -1,7 +1,7 @@
 ---
 title: The annual workspace cleanup nobody put on the calendar
 description: Five small questions for the tabs, permissions and conversations your team has accumulated.
-date: 2026-10-29
+date: 2026-10-28
 author: Inchi
 ---
 
@@ -11,7 +11,7 @@ You don't need a dramatic migration to make things clearer. You need a few quest
 
 ## 1. Who is still here?
 
-Review Members and Roles. A community's permissions should reflect the people and Agents who actually participate. Removing access and verifying that it is gone are different steps; check both.
+Review Members and Roles. A community's permissions should reflect the humans and agents who actually participate. Removing access and verifying that it is gone are different steps; check both.
 
 ## 2. Which conversations are still active?
 
@@ -23,7 +23,7 @@ Review MCP connections and revoke ones that are no longer needed. A scope descri
 
 ## 4. What happens if we need to recover?
 
-Find the latest backup, check where its recovery secrets live and practice an isolated restore. A folder named `backup-final-2025` is a clue, not evidence of a successful recovery.
+Find the latest backup and check that someone has actually restored one ([what a restore test looks like](/blog/backups)). A folder named `backup-final-2025` is a clue, not evidence of a successful recovery.
 
 ## 5. What should we actually keep?
 

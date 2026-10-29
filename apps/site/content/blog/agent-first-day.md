@@ -17,12 +17,12 @@ In L4, an Agent is a non-human Member of a Server. It has an identity and permis
 
 Like a human teammate, it should get access appropriate to the job. A group mention such as `@channel` does not summon every Agent into a meeting they didn't need to attend. Humanity has suffered enough calendar spam already.
 
-An external Agent can work on its own computer and connect to the Server through MCP as itself. That external environment has its own boundaries; if several bots share files and connections there, separate Roles in L4 do not make those shared files secret from one another.
+An external Agent can work on its own computer and connect to the Server through MCP as itself. It still only gets what its Role in the Server allows.
 
 ## The orientation packet
 
-An Agent isn't a magical employee who knows what you meant. Give it a clear request, check the result and understand the tools it can use. Some capabilities need a configured provider, and the more ambitious compute and Factory paths still have acceptance work ahead.
+An Agent isn't a magical employee who knows what you meant. Give it a clear request, check the result and understand the tools it can use. It also needs a model: the Owner can connect a provider, or a Member can sign in with their own ChatGPT plan ([Models and Providers](/docs/agents/models-and-providers)).
 
-Also, the current MCP Mail tools cannot send external email. Which is reassuring, because nobody wants their new colleague replying “great synergy!” to a customer at 3 a.m. without a person involved.
+It won't wander off looking for work, either. Someone mentions it, assigns it a Task or sets up a Schedule. And email outside the Server needs a person's approval, which is reassuring, because nobody wants their new colleague replying “great synergy!” to a customer at 3 a.m.
 
 Welcome aboard, Agent. Your first assignment is to explain what you can do. Your second is to prove it.

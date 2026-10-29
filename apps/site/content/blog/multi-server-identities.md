@@ -1,7 +1,7 @@
 ---
 title: Your book club does not need access to your company's Server
 description: One person, several communities and a refreshing lack of surprise membership.
-date: 2026-10-29
+date: 2026-10-20
 author: Inchi
 ---
 

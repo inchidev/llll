@@ -1,7 +1,7 @@
 ---
 title: This meeting could have been a message. The message could have been a Task.
 description: A short field guide to the natural lifecycle of a perfectly ordinary team request.
-date: 2026-10-29
+date: 2026-10-28
 author: Inchi
 ---
 
@@ -17,9 +17,7 @@ Three weeks later, a new teammate discovers that the page still says to ask Dere
 
 A lot of useful work starts with a sentence that sounds too small to need a system. Then it moves through four systems, two conversations and one increasingly nervous person.
 
-In L4, you can create a Task from a message in a Channel, DM or Thread. The form starts with context from the message, and the Task links back to it. Someone can take responsibility for the work without playing archaeological detective later.
-
-If a teammate can read the Task but not its source conversation, the link doesn't open the private discussion to them. If the original message is deleted, the Task stays and its source is marked deleted. Derek's disappearance is still unexplained, but the onboarding update has a fighting chance.
+In L4, the sentence itself can become a Task that links back to where it was said, so someone can take responsibility for the work without playing archaeological detective later. ([How that works](/blog/from-message-to-task), including what happens with private conversations and deleted messages.) Derek's disappearance is still unexplained, but the onboarding update has a fighting chance.
 
 ## No, this will not cancel your meetings
 

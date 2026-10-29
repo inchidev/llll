@@ -1,7 +1,7 @@
 ---
 title: A naturalist's guide to the modern team inbox
 description: Observe the Mention, the Task and the Unread Mailbox in their natural habitat.
-date: 2026-10-29
+date: 2026-10-28
 author: Inchi
 ---
 

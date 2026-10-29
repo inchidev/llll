@@ -1,7 +1,7 @@
 ---
 title: Notion export is useful. It isn't ownership of your workspace.
 description: A ZIP of Markdown and CSV is a start. A workspace you can operate and recover is a different promise.
-date: 2026-10-29
+date: 2026-10-30
 author: Inchi
 ---
 
@@ -15,7 +15,7 @@ Once you leave a hosted workspace, someone has to reconstruct what the files mea
 
 L4's bet is that a community should be able to run the Server where its conversations, Tasks, Data and Documents live. The software is MIT licensed, and each Server owns its Accounts and local permissions. Backups and recovery are part of the design, with backup storage separate from live files.
 
-That does not make L4 a drop-in Notion replacement. Notion has years of product depth, integrations and familiar workflows. We are not claiming an automatic Notion importer, equivalent databases or a proven one-click migration. Recovery needs its own tests on the deployment you use; having source code alone is not a backup.
+That does not make L4 a drop-in Notion replacement. Notion has years of product depth, integrations and familiar workflows. We are not claiming an automatic Notion importer, equivalent databases or a proven one-click migration. Recovery needs its own test on the Server you run; having the source code is not a backup.
 
 ## Ask the harder question
 
@@ -23,4 +23,4 @@ Don't just ask whether an app can give you a ZIP. Ask what you need to restore a
 
 Notion deserves credit for giving users export formats. We want to go further: make the running workspace itself something the community can operate. That is a harder promise, and it is the one L4 is working toward.
 
-*Notion export behavior checked October 29, 2026.*
+*Notion export behavior checked October 29, 2026 ([Notion Help Center: Export your content](https://www.notion.com/en-gb/help/export-your-content)).*

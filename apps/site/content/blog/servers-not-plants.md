@@ -1,7 +1,7 @@
 ---
 title: A Server is like a houseplant, except the houseplant doesn't have a database
 description: Independent workspaces need care. A practical guide for people who have already killed one succulent.
-date: 2026-10-29
+date: 2026-10-24
 author: Inchi
 ---
 
@@ -13,9 +13,7 @@ Unlike a houseplant, a Server does not need sunlight. It does need updates, stor
 
 An L4 Server owns the Accounts, content and settings of its community. An operator can use a supported Cloudflare or self-hosting path, but each path comes with infrastructure to maintain. Providers may charge for resources; running your own software does not make their bills disappear through the power of optimism.
 
-Keep backup storage separate from live files. A backup is a recovery copy, not a second Server secretly working the night shift. Check what is included, protect the secrets needed for recovery and practice a restore in an isolated environment.
-
-A useful test is to restore the Server and check its identity, sign-in, a second Member, permissions, a message and a file. Document what worked. “I clicked Backup once” is not a recovery plan, just as “I bought a watering can” is not gardening.
+Then there are backups. A backup is a recovery copy, not a second Server secretly working the night shift, and it only counts once you have restored it somewhere safe ([here's how to think about it](/blog/backups)). “I clicked Backup once” is not a recovery plan, just as “I bought a watering can” is not gardening.
 
 ## Ask for help before the leaves turn brown
 

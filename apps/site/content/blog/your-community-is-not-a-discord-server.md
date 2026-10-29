@@ -1,7 +1,7 @@
 ---
 title: A Discord server is not your server
 description: Discord gives communities a place to gather. L4 explores what changes when a community also operates its own workspace.
-date: 2026-10-29
+date: 2026-10-30
 author: Inchi
 ---
 
@@ -11,9 +11,9 @@ Discord is excellent at getting people together. Its identity, social features a
 
 ## The difference is who operates it
 
-An L4 Server has its own Accounts, Members, conversations, files and settings. The operator chooses a supported deployment path and is responsible for updates, storage and recovery. People may use the official Shell to find their Servers, but the Server owns its own identity and membership.
+An L4 Server has its own Accounts, Members, conversations, files and settings. The operator runs it on their own Cloudflare account or VPS and is responsible for updates, storage and recovery. People may use the official Shell to find their Servers, but the Server owns its own identity and membership.
 
-Discord offers users a [personal data package](https://support.discord.com/hc/en-us/articles/360004957991-Your-Discord-Data-Package), including their message data and information about servers they belong to. That is useful, but a personal data package is not a running, independently operated community Server. Don't confuse getting a copy of some data with transferring the whole service.
+Discord offers users a [personal data package](https://support.discord.com/hc/en-us/articles/360004957991-Your-Discord-Data-Package), a ZIP with the messages you sent and the servers you belong to. If you own a server, it also includes that server's channels, settings and audit log. That is genuinely useful, but a personal data package is not a running, independently operated community Server. Don't confuse getting a copy of some data with transferring the whole service.
 
 ## Control has a cost
 
@@ -21,4 +21,4 @@ Running a community Server means somebody has to keep it online, maintain backup
 
 The trade is worth considering for a group that wants its own durable workspace: a place for conversation, Tasks and shared information under its own rules. The hard part is making ownership practical. That's why installation, updates and tested recovery matter as much as adding another channel feature.
 
-*Discord data package details checked October 29, 2026.*
+*Discord data package details checked October 29, 2026 ([Discord Support: Your Discord Data Package](https://support.discord.com/hc/en-us/articles/360004957991-Your-Discord-Data-Package)).*

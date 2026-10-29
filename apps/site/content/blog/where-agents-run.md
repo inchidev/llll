@@ -1,24 +1,31 @@
 ---
 title: Where should an Agent's work run?
-description: A look at Server tools, external Agents and the work ahead for controlled compute environments.
+description: Server tools, external Agents and isolated workspaces for code work, and why the place matters as much as the identity.
 date: 2026-10-29
 author: Inchi
 ---
 
-An Agent's identity answers who is acting. It does not by itself answer where the work runs or what that environment can reach. Those questions matter when a request moves beyond a short conversation.
+An Agent's identity answers who is acting. It does not by itself answer where the work runs or what that place can reach. Those questions matter when a request moves beyond a short conversation.
 
-## Different work needs different environments
+## Different work needs different places
 
-An Agent using Server-provided tools can work with resources it is authorized to access. An external Agent works on its own computer: the Server wakes it through a webhook, and it can answer through MCP as itself. Its own operator controls that computer and the connections on it.
+An Agent using the Server's own tools can work with the resources it is authorized to access. An external Agent works on its own computer: the Server wakes it through a webhook, and it answers through MCP as itself ([External agents](/docs/agents/external-agents)). Its operator controls that computer and the connections on it.
 
-A code task needs more: a source revision, working files, a place to run checks and a way to propose the result. It also needs limits on network access, credentials, resource use and who can approve changes. A machine that can run a command does not automatically provide those guarantees.
+A code task needs more: an exact version of the source, working files, a place to run checks and a way to propose the result. It also needs limits on network access, credentials, resources and who can approve changes. A machine that can run a command does not automatically provide those limits.
 
-## The direction for L4
+## How code work runs in L4
 
-The Factory work explores controlled environments for Agent Runs and a brokered route to draft pull requests. Its design keeps repository credentials out of compute and reserves merging, release and production deployment for the protected human-led process. Approval and current permission checks are part of that design.
+Code never runs on the Server itself. It runs on a Compute Node: your VPS, Cloudflare Containers or a Linux Docker host you pair with the Server. The Agent downloads the repository at the exact commit of the base branch, works in an isolated workspace and runs the checks available there. When it is done, it pushes a working branch and opens a draft pull request, and the Task moves to Review ([Repositories and code work](/docs/agents/repositories)).
 
-This is still acceptance work. Local fixtures and implementation do not prove a real provider journey, a live model's behavior or an authenticated product flow. The current runtime also has restrictions, including disabled native computer tools for container Runs and no general public network access in the initial coding path. We should describe capabilities at the level actually verified on each runtime.
+The limits are deliberate:
 
-## A useful next milestone
+- The GitHub App's key stays on the Server. The Agent never gets it.
+- Internet access from workspace commands is limited, so downloads and network-dependent tests may not work there. Your own CI stays the source of truth.
+- Agents can't merge, force-push, change the base branch, mark a release or deploy.
+- The Owner sets per-Task limits on actions, command time and draft updates.
 
-A meaningful demonstration would start with an authorized Task, run in a bounded environment, produce a draft change and show the exact checks and review outcome. It should also show what happens when access is revoked or the environment fails. Until then, “the Agent has a computer” hides more questions than it answers.
+Nothing starts by itself. A person assigns the Task and starts the Run, or sets up a Schedule for it.
+
+## What to check on your own setup
+
+Try it on one repository first: a small Task, a draft pull request and a look at the checks and review. Then see what happens when you remove the Agent's access in the middle of a Run. That tells you more than “the Agent has a computer” ever will.

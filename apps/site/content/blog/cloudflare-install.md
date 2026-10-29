@@ -11,15 +11,15 @@ Installing a workspace should not require an operator to connect a source reposi
 
 In the Cloudflare tab of `/create`, an operator selects an account, names the Server and chooses a published release. The installer uses an authorized Cloudflare connection to create the Server's resources. It checks the release checksums before allocating them; a missing or mismatched checksum stops the install.
 
-A Server gets its own Worker, database, tickets storage and Durable Objects. Where R2 is enabled, private files and backups use separate buckets. The installer can also use the supported basic storage path when R2 is unavailable. The resources belong to the operator's account, so Cloudflare's own limits and charges still apply.
+A Server gets its own Worker, database, key-value storage and Durable Objects. If R2 is enabled on the account, private files and backups get two separate buckets. Without R2, files are stored in key-value storage instead, and you download backups from Settings or send them to an S3 bucket of your own. The resources belong to the operator's account, so Cloudflare's own limits and charges still apply.
 
 The installer generates a Server UUID and uses it across resource names and Server identity. The owner then completes setup on the Server's own origin and creates the local owner Account. That Account belongs to this Server, not to a shared L4 identity service.
 
 ## What about updates?
 
-The owner can let the Server keep Cloudflare access, encrypted with its Server secret, to perform supported updates. That option is on by default during installation. Updates use published, checksum-verified releases; an operator should also maintain and verify backups before relying on a recovery plan.
+The owner can let the Server keep Cloudflare access, encrypted with its Server secret. That box is checked by default during installation. A Server that keeps access updates itself from **Server settings → Deployment → Updates**, without going back to llll.gg. A Server without it updates through the llll.gg installer with a fresh Cloudflare authorization for that one update ([Updates](/docs/cloudflare/updates)).
 
-This installer is distinct from L4's own development deployment process. Official site and preview builds go through Git and Workers Builds; the customer installer works with immutable published artifacts in the customer's account.
+Either way, an update installs a published, checksum-verified release and makes a verified backup first. You never need Git, GitHub or Workers Builds. Backups still deserve their own restore test before you rely on them.
 
 ## Verify the whole journey
 
