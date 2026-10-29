@@ -104,37 +104,69 @@ export async function inferAiFunction(env: L4Env, authorization: AuthorizationCo
   }
 }
 
-const avatarStyle = 'A square profile picture of one character: a small, playful, toy-like object with a simple face, softly lit, centered on a plain light background. No text, letters or logos.'
+const avatarBrief = [
+  'You draw one profile picture (avatar) for a member or an agent of an L4 workspace.',
+  'Output exactly one square 1:1 image. One subject, centered, filling about two thirds of the frame, still readable at 40 pixels.',
+  'Plain, uncluttered background. No text, letters, numbers, watermarks, borders or frames, and no logos unless the request asks for one.',
+  'Friendly and characterful rather than corporate. Never depict a real, identifiable person.',
+].join(' ')
+const l4Style = [
+  'L4 house style: a playful, toy-like 3D object character with a small simple face (two eyes, an optional small mouth), like a designer vinyl figure.',
+  'Matte materials and soft studio light. A black-and-white palette with at most one muted accent colour, on a solid off-white or near-black background.',
+  'The first attached image is the L4 logo: echo its blocky, rounded pixel geometry in the character\'s shape, but do not draw the logo itself.',
+].join(' ')
+const dataImage = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/u
+/** The L4 logo from the Server's own assets, when the deployment serves them. */
+async function l4Logo(env: L4Env) {
+  try {
+    const response = await env.ASSETS?.fetch(new Request('https://assets.invalid/brand/logo-512.png'))
+    if (!response?.ok) return null
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    let binary = ''
+    for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+    return `data:image/png;base64,${btoa(binary)}`
+  } catch { return null }
+}
 /**
- * Draw one avatar with the Avatars function's OpenRouter image model. The
- * picture comes back to the caller for preview; saving it uses the ordinary,
- * size- and type-checked avatar upload.
+ * Draw one avatar with the Avatars function's OpenRouter image model, from a
+ * prompt and up to three reference pictures, optionally in the L4 style. The
+ * picture comes back for preview; saving it uses the ordinary avatar upload.
  */
-export async function generateAvatar(env: L4Env, authorization: AuthorizationContext, input: { name: string; description?: string }, transport: typeof fetch = fetch): Promise<string> {
+export async function generateAvatar(env: L4Env, authorization: AuthorizationContext, input: { name: string; description?: string; references?: string[]; l4Style?: boolean }, transport: typeof fetch = fetch): Promise<string> {
+  const references = (input.references ?? []).slice(0, 3)
+  if (references.some(reference => !dataImage.test(reference) || reference.length > 2_800_000)) fail(400, 'invalid_reference', 'References must be PNG, JPEG or WebP images up to 2 MB')
   const reference = await resolveAiFunction(env, 'avatar.generate', authorization.principal.id)
   const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ai-function:${authorization.principal.id}`))
   if (!await limiter.take(20, 60_000)) fail(429, 'rate_limited', 'Too many AI requests. Try again in a minute.')
   const saved = await resolveSavedAgentModel(env, reference, authorization.principal.id)
   if (!saved || saved.id !== 'openrouter') fail(409, 'ai_function_unavailable', 'Avatars need an OpenRouter image model. Choose one in Models → Defaults.')
-  const prompt = `${avatarStyle} The character is called ${input.name.slice(0, 80)}.${input.description ? ` ${input.description.slice(0, 500)}` : ''}`
+  const logo = input.l4Style ? await l4Logo(env) : null
+  const request = [
+    avatarBrief,
+    input.l4Style ? l4Style : '',
+    `The avatar is for "${input.name.slice(0, 80)}".`,
+    input.description ? `Request: ${input.description.slice(0, 1000)}` : 'No further request: choose a fitting subject.',
+    references.length ? `The ${logo ? 'remaining' : ''} attached image${references.length > 1 ? 's are' : ' is'} the person's reference${references.length > 1 ? 's' : ''}: follow them as the request describes, without copying any text in them.` : '',
+  ].filter(Boolean).join('\n\n')
+  const images = [...(logo ? [logo] : []), ...references].map(url => ({ type: 'image_url', image_url: { url } }))
   let status = 'failed'
   try {
     const response = await transport('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(90_000),
+      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(120_000),
       headers: { Authorization: `Bearer ${saved.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: saved.model.id, modalities: ['image', 'text'], messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: saved.model.id, modalities: ['image', 'text'], messages: [{ role: 'user', content: [{ type: 'text', text: request }, ...images] }] }),
     })
     const body = await readLimitedStream(response.body, 8_000_000)
     if (!response.ok || !body.ok) fail(502, 'ai_function_failed', `The image model did not answer (${response.status})`)
     const data = JSON.parse(new TextDecoder().decode(body.bytes)) as { choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }> }
     const image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url ?? ''
     // Only an inline PNG, JPEG or WebP no larger than an avatar upload is passed on.
-    if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/u.test(image) || image.length > 2_800_000) fail(502, 'ai_function_failed', 'The image model returned no usable picture. Try again or choose another model.')
+    if (!dataImage.test(image) || image.length > 2_800_000) fail(502, 'ai_function_failed', 'The image model returned no usable picture. Try again or choose another model.')
     status = 'completed'
     return image
   }
   finally {
-    await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: 'avatar.generate', meta: { model: reference, status }, authorization })
+    await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: 'avatar.generate', meta: { model: reference, status, references: references.length, l4Style: Boolean(input.l4Style) }, authorization })
   }
 }
 

@@ -39,3 +39,19 @@ it('describes or transcribes media for text-only agents, and stays quiet when un
   state.reference = null
   expect(await mediaAsText(env, 'audio.transcribe', 'member', { ...file, mediaType: 'audio/webm' })).toBeNull()
 })
+
+it('sends the L4 logo and up to three references with a house-style brief', async () => {
+  const logo = new Uint8Array([137, 80, 78, 71])
+  const withAssets = { ...env as object, ASSETS: { fetch: async () => new Response(logo) } } as never
+  let sent: { messages: Array<{ content: Array<{ type: string; text?: string; image_url?: { url: string } }> }> } | null = null
+  const transport = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body))
+    return Response.json({ choices: [{ message: { images: [{ image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] } }] })
+  })
+  const reference = 'data:image/jpeg;base64,/9j/4AAQ'
+  await generateAvatar(withAssets, authorization, { name: 'Mike', description: 'a cloud', references: [reference, reference], l4Style: true }, transport)
+  const content = sent!.messages[0]!.content
+  expect(content[0]!.text).toMatch(/L4 house style.*Request: a cloud/su)
+  expect(content.filter(part => part.type === 'image_url').map(part => part.image_url!.url)).toEqual(['data:image/png;base64,iVBORw==', reference, reference])
+  await expect(generateAvatar(env, authorization, { name: 'Mike', references: ['https://example.com/a.png'] }, transport)).rejects.toMatchObject({ statusCode: 400 })
+})
