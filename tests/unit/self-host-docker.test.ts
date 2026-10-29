@@ -74,6 +74,12 @@ describe('self-host docker stack', () => {
     expect(template).toContain('# logo: svgs/llll.png')
   })
 
+  it('drops the container port Coolify appends to the generated URL', () => {
+    const entrypoint = read('self-host/entrypoint.sh')
+    expect(entrypoint).toContain('PUBLIC_ORIGIN=${PUBLIC_ORIGIN%:8080}')
+    expect(entrypoint.indexOf('PUBLIC_ORIGIN=${PUBLIC_ORIGIN%:8080}')).toBeLessThan(entrypoint.indexOf('put_var PUBLIC_ORIGIN'))
+  })
+
   it('runs the published image in Coolify, updated by its tag', () => {
     const template = read('self-host/coolify/docker-compose.yaml')
     expect(template).toContain('image: ghcr.io/inchidev/llll:${LLLL_VERSION:-latest}')

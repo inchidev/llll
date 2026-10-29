@@ -1,6 +1,7 @@
 import { embedOrigins } from '../../shared/embed'
 import { SERVER_PERMISSIONS_POLICY, strictTransportSecurity } from '../../shared/security-headers'
 import { cf, fail, originOk } from '../utils/cf'
+import { primaryServerOrigin } from '../utils/server-origins'
 import { fetchMetadataExempt, OAUTH_BACKCHANNEL_PATHS, serverContentSecurityPolicy } from '../utils/security-policy'
 
 export default defineEventHandler(async (event) => {
@@ -36,6 +37,24 @@ export default defineEventHandler(async (event) => {
   }
   const allowMissingFetchMetadata = fetchMetadataExempt(path, getHeader(event, 'authorization'))
   if (!await originOk(event, { allowMissingFetchMetadata })) {
-    fail(403, 'csrf', 'Origin mismatch')
+    fail(403, 'csrf', await mismatchMessage(event))
   }
 })
+
+/** Name the addresses involved so an operator can see which setting to fix. */
+async function mismatchMessage(event: Parameters<typeof originOk>[0]): Promise<string> {
+  const received = getRequestURL(event).origin
+  let page = received
+  try { page = new URL(getHeader(event, 'origin') || received).origin } catch { /* Keep the request URL. */ }
+  let expected = ''
+  try { expected = await primaryServerOrigin(cf(event).env) } catch { /* Prerender has no runtime bindings. */ }
+  if (!expected) return 'Origin mismatch'
+  if (page !== expected) {
+    return `Origin mismatch: this page is ${page}, but the Server's address is ${expected}. Open the Server at its address, or list this one as an alias (LLLL_ORIGINS).`
+  }
+  if (received !== expected) {
+    // The browser is right; the reverse proxy forwarded another Host or scheme.
+    return `Origin mismatch: the Server received this request as ${received}, not ${expected}. The reverse proxy must forward the original Host and X-Forwarded-Proto.`
+  }
+  return 'Origin mismatch'
+}

@@ -175,7 +175,7 @@ WantedBy=multi-user.target
 
 `WorkingDirectory` only needs to exist; the node reads the deployed Worker from the bucket. Enable it with `systemctl enable --now llll`.
 
-Open `/setup#claim=<SETUP_TOKEN>` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser. The claim works only after the deployed `SETUP_TOKEN` is a random string of at least 32 characters.
+Open `/setup`, enter `SETUP_TOKEN` and create the owner. `PUBLIC_ORIGIN` must be the origin you use in the browser. The claim works only after the deployed `SETUP_TOKEN` is a random string of at least 32 characters.
 
 ## Reverse proxy
 

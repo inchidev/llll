@@ -53,6 +53,11 @@ if [ -z "${SETUP_TOKEN:-}" ] && [ -n "${SERVICE_PASSWORD_64_SETUPTOKEN:-}" ]; th
 fi
 PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-}
 PUBLIC_ORIGIN=${PUBLIC_ORIGIN%/}
+# The _8080 suffix tells Coolify's proxy which container port to route to; the
+# browser reaches the Server on the proxy's own port, never on :8080.
+if [ -n "${SERVICE_URL_LLLL_8080:-}" ] && [ "$PUBLIC_ORIGIN" = "${SERVICE_URL_LLLL_8080%/}" ]; then
+  PUBLIC_ORIGIN=${PUBLIC_ORIGIN%:8080}
+fi
 export PUBLIC_ORIGIN AUTH_SECRET="${AUTH_SECRET:-}" SETUP_TOKEN="${SETUP_TOKEN:-}"
 
 require_set() {
@@ -251,6 +256,7 @@ printf '%s\n' "$output"
 touch "${CELLD_WATCH}/.migrations-applied"
 if [ -n "$IMAGE_VERSION" ]; then printf '%s\n' "$IMAGE_VERSION" > "$DATA_VERSION_FILE"; fi
 echo "llll: celld d1 migrations apply ${DATABASE_NAME} finished"
+echo "llll: serving ${PUBLIC_ORIGIN}; before an Owner exists, open ${PUBLIC_ORIGIN}/setup and enter SETUP_TOKEN"
 
 if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
   export CELLD_CONFIG="$CONFIG" DATABASE_NAME CELLD_BUCKET CELLD_INTERNAL_LISTEN

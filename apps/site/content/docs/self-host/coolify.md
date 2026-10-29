@@ -14,7 +14,7 @@ The template is [`self-host/coolify/docker-compose.yaml`](https://github.com/inc
 2. Set the domain of the `llll` service, on port `8080`, and `ADMIN_EMAIL` (the first Owner's email). The deployment fails without `ADMIN_EMAIL`. Leave `LLLL_VERSION` unset to run `latest`.
 3. Deploy. The first start takes a few minutes while the database migrations are applied.
 4. Wait until `https://<your-domain>/api/setup/health` answers with HTTP 200.
-5. Open `https://<your-domain>/setup#claim=<SETUP_TOKEN>` and create the Owner. The token is the value of `SERVICE_PASSWORD_64_SETUPTOKEN` in the service's environment variables in Coolify.
+5. Open `https://<your-domain>/setup`, paste the setup token and create the Owner. The token is the value of `SERVICE_PASSWORD_64_SETUPTOKEN` in the service's environment variables in Coolify.
 
 If the Server does not come up, read the logs of the `llll` container in Coolify; see also [Troubleshooting](../reference/troubleshooting.md).
 
@@ -24,7 +24,7 @@ Coolify generates these values for the template:
 | --- | --- |
 | `SERVICE_URL_LLLL_8080`, `SERVICE_FQDN_LLLL_8080` | The Server's public origin (`PUBLIC_ORIGIN`). |
 | `SERVICE_PASSWORD_64_AUTHSECRET` | `AUTH_SECRET`. Signs sessions and encrypts stored credentials. |
-| `SERVICE_PASSWORD_64_SETUPTOKEN` | `SETUP_TOKEN`. The value for the setup link. |
+| `SERVICE_PASSWORD_64_SETUPTOKEN` | `SETUP_TOKEN`. Entered once on `/setup` to create the Owner. |
 | `SERVICE_USER_RUSTFS`, `SERVICE_PASSWORD_64_RUSTFS` | Keys for the private storage bucket. |
 
 > [!IMPORTANT]
