@@ -14,6 +14,7 @@ import { findAgentRun, runAuthorization, runCapability } from '../server/utils/a
 import { toolsForRun } from '../server/utils/agent-tools'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
+import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook, type AgentWebhook } from '../server/utils/agent-webhooks'
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
 import { z } from 'zod'
@@ -81,6 +82,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   }
 
   private async runtime(run: AgentRun, path: string, method = 'GET', input?: unknown): Promise<Response> {
+    // An external Agent has no executor here; there is nothing to stop or clean up.
+    if (await this.ctx.storage.get<boolean>('external') === true) return this.respond({ ok: true })
     const capability = await runCapability(this.env, run.id)
     const request = new Request(`http://pi/${path}`, { method,
       headers: { 'Content-Type': 'application/json', 'x-run-capability': capability },
@@ -157,6 +160,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   }
 
   private async publish(run: AgentRun): Promise<void> {
+    // An external Agent already answered in the conversation; only a failure needs a note.
+    if (run.status === 'completed' && await this.ctx.storage.get<boolean>('external') === true) return
     const { text } = await runReport(this.env, run)
     if (!text) return
     const content = text
@@ -176,6 +181,45 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     await this.ctx.storage.deleteAlarm()
   }
 
+  /** Wake the external Agent once, then wait for its own reply in the Run's conversation. */
+  private async external(run: AgentRun, webhook: AgentWebhook): Promise<void> {
+    await this.ctx.storage.put('external', true)
+    const sentAt = await this.ctx.storage.get<string>('webhookSentAt')
+    if (!sentAt) {
+      const mandate = JSON.parse(run.mandateJson) as RunMandate
+      const deadline = new Date(Math.min(Date.now() + webhook.replyTimeoutMinutes * 60000, mandate.rootDeadline ? Date.parse(mandate.rootDeadline) : Infinity)).toISOString()
+      const now = nowIso()
+      const outcome = await sendAgentWebhook(this.env, webhook, await agentWebhookPayload(this.env, { ...run, deadline }))
+      if (outcome.kind !== 'sent') {
+        const attempts = (await this.ctx.storage.get<number>('webhookAttempts') ?? 0) + 1
+        await this.ctx.storage.put('webhookAttempts', attempts)
+        if (outcome.kind === 'retry' && attempts < 5) {
+          await this.ctx.storage.setAlarm(Date.now() + 15000 * attempts)
+          return
+        }
+        await this.env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'")
+          .bind(outcome.status ? `The Agent's webhook answered ${outcome.status}. Check its URL and sender key in Agent settings.` : 'The Agent\'s webhook could not be reached. Check its URL in Agent settings.', run.id).run()
+        throw new Error('Webhook delivery interrupted')
+      }
+      await this.env.DB.prepare("UPDATE agent_runs SET deadline=?,updated_at=? WHERE id=? AND status='running'").bind(deadline, now, run.id).run()
+      await this.ctx.storage.put('webhookSentAt', now)
+      await this.ctx.storage.setAlarm(Date.now() + 15000)
+      return
+    }
+    const reply = await externalAgentReply(this.env, run, sentAt)
+    if (!reply) {
+      await this.ctx.storage.setAlarm(Date.now() + 15000)
+      return
+    }
+    const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status='completed',result_text=?,result_message_id=?,last_error=NULL,updated_at=? WHERE id=? AND status='running' RETURNING id")
+      .bind(reply.content, reply.id, nowIso(), run.id).first<{ id: string }>()
+    const savedRun = finalized ? (await findAgentRun(this.env, run.id))! : null
+    const delivered = savedRun ? await deliverAgentRun(this.env, savedRun, () => this.publish(savedRun)) : true
+    await this.release(run)
+    if (delivered) await this.ctx.storage.deleteAlarm()
+    else await this.ctx.storage.setAlarm(Date.now() + 30000)
+  }
+
   override async alarm(): Promise<void> {
     const id = await this.ctx.storage.get<string>('runId')
     if (!id) return
@@ -193,6 +237,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     await this.ctx.storage.setAlarm(Date.now() + 5000)
     let phase = 'authorization'
     try {
+      const webhook = await agentWebhook(this.env, run.agentId)
+      if (webhook && run.status === 'running' && run.deadline <= nowIso() && await this.ctx.storage.get<string>('webhookSentAt')) {
+        await this.env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'")
+          .bind(`No reply arrived within ${webhook.replyTimeoutMinutes} minutes. The Agent may still be working; mention it again to start a new attempt.`, run.id).run()
+      }
       if (run.status === 'queued' && Date.parse(run.createdAt) + RUN_QUEUE_WAIT_MS <= Date.now()) throw new Error('Run queue wait limit reached')
       if (run.status === 'running' && run.deadline <= nowIso()) throw new Error('Run deadline reached')
       const authorization = await runAuthorization(this.env, run)
@@ -205,6 +254,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         run = started
         await patchAgentTurn(this.env, run.id, { status: 'thinking', detail: 'Working' })
         await fanoutAgentTurns(this.env, run.channelId, run.agentId)
+      }
+      if (webhook) {
+        phase = 'webhook'
+        await this.external(run, webhook)
+        return
       }
       const files = fileStorage(this.env)
       if (!files) throw new Error('Pi file storage unavailable')

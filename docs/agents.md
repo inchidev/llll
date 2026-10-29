@@ -81,6 +81,17 @@ Native Pi `read/write/edit/bash/grep/find/ls` tools are disabled for all contain
 
 The Docker proof uses the real Pi SDK with a deterministic model fixture; it proves execution/isolation/recovery, not real-model quality. A Cloudflare Preview and authenticated product acceptance are separate required evidence. See [implementation plan](agent-plan.md) for remaining work.
 
+### External agents
+
+An external Agent, such as Grok Bot, works on its own computer and never uses this Server's model providers. In the Agent editor, turn on **Its own computer (external agent)** and enter its webhook URL, the header that carries its sender key, the key and a reply timeout (2–120 minutes, default 20).
+
+1. A direct mention or a DM message admits a Run as usual: the same Role, mandate, conversation queue and daily Run limit apply. Role and group mentions never wake it.
+2. The Run's coordinator sends one `POST` with `Idempotency-Key: <Run ID>` and a JSON body (`type: "agent.run"`, `version: 1`): the Run, the Agent, the invoking Member, the conversation, the message text as `prompt`, and `reply: { tool: "send_message", arguments: { channelId } }`. The prompt is untrusted data. Redirects are not followed, and only public `https://` hosts are accepted. Network errors, 408, 429 and 5xx are retried up to five times; any other status fails the Run with the status shown.
+3. The Agent answers through this Server's MCP (`/mcp`) with an access token or OAuth connection that acts as the Agent (Settings → MCP), so it keeps exactly its Role's permissions. Its first message in the Run's conversation after the wake-up completes the Run; the Server does not post it again.
+4. Without a reply before the timeout the Run fails with a note in the conversation. A later mention starts a new attempt.
+
+The sender key is encrypted with `AUTH_SECRET`, is never returned to the client, and must be entered again when the URL or header changes. Deleting the Agent deletes its webhook.
+
 ## Untrusted context and sensitive tool calls
 
 The Server enforces a conservative containment policy for #289 before expanding capabilities. Tool results, Task prompts, restored transcripts and messages supplied by another Member are untrusted context. A durable flag belongs to the entire Session: retries, failed reads, cached result replay and fresh Runs in that conversation do not clear it. Migration 0019 backfills existing Sessions with prior Task/tool/transcript context. A new conversation has independent context; it does not acquire authority to disclose another conversation’s data.
