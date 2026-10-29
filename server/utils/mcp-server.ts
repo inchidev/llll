@@ -11,7 +11,7 @@ import {
   deleteChannelMessage, editChannelMessage, listChannelThreads, listMentionRoles, listMessageChannels, listMessageMembers, openDirectMessage,
   readChannelMessages, requireMessageMember, searchChannelMessages, sendChannelMessage, setMessagePin, setMessageReaction,
 } from './message-service'
-import { completeExternalRun } from './agent-webhooks'
+import { completeExternalRun, completeExternalRunOnReply } from './agent-webhooks'
 import { isStoredAvatarKey } from '../../shared/avatar'
 import { retryDeletedFiles } from '../../shared/file-cleanup'
 import { createRecord, createRecordSchema, readRecordsSchema, readRecords, updateRecord, updateRecordSchema } from './record-service'
@@ -231,7 +231,12 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
     inputSchema: { channelId: z.string().min(8), content: z.string().min(1).max(2000),
       replyToId: z.string().min(8).optional(), agentMode: z.enum(['queue', 'steer']).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, async ({ channelId, ...input }) => result(await sendChannelMessage(env, await requireMessageMember(env, principal.authorization, 'messages:write'), channelId, input, schedule)))
+  }, async ({ channelId, ...input }) => {
+    const member = await requireMessageMember(env, principal.authorization, 'messages:write')
+    const sent = await sendChannelMessage(env, member, channelId, input, schedule)
+    await completeExternalRunOnReply(env, member.authorization, { channelId, replyToId: input.replyToId })
+    return result(sent)
+  })
 
   const reader = () => requireMessageMember(env, principal.authorization, 'messages:read')
   const writer = () => requireMessageMember(env, principal.authorization, 'messages:write')
@@ -285,7 +290,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ userId }) => result(await openDirectMessage(env, await writer(), userId)))
 
   if (principal.authorization.principal.kind === 'agent') server.registerTool('complete_run', {
-    description: 'Finish a Run you were woken for (the webhook gives its runId). Send your answer with send_message in the Run\'s conversation first; progress messages before that keep the Run open. outcome=completed closes it with your latest message there; outcome=failed closes it and posts your note as the reason. Without this call the Run closes at its reply timeout: completed if you replied, failed otherwise.',
+    description: 'Finish a Run you were woken for (the webhook gives its runId). Replying with send_message to the webhook\'s reply.arguments.replyToId already completes it; other messages are progress and keep it open. Otherwise send your answer in the Run\'s conversation first. outcome=completed closes it with your latest message there; outcome=failed closes it and posts your note as the reason. Without this call the Run closes at its reply timeout: completed if you replied, failed otherwise.',
     inputSchema: { runId: z.string().min(8), outcome: z.enum(['completed', 'failed']).default('completed'), note: z.string().max(2000).optional() },
     annotations: writeAnnotations(false, true),
   }, async (input) => result(await completeExternalRun(env, (await writer()).authorization, input)))

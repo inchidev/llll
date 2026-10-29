@@ -42,7 +42,8 @@ export type AgentWebhookPayload = {
   from: { id: string; name: string }
   conversation: { channelId: string; sourceMessageId: string | null; taskId: string | null }
   prompt: string
-  reply: { tool: 'send_message'; arguments: { channelId: string } }
-  /** Call once the work is done; intermediate messages keep the Run open. */
+  /** A reply to `replyToId` is the answer and closes the Run; other messages are progress. */
+  reply: { tool: 'send_message'; arguments: { channelId: string; replyToId?: string } }
+  /** Call to finish without replying to the source message, or to fail; other messages keep the Run open. */
   complete: { tool: 'complete_run'; arguments: { runId: string } }
 }
