@@ -5,7 +5,7 @@ import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { getDb } from '../../../utils/db'
 import { toPublicUser } from '../../../utils/messages'
-import { loadProjectPolicies } from '../../../utils/project-policies'
+import { loadMemberProjectPolicies } from '../../../utils/project-policies'
 import { canViewAgentMembers, projectPermissionAllowed } from '../../../../shared/project-access'
 import { parseResourceAccess } from '../../../../shared/resource-access'
 
@@ -41,10 +41,12 @@ export default defineEventHandler(async (event) => {
     .leftJoin(agents, eq(agents.userId, users.id))
     .where(eq(users.status, 'active'))
 
+  const visibleRows = rows.filter(r => canViewAgents || r.user.kind !== 'agent')
+  const policies = await loadMemberProjectPolicies(env, visibleRows.map(r => ({ id: r.user.id, roleId: r.role.id })))
   return {
-    members: await Promise.all(rows.filter(r => canViewAgents || r.user.kind !== 'agent').map(async (r) => ({
+    members: visibleRows.map(r => ({
       user: toPublicUser(r.user),
-      projectPolicies: (await loadProjectPolicies(env, r.user.id, r.role.id)).filter(grant => canViewRoleDetails || r.user.id === actor.user.id || projectPermissionAllowed(actor.authorization, grant.projectId, Permission.readProjects)),
+      projectPolicies: (policies.get(r.user.id) ?? []).filter(grant => canViewRoleDetails || r.user.id === actor.user.id || projectPermissionAllowed(actor.authorization, grant.projectId, Permission.readProjects)),
       ...(r.user.kind === 'agent' ? { agentStatus: r.agentStatus ?? 'paused' } : {}),
       role: {
         id: r.role.id,
@@ -59,6 +61,6 @@ export default defineEventHandler(async (event) => {
       },
       nickname: r.nickname,
       status: statusMap.get(r.user.id) ?? 'offline',
-    }))),
+    })),
   }
 })

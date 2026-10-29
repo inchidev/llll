@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ids, mcpFixture } from '../helpers/outbound-mcp'
 import { Permission, MemberPermissions } from '../../shared/permissions'
 import { authorize, ServerAction } from '../../shared/authorization'
 import { projectPermissionAllowed, ProjectPolicyPermissions } from '../../shared/project-access'
 import { createProject, listProjects } from '../../server/utils/project-service'
-import { assignProjectPolicy, revokeProjectPolicy, replaceProjectPolicy, listProjectPolicies, saveProjectPolicy } from '../../server/utils/project-policies'
+import { assignProjectPolicy, revokeProjectPolicy, replaceProjectPolicy, listProjectPolicies, saveProjectPolicy, loadProjectPolicies, loadMemberProjectPolicies } from '../../server/utils/project-policies'
 import { createTask, getTask, listTasks, updateTask } from '../../server/utils/task-service'
 import { runAuthorization } from '../../server/utils/agent-run-service'
 
@@ -74,6 +74,29 @@ it('supports role assignments and direct assignments without changing the Server
   expect(auth.principal.roleId).toBe(ids.memberRole)
   expect(projectPermissionAllowed(auth,a,Permission.writeTasks)).toBe(true)
   expect(projectPermissionAllowed(auth,b,Permission.writeTasks)).toBe(false)
+})
+it('loads member and role grants in one query with the same results as individual lookups', async () => {
+  await assignProjectPolicy(f.env, await f.actor(), a, { policyId: 'project-policy-developer', roleId: ids.memberRole })
+  await assign(ids.member, b, 'reviewer')
+  await assign(ids.agent, a, 'reviewer')
+  const archived = (await createProject(f.env, await f.actor(), { name: 'Archived' })).id
+  await assign(ids.member, archived)
+  f.db.prepare('UPDATE projects SET archived_at=? WHERE id=?').run('2026-10-29', archived)
+  const members = [
+    { id: ids.member, roleId: ids.memberRole },
+    { id: ids.agent, roleId: ids.agentRole },
+    { id: ids.owner, roleId: ids.ownerRole },
+    { id: 'another-member', roleId: ids.memberRole },
+  ]
+  const expected = await Promise.all(members.map(m => loadProjectPolicies(f.env, m.id, m.roleId)))
+  const prepare = vi.spyOn(f.env.DB, 'prepare')
+  const actual = await loadMemberProjectPolicies(f.env, members)
+  expect(prepare).toHaveBeenCalledTimes(1)
+  expect(members.map(m => actual.get(m.id))).toEqual(expected)
+  prepare.mockClear()
+  expect(await loadMemberProjectPolicies(f.env, [])).toEqual(new Map())
+  expect(prepare).not.toHaveBeenCalled()
+  prepare.mockRestore()
 })
 it('denies self-assignment and cannot smuggle Server administration into a project policy', async () => {
   await expect(assignProjectPolicy(f.env,await f.actor(ids.member),a,{policyId:'project-policy-developer',memberId:ids.member})).rejects.toMatchObject({statusCode:403})

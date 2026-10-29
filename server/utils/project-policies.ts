@@ -12,6 +12,34 @@ export async function loadProjectPolicies(env: L4Env, memberId: string, roleId: 
     WHERE (a.member_id=? OR a.role_id=?) AND j.archived_at IS NULL ORDER BY a.id`).bind(memberId, roleId).all<ProjectPolicyGrant>()
   return rows.results
 }
+
+/** Load the same grants for a member list without a query per member. */
+export async function loadMemberProjectPolicies(env: L4Env, members: Array<{ id: string; roleId: string }>): Promise<Map<string, ProjectPolicyGrant[]>> {
+  const result = new Map<string, ProjectPolicyGrant[]>()
+  if (!members.length) return result
+  const rows = await env.DB.prepare(`SELECT a.id,a.project_id AS projectId,p.id AS policyId,p.version AS policyVersion,p.permissions_bitmask AS permissions,
+      a.member_id AS memberId,a.role_id AS roleId
+    FROM project_policy_assignments a JOIN project_policies p ON p.id=a.policy_id JOIN projects j ON j.id=a.project_id
+    WHERE j.archived_at IS NULL ORDER BY a.id`).all<ProjectPolicyGrant & { memberId: string | null; roleId: string | null }>()
+  const byMember = new Map<string, ProjectPolicyGrant[]>()
+  const byRole = new Map<string, ProjectPolicyGrant[]>()
+  for (const { memberId, roleId, ...grant } of rows.results) {
+    const target = memberId ? byMember : byRole
+    const key = (memberId ?? roleId)!
+    const grants = target.get(key) ?? []
+    grants.push(grant)
+    target.set(key, grants)
+  }
+  for (const member of members) {
+    const direct = byMember.get(member.id) ?? [], role = byRole.get(member.roleId) ?? []
+    const grants: ProjectPolicyGrant[] = []
+    let i = 0, j = 0
+    while (i < direct.length && j < role.length) grants.push(direct[i]!.id < role[j]!.id ? direct[i++]! : role[j++]!)
+    grants.push(...direct.slice(i), ...role.slice(j))
+    result.set(member.id, grants)
+  }
+  return result
+}
 export function requirePolicyManager(auth: AuthorizationContext) {
   if (auth.principal.kind !== 'human' || auth.credential.kind !== 'session' || auth.delegation
     || (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.manageRoles))) fail(403, 'policy_denied', 'Manage roles with a human session is required')
