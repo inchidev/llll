@@ -89,6 +89,31 @@ export default defineNuxtPlugin((nuxtApp) => {
       error.value = 'The update could not start. Please try again.'
     }
   }
+  /**
+   * Loads the client that matches the installed Server. A worker that is still downloading is
+   * awaited; when none is coming, the cached shell is dropped so the reload reaches the Worker.
+   */
+  async function reloadLatest() {
+    if (updating.value || blocked()) return
+    error.value = ''
+    updating.value = true
+    try {
+      await check()
+      const installing = registration?.installing
+      if (installing) {
+        await new Promise<void>((resolve) => {
+          const done = () => { if (installing.state !== 'installing') { installing.removeEventListener('statechange', done); resolve() } }
+          installing.addEventListener('statechange', done)
+          setTimeout(resolve, 30_000)
+        })
+        syncWaiting()
+      }
+    } finally { updating.value = false }
+    if (registration?.waiting || readyToReload) { update(); return }
+    try { for (const key of await caches.keys()) if (key.startsWith('llll-public-')) await caches.delete(key) }
+    catch { /* The reload still asks the network for anything the cache no longer holds. */ }
+    location.reload()
+  }
   nuxtApp.hook('app:chunkError', () => { error.value = 'Some app files are unavailable. Reconnect and check for an update.' })
-  return { provide: { pwa: { waiting, updating, error, update, check } } }
+  return { provide: { pwa: { waiting, updating, error, update, check, reloadLatest } } }
 })

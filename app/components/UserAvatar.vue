@@ -3,9 +3,12 @@ import type { PublicUser } from '~~/shared/types'
 
 const props = defineProps<{
   user: Pick<PublicUser, 'id' | 'kind' | 'displayName' | 'avatarR2Key'>
+  /** A picture chosen but not saved yet. */
+  preview?: string | null
 }>()
 const { serverUrl } = useApi()
 const avatarSrc = computed(() => {
+  if (props.preview) return props.preview
   const src = userAvatarSrc(props.user)
   return src?.startsWith('/api/') ? serverUrl(src) : src
 })

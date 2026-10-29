@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useObjectUrl } from '@vueuse/core'
 import type { FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { agentModelLabel, type AgentProviderCatalog } from '~~/shared/agent-providers'
@@ -44,6 +45,7 @@ const confirmDelete = ref(false)
 const busy = computed(() => saving.value || deleting.value)
 const avatarFile = shallowRef<File | null>(null)
 const removeCurrentAvatar = ref(false)
+const avatarPreview = useObjectUrl(avatarFile)
 
 const statusOptions = [
   { label: 'Active', value: 'active' },
@@ -267,7 +269,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       />
       <UFormField label="Avatar">
         <div class="flex items-center gap-4">
-          <UserAvatar :user="formAvatarUser" size="2xl" />
+          <UserAvatar :user="formAvatarUser" :preview="avatarPreview" size="2xl" />
           <div class="space-y-2">
             <UFileUpload
               v-model="avatarFile"

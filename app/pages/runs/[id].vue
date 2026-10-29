@@ -8,6 +8,7 @@ import { Permission } from '~~/shared/permissions'
 import type { AgentRun } from '~~/shared/agent-execution'
 import { runStatusColor } from '~~/shared/agent-run-status'
 import { channelPath } from '~~/shared/paths'
+const nav = useNavActions()
 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
 const route = useRoute()
@@ -113,7 +114,14 @@ async function publicationAction(decision?: 'approve' | 'reject') {
         <dt class="text-muted">Model calls</dt><dd>{{ run.modelCalls }}</dd>
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
-      <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" />
+      <UAlert v-if="run.lastError" color="error" :description="run.lastError" title="Run stopped" :actions="run.lastError.includes('Compute') && can(Permission.manageServer) ? [{ label: 'Open Compute settings', color: 'neutral', variant: 'outline', onClick: () => nav.openServerSettings('compute') }] : undefined" />
+      <!-- Every action on this Run sits in one row under its status. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <UButton v-if="runQ.data.value?.canRetry && ['failed', 'cancelled'].includes(run.status)" label="Retry run" icon="i-ph-arrow-clockwise" :loading="retrying" @click="retryRun" />
+        <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" icon="i-ph-stop" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
+        <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" icon="i-ph-file-text" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />
+        <UButton v-if="run.hasFiles && can(Permission.useComputer)" label="Download working files" icon="i-ph-download" color="neutral" variant="outline" :loading="downloading" @click="downloadFiles" />
+      </div>
       <details v-if="runQ.data.value?.factoryCalls?.length" class="space-y-3 rounded-lg border border-default p-4">
         <summary class="cursor-pointer font-medium">Private workspace tool audit</summary>
         <article v-for="call in runQ.data.value.factoryCalls" :key="call.callId" class="space-y-2 border-t border-default pt-3">
@@ -142,7 +150,6 @@ async function publicationAction(decision?: 'approve' | 'reject') {
       </section>
       <section class="space-y-2"><h2 class="text-sm font-medium">Instruction</h2><p class="whitespace-pre-wrap text-sm text-muted">{{ displayAgentPrompt(run.prompt) }}</p></section>
       <section v-if="runQ.data.value?.modelCalls?.length" class="space-y-2"><h2 class="text-sm font-medium">Model requests</h2><ol class="space-y-2"><li v-for="call in runQ.data.value.modelCalls" :key="call.callNumber" class="rounded border border-default p-3 text-sm"><p class="break-all">#{{ call.callNumber }} · {{ call.model }} · {{ call.status }}</p><p class="text-xs text-muted">{{ new Date(call.startedAt).toLocaleString() }} · {{ call.totalTokens ?? 'reserved' }} tokens</p><p v-if="call.error" class="text-error">{{ call.error }}</p></li></ol></section>
-      <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><ChatMarkdownView :content="run.resultText" class="text-sm text-default" /></section>
       <section v-if="run.status === 'completed' && run.resultText?.trim() && can(Permission.approveAgentActions)" class="space-y-3 rounded-lg border border-default p-4">
         <h2 class="text-sm font-medium">Share result</h2>
@@ -182,9 +189,6 @@ async function publicationAction(decision?: 'approve' | 'reject') {
           <p v-if="entry.event.purpose" class="text-xs text-muted">Selection purpose: {{ entry.event.purpose }}</p>
         </li></ol>
       </section>
-      <UButton v-if="runQ.data.value?.canRetry && ['failed', 'cancelled'].includes(run.status)" label="Retry run" icon="i-ph-arrow-clockwise" :loading="retrying" @click="retryRun" />
-      <UButton v-if="run.hasFiles && can(Permission.useComputer)" label="Download working files" icon="i-ph-download" color="neutral" variant="outline" :loading="downloading" @click="downloadFiles" />
-      <UButton v-if="runQ.data.value?.canCancel && ['queued', 'running'].includes(run.status)" label="Stop run" color="neutral" variant="outline" :loading="cancelling" @click="cancel" />
     </template>
     </main>
   </div>

@@ -28,8 +28,9 @@ export async function factoryAuthority(env: L4Env, runId: string, actorId?: stri
   const environment = JSON.parse(run.environmentJson) as RunEnvironment
   if (!task || task.archivedAt || (!readOnly && task.status === 'done') || task.assigneeId !== run.agentId || task.environmentId !== environment.id) fail(403, 'factory_revoked', 'Task assignment or repository changed')
   if (!environment.computeNodeId) fail(409, 'compute_unconfigured', 'Choose a Compute Node for this repository in Server settings')
-  const node = await env.DB.prepare('SELECT enabled,capabilities_json AS capabilitiesJson,last_seen AS lastSeen FROM compute_nodes WHERE id=?').bind(environment.computeNodeId).first<{ enabled: number; capabilitiesJson: string; lastSeen: string | null }>()
-  if (!node || (!readOnly && !node.enabled)) fail(403, 'compute_revoked', 'Compute Node is disabled or unavailable')
+  const node = await env.DB.prepare('SELECT name,enabled,capabilities_json AS capabilitiesJson,last_seen AS lastSeen FROM compute_nodes WHERE id=?').bind(environment.computeNodeId).first<{ name: string; enabled: number; capabilitiesJson: string; lastSeen: string | null }>()
+  if (!node) fail(403, 'compute_revoked', 'The Compute Node chosen for this repository was removed. Choose another one in Settings → Compute.')
+  if (!readOnly && !node.enabled) fail(403, 'compute_revoked', `The Compute Node “${node.name}” is turned off. Turn it on in Settings → Compute, then retry.`)
   const capabilities = computeCapabilities.safeParse(JSON.parse(node.capabilitiesJson))
   if (!capabilities.success) fail(409, 'compute_unavailable', 'Connect a Docker Compute Node with a pinned workspace image')
   return { run, auth, task, environment, capabilities: capabilities.data, nodeLastSeen: node.lastSeen }

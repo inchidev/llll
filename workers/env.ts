@@ -94,6 +94,8 @@ export type L4Env = {
   REALTIMEKIT_PRESET_HOST?: string
   REALTIMEKIT_PRESET_PARTICIPANT?: string
   AUTH_SECRET?: string
+  /** '1' adds a Server-Timing header and a request.timing log line to every app request. */
+  SERVER_TIMING?: string
   AUTH_MODE?: string
   CF_ACCESS_ISS?: string
   CF_ACCESS_AUD?: string
