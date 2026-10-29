@@ -421,25 +421,28 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       if (markdown !== path) return withVary(await env.ASSETS.fetch(request))
       return new Response('Not found', { status: 404 })
     }
-    if (CONTENT_PAGE.test(path)) return withVary(await env.ASSETS.fetch(request))
+    if (path === '/' || CONTENT_PAGE.test(path)) return withVary(await env.ASSETS.fetch(request))
   }
   return env.ASSETS.fetch(request)
 }
 // Docs, blog and changelog pages have a Markdown copy at `<path>.md` for
-// agents, also returned for `Accept: text/markdown`.
+// agents, also returned for `Accept: text/markdown`. The home page answers
+// with /llms.txt, which is Markdown describing L4 and linking those pages.
 const CONTENT_PAGE = /^\/(?:docs|blog|changelog)(?:\/[^/]+)*$/
 export function contentMarkdownPath(path: string, accept: string | null): string | null {
+  const wantsMarkdown = (accept || '').toLowerCase().includes('text/markdown')
+  if (path === '/') return wantsMarkdown ? '/llms.txt' : null
   let clean = path
   while (clean.endsWith('/')) clean = clean.slice(0, -1)
   if (!CONTENT_PAGE.test(clean)) return null
   if (clean.endsWith('.md')) return clean
-  if (/\.(?:txt|json|xml)$/.test(clean) || !(accept || '').toLowerCase().includes('text/markdown')) return null
+  if (/\.(?:txt|json|xml)$/.test(clean) || !wantsMarkdown) return null
   return clean + '.md'
 }
 function markdownResponse(asset: Response, path: string, env: WebEnv) {
   const response = new Response(asset.body, asset)
   response.headers.set('Content-Type', 'text/markdown; charset=utf-8')
-  response.headers.set('Link', `<${env.PUBLIC_ORIGIN}${path.slice(0, -3)}>; rel="canonical"`)
+  response.headers.set('Link', `<${env.PUBLIC_ORIGIN}${path === '/llms.txt' ? '/' : path.slice(0, -3)}>; rel="canonical"`)
   response.headers.set('X-Robots-Tag', 'noindex')
   response.headers.set('Vary', 'Accept')
   return response
