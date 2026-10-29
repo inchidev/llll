@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useQuery } from '@tanstack/vue-query'
 import type { RealtimeKitSettingsAdminDTO } from '~~/shared/types'
 const { api } = useApi()
 
@@ -60,7 +61,10 @@ async function load() {
 }
 
 /** With a token: connect or replace it. Without one: reconnect using the saved token. */
-async function connect(withToken: boolean) {
+// A Server that keeps Cloudflare access connects Live with it; no separate token.
+const accessQ = useQuery({ queryKey: computed(() => ['cloudflare-account', props.serverId]), queryFn: () => api<{ access: { connected: boolean } }>(`/api/servers/${props.serverId}/cloudflare-account`).catch(() => ({ access: { connected: false } })) })
+const accessKept = computed(() => accessQ.data.value?.access.connected === true)
+async function connect(withToken: boolean, useServerAccess = false) {
   connecting.value = true
   try {
     const response = await api<{ realtimekit: RealtimeKitSettingsAdminDTO } | { accounts: Account[] }>(
@@ -69,7 +73,7 @@ async function connect(withToken: boolean) {
         method: 'POST',
         body: {
           ...(withToken ? { apiToken: apiToken.value.trim() } : {}),
-          ...(accountId.value ? { accountId: accountId.value } : {}),
+          ...(useServerAccess ? { useServerAccess: true } : accountId.value ? { accountId: accountId.value } : {}),
         },
       },
     )
@@ -202,6 +206,11 @@ onMounted(load)
       </dl>
 
       <div v-if="showTokenForm" class="mt-6 space-y-4">
+        <div v-if="accessKept" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-default p-4 text-sm">
+          <p class="min-w-0 flex-1 text-muted">Uses the same Cloudflare access as Settings → Deployment → Updates. No separate token is needed.</p>
+          <UButton label="Connect using this Server’s Cloudflare access" icon="i-ph-plugs-connected" :loading="connecting" @click="connect(false, true)" />
+        </div>
+        <p v-if="accessKept" class="text-xs text-muted">Or use a separate API token:</p>
         <ol class="space-y-3 text-sm">
           <li class="flex gap-3">
             <span class="grid size-6 shrink-0 place-items-center rounded-full bg-elevated text-xs font-semibold">1</span>

@@ -17,7 +17,7 @@ export default defineEventHandler(async event => {
   if (current?.kind === 'chatgpt' && current.secret && env.AUTH_SECRET) {
     const credentials = JSON.parse(await decryptSecret(env.AUTH_SECRET, agentProviderScope(id), current.secret)) as ChatGPTCredentials
     try {
-      const response = await fetch('https://auth.openai.com/api/accounts/oauth/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: credentials.refreshToken, token_type_hint: 'refresh_token', client_id: credentials.clientId }), signal: AbortSignal.timeout(15000), redirect: 'error' })
+      const response = await fetch('https://auth.openai.com/api/accounts/oauth/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: credentials.refreshToken, token_type_hint: 'refresh_token', client_id: credentials.clientId }), signal: AbortSignal.timeout(15000), redirect: 'manual' })
       revoked = response.ok
     } catch { revoked = false }
   }

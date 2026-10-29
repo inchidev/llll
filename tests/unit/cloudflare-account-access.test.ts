@@ -62,3 +62,14 @@ it('stores a pasted token only when it reaches this account', async () => {
   expect(await cloudflareAccessStatus(env)).toMatchObject({ connected: true, kind: 'token' })
   expect((await cloudflareAccessToken(env)).token).toBe('token-with-enough-length')
 })
+
+it('renews a kept grant weekly even before it expires, and ignores pasted tokens', async () => {
+  const { renewCloudflareAccess } = await import('../../server/utils/cloudflare-account-access')
+  const refresh = vi.fn(async () => grant(Date.now() + 3600_000, 'access-weekly'))
+  expect(await renewCloudflareAccess(env, refresh)).toBe(false)
+  await offer('b'.repeat(64))
+  await acceptCloudflareHandoff(env, 'b'.repeat(64), { grant: grant(Date.now() + 3600_000), accountId: account }, ok)
+  expect(await renewCloudflareAccess(env, refresh)).toBe(true)
+  expect(refresh).toHaveBeenCalledTimes(1)
+  expect((await cloudflareAccessToken(env)).token).toBe('access-weekly')
+})

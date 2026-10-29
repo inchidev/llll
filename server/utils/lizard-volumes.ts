@@ -17,7 +17,7 @@ export async function createLizardVolume(env: L4Env, workspaceId: string, region
   const name = lizardVolumeName(workspaceId), credential = await lizardCredential(env)
   z.string().regex(/^[a-z0-9-]{1,64}$/u).parse(region)
   let response: Response
-  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes`, { method: 'POST', headers: { 'X-API-Key': credential.apiKey, 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(30000), body: JSON.stringify({ name, sizeGb: 5, region }) }) }
+  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes`, { method: 'POST', headers: { 'X-API-Key': credential.apiKey, 'Content-Type': 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(30000), body: JSON.stringify({ name, sizeGb: 5, region }) }) }
   catch { fail(503, 'lizard_volume_uncertain', 'Lizard disk creation outcome is unknown; inspect it before retrying') }
   if (!response.ok) fail(response.status >= 500 ? 503 : 400, 'lizard_volume_failed', 'Lizard did not accept the disk request')
   try { const disk = volumeSchema.parse(await boundedJson(response)); if (disk.name !== name) throw Error('wrong disk'); return { id: disk.id, name } }
@@ -26,7 +26,7 @@ export async function createLizardVolume(env: L4Env, workspaceId: string, region
 export async function findLizardVolume(env: L4Env, workspaceId: string) {
   const name = lizardVolumeName(workspaceId), credential = await lizardCredential(env)
   let response: Response
-  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes/${encodeURIComponent(name)}`, { headers: { 'X-API-Key': credential.apiKey }, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes/${encodeURIComponent(name)}`, { headers: { 'X-API-Key': credential.apiKey }, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_volume_unavailable', 'Lizard disk inventory is unavailable') }
   if (response.status === 404) return null
   if (!response.ok) fail(503, 'lizard_volume_unavailable', 'Lizard disk inventory is unavailable')
@@ -44,7 +44,7 @@ export async function deleteUnusedLizardVolume(env: L4Env, workspaceId: string, 
   if (nodeId && await env.DB.prepare("SELECT 1 FROM factory_workspaces WHERE node_id=? AND status<>'released' LIMIT 1").bind(nodeId).first()) fail(409, 'lizard_volume_in_use', 'Lizard disk contains retained task data')
   const credential = await lizardCredential(env)
   let response: Response
-  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes/${encodeURIComponent(disk.id)}`, { method: 'DELETE', headers: { 'X-API-Key': credential.apiKey }, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(`https://lizard.build/api/projects/${encodeURIComponent(credential.projectId)}/volumes/${encodeURIComponent(disk.id)}`, { method: 'DELETE', headers: { 'X-API-Key': credential.apiKey }, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_volume_cleanup_uncertain', 'Lizard disk cleanup outcome is unknown') }
   if (!response.ok && response.status !== 404) fail(503, 'lizard_volume_cleanup_failed', 'Lizard disk cleanup failed')
   return { deleted: true }

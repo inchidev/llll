@@ -146,7 +146,7 @@ export async function verifySnsMessage(message: SnsMessage, fetcher: typeof fetc
   if (!hash) return false
   let response: Response
   try {
-    response = await fetcher(certUrl, { redirect: 'error' })
+    response = await fetcher(certUrl, { redirect: 'manual' })
   }
   catch {
     return false

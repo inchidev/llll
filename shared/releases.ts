@@ -58,10 +58,12 @@ export type ServerDomainRequestDTO = {
 export type ServerDomainSettingsDTO = {
   managed: boolean
   source: 'cloudflare' | 'operator'
+  /** Changes run on this Server with its kept Cloudflare access, not through the installer. */
+  direct?: boolean
   primary: string | null
   origins: ServerOriginDTO[]
   pending: ServerDomainRequestDTO[]
-  zones: Array<{ id: string, name: string, status: string }>
+  zones: Array<{ id: string, name: string, status?: string }>
   appDomain: null | { hostname: string, zoneId: string, zoneName: string }
   /**
    * `sendingEnabled` is false for a domain that receives mail but cannot send it;

@@ -12,7 +12,7 @@ const projectsSchema = z.array(z.object({ id: z.string().min(1).max(100), name: 
 type Saved = { secret: EncryptedSecret; projectId: string; projectName: string; checkedAt: string }
 async function projects(apiKey: string) {
   let response: Response
-  try { response = await fetch('https://lizard.build/api/projects', { headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) }) }
+  try { response = await fetch('https://lizard.build/api/projects', { headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(15000) }) }
   catch { fail(502, 'lizard_unavailable', 'Could not connect to Lizard') }
   if (!response.ok) fail(response.status === 401 || response.status === 403 ? 403 : 502, 'lizard_connection_failed', 'Lizard rejected the connection or is unavailable')
   const data = await readLimitedStream(response.body, 1000000)

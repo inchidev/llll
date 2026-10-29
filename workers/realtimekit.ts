@@ -1,6 +1,7 @@
 import { decryptSecret } from '../shared/encrypted-secret'
 import type { RealtimeKitSettingsAdminDTO } from '../shared/types'
 import { callsProvider, type L4Env } from './env'
+import { cloudflareAccessToken } from '../server/utils/cloudflare-account-access'
 import {
   LLLL_HOST_PRESET,
   LLLL_PARTICIPANT_PRESET,
@@ -26,6 +27,8 @@ export {
 } from '../packages/deployment-core/src/realtimekit'
 
 export const REALTIMEKIT_SECRET_SCOPE = 'realtimekit-api-token'
+/** Stored instead of a token when Live uses the Server's kept Cloudflare access. */
+export const REALTIMEKIT_SERVER_ACCESS = 'llll:server-cloudflare-access'
 
 // Deployment-managed apps fall back to the presets RealtimeKit creates with a dashboard app.
 const DEFAULT_HOST_PRESET = 'group_call_host'
@@ -40,6 +43,7 @@ export type RealtimeKitRuntimeConfig = {
   source: 'deployment' | 'database' | 'missing'
   apiTokenConfigured: boolean
   secretReadable: boolean
+  serverAccess?: boolean
 }
 
 type RealtimeKitSettingsRow = {
@@ -129,8 +133,14 @@ export async function loadRealtimeKitConfig(env: L4Env): Promise<RealtimeKitRunt
       iv: row.api_token_iv,
       version: row.api_token_version,
     })
+    // Connected with the Server's kept Cloudflare access: use its current, refreshed token.
+    if (config.apiToken === REALTIMEKIT_SERVER_ACCESS) {
+      config.serverAccess = true
+      config.apiToken = (await cloudflareAccessToken(env)).token
+    }
   }
   catch {
+    config.apiToken = ''
     config.secretReadable = false
   }
   return config
@@ -158,6 +168,7 @@ export function realtimekitSettingsAdminDto(config: RealtimeKitRuntimeConfig): R
     hostPreset: config.hostPreset,
     participantPreset: config.participantPreset,
     sharedPreset: config.source !== 'missing' && config.hostPreset === config.participantPreset,
+    serverAccess: Boolean(config.serverAccess),
   }
 }
 

@@ -38,21 +38,26 @@ onUnmounted(stopPolling)
 async function request(action: 'add' | 'remove' | 'primary', target: string, primary = false) {
   if (busy.value) return
   busy.value = true
-  const popup = import.meta.client ? window.open('', '_blank') : null
+  // With Cloudflare access kept here the Server makes the change itself; no installer window.
+  const direct = domains.value?.direct === true
+  const popup = import.meta.client && !direct ? window.open('', '_blank') : null
   try {
-    const response = await api<{ launchUrl: string }>(`/api/servers/${props.serverId}/domains/request`, {
+    const response = await api<{ launchUrl?: string, applied?: boolean }>(`/api/servers/${props.serverId}/domains/request`, {
       method: 'POST',
       body: { action, hostname: target, ...(action === 'add' && primary ? { makePrimary: true } : {}) },
     })
-    if (popup) {
+    if (response.applied) popup?.close()
+    else if (response.launchUrl && popup) {
       popup.opener = null
       popup.location.href = response.launchUrl
     }
-    else if (import.meta.client) window.location.href = response.launchUrl
+    else if (response.launchUrl && import.meta.client) window.location.href = response.launchUrl
     hostname.value = ''
     makePrimary.value = false
     addOpen.value = false
-    toast.add({ title: 'Continue in the Cloudflare window', description: 'Authorize Cloudflare once; this Server never receives the credential.', color: 'success' })
+    toast.add(response.applied
+      ? { title: action === 'add' ? 'Address added' : action === 'primary' ? 'Primary address changed' : 'Address removed', color: 'success' }
+      : { title: 'Continue in the Cloudflare window', description: 'Authorize Cloudflare once to make this change.', color: 'success' })
     await domainsQ.refetch()
     startPolling()
   }
@@ -118,7 +123,7 @@ async function add() {
             <UCheckbox v-model="makePrimary" label="Make this the primary address" :disabled="busy" />
             <p class="text-xs text-muted">The current primary stays available as an alias. Background email and links use the primary.</p>
             <div class="flex flex-wrap gap-2">
-              <UButton type="submit" label="Continue to Cloudflare" icon="i-ph-cloud" :loading="busy" :disabled="!hostname.trim()" />
+              <UButton type="submit" :label="domains.direct ? 'Add address' : 'Continue to Cloudflare'" icon="i-ph-cloud" :loading="busy" :disabled="!hostname.trim()" />
               <UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="addOpen = false" />
             </div>
           </form>

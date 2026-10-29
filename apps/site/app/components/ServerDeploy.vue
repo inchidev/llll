@@ -335,6 +335,13 @@ async function leaveUpdate() {
   await refresh()
   void loadServers()
 }
+// Cancel returns to the Server being updated; its saved request stays there to cancel or resume.
+async function cancelUpdate() {
+  const origin = update.value?.origin || updateRequest.value?.origin
+  try { await $fetch('/api/deploy/update/forget', { method: 'POST' }) } catch { /* Leave anyway. */ }
+  if (origin) window.location.assign(origin)
+  else await leaveUpdate()
+}
 let clock: ReturnType<typeof setInterval> | undefined
 onUnmounted(() => { clearInterval(clock); for (const probe of probes) probe.abort(); request++ })
 onMounted(async () => {
@@ -366,7 +373,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
 
 <template>
   <section class="space-y-6">
-    <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update a Server from a published release. Your Cloudflare account is billed directly, and the Server receives no account credential.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
+    <p class="text-sm leading-6 text-muted">{{ updateMode ? 'Update this Server to a published release. Your Cloudflare account is billed directly.' : 'Deploy to your Cloudflare account. Your Server owns its accounts and data.' }}</p>
     <p v-if="loading" role="status" class="text-sm text-muted">Checking Cloudflare connection…</p>
     <section v-if="factoryMode" class="space-y-4 rounded-xl border border-default p-5">
       <h2 class="text-lg font-semibold">Enable a compute node</h2>
@@ -498,7 +505,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
           <h2 class="text-xl font-semibold tracking-tight">Update not loaded</h2>
           <p class="text-sm text-muted">Reopen the update from your Server’s Settings. This browser has no saved update request.</p>
         </template>
-        <UButton v-if="!updating" label="Add a Server instead" color="neutral" variant="link" @click="leaveUpdate" />
+        <UButton v-if="!updating && !update?.done" label="Back to the Server" color="neutral" variant="ghost" @click="cancelUpdate" />
       </section>
       <UAlert v-if="update?.error || updateError" color="error" :description="update?.error || updateError" />
     </template>
