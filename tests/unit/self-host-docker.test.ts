@@ -73,4 +73,32 @@ describe('self-host docker stack', () => {
     expect(template).toContain('SERVICE_PASSWORD_64_RUSTFS')
     expect(template).toContain('# logo: svgs/llll.png')
   })
+
+  it('runs the published image in Coolify, updated by its tag', () => {
+    const template = read('self-host/coolify/docker-compose.yaml')
+    expect(template).toContain('image: ghcr.io/inchidev/llll:${LLLL_VERSION:-latest}')
+    expect(template).not.toContain('pull_policy: never')
+    expect(template.match(/restart: always/g)).toHaveLength(2)
+    expect(template).toContain('LLLL_ORIGINS=${LLLL_ORIGINS:-}')
+  })
+
+  it('refuses an image older than the release that migrated the data', () => {
+    const entrypoint = read('self-host/entrypoint.sh')
+    const guard = entrypoint.indexOf('version_older "$IMAGE_VERSION" "$DATA_VERSION"')
+    expect(guard).toBeGreaterThan(-1)
+    expect(guard).toBeLessThan(entrypoint.indexOf('celld deploy "$CONFIG"'))
+    expect(entrypoint.indexOf('> "$DATA_VERSION_FILE"')).toBeGreaterThan(entrypoint.indexOf('touch "${CELLD_WATCH}/.migrations-applied"'))
+    const dockerfile = read('self-host/Dockerfile')
+    expect(dockerfile).toContain('FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS build')
+    expect(dockerfile).toContain('COPY --from=build /src/.llll-version /opt/llll/VERSION')
+  })
+
+  it('publishes only stable releases to GHCR for amd64 and arm64', () => {
+    const workflow = read('.github/workflows/release.yml')
+    const step = workflow.slice(workflow.indexOf('- name: Publish the stable Server image'))
+    expect(step).toMatch(/^- name: Publish the stable Server image\n\s+if: \$\{\{ !contains\(env.RELEASE_VERSION, '-'\) \}\}/)
+    expect(step).toContain('--platform linux/amd64,linux/arm64 --push')
+    expect(step).toContain('is already published')
+    expect(workflow).toContain('packages: write')
+  })
 })

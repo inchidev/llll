@@ -68,7 +68,9 @@ To expose the gateway on every interface instead of loopback, set `LLLL_BIND=0.0
 
 Take and verify a private backup first. Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then run `docker load --input llll-runtime-linux-amd64.tar.gz`. It loads `llll:<version>` locally. Set `LLLL_IMAGE=llll:<version>` in `.env`, then run `docker compose up -d --wait`. The common Compose has no build block and uses `pull_policy: never`. The published image is currently `linux/amd64`; local source/development builds use the Docker host's native architecture.
 
-The new container deploys that image and runs `celld d1 migrations apply <database_name>` again. Recorded migrations are skipped. Expect a short outage while the single node restarts. Managed VPS installations use `llll backup`, `llll upgrade` and `llll restore`; see the [installer operations](../docs/vps-installer.md#operations). The raw Compose commands here remain manual. For local source verification only, use the `compose.build.yml` override with `--build`.
+Stable releases are also published as `ghcr.io/inchidev/llll:<version>` for `linux/amd64` and `linux/arm64`; `docker pull` it and set `LLLL_IMAGE` to that name instead of loading the archive.
+
+The new container deploys that image and runs `celld d1 migrations apply <database_name>` again. Migrations only go forward: the container refuses to start an image older than the release that last migrated its data. Recorded migrations are skipped. Expect a short outage while the single node restarts. Managed VPS installations use `llll backup`, `llll upgrade` and `llll restore`; see the [installer operations](../docs/vps-installer.md#operations). The raw Compose commands here remain manual. For local source verification only, use the `compose.build.yml` override with `--build`.
 
 Do not change `AUTH_SECRET` during an upgrade. It signs sessions, and backup credentials stored by the app are encrypted with it.
 
@@ -110,7 +112,7 @@ The database argument is the `database_name` (`llll` unless you set `DATABASE_NA
 
 ## Coolify
 
-[self-host/coolify](coolify/README.md) is a draft one-click service. It uses Coolify's `SERVICE_FQDN_*` and `SERVICE_PASSWORD_*` variables. Coolify's proxy terminates TLS. Set `ADMIN_EMAIL` before the first deploy.
+[self-host/coolify](coolify/README.md) runs the published `ghcr.io/inchidev/llll` image. It uses Coolify's `SERVICE_FQDN_*` and `SERVICE_PASSWORD_*` variables, and Coolify's proxy owns the domain and TLS. Updates are an image tag: redeploy `latest` or set a newer `LLLL_VERSION`. Set `ADMIN_EMAIL` before the first deploy.
 
 ## Optional integrations
 

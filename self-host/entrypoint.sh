@@ -174,6 +174,23 @@ if [ -z "$DATABASE_NAME" ] || [ "$DATABASE_NAME" = "null" ]; then
   fail "wrangler config has no d1 database_name"
 fi
 
+# Migrations only go forward. The data volume records the newest release that
+# migrated it, and an older image stops here before it deploys over that schema.
+# Development images carry no VERSION and skip the check.
+IMAGE_VERSION=$(cat /opt/llll/VERSION 2>/dev/null || true)
+DATA_VERSION_FILE="${CELLD_WATCH}/.llll-version"
+version_core() { printf '%s' "${1%%-*}"; }
+version_older() {
+  [ "$(version_core "$1")" != "$(version_core "$2")" ] \
+    && [ "$(printf '%s\n%s\n' "$(version_core "$1")" "$(version_core "$2")" | sort -V | head -n 1)" = "$(version_core "$1")" ]
+}
+if [ -n "$IMAGE_VERSION" ] && [ -f "$DATA_VERSION_FILE" ]; then
+  DATA_VERSION=$(cat "$DATA_VERSION_FILE")
+  if version_older "$IMAGE_VERSION" "$DATA_VERSION"; then
+    fail "this data was migrated by L4 ${DATA_VERSION}; image ${IMAGE_VERSION} is older. Use ${DATA_VERSION} or newer."
+  fi
+fi
+
 echo "llll: waiting for RustFS at ${S3_ENDPOINT}"
 i=0
 until curl -fsS "${S3_ENDPOINT%/}/health" >/dev/null 2>&1; do
@@ -232,6 +249,7 @@ do
 done
 printf '%s\n' "$output"
 touch "${CELLD_WATCH}/.migrations-applied"
+if [ -n "$IMAGE_VERSION" ]; then printf '%s\n' "$IMAGE_VERSION" > "$DATA_VERSION_FILE"; fi
 echo "llll: celld d1 migrations apply ${DATABASE_NAME} finished"
 
 if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then

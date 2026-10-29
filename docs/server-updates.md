@@ -55,6 +55,6 @@ The deploy hook has been removed. A queued request is always continued on the of
 
 ## Other runtimes
 
-VPS/celld updates remain operator-managed with `llll upgrade` and its mandatory full-volume backup/rollback. A Cloudflare Server with basic KV file storage can use browser updates with a verified downloaded backup. An S3 destination selected for manual backups does not replace the operator-owned `BACKUPS` binding used by Cloudflare updates.
+Docker/celld Servers are updated where they are deployed, and Settings says so. Stable releases are published as `ghcr.io/inchidev/llll:<version>`, `:<minor>` and `:latest` for `linux/amd64` and `linux/arm64`; in [Coolify](../self-host/coolify/README.md) or Docker Compose, redeploy `latest` or set a newer version. The container applies forward migrations on start and refuses an image older than the release that last migrated its data. The VPS installer keeps `llll upgrade` with its mandatory full-volume backup/rollback. A Cloudflare Server with basic KV file storage can use browser updates with a verified downloaded backup. An S3 destination selected for manual backups does not replace the operator-owned `BACKUPS` binding used by Cloudflare updates.
 
 `UPDATE_SITE` optionally overrides the official installer origin; it defaults to `https://llll.gg`. The Server's `PUBLIC_ORIGIN` and every `server_domains` alias are HTTPS origins; the update launch starts at the address the owner used and probes the others if it is unreachable.

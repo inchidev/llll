@@ -1,4 +1,4 @@
-# documentation: https://github.com/inchidev/llll/blob/main/self-host/README.md
+# documentation: https://github.com/inchidev/llll/blob/main/self-host/coolify/README.md
 # slogan: Self-hosted team chat on a single VPS.
 # category: collaboration
 # tags: chat,team,celld,rustfs,self-host,llll
@@ -19,6 +19,7 @@ services:
 
   rustfs:
     image: rustfs/rustfs:1.0.3
+    restart: always
     depends_on:
       rustfs-perms:
         condition: service_completed_successfully
@@ -68,9 +69,12 @@ services:
         echo "could not create s3://cells" >&2
         exit 1
 
+  # Updates are this image tag: latest follows stable releases, or pin a
+  # version such as 0.3.4 and change it to update. Never set an older one.
   llll:
-    image: llll:${LLLL_VERSION:?published release version}
-    pull_policy: never
+    image: ghcr.io/inchidev/llll:${LLLL_VERSION:-latest}
+    # A celld node that loses its lease exits; Docker starts it again.
+    restart: always
     stop_grace_period: 50s
     depends_on:
       bucket-init:
@@ -81,6 +85,7 @@ services:
       - SERVICE_URL_LLLL_8080
       - SERVICE_FQDN_LLLL_8080
       - PUBLIC_ORIGIN=$SERVICE_URL_LLLL_8080
+      - LLLL_ORIGINS=${LLLL_ORIGINS:-}
       - AUTH_SECRET=$SERVICE_PASSWORD_64_AUTHSECRET
       - SETUP_TOKEN=$SERVICE_PASSWORD_64_SETUPTOKEN
       - ADMIN_EMAIL=${ADMIN_EMAIL:?}

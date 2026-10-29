@@ -4,7 +4,9 @@
 ARG NODE_VERSION=24.21.0
 ARG CELLD_VERSION=0.6.3
 
-FROM node:${NODE_VERSION}-bookworm-slim AS build
+# The build output is JavaScript and static assets, so one native build serves
+# every runtime architecture.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS build
 
 ENV NODE_OPTIONS=--max-old-space-size=6144 \
     CI=true \
@@ -24,7 +26,8 @@ COPY . .
 # `pnpm build` pins NODE_OPTIONS to 4096. Call nuxt with the stage env so this
 # image build keeps the 6144 MiB heap.
 RUN pnpm install --frozen-lockfile \
-    && pnpm build
+    && pnpm build \
+    && node -p "require('./package.json').version" > /src/.llll-version
 
 FROM ghcr.io/denoland/celld:${CELLD_VERSION} AS celld
 
@@ -72,3 +75,4 @@ FROM runtime AS application
 COPY --from=build /src/.output /opt/llll/.output
 COPY --from=build /src/drizzle/server-migrations /opt/llll/drizzle/server-migrations
 COPY --from=build /src/wrangler.celld.json /opt/llll/wrangler.celld.json
+COPY --from=build /src/.llll-version /opt/llll/VERSION

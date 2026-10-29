@@ -50,6 +50,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      packages: write
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_COMMIT: ${{ needs.gate.outputs.commit }}
@@ -91,8 +92,12 @@ jobs:
           node-version-file: .node-version
       - run: pnpm install --frozen-lockfile
         if: steps.existing.outputs.published != 'true'
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
+        if: ${{ !contains(env.RELEASE_VERSION, '-') }}
+        with:
+          platforms: arm64
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
-        if: steps.existing.outputs.published != 'true'
+        if: steps.existing.outputs.published != 'true' || !contains(env.RELEASE_VERSION, '-')
       - name: Build and export the portable runtime image
         if: steps.existing.outputs.published != 'true'
         run: |
@@ -144,6 +149,28 @@ jobs:
           else
             gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
           fi
+      # Stable releases only. A version tag is written once; the minor and latest
+      # tags follow the newest stable release. A retry skips a pushed version.
+      - name: Publish the stable Server image
+        if: ${{ !contains(env.RELEASE_VERSION, '-') }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker buildx imagetools inspect "$image:$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "$image:$RELEASE_VERSION is already published"
+            exit 0
+          fi
+          git fetch --tags --force origin
+          minor="${RELEASE_VERSION%.*}"
+          newest() { git tag -l "$1" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n 1; }
+          tags=(-t "$image:$RELEASE_VERSION")
+          if [ "$(newest "v${minor}.*")" = "$RELEASE_VERSION" ]; then tags+=(-t "$image:$minor"); fi
+          if [ "$(newest 'v*')" = "$RELEASE_VERSION" ]; then tags+=(-t "$image:latest"); fi
+          docker buildx build --platform linux/amd64,linux/arm64 --push "${tags[@]}" \
+            --label "org.opencontainers.image.version=${RELEASE_VERSION}" \
+            --label "org.opencontainers.image.revision=${RELEASE_COMMIT}" \
+            -f self-host/Dockerfile .
+          docker buildx imagetools inspect "$image:$RELEASE_VERSION"
       - name: Verify immutable release provenance before triggering production
         run: |
           gh release download "$RELEASE_TAG" --pattern llll-release.json --dir "$RUNNER_TEMP/release-provenance"
