@@ -207,8 +207,8 @@ onMounted(load)
 
       <div v-if="showTokenForm" class="mt-6 space-y-4">
         <div v-if="accessKept" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-default p-4 text-sm">
-          <p class="min-w-0 flex-1 text-muted">This Server keeps Cloudflare access, so Live can use it. No separate token is needed.</p>
-          <UButton label="Connect with Cloudflare access" icon="i-ph-plugs-connected" :loading="connecting" @click="connect(false, true)" />
+          <p class="min-w-0 flex-1 text-muted">Uses the same Cloudflare access as Settings → Deployment → Updates. No separate token is needed.</p>
+          <UButton label="Connect using this Server’s Cloudflare access" icon="i-ph-plugs-connected" :loading="connecting" @click="connect(false, true)" />
         </div>
         <p v-if="accessKept" class="text-xs text-muted">Or use a separate API token:</p>
         <ol class="space-y-3 text-sm">
