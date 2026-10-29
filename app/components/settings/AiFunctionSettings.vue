@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { AiFunctionDTO, AiFunctionId } from '~~/shared/ai-functions'
+import { modelMeetsRequirement, type AiFunctionDTO, type AiFunctionId } from '~~/shared/ai-functions'
 import { agentModelLabel, type AgentModelOption } from '~~/shared/agent-providers'
 
 const props = defineProps<{ serverId: string }>()
@@ -14,10 +14,11 @@ const functions = useQuery({
   placeholderData: keepPreviousData,
 })
 function items(entry: AiFunctionDTO) {
-  const models = (functions.data.value?.models ?? []).filter(model => entry.id !== 'web.search' || model.webSearch)
+  // Each function lists only models with the capability it needs, such as drawing images.
+  const models = (functions.data.value?.models ?? []).filter(model => (entry.id !== 'web.search' || model.webSearch) && modelMeetsRequirement(model, entry.requires))
   return [{ value: disabledModel, label: 'Disabled' },
     ...(entry.model && !models.some(model => model.value === entry.model) ? [{ value: entry.model, label: `${entry.model} (unavailable)` }] : []),
-    ...models.map(model => ({ value: model.value, label: agentModelLabel(model) })),
+    ...models.map(model => ({ value: model.value, label: agentModelLabel(model), inputs: model.inputs, outputs: model.outputs })),
   ]
 }
 async function save(id: AiFunctionId, model: string) {
@@ -38,7 +39,10 @@ async function save(id: AiFunctionId, model: string) {
     <LayoutLoadError v-if="functions.error.value" inline message="AI functions did not load." :retry="functions.refetch" />
     <UInput v-model="search" aria-label="Search models for AI functions" placeholder="Search connected models" icon="i-ph-magnifying-glass" class="w-full" />
     <UFormField v-for="entry in functions.data.value?.functions ?? []" :key="entry.id" :label="entry.label" :description="entry.description" :hint="entry.invalid ? 'Choose a model again' : entry.model && !entry.available ? 'Unavailable' : undefined">
-      <USelectMenu :aria-label="entry.label" :model-value="entry.model ?? disabledModel" :items="items(entry)" value-key="value" ignore-filter virtualize :loading="saving === entry.id" :disabled="Boolean(saving)" class="w-full" @update:model-value="save(entry.id, $event)" />
+      <USelectMenu :aria-label="entry.label" :model-value="entry.model ?? disabledModel" :items="items(entry)" value-key="value" ignore-filter virtualize :loading="saving === entry.id" :disabled="Boolean(saving)" class="w-full" @update:model-value="save(entry.id, $event)">
+        <template #item-trailing="{ item }"><AgentsModelCapabilities v-if="'inputs' in item" :inputs="item.inputs" :outputs="item.outputs" /></template>
+      </USelectMenu>
+      <p v-if="entry.requires && items(entry).length <= 1" class="mt-1 text-xs text-muted">No connected model {{ entry.requires === 'image-output' ? 'draws images' : entry.requires === 'image-input' ? 'reads images' : 'reads audio' }}. Add one in Providers{{ entry.requires === 'image-output' ? ', for example Nano Banana on OpenRouter' : '' }}, or open a provider and save it to refresh what its models can do.</p>
     </UFormField>
     <p v-if="functions.data.value?.hasMore" class="text-xs text-muted">Search to find more models.</p>
     <p class="text-xs text-muted">Calls send the requesting Member’s permitted context to the selected provider. No model is selected automatically. Thread creation keeps a message-based title when title generation is disabled or fails.</p>

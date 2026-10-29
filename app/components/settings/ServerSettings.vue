@@ -111,7 +111,8 @@ const communicationNav = computed(() => [
 ])
 // The path to an agent that opens pull requests, in setup order: no models, no agents.
 const agentNav = computed(() => [
-  ...(isOwner.value ? [{ id: 'models' as const, label: 'Models', icon: 'i-ph-plugs-connected', aliases: ['models', 'model-defaults'], keywords: ['providers', 'openrouter', 'anthropic', 'claude', 'chatgpt', 'api key', 'default model'] }] : []),
+  // Members with Use agents manage their own ChatGPT connections here.
+  ...(isOwner.value || can(Permission.useAgents) ? [{ id: 'models' as const, label: 'Models', icon: 'i-ph-plugs-connected', aliases: ['models', 'model-defaults'], keywords: ['providers', 'openrouter', 'anthropic', 'claude', 'chatgpt', 'api key', 'default model'] }] : []),
   ...(can(Permission.manageAgents) ? [{ id: 'agents' as const, label: 'Agents', icon: 'i-ph-robot', keywords: ['bots', 'automation', 'tasks', 'execution', 'limits', 'audit'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'environments' as const, label: 'Git', icon: 'i-ph-git-branch', keywords: ['agents', 'code', 'github', 'fork', 'repositories'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'compute' as const, label: 'Compute', icon: 'i-ph-cpu', keywords: ['nodes', 'lizard', 'execution', 'containers', 'vps'] }] : []),
@@ -743,9 +744,10 @@ v-if="rolesListVisible || section === 'project-policies'"
     </template>
 
     <template v-else-if="section === 'models' || section === 'model-defaults'">
-      <SettingsHeader title="Models"><template #actions><UButton v-if="section === 'models'" icon="i-ph-plus" label="Add provider" @click="providerSettings?.openCreate()" /></template></SettingsHeader>
-      <LayoutSegmentedTabs :model-value="section" :items="[{ value: 'models', label: 'Providers' }, { value: 'model-defaults', label: 'Defaults' }]" label="Model settings" class="mt-5 mb-6" @update:model-value="section = $event" />
-      <SettingsAgentProviderSettings ref="providerSettings" :server-id="serverId" :is-owner="isOwner" :view="section === 'model-defaults' ? 'defaults' : 'providers'" />
+      <SettingsHeader title="Models"><template #actions><UButton v-if="section === 'models'" icon="i-ph-plus" :label="isOwner ? 'Add provider' : 'Connect ChatGPT'" @click="providerSettings?.openCreate()" /></template></SettingsHeader>
+      <LayoutSegmentedTabs v-if="isOwner" :model-value="section" :items="[{ value: 'models', label: 'Providers' }, { value: 'model-defaults', label: 'Defaults' }]" label="Model settings" class="mt-5 mb-6" @update:model-value="section = $event" />
+      <div v-else class="mb-6" />
+      <SettingsAgentProviderSettings ref="providerSettings" :server-id="serverId" :is-owner="isOwner" :view="section === 'model-defaults' && isOwner ? 'defaults' : 'providers'" />
     </template>
 
     <template v-else-if="section === 'members'">

@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { agentAvatarSources, agentAvatarSrc, userAvatarSrc } from '../../app/utils/agent-avatar'
+import { agentAvatarSrc, agentAvatarSvg, userAvatarSrc } from '../../app/utils/agent-avatar'
 import { centerSquare } from '../../app/utils/avatar-image'
 import { isStoredAvatarKey } from '../../shared/avatar'
 
 describe('agent avatars', () => {
-  it('assigns an included avatar deterministically', () => {
+  it('draws the same L4 block face for an agent every time, and different ones across agents', () => {
     const first = agentAvatarSrc('agent-123')
-
-    expect(agentAvatarSources).toContain(first)
+    expect(first).toMatch(/^data:image\/svg\+xml,/)
     expect(agentAvatarSrc('agent-123')).toBe(first)
+    expect(new Set(Array.from({ length: 40 }, (_, i) => agentAvatarSvg(`agent-${i}`))).size).toBeGreaterThan(20)
+    expect(agentAvatarSvg('agent-123')).not.toMatch(/<script|href/u)
   })
 
   it('only supplies generated avatars for agents', () => {
-    expect(userAvatarSrc({ id: 'agent-1', kind: 'agent' })).toMatch(/^\/avatars\/agents\/.+\.png$/)
+    expect(userAvatarSrc({ id: 'agent-1', kind: 'agent' })).toMatch(/^data:image\/svg\+xml,/)
     expect(userAvatarSrc({ id: 'human-1', kind: 'human' })).toBeUndefined()
     expect(userAvatarSrc({ id: 'human-1', kind: 'human', avatarR2Key: null })).toBeUndefined()
   })

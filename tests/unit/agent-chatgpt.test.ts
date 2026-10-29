@@ -13,7 +13,7 @@ let db: DatabaseSync, env: L4Env
 const config = { kind: 'chatgpt' as const, name: 'Personal Codex', enabled: true, webSearch: false, models: [] }
 beforeEach(() => {
   db = new DatabaseSync(':memory:')
-  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(id TEXT,owner_id TEXT); INSERT INTO server VALUES ('server-fixture','owner'); CREATE TABLE audit_log(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)")
+  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(id TEXT,owner_id TEXT); INSERT INTO server VALUES ('server-fixture','owner'); CREATE TABLE roles(id TEXT PRIMARY KEY,permissions_bitmask INTEGER); CREATE TABLE users(id TEXT PRIMARY KEY,kind TEXT,status TEXT,role_id TEXT); INSERT INTO users VALUES ('owner','human','active',NULL); CREATE TABLE audit_log(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)")
   env = { DB: d1(db), AUTH_SECRET: 'test-auth-secret-for-this-server-only' } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
@@ -123,4 +123,18 @@ it.each(['response.failed', 'response.incomplete', 'eof'])('does not publish a s
   vi.stubGlobal('fetch', vi.fn(async () => new Response(type === 'eof' ? 'data: [DONE]\n\n' : `data: ${JSON.stringify({ type })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })))
   const response = await chatGPTFetch('https://api.openai.com/v1/responses', { body: '{}' })
   await expect(response.text()).rejects.toThrow()
+})
+
+describe('sharing a ChatGPT plan', () => {
+  it('lets only the connecting member share it, then everyone can use it', async () => {
+    const credentials: ChatGPTCredentials = { accessToken: 'shared-access', refreshToken: 'refresh', idToken: 'id', expiresAt: Date.now() + 3600_000, subject: 'subject', email: 'owner@example.test', clientId: 'client', scope: 'chatgpt.tokens.use.direct' }
+    await writeServerSetting(env.DB, agentProviderKey('codex'), JSON.stringify({ kind: 'chatgpt', name: 'Codex', enabled: true, connectedBy: 'owner', models: [{ id: 'gpt', api: 'responses' }], secret: await encryptSecret(env.AUTH_SECRET!, agentProviderScope('codex'), JSON.stringify(credentials)) }))
+    await expect(chatGPTAccessToken(env, 'codex', 'member')).rejects.toMatchObject({ statusCode: 403 })
+    await expect(saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: true }, 'member')).rejects.toMatchObject({ data: { error: { code: 'share_denied' } } })
+    await saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: true }, 'owner')
+    expect(await chatGPTAccessToken(env, 'codex', 'member')).toBe('shared-access')
+    expect((await agentProviderCatalog(env, { actorId: 'member' })).models.some(model => model.value === 'l4:codex:gpt')).toBe(true)
+    await saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: false }, 'owner')
+    await expect(chatGPTAccessToken(env, 'codex', 'member')).rejects.toMatchObject({ statusCode: 403 })
+  })
 })

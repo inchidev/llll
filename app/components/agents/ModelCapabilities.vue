@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { agentModelInputs, type AgentModelInput } from '~~/shared/agent-providers'
-const props = defineProps<{ inputs?: AgentModelInput[]; tools?: boolean; reasoning?: boolean }>()
+const props = defineProps<{ inputs?: AgentModelInput[]; outputs?: AgentModelInput[]; tools?: boolean; reasoning?: boolean }>()
 const inputIcons: Record<AgentModelInput, { icon: string; label: string }> = {
   text: { icon: 'i-ph-text-aa', label: 'Reads text' },
   image: { icon: 'i-ph-image', label: 'Sees images' },
@@ -11,6 +11,7 @@ const inputIcons: Record<AgentModelInput, { icon: string; label: string }> = {
 // Unknown capability shows nothing rather than guessing.
 const items = computed(() => [
   ...agentModelInputs.filter(input => props.inputs?.includes(input)).map(input => inputIcons[input]),
+  ...(props.outputs?.includes('image') ? [{ icon: 'i-ph-paint-brush', label: 'Draws images' }] : []),
   ...(props.reasoning ? [{ icon: 'i-ph-brain', label: 'Reasoning effort' }] : []),
   ...(props.tools === false ? [{ icon: 'i-ph-wrench', label: 'No tools: AI functions only' }] : []),
 ])

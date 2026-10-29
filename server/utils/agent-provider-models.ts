@@ -24,11 +24,12 @@ export async function discoverAgentModels(kind: AgentProviderId, apiKey?: string
 }
 
 /** What a model accepts and whether it reasons, as the provider catalog reports it. */
-function capabilities(kind: AgentProviderId, row: Record<string, unknown>): Pick<AgentProviderModel, 'tools' | 'inputs' | 'reasoning'> {
+function capabilities(kind: AgentProviderId, row: Record<string, unknown>): Pick<AgentProviderModel, 'tools' | 'inputs' | 'outputs' | 'reasoning'> {
   // Every current Claude and ChatGPT/Codex model reads images; their catalogs do not list modalities.
   if (kind !== 'openrouter') return { inputs: ['text', 'image', ...(kind === 'anthropic' ? ['file' as const] : [])] }
   const parameters = Array.isArray(row.supported_parameters) ? row.supported_parameters : null
   const architecture = row.architecture && typeof row.architecture === 'object' ? row.architecture as Record<string, unknown> : null
-  const inputs = Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.filter((value): value is AgentModelInput => agentModelInputs.includes(value as AgentModelInput)) : null
-  return { ...(parameters ? { tools: parameters.includes('tools'), reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort') } : {}), ...(inputs ? { inputs } : {}) }
+  const known = (value: unknown) => Array.isArray(value) ? value.filter((item): item is AgentModelInput => agentModelInputs.includes(item as AgentModelInput)) : null
+  const inputs = known(architecture?.input_modalities), outputs = known(architecture?.output_modalities)
+  return { ...(parameters ? { tools: parameters.includes('tools'), reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort') } : {}), ...(inputs ? { inputs } : {}), ...(outputs ? { outputs } : {}) }
 }

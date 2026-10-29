@@ -11,5 +11,7 @@ export default defineEventHandler(async event => {
   const named = catalog.models.filter(model => model.value.startsWith('l4:'))
   const matched = named.filter(model => `${model.provider} ${model.label}`.toLowerCase().includes(search))
   const selected = named.filter(model => catalog.functions.some(entry => entry.model === model.value))
-  return { functions: catalog.functions, models: [...new Map([...selected, ...matched.slice(0, 50)].map(model => [model.value, model])).values()], hasMore: matched.length > 50 }
+  // Image and audio models are few; list them even past the first page so their functions have choices.
+  const special = matched.filter(model => model.outputs?.includes('image') || model.inputs?.includes('audio'))
+  return { functions: catalog.functions, models: [...new Map([...selected, ...special, ...matched.slice(0, 50)].map(model => [model.value, model])).values()], hasMore: matched.length > 50 }
 })
