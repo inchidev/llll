@@ -404,7 +404,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
         <p class="text-xs leading-5 text-muted">Cloudflare access: {{ remaining(session.grantExpiresAt) }} · Installer session: {{ remaining(session.sessionExpiresAt) }}.<br>Your Servers keep running when this connection ends.</p>
       </template>
       <p v-else-if="config && !config.oauth" class="text-sm text-muted">Connecting Cloudflare is not available on this site. Follow the <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">manual deployment guide</a> instead.</p>
-      <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Sign in to Cloudflare and allow L4 to create a Server in your account. You pay Cloudflare directly, and the Server keeps no Cloudflare credential after setup.' }}</p>
+      <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Sign in to Cloudflare and allow L4 to create a Server in your account. You pay Cloudflare directly. By default the Server keeps this access, encrypted, so it can update itself; clear Keep Cloudflare access before creating it to opt out.' }}</p>
     </section>
 
     <template v-if="!updateMode && !factoryMode">

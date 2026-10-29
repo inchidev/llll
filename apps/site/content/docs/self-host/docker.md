@@ -27,9 +27,6 @@ Pick one:
 - **Published image (stable releases).** `ghcr.io/inchidev/llll:<version>`, `:<minor>` (for example `0.3`) and `:latest`, for `linux/amd64` and `linux/arm64`. Prereleases are not published as images.
 - **Release archive.** Each release includes `llll-runtime-linux-amd64.tar.gz` and `SHA256SUMS`. Verify the checksum, then `docker load --input llll-runtime-linux-amd64.tar.gz`. This loads `llll:<version>` locally.
 
-> [!NOTE]
-> Publishing to `ghcr.io` was added after the 0.3.4 release. Check that the tag you want exists before you pin it; the release archive is available for every release.
-
 The common Compose file uses `pull_policy: never`, so pull the published image yourself before starting:
 
 ```bash

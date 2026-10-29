@@ -180,7 +180,7 @@ onMounted(async () => {
     </template>
 
     <template v-else>
-      <UAlert class="mt-8" color="neutral" title="Open this page from Server settings" description="In your Server, open Settings → Server address and choose Add address. Each link is single-use." />
+      <UAlert class="mt-8" color="neutral" title="Open this page from Server settings" description="In your Server, open Server settings → Deployment → Domain and choose Add address. Each link is single-use." />
       <UButton class="mt-4" to="/create" color="neutral" variant="outline" label="Add a Server instead" />
     </template>
   </section>

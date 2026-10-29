@@ -312,7 +312,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <UFormField label="Reply timeout" description="Minutes to wait for its reply in the thread before the Run fails.">
           <UInputNumber v-model="webhook.replyTimeoutMinutes" :min="2" :max="120" class="w-40" />
         </UFormField>
-        <UAlert color="neutral" variant="subtle" title="Connect it back to this Server" :description="`In Settings → MCP, create an access token that acts as this agent and add ${mcpUrl} to the agent with that token. It answers with send_message in the Run's thread and keeps the permissions of its Role.`" />
+        <UAlert color="neutral" variant="subtle" title="Connect it back to this Server" :description="`In User Settings → Access tokens, create an access token that acts as this agent and add ${mcpUrl} to the agent with that token. It answers with send_message in the Run's thread and keeps the permissions of its Role.`" />
       </template>
 
       <UFormField v-else name="model" :label="providers.data.value?.defaultModel ? 'Model (optional)' : 'Model'" description="Choose a model, or leave empty to use an available Server default. The conversation can override this model.">

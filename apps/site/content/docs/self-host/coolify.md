@@ -38,9 +38,6 @@ To serve more domains, add them in Coolify and list every origin in `LLLL_ORIGIN
 
 The image is built for `linux/amd64` and `linux/arm64`. Only stable releases are published as images, with three tags: the exact version (for example `0.3.4`), its minor line (`0.3`) and `latest`.
 
-> [!NOTE]
-> Image publishing was added after the 0.3.4 release. Check that a tag exists before you pin it.
-
 Updates are controlled in Coolify, not in L4:
 
 - **Follow stable releases.** Leave `LLLL_VERSION` unset to use `latest`. Redeploy the service to pull the newest stable release.
