@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { build } from 'esbuild'
 import { readSiteContent } from '../apps/site/lib/content-files.mjs'
-import { agentMarkdown, docsLlmsFull, docsLlmsTxt, llmsTxt, robotsTxt, rssXml, SITE, sitemapXml, slugify } from '../apps/site/lib/content.mjs'
+import { agentMarkdown, docsLlmsFull, docsLlmsTxt, indexMarkdown, llmsTxt, robotsTxt, rssXml, SITE, sitemapXml, slugify } from '../apps/site/lib/content.mjs'
 const root = resolve(import.meta.dirname, '..')
 const generated = spawnSync('pnpm', ['exec', 'nuxt', 'generate', 'apps/site'], { cwd: root, stdio: 'inherit' })
 if (generated.status !== 0) process.exit(generated.status || 1)
@@ -19,6 +19,8 @@ async function emit(path, text) { await mkdir(dirname(output + path), { recursiv
 for (const page of content.docs.pages) await emit(page.url + '.md', agentMarkdown(page.body, page.file, page))
 for (const post of content.blog) await emit(post.url + '.md', agentMarkdown(post.body, post.file, post))
 for (const release of content.releases) await emit(release.url + '.md', agentMarkdown(release.body, release.file, release))
+await emit('/blog.md', indexMarkdown({ title: `${SITE.name} blog`, description: 'Announcements and write-ups about L4.', url: '/blog', items: content.blog }))
+await emit('/changelog.md', indexMarkdown({ title: `${SITE.name} changelog`, description: 'Release notes for every published version of L4.', url: '/changelog', items: content.releases }))
 await emit('/llms.txt', llmsTxt(content))
 await emit('/docs/llms.txt', docsLlmsTxt(content.docs))
 await emit('/docs/llms-full.txt', docsLlmsFull(content.docs))
