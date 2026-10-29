@@ -4,6 +4,7 @@ import { cf } from './cf'
 import { ensureMigrated } from './db'
 import { readOwnerSetup } from './owner-setup'
 import { ensurePrimaryServerOrigin } from './server-origins'
+import { bindingIdentity } from '../../shared/binding-identity'
 
 const started = new WeakMap<D1Database, Promise<boolean>>()
 
@@ -23,7 +24,7 @@ export function ensureServerStarted(event: H3Event): Promise<boolean> {
   try { env = cf(event).env }
   catch { return Promise.resolve(false) }
   const db = env.DB
-  const existing = started.get(db)
+  const existing = started.get(bindingIdentity(db))
   if (existing) return existing
   const run = (async () => {
     await ensureMigrated(db, env)
@@ -32,10 +33,10 @@ export function ensureServerStarted(event: H3Event): Promise<boolean> {
     await ensurePrimaryServerOrigin(env)
     return true
   })().catch((error: unknown) => {
-    started.delete(db)
+    started.delete(bindingIdentity(db))
     console.warn('Server startup did not complete', error instanceof Error ? error.message : error)
     return false
   })
-  started.set(db, run)
+  started.set(bindingIdentity(db), run)
   return run
 }
