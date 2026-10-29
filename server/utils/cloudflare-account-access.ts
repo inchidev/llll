@@ -63,7 +63,9 @@ export async function saveCloudflareToken(env: L4Env, accountId: string, token: 
 
 /** Accept the installer's grant with a single-use handoff token it registered over D1. */
 export async function acceptCloudflareHandoff(env: L4Env, handoffToken: string, input: unknown, transport: typeof fetch = fetch) {
-  const { grant, accountId } = z.object({ grant: cloudflareGrantSchema, accountId: z.string().regex(/^[a-f0-9]{32}$/u) }).parse(input)
+  const parsed = z.object({ grant: cloudflareGrantSchema, accountId: z.string().regex(/^[a-f0-9]{32}$/u) }).safeParse(input)
+  if (!parsed.success) fail(400, 'cloudflare_handoff_invalid', 'The Cloudflare handoff is incomplete')
+  const { grant, accountId } = parsed.data
   if (accountId !== (env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim())) fail(400, 'cloudflare_account_mismatch', 'This grant is for another Cloudflare account')
   const expected = await readServerSetting(env.DB, CLOUDFLARE_HANDOFF_KEY)
   const [hash, expires] = (expected ?? '').split(':')

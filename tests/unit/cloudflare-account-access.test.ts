@@ -37,6 +37,7 @@ it('refuses an expired, wrong or foreign-account handoff before calling Cloudfla
   await offer('d'.repeat(64))
   await expect(acceptCloudflareHandoff(env, 'e'.repeat(64), { grant: grant(0), accountId: account }, ok)).rejects.toMatchObject({ statusCode: 403 })
   await expect(acceptCloudflareHandoff(env, 'd'.repeat(64), { grant: grant(0), accountId: 'f'.repeat(32) }, ok)).rejects.toMatchObject({ statusCode: 400 })
+  await expect(acceptCloudflareHandoff(env, 'd'.repeat(64), {}, ok)).rejects.toMatchObject({ statusCode: 400 })
   expect(ok).not.toHaveBeenCalled()
   expect(await cloudflareAccessStatus(env)).toEqual({ connected: false })
 })
