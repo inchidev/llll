@@ -5,7 +5,7 @@ import { d1 } from '../helpers/sqlite-d1'
 import { INIT_SQL } from '../../server/utils/db'
 import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { createAgentRun } from '../../server/utils/agent-run-service'
-import { agentWebhook, saveAgentWebhook } from '../../server/utils/agent-webhooks'
+import { agentWebhook, completeExternalRun, saveAgentWebhook } from '../../server/utils/agent-webhooks'
 import { publicWebhookUrl } from '../../shared/agent-webhooks'
 import { AgentRunDurableObject } from '../../workers/agent-run-do'
 import { Permission } from '../../shared/permissions'
@@ -67,18 +67,47 @@ it('admits an external Agent without any model provider and wakes it once with a
   expect(headers.get('Authorization')).toBe('Bearer sender-key')
   expect(headers.get('Idempotency-Key')).toBe(run.id)
   expect(JSON.parse(String(init.body))).toMatchObject({ type: 'agent.run', runId: run.id, prompt: 'What does X say about L4?',
-    server: { mcp: 'https://team.example/mcp' }, agent: { name: 'Grok' }, from: { name: 'John' }, reply: { tool: 'send_message', arguments: { channelId: 'public-chat' } } })
+    server: { mcp: 'https://team.example/mcp' }, agent: { name: 'Grok' }, from: { name: 'John' }, reply: { tool: 'send_message', arguments: { channelId: 'public-chat' } }, complete: { tool: 'complete_run', arguments: { runId: run.id } } })
   expect(data.get('webhookSentAt')).toEqual(expect.any(String))
 })
 
-it('completes the Run with the Agent’s own reply and does not post it a second time', async () => {
+it('keeps the Run open through progress messages until the Agent completes it', async () => {
   const run = await externalRun()
   const { run: coordinatorRun } = coordinator(run.id)
   await coordinatorRun.alarm()
-  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('reply','public-chat',?,'Mostly praise.',?)").run(agentId, new Date(Date.now() + 1000).toISOString())
+  const later = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString()
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('progress','public-chat',?,'Searching X…',?)").run(agentId, later(1))
   await coordinatorRun.alarm()
-  expect(db.prepare('SELECT status,result_text,result_message_id FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'completed', result_text: 'Mostly praise.', result_message_id: 'reply' })
+  expect(db.prepare('SELECT status FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'running' })
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('answer','public-chat',?,'Mostly praise.',?)").run(agentId, later(2))
+  const agent = (await loadAuthorizationContext(env, { principalId: agentId, credential: { kind: 'mcp', id: 'token', scopes: ['messages:write'] }, delegatedBy: 'owner-user' }))!
+  const human = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+  await expect(completeExternalRun(env, human, { runId: run.id, outcome: 'completed' })).rejects.toMatchObject({ statusCode: 404 })
+  expect(await completeExternalRun(env, agent, { runId: run.id, outcome: 'completed' })).toMatchObject({ changed: true })
+  await coordinatorRun.alarm()
+  expect(db.prepare('SELECT status,result_text,result_message_id FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'completed', result_text: 'Mostly praise.', result_message_id: 'answer' })
   expect(post).not.toHaveBeenCalled()
+})
+
+it('settles at the reply timeout from what the Agent posted', async () => {
+  const replied = await externalRun()
+  const first = coordinator(replied.id)
+  await first.run.alarm()
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('late','public-chat',?,'Here it is.',?)").run(agentId, new Date(Date.now() + 1000).toISOString())
+  db.prepare("UPDATE agent_runs SET deadline='2000-01-01T00:00:00.000Z' WHERE id=?").run(replied.id)
+  await first.run.alarm()
+  expect(db.prepare('SELECT status,result_message_id FROM agent_runs WHERE id=?').get(replied.id)).toMatchObject({ status: 'completed', result_message_id: 'late' })
+  expect(post).not.toHaveBeenCalled()
+
+  db.exec("INSERT INTO channels(id,name,type,visibility) VALUES('quiet-chat','Quiet','text','server')")
+  const actor = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+  const silent = await createAgentRun(env, actor, { agentId, channelId: 'quiet-chat', prompt: 'Anyone?', idempotencyKey: 'mention-2' })
+  const second = coordinator(silent.id)
+  await second.run.alarm()
+  db.prepare("UPDATE agent_runs SET deadline='2000-01-01T00:00:00.000Z' WHERE id=?").run(silent.id)
+  await second.run.alarm()
+  expect(db.prepare('SELECT status,last_error FROM agent_runs WHERE id=?').get(silent.id)).toMatchObject({ status: 'failed', last_error: expect.stringContaining('No reply arrived within 20 minutes') })
+  expect(post).toHaveBeenCalledTimes(1)
 })
 
 it('fails visibly when the webhook rejects its key, without retrying', async () => {

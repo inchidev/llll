@@ -181,7 +181,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     await this.ctx.storage.deleteAlarm()
   }
 
-  /** Wake the external Agent once, then wait for its own reply in the Run's conversation. */
+  /** Wake the external Agent once, then settle at complete_run or the reply timeout from what it posted. */
   private async external(run: AgentRun, webhook: AgentWebhook): Promise<void> {
     await this.ctx.storage.put('external', true)
     const sentAt = await this.ctx.storage.get<string>('webhookSentAt')
@@ -206,10 +206,16 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       await this.ctx.storage.setAlarm(Date.now() + 15000)
       return
     }
+    // Progress messages keep the Run open; complete_run or the reply timeout closes it.
+    if (run.deadline > nowIso()) {
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 15000, Date.parse(run.deadline) + 1000))
+      return
+    }
     const reply = await externalAgentReply(this.env, run, sentAt)
     if (!reply) {
-      await this.ctx.storage.setAlarm(Date.now() + 15000)
-      return
+      await this.env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'")
+        .bind(`No reply arrived within ${webhook.replyTimeoutMinutes} minutes. The Agent may still be working; mention it again to start a new attempt.`, run.id).run()
+      throw new Error('Run deadline reached')
     }
     const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status='completed',result_text=?,result_message_id=?,last_error=NULL,updated_at=? WHERE id=? AND status='running' RETURNING id")
       .bind(reply.content, reply.id, nowIso(), run.id).first<{ id: string }>()
@@ -238,9 +244,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     let phase = 'authorization'
     try {
       const webhook = await agentWebhook(this.env, run.agentId)
+      // At the reply timeout an external Run settles from what the Agent posted, not as an interruption.
       if (webhook && run.status === 'running' && run.deadline <= nowIso() && await this.ctx.storage.get<string>('webhookSentAt')) {
-        await this.env.DB.prepare("UPDATE agent_runs SET last_error=? WHERE id=? AND status='running'")
-          .bind(`No reply arrived within ${webhook.replyTimeoutMinutes} minutes. The Agent may still be working; mention it again to start a new attempt.`, run.id).run()
+        phase = 'webhook'
+        await this.external(run, webhook)
+        return
       }
       if (run.status === 'queued' && Date.parse(run.createdAt) + RUN_QUEUE_WAIT_MS <= Date.now()) throw new Error('Run queue wait limit reached')
       if (run.status === 'running' && run.deadline <= nowIso()) throw new Error('Run deadline reached')

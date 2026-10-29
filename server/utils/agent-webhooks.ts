@@ -2,9 +2,10 @@ import type { AgentRun } from '../../shared/agent-execution'
 import { agentWebhookInput, publicWebhookUrl, type AgentWebhookDTO, type AgentWebhookInput, type AgentWebhookPayload } from '../../shared/agent-webhooks'
 import { stripAgentImageMarkers } from '../../shared/agent-images'
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
-import { nowIso } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import { getServerId } from '../../shared/server-id'
-import type { L4Env } from '../../workers/env'
+import { asRpc, type L4Env } from '../../workers/env'
+import type { AuthorizationContext } from '../../shared/authorization'
 import { fail } from './cf'
 
 export type AgentWebhook = { agentId: string; url: string; headerName: string; credentialJson: string | null; replyTimeoutMinutes: number; updatedAt: string }
@@ -54,6 +55,7 @@ export async function agentWebhookPayload(env: L4Env, run: AgentRun): Promise<Ag
     conversation: { channelId: run.channelId, sourceMessageId: run.sourceMessageId, taskId: run.taskId },
     prompt: stripAgentImageMarkers(run.prompt).trim(),
     reply: { tool: 'send_message', arguments: { channelId: run.channelId } },
+    complete: { tool: 'complete_run', arguments: { runId: run.id } },
   }
 }
 
@@ -75,8 +77,30 @@ export async function sendAgentWebhook(env: L4Env, hook: AgentWebhook, payload: 
   }
 }
 
-/** The external Agent answers with its own message in the Run's conversation after the wake-up. */
+/** The external Agent's latest own message in the Run's conversation since the given time. */
 export async function externalAgentReply(env: L4Env, run: Pick<AgentRun, 'agentId' | 'channelId'>, since: string): Promise<{ id: string; content: string } | null> {
   return env.DB.prepare(`SELECT id,content FROM messages WHERE channel_id=? AND author_id=? AND deleted_at IS NULL AND created_at>=?
-    ORDER BY created_at,id LIMIT 1`).bind(run.channelId, run.agentId, since).first<{ id: string; content: string }>()
+    ORDER BY created_at DESC,id DESC LIMIT 1`).bind(run.channelId, run.agentId, since).first<{ id: string; content: string }>()
+}
+
+/**
+ * The external Agent says it is done. Intermediate messages never close a Run; this does,
+ * and only for the Agent's own running Run. A completed Run needs a reply in its conversation.
+ */
+export async function completeExternalRun(env: L4Env, actor: AuthorizationContext, input: { runId: string; outcome: 'completed' | 'failed'; note?: string }) {
+  const run = await env.DB.prepare(`SELECT r.id,r.agent_id AS agentId,r.channel_id AS channelId,r.status,r.created_at AS createdAt FROM agent_runs r
+    JOIN agent_webhooks w ON w.agent_id=r.agent_id WHERE r.id=?`).bind(input.runId).first<{ id: string; agentId: string; channelId: string; status: string; createdAt: string }>()
+  if (!run || actor.principal.kind !== 'agent' || run.agentId !== actor.principal.id) fail(404, 'not_found', 'Run not found')
+  if (run.status !== 'running') return { runId: run.id, status: run.status, changed: false }
+  const reply = await externalAgentReply(env, run, run.createdAt)
+  if (input.outcome === 'completed' && !reply) fail(409, 'reply_required', 'Answer with send_message in the Run\'s conversation first, then complete the Run')
+  const now = nowIso()
+  const changed = input.outcome === 'completed'
+    ? await env.DB.prepare("UPDATE agent_runs SET status='completed',result_text=?,result_message_id=?,last_error=NULL,updated_at=? WHERE id=? AND status='running' RETURNING id")
+      .bind(input.note?.trim() || reply!.content, reply!.id, now, run.id).first()
+    : await env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
+      .bind(input.note?.trim() || 'The Agent reported that it could not finish.', newId(), now, run.id).first()
+  // The Run's coordinator settles delivery and releases the conversation queue.
+  if (changed && env.AGENT_RUN_DO) await asRpc<{ wake: (id: string) => Promise<void> }>(env.AGENT_RUN_DO.getByName(`run:${run.id}`)).wake(run.id)
+  return { runId: run.id, status: input.outcome, changed: Boolean(changed) }
 }
