@@ -6,10 +6,33 @@ async function sha256(value: ArrayBuffer) {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+const transient = [408, 429, 500, 502, 503, 504]
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+/**
+ * GitHub rate-limits release downloads from shared Cloudflare egress, so reads
+ * retry with backoff. A tagged release is immutable and every asset is checked
+ * against its SHA-256, so its responses may also be cached at the edge; the
+ * moving `latest` manifest is never cached.
+ */
+export async function releaseFetch(url: string | URL, fetcher: typeof fetch = fetch, attempts = 4): Promise<Response> {
+  const tagged = !String(url).includes('/releases/latest/')
+  const init = { redirect: 'follow', ...(tagged ? { cf: { cacheEverything: true, cacheTtl: 86400 } } : {}) } as RequestInit
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetcher(url, init)
+    if (response.ok || !transient.includes(response.status) || attempt >= attempts) return response
+    const header = Number(response.headers.get('retry-after'))
+    const wait = Number.isFinite(header) && header > 0 ? header * 1000 : 1000 * 2 ** (attempt - 1)
+    await response.body?.cancel()
+    // Never hold an installer step longer than GitHub's short throttling windows.
+    if (wait > 30_000) return new Response(null, { status: response.status })
+    await sleep(Math.round(wait * (1 + Math.random() * 0.25)))
+  }
+}
+
 async function fetchVerifiedAsset(asset: ReleaseAsset, manifestUrl: string, fetcher: typeof fetch) {
   const url = new URL(asset.url, manifestUrl)
   if (url.protocol !== 'https:') installerError(502, 'Release asset URL must use HTTPS')
-  const response = await fetcher(url, { redirect: 'follow' })
+  const response = await releaseFetch(url, fetcher)
   if (!response.ok) installerError(502, `L4 release asset is unavailable (${response.status})`)
   const body = await response.arrayBuffer()
   if (body.byteLength !== asset.size || await sha256(body) !== asset.sha256) installerError(502, 'Release asset integrity check failed')
@@ -24,7 +47,7 @@ function assertManifest(value: unknown): asserts value is InstallerReleaseManife
 }
 
 export async function loadL4Release(manifestUrl: string, fetcher: typeof fetch = fetch): Promise<InstallerRelease> {
-  const response = await fetcher(manifestUrl, { redirect: 'follow' })
+  const response = await releaseFetch(manifestUrl, fetcher)
   if (!response.ok) installerError(502, `L4 release is unavailable (${response.status})`)
   const manifest = await response.json()
   assertManifest(manifest)
@@ -39,7 +62,7 @@ export async function loadL4Release(manifestUrl: string, fetcher: typeof fetch =
 
 /** The newest published release, read from its manifest. */
 export async function latestReleaseVersion(fetcher: typeof fetch = fetch): Promise<string> {
-  const response = await fetcher(releaseManifestUrl(), { redirect: 'follow' })
+  const response = await releaseFetch(releaseManifestUrl(), fetcher)
   if (!response.ok) installerError(502, `L4 release is unavailable (${response.status})`)
   const manifest = await response.json()
   assertManifest(manifest)

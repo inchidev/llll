@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createError,
   durableObjectMigrations,
@@ -177,4 +177,17 @@ it('retires Think after its historical creation step and does not inherit its bi
   expect(durableObjectMigrations(manifest, { exists: true, migrationTag: 'v1' })).toEqual({ old_tag: 'v1', new_tag: 'v4-retire-think', steps: [{ deleted_classes: ['L4Think'] }] })
   expect(durableObjectMigrations(manifest, { exists: false })?.steps).toEqual([{ new_sqlite_classes: ['L4Agent', 'L4Think'] }, { deleted_classes: ['L4Think'] }])
   expect(updateWorkerBindings([{ name: 'AGENT_THINK', type: 'durable_object_namespace' }], manifest).some(binding => binding.name === 'AGENT_THINK')).toBe(false)
+})
+
+it('retries a rate-limited release download and gives up on a long throttle', async () => {
+  const { releaseFetch } = await import('../../../packages/deployment-core/src/release')
+  let calls = 0
+  const flaky = (async () => ++calls === 1 ? new Response('slow down', { status: 429, headers: { 'Retry-After': '0' } }) : new Response('ok')) as unknown as typeof fetch
+  expect((await releaseFetch('https://github.com/inchidev/llll/releases/download/v1.0.0/x', flaky)).status).toBe(200)
+  expect(calls).toBe(2)
+  const throttled = (async () => new Response(null, { status: 429, headers: { 'Retry-After': '3600' } })) as unknown as typeof fetch
+  expect((await releaseFetch('https://github.com/inchidev/llll/releases/download/v1.0.0/x', throttled)).status).toBe(429)
+  const missing = vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch
+  expect((await releaseFetch('https://github.com/inchidev/llll/releases/latest/download/x', missing)).status).toBe(404)
+  expect(missing).toHaveBeenCalledTimes(1)
 })
