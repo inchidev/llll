@@ -237,7 +237,8 @@ function xml(text) {
 }
 
 export function robotsTxt() {
-  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /servers\nDisallow: /domain\n\nSitemap: ${SITE.origin}/sitemap.xml\n`
+  // Content Signals (contentsignals.org): search and answers may use the site; training may not.
+  return `User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nAllow: /\nDisallow: /api/\nDisallow: /servers\nDisallow: /domain\n\nSitemap: ${SITE.origin}/sitemap.xml\n`
 }
 
 export function sitemapXml(urls) {

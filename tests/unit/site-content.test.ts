@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { agentMarkdown, compareVersions, contentLink, docEntry, releaseEntry, releaseLink, renderMarkdown, sitemapXml } from '../../apps/site/lib/content.mjs'
+import { agentMarkdown, compareVersions, contentLink, docEntry, releaseEntry, releaseLink, renderMarkdown, robotsTxt, sitemapXml } from '../../apps/site/lib/content.mjs'
 import { readSiteContent } from '../../apps/site/lib/content-files.mjs'
 import { contentMarkdownPath } from '../../apps/site/src/index'
 
@@ -50,6 +50,12 @@ describe('site content', () => {
     expect(contentMarkdownPath('/docs/x.md', null)).toBe('/docs/x.md')
     expect(contentMarkdownPath('/docs/llms.txt', 'text/markdown')).toBeNull()
     expect(contentMarkdownPath('/create', 'text/markdown')).toBeNull()
+    expect(contentMarkdownPath('/', 'text/markdown')).toBe('/llms.txt')
+    expect(contentMarkdownPath('/', 'text/html')).toBeNull()
+  })
+
+  it('declares Content Signals in robots.txt', () => {
+    expect(robotsTxt()).toMatch(/^User-agent: \*\nContent-Signal: search=yes, ai-input=yes, ai-train=no\n/)
   })
 
   it('escapes sitemap URLs', () => {

@@ -47,6 +47,10 @@ try {
   assert.equal(markdown.status, 200)
   assert.match(markdown.headers.get('Content-Type'), /^text\/markdown/)
   assert.match(await markdown.text(), /^# .+\n\n> .+\n\nSource: https:\/\/llll\.gg\/docs\/get-started\/what-is-l4\n/, 'Agents receive Markdown for Accept: text/markdown')
+  const homeMarkdown = await mf.dispatchFetch(origin + '/', { headers: { Accept: 'text/markdown' } })
+  assert.match(homeMarkdown.headers.get('Content-Type'), /^text\/markdown/)
+  assert.match(await homeMarkdown.text(), /^# L4\n/, 'The home page answers Accept: text/markdown with llms.txt')
+  assert.match(await (await mf.dispatchFetch(origin + '/robots.txt')).text(), /Content-Signal: search=yes/)
   for (const path of ['/changelog/v0.3.4', '/changelog/v0.3.4.md', '/docs/get-started/what-is-l4.md', '/llms.txt', '/docs/llms.txt', '/docs/llms-full.txt', '/robots.txt', '/sitemap.xml', '/changelog', '/changelog/rss.xml', '/blog', '/blog/rss.xml', '/docs']) {
     const response = await mf.dispatchFetch(origin + path)
     assert.equal(response.status, 200, path)
