@@ -44,7 +44,8 @@ async function saveDeployment() {
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
-const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value], ...providerCards[value] }))
+// Members connect only their own ChatGPT plan; Server API keys stay with the Owner.
+const kinds = computed(() => agentProviderIds.filter(value => props.isOwner || value === 'chatgpt').map(value => ({ value, label: providerNames[value], ...providerCards[value] })))
 const visible = computed(() => catalog.data.value?.providers ?? [])
 // The catalog is for adding; the chosen models are listed below it, each removable.
 const modelItems = computed(() => availableModels.value.filter(m => !state.models.some(chosen => chosen.id === m.id)).map(m => ({ ...m, label: m.label ?? m.id })))
@@ -59,7 +60,8 @@ watch(() => state.kind, (kind, previous) => { if (!state.name.trim() || state.na
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
   editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
-  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? providerNames.openrouter, enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, shared: provider?.shared ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
+  const kind = provider?.kind ?? (props.isOwner ? 'openrouter' : 'chatgpt')
+  Object.assign(state, { kind, name: provider?.name ?? providerNames[kind], enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, shared: provider?.shared ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
   open.value = true
   if (provider?.configured) void loadModels()
 }
@@ -158,7 +160,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
     </button>
     <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
-    <LayoutEmptyState v-else-if="!catalog.isPending.value && !visible.length" icon="i-ph-plugs" title="No model providers yet" description="Add OpenRouter, an Anthropic API key or ChatGPT so agents can reply." />
+    <LayoutEmptyState v-else-if="!catalog.isPending.value && !visible.length" icon="i-ph-plugs" :title="isOwner ? 'No model providers yet' : 'No ChatGPT connection yet'" :description="isOwner ? 'Add OpenRouter, an Anthropic API key or ChatGPT so agents can reply.' : 'Connect your ChatGPT plan to use it with agents. You decide whether to share it with everyone here.'" />
     <SettingsList v-else :items="visible" :item-key="provider => provider.id" :search-text="provider => provider.name" :search-from="Infinity" :noun="['provider', 'providers']" @select="edit"><template #row="{ item: provider }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-highlighted"><AgentsProviderLogo :kind="provider.kind" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ provider.name }}</span><span class="block truncate text-xs text-muted">{{ providerNames[provider.kind] }} · {{ provider.account || provider.keyPreview || (provider.configured ? 'Connected' : 'Not connected') }} · {{ provider.enabled ? `${provider.models.length} models` : 'Disabled' }}{{ provider.personal ? provider.shared ? ' · Shared with everyone' : ' · Only you can use it' : '' }}</span></span></template></SettingsList>
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
     </template>

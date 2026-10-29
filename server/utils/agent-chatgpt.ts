@@ -7,6 +7,7 @@ import type { L4Env } from '../../workers/env'
 import { agentProviderKey, agentProviderScope, chatGPTUsableBy, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
 import { discoverAgentModels } from './agent-provider-models'
 import { fail } from './cf'
+import { Permission, hasPermission } from '../../shared/permissions'
 import { writeAudit } from './messages'
 const issuer = 'https://auth.openai.com'
 const resource = 'https://api.openai.com/v1'
@@ -71,7 +72,9 @@ export async function completeChatGPT(env: L4Env, callback: URL, keySet: JWTVeri
   const pending = await loadChatGPTAttempt(env, state)
   if (`${callback.origin}${callback.pathname}` !== pending.redirectUri) fail(400, 'invalid_callback', 'Callback does not match this sign-in')
   const owner = await env.DB.prepare('SELECT owner_id as id,id as serverId FROM server LIMIT 1').first<{ id: string; serverId: string }>()
-  if (owner?.id !== pending.actorId) fail(403, 'forbidden', 'Only the current Server owner can finish this connection')
+  // The member who started the sign-in must still be active, and the Owner or allowed to use agents.
+  const member = await env.DB.prepare("SELECT r.permissions_bitmask AS permissions FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active' AND u.kind='human'").bind(pending.actorId).first<{ permissions: number | null }>()
+  if (!owner || !member || (owner.id !== pending.actorId && !hasPermission(member.permissions ?? 0, Permission.useAgents))) fail(403, 'forbidden', 'Only the member who started this sign-in can finish it')
   const clientId = callback.searchParams.get('client_id') ?? pending.clientId
   if (!clientId || clientId === 'dynamic_agent_client' || (pending.clientId && clientId !== pending.clientId)) fail(400, 'invalid_client', 'ChatGPT registration is incomplete')
   // Claiming the outcome is the replay guard; the attempt stays readable until it settles.

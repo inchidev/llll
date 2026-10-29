@@ -13,7 +13,7 @@ let db: DatabaseSync, env: L4Env
 const config = { kind: 'chatgpt' as const, name: 'Personal Codex', enabled: true, webSearch: false, models: [] }
 beforeEach(() => {
   db = new DatabaseSync(':memory:')
-  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(id TEXT,owner_id TEXT); INSERT INTO server VALUES ('server-fixture','owner'); CREATE TABLE audit_log(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)")
+  db.exec("CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE server(id TEXT,owner_id TEXT); INSERT INTO server VALUES ('server-fixture','owner'); CREATE TABLE roles(id TEXT PRIMARY KEY,permissions_bitmask INTEGER); CREATE TABLE users(id TEXT PRIMARY KEY,kind TEXT,status TEXT,role_id TEXT); INSERT INTO users VALUES ('owner','human','active',NULL); CREATE TABLE audit_log(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)")
   env = { DB: d1(db), AUTH_SECRET: 'test-auth-secret-for-this-server-only' } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
