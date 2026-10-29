@@ -429,7 +429,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
 // agents, also returned for `Accept: text/markdown`.
 const CONTENT_PAGE = /^\/(?:docs|blog|changelog)(?:\/[^/]+)*$/
 export function contentMarkdownPath(path: string, accept: string | null): string | null {
-  const clean = path.replace(/\/+$/, '')
+  let clean = path
+  while (clean.endsWith('/')) clean = clean.slice(0, -1)
   if (!CONTENT_PAGE.test(clean)) return null
   if (clean.endsWith('.md')) return clean
   if (/\.(?:txt|json|xml)$/.test(clean) || !(accept || '').toLowerCase().includes('text/markdown')) return null

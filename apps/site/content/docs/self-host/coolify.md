@@ -4,17 +4,19 @@ description: Deploy one L4 Server in Coolify from the published image, claim the
 order: 3
 ---
 
-The Coolify template runs one standalone L4 Server: L4 on a single celld node with private RustFS storage. Coolify's proxy owns the domain and TLS. The template uses the published `ghcr.io/inchidev/llll` image, so nothing is built on your machine.
+The Coolify template runs one standalone L4 Server: L4 on a single celld node with private RustFS storage. Coolify's proxy owns the domain and TLS. The template uses the published `ghcr.io/inchidev/llll` image. It is public, so Coolify pulls it without a registry login and nothing is built on your machine.
 
 The template is [`self-host/coolify/docker-compose.yaml`](https://github.com/inchidev/llll/blob/main/self-host/coolify/docker-compose.yaml). It is not a published Coolify catalog entry yet.
 
 ## Install
 
-1. In Coolify, create a Docker Compose resource from `docker-compose.yaml`.
-2. Set `ADMIN_EMAIL` (the first Owner's email) and the Server's domain. The deployment fails without `ADMIN_EMAIL`.
-3. Deploy.
-4. Wait until `/api/setup/health` on your domain answers with HTTP 200. The first start can take a few minutes.
-5. Open `https://<your-domain>/setup#claim=<SETUP_TOKEN>`, using the generated setup token, and create the Owner.
+1. In Coolify, choose **New Resource → Docker Compose** and paste the contents of `docker-compose.yaml`.
+2. Set the domain of the `llll` service, on port `8080`, and `ADMIN_EMAIL` (the first Owner's email). The deployment fails without `ADMIN_EMAIL`. Leave `LLLL_VERSION` unset to run `latest`.
+3. Deploy. The first start takes a few minutes while the database migrations are applied.
+4. Wait until `https://<your-domain>/api/setup/health` answers with HTTP 200.
+5. Open `https://<your-domain>/setup#claim=<SETUP_TOKEN>` and create the Owner. The token is the value of `SERVICE_PASSWORD_64_SETUPTOKEN` in the service's environment variables in Coolify.
+
+If the Server does not come up, read the logs of the `llll` container in Coolify; see also [Troubleshooting](../reference/troubleshooting.md).
 
 Coolify generates these values for the template:
 
@@ -36,7 +38,7 @@ To serve more domains, add them in Coolify and list every origin in `LLLL_ORIGIN
 
 ## Updates
 
-The image is built for `linux/amd64` and `linux/arm64`. Only stable releases are published as images, with three tags: the exact version (for example `0.3.4`), its minor line (`0.3`) and `latest`.
+The image is built for `linux/amd64` and `linux/arm64`. Only stable releases are published as images, with three tags: the exact version (for example `0.3.5`), its minor line (`0.3`) and `latest`.
 
 Updates are controlled in Coolify, not in L4:
 

@@ -26,7 +26,7 @@ export function parseFrontmatter(source) {
 }
 
 export function slugify(text) {
-  return String(text).toLowerCase().replace(/<[^>]+>/g, '').replace(/&[a-z]+;|&#\d+;/g, '').replace(/[`*_~]/g, '')
+  return String(text).toLowerCase().replace(/<[^>]+>/g, '').replace(/[<>]/g, '').replace(/&[a-z]+;|&#\d+;/g, '').replace(/[`*_~]/g, '')
     .replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-')
 }
 
@@ -88,7 +88,7 @@ export function renderMarkdown(markdown, { link = href => href, screenshots = ne
         const count = used.get(id) || 0
         used.set(id, count + 1)
         if (count) id += '-' + count
-        if (depth === 2 || depth === 3) toc.push({ id, text: plainText(inner.replace(/<[^>]+>/g, '')), depth })
+        if (depth === 2 || depth === 3) toc.push({ id, text: plainText(inner.replace(/<[^>]+>/g, '').replace(/[<>]/g, '')), depth })
         return `<h${depth} id="${id}"><a class="heading-anchor" href="#${id}">${inner}</a></h${depth}>\n`
       },
       link({ href, title, tokens }) {
