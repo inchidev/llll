@@ -9,6 +9,7 @@ import { pausedPermissionKeys } from '~~/shared/features'
 import { agentRoleSummary } from '~~/shared/agent-roles'
 import { agentTemplates } from '~~/shared/agent-templates'
 import type { AgentDTO, RoleDTO } from '~~/shared/types'
+import { publicWebhookUrl, type AgentWebhookDTO } from '~~/shared/agent-webhooks'
 
 const props = defineProps<{ serverId: string; agent?: AgentDTO | null }>()
 const open = defineModel<boolean>('open', { default: false })
@@ -77,6 +78,22 @@ const modelItems = computed(() => [
 
 const selectedAgent = shallowRef<AgentDTO | null>(null)
 const isNew = computed(() => !selectedAgent.value)
+
+// An external Agent works on its own computer: Runs wake it through a webhook and it answers through MCP.
+const external = ref(false)
+const webhook = reactive({ url: '', headerName: 'Authorization', headerValue: '', replyTimeoutMinutes: 20 })
+const savedWebhook = useQuery({
+  queryKey: computed(() => ['agent-webhook', props.serverId, selectedAgent.value?.id]),
+  queryFn: () => api<{ webhook: AgentWebhookDTO | null }>(`/api/servers/${props.serverId}/agents/${selectedAgent.value!.id}/webhook`),
+  enabled: computed(() => open.value && Boolean(selectedAgent.value)),
+})
+watch(() => savedWebhook.data.value, (data) => {
+  if (!data) return
+  external.value = Boolean(data.webhook)
+  Object.assign(webhook, { url: data.webhook?.url ?? '', headerName: data.webhook?.headerName ?? 'Authorization', headerValue: '', replyTimeoutMinutes: data.webhook?.replyTimeoutMinutes ?? 20 })
+}, { immediate: true })
+const webhookError = computed(() => !external.value ? '' : !publicWebhookUrl(webhook.url.trim()) ? 'Use a public https:// URL' : '')
+const mcpUrl = computed(() => import.meta.client ? `${window.location.origin}/mcp` : '/mcp')
 const formAvatarUser = computed(() => ({
   id: selectedAgent.value?.id ?? `new-${form.displayName}`,
   kind: 'agent' as const,
@@ -85,6 +102,7 @@ const formAvatarUser = computed(() => ({
 }))
 
 function selectAgent(agent: AgentDTO) {
+  if (selectedAgent.value?.id !== agent.id) external.value = false
   roleId.value = agent.roleId ?? ''
   selectedAgent.value = agent
   avatarFile.value = null
@@ -98,6 +116,8 @@ function selectAgent(agent: AgentDTO) {
 }
 
 function createAgent() {
+  external.value = false
+  Object.assign(webhook, { url: '', headerName: 'Authorization', headerValue: '', replyTimeoutMinutes: 20 })
   roleId.value = 'member'
   selectedAgent.value = null
   avatarFile.value = null
@@ -139,7 +159,11 @@ async function deleteAgent() {
 
 async function saveAgent(event: FormSubmitEvent<AgentForm>) {
   if (busy.value) return
-  if (isNew.value && (providers.isPending.value || modelRequired.value)) {
+  if (webhookError.value) {
+    toast.add({ title: webhookError.value, color: 'error' })
+    return
+  }
+  if (isNew.value && !external.value && (providers.isPending.value || modelRequired.value)) {
     toast.add({ title: 'Choose a model or set a Server default before creating an agent', color: 'error' })
     return
   }
@@ -171,6 +195,17 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       selectedAgent.value = result.agent
     }
     persistedAgent = result.agent
+    if (external.value) {
+      await api(`/api/servers/${props.serverId}/agents/${result.agent.id}/webhook`, { method: 'PUT', body: {
+        url: webhook.url.trim(), headerName: webhook.headerName.trim() || 'Authorization', replyTimeoutMinutes: webhook.replyTimeoutMinutes,
+        ...(webhook.headerValue.trim() ? { headerValue: webhook.headerValue.trim() } : {}),
+      } })
+      webhook.headerValue = ''
+    }
+    else if (savedWebhook.data.value?.webhook) {
+      await api(`/api/servers/${props.serverId}/agents/${result.agent.id}/webhook`, { method: 'DELETE' })
+    }
+    if (!creating) await qc.invalidateQueries({ queryKey: ['agent-webhook', props.serverId, result.agent.id] })
 
     if (avatarFile.value) {
       const formData = new FormData()
@@ -204,7 +239,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       ])
       selectAgent(persistedAgent)
       toast.add({
-        title: creating ? 'Agent created, but avatar could not be saved' : 'Agent updated, but avatar could not be saved',
+        title: creating ? 'Agent created, but its webhook or avatar could not be saved' : 'Agent updated, but its webhook or avatar could not be saved',
         description: errorMessage(error),
         color: 'error',
       })
@@ -224,7 +259,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
     <template #body>
     <UForm :schema="schema" :state="form" :disabled="busy" class="min-w-0 space-y-5" :data-update-blocked="busy" @submit="saveAgent">
       <UAlert
-        v-if="agentsUnavailable"
+        v-if="agentsUnavailable && !external"
         color="neutral"
         variant="subtle"
         title="Agents need a model provider"
@@ -258,7 +293,29 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <UInput v-model="form.displayName" autofocus class="w-full" />
       </UFormField>
 
-      <UFormField name="model" :label="providers.data.value?.defaultModel ? 'Model (optional)' : 'Model'" description="Choose a model, or leave empty to use an available Server default. The conversation can override this model.">
+      <UFormField label="Works on" description="An external agent, such as Grok Bot, runs on its own computer. Mentions wake it through its webhook and it answers through this Server's MCP.">
+        <USwitch v-model="external" label="Its own computer (external agent)" />
+      </UFormField>
+
+      <template v-if="external">
+        <UFormField label="Webhook URL" :error="webhook.url && webhookError ? webhookError : undefined" description="Each direct mention or DM sends one POST with the message, conversation and Run ID. Only direct mentions wake it.">
+          <UInput v-model="webhook.url" type="url" placeholder="https://" class="w-full" />
+        </UFormField>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <UFormField label="Key header" description="As the webhook's sender expects it.">
+            <UInput v-model="webhook.headerName" placeholder="Authorization" class="w-full" />
+          </UFormField>
+          <UFormField label="Sender key" :description="savedWebhook.data.value?.webhook?.hasHeaderValue ? 'Saved. Leave empty to keep it.' : 'Sent exactly as entered, for example Bearer …'">
+            <UInput v-model="webhook.headerValue" type="password" autocomplete="off" :placeholder="savedWebhook.data.value?.webhook?.hasHeaderValue ? '••••••••' : ''" class="w-full" />
+          </UFormField>
+        </div>
+        <UFormField label="Reply timeout" description="Minutes to wait for its reply in the thread before the Run fails.">
+          <UInputNumber v-model="webhook.replyTimeoutMinutes" :min="2" :max="120" class="w-40" />
+        </UFormField>
+        <UAlert color="neutral" variant="subtle" title="Connect it back to this Server" :description="`In Settings → MCP, create an access token that acts as this agent and add ${mcpUrl} to the agent with that token. It answers with send_message in the Run's thread and keeps the permissions of its Role.`" />
+      </template>
+
+      <UFormField v-else name="model" :label="providers.data.value?.defaultModel ? 'Model (optional)' : 'Model'" description="Choose a model, or leave empty to use an available Server default. The conversation can override this model.">
         <USelectMenu v-model:search-term="modelSearch" v-model="form.model" :loading="providers.isFetching.value" :disabled="providers.isPending.value" ignore-filter value-key="value" :items="modelItems" :placeholder="providers.data.value?.defaultModel ? 'Server default' : 'Choose a model'" class="w-full" />
         <LayoutLoadError v-if="providers.error.value" message="Model choices did not load." :retry="providers.refetch" inline />
       </UFormField>
@@ -283,7 +340,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
 
 
       <div class="flex justify-end gap-2"><UButton v-if="selectedAgent && can(Permission.manageAgents)" label="Delete agent" color="error" variant="ghost" icon="i-ph-trash" class="me-auto" :disabled="busy" @click="confirmDelete = true" /><UButton label="Cancel" color="neutral" variant="ghost" :disabled="busy" @click="open = false" />
-      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && (providers.isPending.value || modelRequired)" />
+      <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && !external && (providers.isPending.value || modelRequired)" />
       </div>
     </UForm>
     </template>

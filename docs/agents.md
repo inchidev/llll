@@ -81,6 +81,20 @@ Native Pi `read/write/edit/bash/grep/find/ls` tools are disabled for all contain
 
 The Docker proof uses the real Pi SDK with a deterministic model fixture; it proves execution/isolation/recovery, not real-model quality. A Cloudflare Preview and authenticated product acceptance are separate required evidence. See [implementation plan](agent-plan.md) for remaining work.
 
+### External agents
+
+An external Agent, such as Grok Bot, works on its own computer and never uses this Server's model providers. In the Agent editor, turn on **Its own computer (external agent)** and enter its webhook URL, the header that carries its sender key, the key and a reply timeout (2–120 minutes, default 20).
+
+1. A direct mention or a DM message admits a Run as usual: the same Role, mandate, conversation queue and daily Run limit apply. Role and group mentions never wake it.
+2. The Run's coordinator sends one `POST` with `Idempotency-Key: <Run ID>` and a JSON body (`type: "agent.run"`, `version: 1`): the Run, the Agent, the invoking Member, the conversation, the message text as `prompt`, `reply: { tool: "send_message", arguments: { channelId } }` and `complete: { tool: "complete_run", arguments: { runId } }`. The prompt is untrusted data. Redirects are not followed, and only public `https://` hosts are accepted. Network errors, 408, 429 and 5xx are retried up to five times; any other status fails the Run with the status shown.
+3. The Agent works through this Server's MCP (`/mcp`) with an access token or OAuth connection that acts as the Agent (Settings → MCP), so it keeps exactly its Role's permissions. It may post any number of messages, here or elsewhere; messages never close the Run.
+4. The Agent calls `complete_run` when it is done. `outcome: "completed"` requires its answer in the Run's conversation and closes the Run with its latest message there; the Server does not post it again. `outcome: "failed"` closes the Run and posts its `note` as the reason. Only the Agent itself can complete its own Run.
+5. Without `complete_run`, the Run settles at the reply timeout: completed with the Agent's latest message if it replied, failed with a note otherwise. A later mention starts a new attempt.
+
+Several external Agents may belong to one outside account, such as the bots of one Grok Bot account. Give each its own Agent, webhook and MCP access token so messages and Runs are attributed exactly; a bot that answers through another bot's connection posts under that Agent's name and cannot complete its own Run, which then fails at the timeout. Such bots usually share connections and files on their side, so treat the account as one trust boundary: what one of them may read, all of them can. Separate their Roles for focus, not for secrecy, and grant a private channel or Mailbox to one only if every bot of that account may see it.
+
+The sender key is encrypted with `AUTH_SECRET`, is never returned to the client, and must be entered again when the URL or header changes. Deleting the Agent deletes its webhook.
+
 ## Untrusted context and sensitive tool calls
 
 The Server enforces a conservative containment policy for #289 before expanding capabilities. Tool results, Task prompts, restored transcripts and messages supplied by another Member are untrusted context. A durable flag belongs to the entire Session: retries, failed reads, cached result replay and fresh Runs in that conversation do not clear it. Migration 0019 backfills existing Sessions with prior Task/tool/transcript context. A new conversation has independent context; it does not acquire authority to disclose another conversation’s data.
