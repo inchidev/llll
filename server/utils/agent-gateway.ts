@@ -13,6 +13,7 @@ import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
 import { modelForRun } from '../../workers/ai-runtime'
 import { agentImageResolver, modelAcceptsImages } from './agent-images'
+import { agentConversationEffort } from './agent-conversation-model'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import type { AgentRun } from '../../shared/agent-execution'
 
@@ -62,9 +63,11 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
     description: definition.function.description, inputSchema: jsonSchema(definition.function.parameters),
   })]))
   const time = await agentTimeContext(env)
+  // The conversation's effort applies to every call; 'auto' leaves the provider default.
+  const effort = await agentConversationEffort(env, run.channelId)
   const instructions = `Current time: ${time.utc}. Server timezone: ${time.timezone}. Local date and time: ${time.localTime}. Ask for a timezone when the user’s scheduling timezone is unclear.\n` + input.messages.filter(message => message.role === 'system').map(message => typeof message.content === 'string' ? message.content : '').join('\n')
   let providerFailure: unknown
-  const settings = { model, instructions, maxRetries: 2, onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: await messagesForModel(input.messages.filter(message => message.role !== 'system'), images), tools, maxOutputTokens,
+  const settings = { model, instructions, maxRetries: 2, ...(effort !== 'auto' ? { reasoning: effort } : {}), onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: await messagesForModel(input.messages.filter(message => message.role !== 'system'), images), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }
   if (input.stream) {
     const abort = new AbortController()

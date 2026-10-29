@@ -502,12 +502,6 @@ defineShortcuts({
         :actions="canRestore ? [{ label: 'Restore', color: 'neutral', variant: 'outline', loading: restoring, onClick: restoreChannel }] : []"
         class="rounded-none shrink-0"
       />
-      <ChatAgentActivity
-        :channel-id="channelId"
-        :members="members"
-        :send="send"
-        :can-approve="canApproveAgent"
-      />
       <LiveBar
         v-if="isConversation && (live.state?.active || joinedHere)"
         :channel-id="channelId"
@@ -529,7 +523,9 @@ defineShortcuts({
           :placeholder="composerPlaceholder"
           :group-mentions="!isDm"
           primary
-        />
+        >
+          <template #activity><ChatAgentActivity :channel-id="channelId" :members="members" :send="send" :can-approve="canApproveAgent" /></template>
+        </ChatComposer>
         <!-- In the composer's bottom padding, so it never pushes the layout. -->
         <p
           v-if="typingNames.length && !agentBusy"

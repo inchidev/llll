@@ -15,7 +15,7 @@ export async function modelAcceptsImages(env: L4Env, reference: string, transpor
   if (!parsed) return !reference.startsWith('@cf/')
   const provider = await loadAgentProvider(env, parsed.provider)
   const model = provider?.models.find(item => item.id === parsed.model)
-  if (typeof model?.images === 'boolean') return model.images
+  if (model?.inputs) return model.inputs.includes('image')
   if (provider?.kind !== 'openrouter') return true
   // Models saved before discovery recorded modalities: ask OpenRouter's public catalog once per isolate.
   const cached = openRouterVision.get(parsed.model)

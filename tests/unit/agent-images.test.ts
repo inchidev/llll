@@ -37,7 +37,7 @@ it('tells a text-only model about the image instead of sending it', async () => 
 })
 
 it('reads OpenRouter modalities for models saved without them', async () => {
-  sqlite.exec(`INSERT INTO server_settings(key,value,updated_at) VALUES('agents.provider.openrouter','{"kind":"openrouter","name":"OpenRouter","enabled":true,"models":[{"id":"deepseek/flash","api":"chat"},{"id":"vision/known","api":"chat","images":true}]}','2026-01-01')`)
+  sqlite.exec(`INSERT INTO server_settings(key,value,updated_at) VALUES('agents.provider.openrouter','{"kind":"openrouter","name":"OpenRouter","enabled":true,"models":[{"id":"deepseek/flash","api":"chat"},{"id":"vision/known","api":"chat","inputs":["text","image"]}]}','2026-01-01')`)
   const transport = vi.fn(async () => Response.json({ data: { architecture: { input_modalities: ['text'] } } }))
   expect(await modelAcceptsImages(env, 'l4:openrouter:deepseek/flash', transport)).toBe(false)
   expect(await modelAcceptsImages(env, 'l4:openrouter:vision/known', transport)).toBe(true)

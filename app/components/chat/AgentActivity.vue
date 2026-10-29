@@ -46,63 +46,35 @@ function control(agentId: string, action: 'stop' | 'approve' | 'reject', executi
 </script>
 
 <template>
-  <div v-if="grouped.length" class="shrink-0 space-y-2 px-4 py-1" aria-live="polite">
+  <!-- Lives at the top of the composer, so starting or finishing never moves the messages. -->
+  <div v-if="grouped.length" class="divide-y divide-default border-b border-default" aria-live="polite">
     <template v-for="[agentId, items] in grouped" :key="agentId">
-      <UCard
-        v-if="current(items)?.approval"
-        variant="subtle"
-        :ui="{ body: 'p-3 sm:p-3' }"
-      >
-        <div class="flex items-start gap-3">
-          <UIcon name="i-ph-shield-warning" class="mt-0.5 size-5 shrink-0 text-warning" />
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-sm font-medium text-highlighted">{{ nameOf(agentId) }}</span>
-              <UBadge :label="current(items)!.approval!.risk || 'approval'" color="warning" variant="subtle" size="sm" />
-            </div>
-            <p class="mt-1 text-sm text-default">{{ current(items)!.approval!.summary }}</p>
-            <pre v-if="commandOf(current(items)!)" class="mt-2 max-h-32 overflow-auto rounded-md bg-muted px-2.5 py-2 text-xs text-toned">{{ commandOf(current(items)!) }}</pre>
-            <div class="mt-3 flex gap-2">
-              <UButton
-                size="xs"
-                label="Approve"
-                icon="i-ph-check"
-                :disabled="!canApprove"
-                @click="control(agentId, 'approve', current(items)!.approval!.executionId)"
-              />
-              <UButton
-                size="xs"
-                label="Reject"
-                icon="i-ph-x"
-                color="neutral"
-                variant="outline"
-                :disabled="!canApprove"
-                @click="control(agentId, 'reject', current(items)!.approval!.executionId)"
-              />
-            </div>
+      <div v-if="current(items)?.approval" class="flex items-start gap-0.5 px-2 py-2">
+        <span class="flex h-6 w-9 shrink-0 items-center justify-center"><UIcon name="i-ph-shield-warning" class="size-5 text-warning" /></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-medium text-highlighted">{{ nameOf(agentId) }}</span>
+            <UBadge :label="current(items)!.approval!.risk || 'approval'" color="warning" variant="subtle" size="sm" />
+          </div>
+          <p class="mt-1 text-sm text-default">{{ current(items)!.approval!.summary }}</p>
+          <pre v-if="commandOf(current(items)!)" class="mt-2 max-h-32 overflow-auto rounded-md bg-muted px-2.5 py-2 text-xs text-toned">{{ commandOf(current(items)!) }}</pre>
+          <div class="mt-2 flex gap-2">
+            <UButton size="xs" label="Approve" icon="i-ph-check" :disabled="!canApprove" @click="control(agentId, 'approve', current(items)!.approval!.executionId)" />
+            <UButton size="xs" label="Reject" icon="i-ph-x" color="neutral" variant="outline" :disabled="!canApprove" @click="control(agentId, 'reject', current(items)!.approval!.executionId)" />
           </div>
         </div>
-      </UCard>
-      <div v-else class="flex h-7 items-center gap-2 text-xs text-muted">
-        <UIcon
-          :name="current(items)?.status === 'tool' ? 'i-ph-terminal-window' : 'i-ph-circle-notch'"
-          class="size-3.5 shrink-0"
-          :class="current(items)?.status === 'tool' ? '' : 'animate-spin'"
-        />
-        <span class="truncate">{{ nameOf(agentId) }} · {{ current(items)?.detail || 'Thinking' }}</span>
-        <UBadge v-if="queueCount(items)" :label="`+${queueCount(items)} queued`" color="neutral" variant="subtle" size="sm" />
-        <UTooltip text="Stop Agent">
-          <UButton
-            class="ml-auto"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            square
-            icon="i-ph-stop"
-            aria-label="Stop Agent"
-            @click="control(agentId, 'stop')"
+      </div>
+      <div v-else class="flex min-h-9 items-center gap-0.5 px-2 text-xs text-muted">
+        <span class="flex w-9 shrink-0 justify-center">
+          <UIcon
+            :name="current(items)?.status === 'tool' ? 'i-ph-terminal-window' : 'i-ph-circle-notch'"
+            class="size-4"
+            :class="current(items)?.status === 'tool' ? '' : 'animate-spin'"
           />
-        </UTooltip>
+        </span>
+        <span class="min-w-0 flex-1 truncate"><span class="font-medium text-toned">{{ nameOf(agentId) }}</span> · {{ current(items)?.detail || 'Thinking' }}</span>
+        <UBadge v-if="queueCount(items)" :label="`+${queueCount(items)} queued`" color="neutral" variant="subtle" size="sm" />
+        <UButton size="xs" color="error" variant="ghost" icon="i-ph-stop-fill" label="Stop" aria-label="Stop Agent" @click="control(agentId, 'stop')" />
       </div>
     </template>
   </div>

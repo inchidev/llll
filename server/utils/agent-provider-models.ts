@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentProviderId, AgentProviderModel } from '../../shared/agent-providers'
+import { agentModelInputs, type AgentModelInput, type AgentProviderId, type AgentProviderModel } from '../../shared/agent-providers'
 import { fail } from './cf'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 
@@ -19,7 +19,16 @@ export async function discoverAgentModels(kind: AgentProviderId, apiKey?: string
     if (typeof id !== 'string' || !id || id.length > 160 || (kind === 'chatgpt' && row.visibility !== 'list')) return []
     const api = kind === 'anthropic' ? 'anthropic' : kind === 'chatgpt' ? 'responses' : 'chat'
     const label = row.display_name ?? row.name ?? id
-    const modalities = kind === 'openrouter' && row.architecture && typeof row.architecture === 'object' && 'input_modalities' in row.architecture && Array.isArray(row.architecture.input_modalities) ? row.architecture.input_modalities : null
-    return [{ id, label: typeof label === 'string' ? label.slice(0, 200) : id, api, ...(kind === 'openrouter' && Array.isArray(row.supported_parameters) ? { tools: row.supported_parameters.includes('tools') } : {}), ...(modalities ? { images: modalities.includes('image') } : {}) }]
+    return [{ id, label: typeof label === 'string' ? label.slice(0, 200) : id, api, ...capabilities(kind, row) }]
   })
+}
+
+/** What a model accepts and whether it reasons, as the provider catalog reports it. */
+function capabilities(kind: AgentProviderId, row: Record<string, unknown>): Pick<AgentProviderModel, 'tools' | 'inputs' | 'reasoning'> {
+  // Every current Claude and ChatGPT/Codex model reads images; their catalogs do not list modalities.
+  if (kind !== 'openrouter') return { inputs: ['text', 'image', ...(kind === 'anthropic' ? ['file' as const] : [])] }
+  const parameters = Array.isArray(row.supported_parameters) ? row.supported_parameters : null
+  const architecture = row.architecture && typeof row.architecture === 'object' ? row.architecture as Record<string, unknown> : null
+  const inputs = Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.filter((value): value is AgentModelInput => agentModelInputs.includes(value as AgentModelInput)) : null
+  return { ...(parameters ? { tools: parameters.includes('tools'), reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort') } : {}), ...(inputs ? { inputs } : {}) }
 }

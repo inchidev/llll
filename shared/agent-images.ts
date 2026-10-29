@@ -12,7 +12,7 @@ export const agentImageMarker = (id: string) => `[l4-image:${id}]`
 /** Member text never carries a reference of its own; only the Server appends them. */
 export const stripAgentImageMarkers = (text: string) => text.replace(marker, '')
 /** Readable form for people: a reference shows as a short image label. */
-export const displayAgentPrompt = (text: string) => text.replace(marker, '🖼 Image').trim()
+export const displayAgentPrompt = (text?: string | null) => (text ?? '').replace(marker, '🖼 Image').trim()
 export type AgentImagePart = { type: 'text'; text: string } | { type: 'image'; id: string }
 export function splitAgentImageMarkers(text: string): AgentImagePart[] {
   const parts: AgentImagePart[] = []

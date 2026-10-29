@@ -113,12 +113,6 @@ defineShortcuts({
       @read="(messageId) => send({ t: 'read', messageId })"
       @retry="retry"
     />
-    <ChatAgentActivity
-      :channel-id="threadId"
-      :members="members"
-      :send="send as (msg: ClientMsg) => void"
-      :can-approve="canApproveAgent"
-    />
     <ChatComposer
       :channel-id="threadId"
       :server-id="props.serverId"
@@ -130,7 +124,9 @@ defineShortcuts({
       :agent-busy="agentBusy"
       :agent-id="agentId"
       placeholder="Reply in thread"
-    />
+    >
+      <template #activity><ChatAgentActivity :channel-id="threadId" :members="members" :send="send as (msg: ClientMsg) => void" :can-approve="canApproveAgent" /></template>
+    </ChatComposer>
     </template>
   </aside>
 </template>

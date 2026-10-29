@@ -38,7 +38,7 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
     if (!saved || !agentProviderIds.includes(saved.kind)) return null
     return providerDTO(env, id, saved, options)
   }))).filter((p): p is NonNullable<typeof p> => Boolean(p))
-  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => options.requireTools === false || m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name })))
+  const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => options.requireTools === false || m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name, ...(m.inputs ? { inputs: m.inputs } : {}), ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}) })))
   const imported = providers.some(p => p.kind === 'openrouter' && p.configured) && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
   if (aiProvider(env) && !imported) {
     if (aiProvider(env) === 'openai-compatible') models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })

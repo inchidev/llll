@@ -506,6 +506,7 @@ defineExpose({ addFiles, focus })
       class="df-composer overflow-hidden"
       :class="replyTarget ? 'rounded-b-lg' : 'rounded-lg'"
     >
+      <slot name="activity" />
       <ChatAgentToolbar v-if="agentId" :channel-id="channelId" :agent-id="agentId" :send="send" :disabled="disabled" @busy="toolbarBusy = $event" @saving="agentSettingsSaving = $event" />
       <div v-if="replyTarget" class="flex items-center gap-2 bg-muted px-3 py-2 text-sm text-muted">
         <span class="min-w-0 flex-1 truncate">Replying to <span class="font-semibold text-toned">{{ replyTarget.name }}</span></span>

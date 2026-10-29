@@ -18,8 +18,15 @@ const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-
 const connecting = useQuery({ queryKey: computed(() => ['agent-provider-connecting', props.serverId, editing.value?.id]), queryFn: () => api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${editing.value!.id}`), enabled: computed(() => Boolean(connection.value && editing.value)), refetchInterval: 2000 })
 const kinds = agentProviderIds.map(value => ({ value, label: providerNames[value] }))
 const visible = computed(() => catalog.data.value?.providers ?? [])
-const modelItems = computed(() => [...new Map([...state.models, ...availableModels.value].map(m => [m.id, { ...m, label: (m.label ?? m.id) + (m.tools === false ? ' (AI functions only)' : '') }])).values()])
-const selectedModels = computed({ get: () => state.models.map(m => m.id), set: (ids: string[]) => { state.models = ids.flatMap(id => { const m = [...state.models, ...availableModels.value].find(m => m.id === id); return m ? [{ id: m.id, label: m.label, api: m.api, tools: m.tools }] : [] }) } })
+// The catalog is for adding; the chosen models are listed below it, each removable.
+const modelItems = computed(() => availableModels.value.filter(m => !state.models.some(chosen => chosen.id === m.id)).map(m => ({ ...m, label: m.label ?? m.id })))
+const addModel = ref<string>()
+watch(addModel, id => {
+  const model = availableModels.value.find(m => m.id === id)
+  if (model) state.models = [...state.models, { ...model }]
+  addModel.value = undefined
+})
+function removeModel(id: string) { state.models = state.models.filter(m => m.id !== id) }
 watch(() => state.kind, (kind, previous) => { if (!state.name.trim() || state.name === providerNames[previous]) state.name = providerNames[kind] })
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
@@ -131,10 +138,22 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
         </template>
         <UFormField v-else name="apiKey" label="API key" :description="editing?.configured ? `Saved: ${editing.keyPreview || '••••••••'}. Leave blank to keep it.` : 'Paste the key from your provider account.'"><UInput v-model="state.apiKey" type="password" autocomplete="new-password" :placeholder="editing?.keyPreview" class="w-full" /></UFormField>
         <template v-if="state.kind !== 'chatgpt' || editing?.configured">
-          <UFormField name="models" label="Models" description="Search the provider catalog and choose which models are available. Models without tool support are offered to AI functions only, never to agents.">
-            <USelectMenu v-model="selectedModels" :items="modelItems" value-key="id" multiple virtualize placeholder="Choose models" class="w-full" :loading="loadingModels" :search-input="{ placeholder: 'Search model names…' }" />
+          <UFormField name="models" label="Models" description="Models listed here appear in the model picker of agent conversations and AI functions. Models without tool support are offered to AI functions only.">
+            <div class="flex gap-2">
+              <USelectMenu v-model="addModel" :items="modelItems" value-key="id" virtualize placeholder="Add a model…" class="min-w-0 flex-1" :loading="loadingModels" :disabled="!availableModels.length" :search-input="{ placeholder: 'Search model names…' }">
+                <template #item-trailing="{ item }"><AgentsModelCapabilities :inputs="item.inputs" :tools="item.tools" :reasoning="item.reasoning" /></template>
+              </USelectMenu>
+              <UButton icon="i-ph-arrow-clockwise" aria-label="Reload provider catalog" color="neutral" variant="ghost" :loading="loadingModels" @click="loadModels" />
+            </div>
           </UFormField>
-          <UButton label="Load models" icon="i-ph-arrow-clockwise" color="neutral" variant="ghost" :loading="loadingModels" @click="loadModels" />
+          <ul v-if="state.models.length" class="divide-y divide-default rounded-md border border-default" aria-label="Chosen models">
+            <li v-for="model in state.models" :key="model.id" class="flex min-h-10 items-center gap-2 py-1.5 pe-1 ps-3 text-sm">
+              <span class="min-w-0 flex-1 truncate" :title="model.id">{{ model.label ?? model.id }}</span>
+              <AgentsModelCapabilities :inputs="model.inputs" :tools="model.tools" :reasoning="model.reasoning" />
+              <UButton icon="i-ph-x" :aria-label="`Remove ${model.label ?? model.id}`" size="xs" color="neutral" variant="ghost" @click="removeModel(model.id)" />
+            </li>
+          </ul>
+          <p v-else class="text-sm text-muted">No models chosen yet.</p>
           <p v-if="modelError" class="text-sm text-error" role="alert">{{ modelError }}</p>
           <UFormField name="enabled" label="Available to agents"><USwitch v-model="state.enabled" /></UFormField>
         </template>

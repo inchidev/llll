@@ -1,6 +1,6 @@
 import { getServerId } from '../../../../shared/server-id'
 import { Permission } from '../../../../shared/permissions'
-import { agentConversationModel } from '../../../utils/agent-conversation-model'
+import { agentConversationEffort, agentConversationModel } from '../../../utils/agent-conversation-model'
 import { agentModelOptions } from '../../../utils/agent-model-options'
 import { requireChannelMember, requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
@@ -17,5 +17,5 @@ export default defineEventHandler(async event => {
   const active = await env.DB.prepare("SELECT id,channel_id as channelId,initiated_by as initiatedBy,prompt,agent_id as agentId,status FROM agent_runs WHERE (channel_id=? OR channel_id IN (SELECT id FROM channels WHERE parent_id=?)) AND status IN ('queued','running') ORDER BY created_at LIMIT 100")
     .bind(id, id).all<{ id: string; channelId: string; initiatedBy: string; prompt: string; agentId: string; status: string }>()
   // Same rule as agent-runs.get: a Run's prompt (task text, delegated instructions) is private to its initiator.
-  return { ...catalog, active: active.results.map(run => ({ ...run, prompt: run.initiatedBy === actor.user.id ? run.prompt : 'Private Run' })), selected: selected ?? catalog.defaultModel }
+  return { ...catalog, active: active.results.map(run => ({ ...run, prompt: run.initiatedBy === actor.user.id ? run.prompt : 'Private Run' })), selected: selected ?? catalog.defaultModel, effort: await agentConversationEffort(env, id) }
 })

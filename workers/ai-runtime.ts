@@ -24,6 +24,13 @@ export function modelForAgent(env: L4Env, profileModel?: string | null): Languag
   }).chat(modelId)
 }
 
+/** OpenRouter takes effort as `reasoning.effort` for every model family, not OpenAI's `reasoning_effort`. */
+export const openRouterFetch: typeof fetch = (input, init) => {
+  if (typeof init?.body !== 'string' || !init.body.includes('"reasoning_effort"')) return fetch(input, init)
+  const { reasoning_effort: effort, ...body } = JSON.parse(init.body) as { reasoning_effort?: string }
+  return fetch(input, { ...init, body: JSON.stringify(effort ? { ...body, reasoning: { effort } } : body) })
+}
+
 /** Provider credentials stay on the Server; compute receives only a Run capability. */
 export async function modelForRun(env: L4Env, reference: string, _sessionId: string, actorId?: string): Promise<LanguageModel | string> {
   if (!reference.startsWith('l4:')) {
@@ -38,5 +45,5 @@ export async function modelForRun(env: L4Env, reference: string, _sessionId: str
   }
   if (saved.id === 'chatgpt') return createOpenAI({ apiKey: await chatGPTAccessToken(env, saved.connectionId, actorId!), fetch: chatGPTFetch }).responses(saved.model.id)
   if (saved.id === 'anthropic') return createAnthropic({ apiKey: saved.apiKey })(saved.model.id)
-  return createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: saved.apiKey }).chat(saved.model.id)
+  return createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: saved.apiKey, fetch: openRouterFetch }).chat(saved.model.id)
 }
