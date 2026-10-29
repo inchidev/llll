@@ -5,7 +5,7 @@ import { isBase64UrlKey, isSafePushEndpoint } from '../../../shared/notification
 import { requireMember } from '../../utils/guards'
 import { cf, fail } from '../../utils/cf'
 import { parseBody } from '../../utils/validate'
-import { pushConfigured } from '../../../workers/push'
+import { loadPushKeys } from '../../../workers/push-keys'
 
 const bodySchema = z.object({
   endpoint: z.string().max(4096),
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   const member = await requireMember(event, (await getServerId(cf(event).env.DB)))
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
-  if (!pushConfigured(env)) fail(503, 'push_unconfigured', 'Web Push is not configured')
+  if (!await loadPushKeys(env)) fail(503, 'push_unconfigured', 'Web Push is not configured')
   if (!isSafePushEndpoint(body.endpoint)
     || !isBase64UrlKey(body.keys.p256dh, 80, 128)
     || !isBase64UrlKey(body.keys.auth, 16, 64)) {

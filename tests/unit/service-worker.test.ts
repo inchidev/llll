@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 type Handler = (event: { data?: { json: () => unknown }; notification?: { close: () => void; data?: { url?: string } }; waitUntil: (promise: Promise<unknown>) => void }) => void
 
-function serviceWorker(focused: boolean) {
+function serviceWorker(focused: boolean, closed = false) {
   const handlers = new Map<string, Handler>()
   const showNotification = vi.fn(async () => undefined)
+  const openWindow = vi.fn(async () => undefined)
   const context = {
     URL,
     self: {
@@ -15,12 +16,12 @@ function serviceWorker(focused: boolean) {
       addEventListener: (type: string, handler: Handler) => handlers.set(type, handler),
     },
     clients: {
-      matchAll: vi.fn(async () => [{ focused, visibilityState: focused ? 'visible' : 'hidden' }]),
-      openWindow: vi.fn(),
+      matchAll: vi.fn(async () => closed ? [] : [{ focused, visibilityState: focused ? 'visible' : 'hidden' }]),
+      openWindow,
     },
   }
   vm.runInNewContext(readFileSync('public/sw.js', 'utf8'), context)
-  return { handlers, showNotification }
+  return { handlers, showNotification, openWindow }
 }
 
 async function push(worker: ReturnType<typeof serviceWorker>) {
@@ -43,5 +44,20 @@ describe('web push foreground deduplication', () => {
     const worker = serviceWorker(false)
     await push(worker)
     expect(worker.showNotification).toHaveBeenCalledOnce()
+  })
+  it('shows a notification when the app has no open windows', async () => {
+    const worker = serviceWorker(false, true)
+    await push(worker)
+    expect(worker.showNotification).toHaveBeenCalledOnce()
+  })
+  it('opens the Server conversation when a notification is tapped after closing the app', async () => {
+    const worker = serviceWorker(false, true)
+    let pending = Promise.resolve()
+    worker.handlers.get('notificationclick')!({
+      notification: { close: () => {}, data: { url: '/channels/general' } },
+      waitUntil: promise => { pending = promise.then(() => undefined) },
+    })
+    await pending
+    expect(worker.openWindow).toHaveBeenCalledWith('https://chat.example.com/channels/general')
   })
 })

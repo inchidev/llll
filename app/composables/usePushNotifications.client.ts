@@ -30,6 +30,8 @@ export function usePushNotifications() {
   const busy = ref(false)
   const error = ref<string | null>(null)
   let config: PushConfig | null = null
+  let ready: ServiceWorkerRegistration | null = null
+  let currentSubscription: PushSubscription | null = null
 
   function nativeNotifications() {
     return native ? window.__LLLL_NATIVE_NOTIFICATIONS__ : undefined
@@ -65,8 +67,8 @@ export function usePushNotifications() {
       return
     }
     try {
-      const currentConfig = await loadConfig()
-      if (!currentConfig.configured || !currentConfig.publicKey) {
+      let currentConfig = await loadConfig()
+      if (!currentConfig.configured) {
         status.value = 'unconfigured'
         return
       }
@@ -74,8 +76,11 @@ export function usePushNotifications() {
         status.value = 'blocked'
         return
       }
-      const current = await (await registration()).pushManager.getSubscription()
-      status.value = current ? 'subscribed' : 'prompt'
+      if (!currentConfig.publicKey) currentConfig = await plainFetch<PushConfig>('/api/push/config', { method: 'POST' })
+      config = currentConfig
+      ready = await registration()
+      currentSubscription = await ready.pushManager.getSubscription()
+      status.value = currentSubscription && currentConfig.publicKey && equalKeys(currentSubscription.options.applicationServerKey, decodeApplicationServerKey(currentConfig.publicKey)) ? 'subscribed' : 'prompt'
     }
     catch (cause) {
       error.value = errorMessage(cause)
@@ -94,31 +99,28 @@ export function usePushNotifications() {
         return
       }
       if (!supported()) throw new Error('Notifications are not available in this browser')
-      const currentConfig = config ?? await loadConfig()
-      if (!currentConfig.configured || !currentConfig.publicKey) throw new Error('Web Push is not configured')
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') {
-        status.value = 'blocked'
-        return
-      }
-      const key = decodeApplicationServerKey(currentConfig.publicKey)
-      const ready = await registration()
-      let subscription = await ready.pushManager.getSubscription()
+      if (!config?.configured || !config.publicKey || !ready) throw new Error('Notifications are still loading. Try again.')
+      const key = decodeApplicationServerKey(config.publicKey)
+      let subscription = currentSubscription
       if (subscription && !equalKeys(subscription.options.applicationServerKey, key)) {
         await subscription.unsubscribe()
-        subscription = null
+        currentSubscription = null
+        throw new Error('Notification settings changed. Tap Enable again.')
       }
       if (!subscription) {
+        // Subscribe directly in the click handler: iOS requires user activation.
         subscription = await ready.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
         created = subscription
       }
       const body = subscriptionJson(subscription)
       if (!body) throw new Error('Browser returned an incomplete push subscription')
       await plainFetch('/api/push/subscriptions', { method: 'PUT', body })
+      currentSubscription = subscription
       status.value = 'subscribed'
     }
     catch (cause) {
       if (created) await created.unsubscribe().catch(() => false)
+      if (Notification.permission === 'denied') { status.value = 'blocked'; return }
       error.value = errorMessage(cause)
       status.value = 'error'
       throw cause
@@ -155,6 +157,7 @@ export function usePushNotifications() {
         }
       }
       status.value = 'prompt'
+      currentSubscription = null
     }
     catch (cause) {
       error.value = errorMessage(cause)

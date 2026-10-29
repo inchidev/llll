@@ -124,7 +124,7 @@ Replies in that DM Thread keep addressing the same Agent without another mention
 - A newly started Live session notifies other active Members who can access its parent Channel or Direct Message; a 1:1 Call rings the other participant. Join, leave, and end events do not create push notifications.
 - One outbox row targets one browser subscription. The `(event_id, subscription_id)` key makes producer retries idempotent; deterministic browser notification tags limit visible duplicates after at-least-once delivery.
 - A `404` or `410` push-service response removes the expired subscription. Transient failures use bounded retry and a D1 lease.
-- VAPID keys are deployment configuration and must remain stable. Subscription endpoints are capability URLs and must not appear in logs or APIs.
+- A Server creates its Web Push identity when notification settings are first opened and stores it encrypted with `AUTH_SECRET` in `server_settings`; concurrent requests share the same identity. A complete operator-provided VAPID configuration takes precedence. Keys must remain stable, and restoring the encrypted identity requires the original `AUTH_SECRET`. Subscription endpoints are capability URLs and must not appear in logs or APIs.
 
 ## Local vs production
 

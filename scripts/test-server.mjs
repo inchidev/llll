@@ -218,6 +218,15 @@ try {
       cookies[name + '-owner'],
       'Owner setup must establish a local session',
     )
+    const initialPush = await api(name, '/api/push/config')
+    assert.deepEqual(initialPush.payload, { configured: true, publicKey: null })
+    await api(name, '/api/push/config', { method: 'POST', actor: 'anonymous', expected: 401 })
+    const push = (await api(name, '/api/push/config', { method: 'POST' })).payload
+    assert.equal(push.configured, true)
+    assert.match(push.publicKey, /^[A-Za-z0-9_-]{87}$/)
+    assert.deepEqual(Object.keys(push).sort(), ['configured', 'publicKey'])
+    assert.deepEqual((await api(name, '/api/push/config')).payload, push)
+    assert.deepEqual((await api(name, '/api/push/config', { method: 'POST' })).payload, push)
     const home = await api(name, '/api/server')
     assert.equal(home.payload.server.id, ids[name])
     assert.equal((await api(name, '/.well-known/llll')).payload.id, ids[name])
