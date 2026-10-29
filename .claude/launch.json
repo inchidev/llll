@@ -21,6 +21,15 @@
         ".env.remote"
       ],
       "port": 3000
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/test-web.mjs",
+        "--serve"
+      ],
+      "port": 19003
     }
   ]
 }

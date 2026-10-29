@@ -412,7 +412,41 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     // internally so that redirect cannot replace the browser's Server route.
     return env.ASSETS.fetch(new Request(new URL('/200', url), request))
   }
+  if (['GET', 'HEAD'].includes(request.method)) {
+    if (path === '/robots.txt' && env.ENVIRONMENT === 'preview') return new Response('User-agent: *\nDisallow: /\n', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+    const markdown = contentMarkdownPath(path, request.headers.get('Accept'))
+    if (markdown) {
+      const asset = await env.ASSETS.fetch(new Request(new URL(markdown, url), request))
+      if (asset.ok && !(asset.headers.get('Content-Type') || '').includes('text/html')) return markdownResponse(asset, markdown, env)
+      if (markdown !== path) return withVary(await env.ASSETS.fetch(request))
+      return new Response('Not found', { status: 404 })
+    }
+    if (CONTENT_PAGE.test(path)) return withVary(await env.ASSETS.fetch(request))
+  }
   return env.ASSETS.fetch(request)
+}
+// Docs, blog and changelog pages have a Markdown copy at `<path>.md` for
+// agents, also returned for `Accept: text/markdown`.
+const CONTENT_PAGE = /^\/(?:docs|blog|changelog)(?:\/[^/]+)*$/
+export function contentMarkdownPath(path: string, accept: string | null): string | null {
+  const clean = path.replace(/\/+$/, '')
+  if (!CONTENT_PAGE.test(clean)) return null
+  if (clean.endsWith('.md')) return clean
+  if (/\.(?:txt|json|xml)$/.test(clean) || !(accept || '').toLowerCase().includes('text/markdown')) return null
+  return clean + '.md'
+}
+function markdownResponse(asset: Response, path: string, env: WebEnv) {
+  const response = new Response(asset.body, asset)
+  response.headers.set('Content-Type', 'text/markdown; charset=utf-8')
+  response.headers.set('Link', `<${env.PUBLIC_ORIGIN}${path.slice(0, -3)}>; rel="canonical"`)
+  response.headers.set('X-Robots-Tag', 'noindex')
+  response.headers.set('Vary', 'Accept')
+  return response
+}
+function withVary(response: Response) {
+  const output = new Response(response.body, response)
+  output.headers.append('Vary', 'Accept')
+  return output
 }
 export default {
   async fetch(request: Request, env: WebEnv) {
@@ -423,6 +457,8 @@ export default {
       const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error && 'status' in error ? Number(error.status) : 500
       response = json({ error: { message: error instanceof z.ZodError ? 'Invalid request' : error instanceof Error ? error.message : 'Request failed' } }, status)
     }
+    // PR Previews share production's content; keep them out of search results.
+    if (env.ENVIRONMENT === 'preview') { response = new Response(response.body, response); response.headers.set('X-Robots-Tag', 'noindex, nofollow') }
     return withSiteSecurityHeaders(request, response)
   },
   async scheduled(_event: ScheduledController, env: WebEnv) {

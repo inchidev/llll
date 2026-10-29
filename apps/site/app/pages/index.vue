@@ -2,7 +2,6 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const repoUrl = 'https://github.com/inchidev/llll'
-const deploymentGuideUrl = `${repoUrl}/blob/main/docs/deployment.md`
 // Restore this section once screenshots of the current Client are ready.
 const showProductPreview = false
 const siteUrl = 'https://llll.gg/'
@@ -14,6 +13,7 @@ const navigation: NavigationMenuItem[] = [
   { label: 'Product', to: '#product' },
   { label: 'Ways to run', to: '#run' },
   { label: 'Docs', to: '/docs' },
+  { label: 'Changelog', to: '/changelog' },
 ]
 
 const createLabel = 'Create your Server'
@@ -41,7 +41,6 @@ const soonGroups = [
   { id: 'data', name: 'Data', icon: 'i-ph-table', description: 'Tables, documents and canvases your team and agents share.' },
   { id: 'apps', name: 'Apps', icon: 'i-ph-squares-four', description: 'Internal tools over shared data, published to the right Roles.' },
 ]
-const productGroups = [...featuredGroups, ...moreGroups]
 
 const freedoms = [
   { title: 'Invite everyone.', description: 'No seat fees. Add people and agents without buying access for each one.' },
@@ -101,17 +100,7 @@ useHead({
 
 <template>
   <div class="landing min-h-screen overflow-x-clip bg-default text-default">
-    <UHeader to="/" title="L4" class="border-b border-muted/70 bg-default/80 backdrop-blur-xl">
-      <template #title><BrandLogo :linked="false" /></template>
-      <UNavigationMenu :items="navigation" />
-      <template #right>
-        <UButton to="/servers" label="My Servers" color="neutral" variant="ghost" class="hidden sm:inline-flex" />
-        <UButton :to="repoUrl" target="_blank" icon="i-ph-github-logo" aria-label="GitHub repository" color="neutral" variant="ghost" />
-      </template>
-      <template #body>
-        <UNavigationMenu :items="[...navigation, { label: 'My Servers', to: '/servers' }]" orientation="vertical" class="-mx-2.5" />
-      </template>
-    </UHeader>
+    <SiteHeader :items="navigation" />
 
     <main>
       <section class="relative isolate overflow-hidden border-b border-muted py-20 sm:py-28 lg:py-32">
@@ -249,43 +238,7 @@ useHead({
       </section>
     </main>
 
-    <footer class="border-t border-muted pt-12 sm:pt-16">
-      <UContainer>
-        <div class="grid grid-cols-2 gap-8 pb-12 sm:grid-cols-3 sm:pb-16">
-          <nav aria-label="Footer product">
-            <p class="mb-4 text-sm font-semibold text-highlighted">Product</p>
-            <ul class="space-y-3 text-sm text-muted">
-              <li><a href="#agents" class="hover:text-highlighted">Agents</a></li>
-              <li v-for="app in productGroups" :key="app.id"><a :href="`#app-${app.id}`" class="hover:text-highlighted">{{ app.name }}</a></li>
-              <li><a href="#run" class="hover:text-highlighted">Ways to run</a></li>
-            </ul>
-          </nav>
-          <nav aria-label="Footer resources">
-            <p class="mb-4 text-sm font-semibold text-highlighted">Resources</p>
-            <ul class="space-y-3 text-sm text-muted">
-              <li><NuxtLink to="/docs" class="hover:text-highlighted">Documentation</NuxtLink></li>
-              <li><ULink :to="deploymentGuideUrl" target="_blank" class="hover:text-highlighted">Deployment guide</ULink></li>
-              <li><NuxtLink to="/servers" class="hover:text-highlighted">My Servers</NuxtLink></li>
-              <li><ULink :to="repoUrl" target="_blank" class="hover:text-highlighted">GitHub</ULink></li>
-            </ul>
-          </nav>
-          <nav aria-label="Footer project">
-            <p class="mb-4 text-sm font-semibold text-highlighted">Project</p>
-            <ul class="space-y-3 text-sm text-muted">
-              <li><NuxtLink to="/privacy" class="hover:text-highlighted">Privacy</NuxtLink></li>
-              <li><NuxtLink to="/terms" class="hover:text-highlighted">Terms</NuxtLink></li>
-              <li><ULink :to="`${repoUrl}/issues`" target="_blank" class="hover:text-highlighted">Issues and feedback</ULink></li>
-            </ul>
-          </nav>
-        </div>
-      </UContainer>
-      <div class="border-t border-muted py-8">
-        <UContainer class="flex w-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <BrandLogo />
-          <p class="text-xs leading-5 text-dimmed">MIT License · Made by Inchi</p>
-        </UContainer>
-      </div>
-    </footer>
+    <SiteFooter />
   </div>
 </template>
 

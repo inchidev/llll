@@ -9,9 +9,9 @@ MIT licensed independent community software. Nuxt 4, Pinia, TanStack Query, Work
 | Server | Root Nuxt runtime (`app`, `server`) | One community's Accounts, login, sessions, Members, Roles, content, files and realtime. |
 | Shell | `apps/site`, `/create` and Server UUID routes | Device-local bookmarks and navigation; embeds each Server's own Client. |
 | Landing | `apps/site`, `/` | Public product entry point. |
-| Docs | `docs`, `apps/site` at `/docs` | Source documentation and its web index, pinned to the released version. |
+| Docs | `apps/site/content` at `/docs` and `/blog`; `docs/release-notes` at `/changelog` | User documentation, blog and changelog, with Markdown copies and llms.txt for agents, pinned to the released version. Contributor and design docs stay in `docs`. |
 
-Landing, Shell, Docs and `/create` (Connect / Cloudflare / VPS) share the official Worker `llll`. Each standalone Server is separately deployed. `apps/client` redirects to the Shell. Native iOS/macOS packaging remains frozen.
+Landing, Shell, Docs, Blog, Changelog and `/create` (Connect / Cloudflare / VPS) share the official Worker `llll`. Each standalone Server is separately deployed. `apps/client` redirects to the Shell. Native iOS/macOS packaging remains frozen.
 
 ## Domains
 
