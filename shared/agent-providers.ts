@@ -15,10 +15,12 @@ export const agentProviderSchema = z.object({
   // An empty connection name falls back to the provider name; the field shows that name rather than a placeholder.
   kind: z.enum(agentProviderIds).optional(), name: z.string().trim().max(80, 'Connection name must be 80 characters or fewer').optional(),
   enabled: z.boolean(), webSearch: z.boolean().default(false),
+  /** ChatGPT only: the connecting member shares their plan with everyone on this Server. */
+  shared: z.boolean().optional(),
   apiKey: z.string().trim().min(1).max(4000).optional(), models: z.array(agentModelSchema).max(200),
 })
 export type AgentProviderModel = z.infer<typeof agentModelSchema>
-export type AgentProviderDTO = { id: string; kind: AgentProviderId; name: string; configured: boolean; enabled: boolean; models: AgentProviderModel[]; subscription: boolean; webSearch: boolean; keyPreview?: string; account?: string; personal?: boolean; connectedAt?: string }
+export type AgentProviderDTO = { id: string; kind: AgentProviderId; name: string; configured: boolean; enabled: boolean; models: AgentProviderModel[]; subscription: boolean; webSearch: boolean; keyPreview?: string; account?: string; personal?: boolean; connectedAt?: string; shared?: boolean; mine?: boolean }
 export type AgentModelOption = { value: string; label: string; provider: string; tools?: boolean; inputs?: AgentModelInput[]; reasoning?: boolean }
 export type AgentProviderCatalog = { providers: AgentProviderDTO[]; models: AgentModelOption[]; defaultModel: string | null; canImportOpenRouter: boolean; deploymentProvider?: string | null }
 export function agentModelRef(provider: string, model: string): string { return `l4:${provider}:${model}` }

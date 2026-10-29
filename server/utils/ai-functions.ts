@@ -5,7 +5,7 @@ import { readServerSetting } from '../../shared/server-settings'
 import { modelForRun } from '../../workers/ai-runtime'
 import type { L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
-import { agentProviderCatalog, loadAgentProvider } from './agent-providers'
+import { agentProviderCatalog, chatGPTUsableBy, loadAgentProvider } from './agent-providers'
 import { asRpc, fail } from './cf'
 import { auditStatement, writeAudit } from './messages'
 import { inferenceFailure } from './agent-inference-errors'
@@ -61,7 +61,7 @@ export async function resolveAiFunction(env: L4Env, id: AiFunctionId, actorId: s
   const selected = parseAgentModelRef(config.model)
   const provider = selected ? await loadAgentProvider(env, selected.provider) : null
   if (!selected || !provider?.enabled || !provider.secret || !provider.models.some(model => model.id === selected.model)
-    || (provider.kind === 'chatgpt' && provider.connectedBy !== actorId)
+    || (provider.kind === 'chatgpt' && !chatGPTUsableBy(provider, actorId))
     || (id === 'web.search' && (provider.kind !== 'openrouter' || !provider.webSearch))) {
     fail(409, 'ai_function_unavailable', `${definition.label} uses an unavailable connection or model. Update its assignment in Providers.`)
   }

@@ -124,3 +124,17 @@ it.each(['response.failed', 'response.incomplete', 'eof'])('does not publish a s
   const response = await chatGPTFetch('https://api.openai.com/v1/responses', { body: '{}' })
   await expect(response.text()).rejects.toThrow()
 })
+
+describe('sharing a ChatGPT plan', () => {
+  it('lets only the connecting member share it, then everyone can use it', async () => {
+    const credentials: ChatGPTCredentials = { accessToken: 'shared-access', refreshToken: 'refresh', idToken: 'id', expiresAt: Date.now() + 3600_000, subject: 'subject', email: 'owner@example.test', clientId: 'client', scope: 'chatgpt.tokens.use.direct' }
+    await writeServerSetting(env.DB, agentProviderKey('codex'), JSON.stringify({ kind: 'chatgpt', name: 'Codex', enabled: true, connectedBy: 'owner', models: [{ id: 'gpt', api: 'responses' }], secret: await encryptSecret(env.AUTH_SECRET!, agentProviderScope('codex'), JSON.stringify(credentials)) }))
+    await expect(chatGPTAccessToken(env, 'codex', 'member')).rejects.toMatchObject({ statusCode: 403 })
+    await expect(saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: true }, 'member')).rejects.toMatchObject({ data: { error: { code: 'share_denied' } } })
+    await saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: true }, 'owner')
+    expect(await chatGPTAccessToken(env, 'codex', 'member')).toBe('shared-access')
+    expect((await agentProviderCatalog(env, { actorId: 'member' })).models.some(model => model.value === 'l4:codex:gpt')).toBe(true)
+    await saveAgentProvider(env, 'codex', { ...config, models: [{ id: 'gpt', api: 'responses' }], shared: false }, 'owner')
+    await expect(chatGPTAccessToken(env, 'codex', 'member')).rejects.toMatchObject({ statusCode: 403 })
+  })
+})

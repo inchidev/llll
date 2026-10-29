@@ -11,7 +11,7 @@ const open = ref(false), busy = ref(false), loadingModels = ref(false), query = 
 const availableModels = shallowRef<AgentProviderModel[]>([])
 const modelError = ref('')
 const connection = shallowRef<{ state: string; authorizationUrl: string; expiresAt: number } | null>(null)
-const state = reactive({ kind: 'openrouter' as AgentProviderId, name: providerNames.openrouter, enabled: true, apiKey: '', webSearch: false, models: [] as AgentProviderModel[] })
+const state = reactive({ kind: 'openrouter' as AgentProviderId, name: providerNames.openrouter, enabled: true, apiKey: '', webSearch: false, shared: false, models: [] as AgentProviderModel[] })
 const modelSearch = ref('')
 const catalog = useQuery({ queryKey: computed(() => ['agent-providers', props.serverId, query.value, page.value]), queryFn: () => api<{ providers: AgentProviderDTO[]; total: number }>(`/api/servers/${props.serverId}/agent-providers/connections`, { query: { search: query.value, page: page.value } }) })
 const modelOptions = useQuery({ queryKey: computed(() => ['agent-provider-model-options', props.serverId, modelSearch.value]), queryFn: () => api<{ models: import('~~/shared/agent-providers').AgentModelOption[]; defaultModel: string | null; deploymentProvider?: string | null }>(`/api/servers/${props.serverId}/agent-providers/model-options`, { query: { search: modelSearch.value } }) })
@@ -59,7 +59,7 @@ watch(() => state.kind, (kind, previous) => { if (!state.name.trim() || state.na
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
   editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
-  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? providerNames.openrouter, enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
+  Object.assign(state, { kind: provider?.kind ?? 'openrouter', name: provider?.name ?? providerNames.openrouter, enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, shared: provider?.shared ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
   open.value = true
   if (provider?.configured) void loadModels()
 }
@@ -77,7 +77,7 @@ async function loadModels() {
 }
 async function persist() {
   const id = editing.value?.id ?? crypto.randomUUID()
-  const result = await api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${id}`, { method: 'PUT', body: { ...state, name: state.name.trim() || providerNames[state.kind], apiKey: state.apiKey || undefined } })
+  const result = await api<{ provider: AgentProviderDTO }>(`/api/servers/${props.serverId}/agent-providers/${id}`, { method: 'PUT', body: { ...state, name: state.name.trim() || providerNames[state.kind], apiKey: state.apiKey || undefined, shared: state.kind === 'chatgpt' && editing.value?.mine ? state.shared : undefined } })
   state.apiKey = ''; await refresh()
   editing.value = result.provider
   return id
@@ -159,7 +159,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
     <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search providers" aria-label="Search providers" class="w-full" />
     <LayoutLoadError v-if="catalog.error.value" inline message="Providers did not load." :retry="catalog.refetch" />
     <LayoutEmptyState v-else-if="!catalog.isPending.value && !visible.length" icon="i-ph-plugs" title="No model providers yet" description="Add OpenRouter, an Anthropic API key or ChatGPT so agents can reply." />
-    <SettingsList v-else :items="visible" :item-key="provider => provider.id" :search-text="provider => provider.name" :search-from="Infinity" :noun="['provider', 'providers']" @select="edit"><template #row="{ item: provider }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-highlighted"><AgentsProviderLogo :kind="provider.kind" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ provider.name }}</span><span class="block truncate text-xs text-muted">{{ providerNames[provider.kind] }} · {{ provider.account || provider.keyPreview || (provider.configured ? 'Connected' : 'Not connected') }} · {{ provider.enabled ? `${provider.models.length} models` : 'Disabled' }}{{ provider.personal ? ' · Only you can use it' : '' }}</span></span></template></SettingsList>
+    <SettingsList v-else :items="visible" :item-key="provider => provider.id" :search-text="provider => provider.name" :search-from="Infinity" :noun="['provider', 'providers']" @select="edit"><template #row="{ item: provider }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-highlighted"><AgentsProviderLogo :kind="provider.kind" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ provider.name }}</span><span class="block truncate text-xs text-muted">{{ providerNames[provider.kind] }} · {{ provider.account || provider.keyPreview || (provider.configured ? 'Connected' : 'Not connected') }} · {{ provider.enabled ? `${provider.models.length} models` : 'Disabled' }}{{ provider.personal ? provider.shared ? ' · Shared with everyone' : ' · Only you can use it' : '' }}</span></span></template></SettingsList>
     <UPagination v-if="(catalog.data.value?.total ?? 0) > 15" v-model:page="page" :items-per-page="15" :total="catalog.data.value?.total ?? 0" />
     </template>
   </section>
@@ -192,7 +192,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
         </UFormField>
         <UFormField name="name" label="Connection name" description="Distinguish work, personal, or other accounts. Left empty, it uses the provider name."><UInput v-model="state.name" class="w-full" /></UFormField>
         <template v-if="state.kind === 'chatgpt'">
-          <p class="text-sm text-muted">{{ editing?.account ? `Connected as ${editing.account}.` : 'Use your ChatGPT plan with Pi.' }} This connection is available only for your requests.</p>
+          <p class="text-sm text-muted">{{ editing?.account ? `Connected as ${editing.account}.` : 'Use your ChatGPT plan with Pi.' }} {{ state.shared ? 'Shared with everyone on this Server.' : 'Only you can use it unless you share it below.' }}</p>
           <UButton label="Continue with ChatGPT" color="neutral" variant="outline" :loading="busy" @click="connectChatGPT" />
           <template v-if="connection">
             <div v-if="local" class="space-y-2"><p class="text-sm text-muted">Finish signing in in the new tab. This page will update automatically.</p><UButton :to="connection.authorizationUrl" target="_blank" label="Open ChatGPT sign-in" color="neutral" variant="link" /></div>
@@ -229,6 +229,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
           <p v-if="modelError" class="text-sm text-error" role="alert">{{ modelError }}</p>
           <UFormField name="enabled" label="Available to agents"><USwitch v-model="state.enabled" /></UFormField>
         </template>
+        <UFormField v-if="state.kind === 'chatgpt' && editing?.configured && editing.mine" name="shared" label="Share with everyone on this Server" description="Members' agents and AI functions can then use this ChatGPT plan; their requests count against your plan's limits. Only you can change this."><USwitch v-model="state.shared" /></UFormField>
         <UFormField v-if="state.kind === 'openrouter'" name="webSearch" label="Web search" description="Allow agents with Browse Web permission to search. Additional OpenRouter charges apply."><USwitch v-model="state.webSearch" /></UFormField>
       </UForm>
     </template>

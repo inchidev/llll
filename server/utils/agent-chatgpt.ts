@@ -4,7 +4,7 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { decryptSecret, encryptSecret } from '../../shared/encrypted-secret'
 import { readServerSetting, writeServerSetting } from '../../shared/server-settings'
 import type { L4Env } from '../../workers/env'
-import { agentProviderKey, agentProviderScope, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
+import { agentProviderKey, agentProviderScope, chatGPTUsableBy, loadAgentProvider, type ChatGPTCredentials } from './agent-providers'
 import { discoverAgentModels } from './agent-provider-models'
 import { fail } from './cf'
 import { writeAudit } from './messages'
@@ -117,7 +117,7 @@ async function exchangeChatGPT(env: L4Env, callback: URL, pending: Pending, owne
 }
 export async function chatGPTAccessToken(env: L4Env, connectionId: string, actorId: string): Promise<string> {
   let provider = await loadAgentProvider(env, connectionId)
-  if (!provider?.enabled || provider.kind !== 'chatgpt' || !provider.secret || provider.connectedBy !== actorId) fail(403, 'personal_provider', 'This ChatGPT account is not available to this member')
+  if (!provider?.enabled || provider.kind !== 'chatgpt' || !provider.secret || !chatGPTUsableBy(provider, actorId)) fail(403, 'personal_provider', 'This ChatGPT account is not available to this member')
   let credentials = JSON.parse(await decryptSecret(env.AUTH_SECRET!, agentProviderScope(connectionId), provider.secret)) as ChatGPTCredentials
   if (credentials.expiresAt > Date.now() + 60000) return credentials.accessToken
   // A database lease serializes refresh across Workers and Durable Objects, including token rotation.
@@ -129,7 +129,7 @@ export async function chatGPTAccessToken(env: L4Env, connectionId: string, actor
   try {
     const original = await readServerSetting(env.DB, agentProviderKey(connectionId))
     provider = await loadAgentProvider(env, connectionId)
-    if (!provider?.enabled || !provider.secret || provider.connectedBy !== actorId) fail(403, 'connection_changed', 'ChatGPT connection is no longer available')
+    if (!provider?.enabled || !provider.secret || !chatGPTUsableBy(provider, actorId)) fail(403, 'connection_changed', 'ChatGPT connection is no longer available')
     credentials = JSON.parse(await decryptSecret(env.AUTH_SECRET!, agentProviderScope(connectionId), provider.secret)) as ChatGPTCredentials
     if (credentials.expiresAt > Date.now() + 60000) return credentials.accessToken
     const tokens = await tokenRequest(new URLSearchParams({ grant_type: 'refresh_token', client_id: credentials.clientId, refresh_token: credentials.refreshToken, resource }))
