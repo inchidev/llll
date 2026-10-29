@@ -12,6 +12,7 @@ const signedIn = ref(false)
 const error = ref<string | null>(null)
 const claimToken = useState('owner-claim', () => '')
 const ownerEmail = ref('')
+const pastedToken = ref('')
 
 const schema = z.object({
   serverName: z.string().trim().min(1, 'Name the Server').max(80),
@@ -51,20 +52,38 @@ onMounted(async () => {
   await session.refresh(api)
   if (session.user) await navigateTo('/')
   else if (session.health?.ready) await navigateTo('/login')
-  else if (session.health?.ownerSetup && claimToken.value) {
-    try {
-      const identity = await api<{ email: string; serverName?: string }>('/api/setup/owner/identity', {
-        method: 'POST',
-        body: { token: claimToken.value },
-      })
-      ownerEmail.value = identity.email
-      state.serverName = identity.serverName || session.health?.appName || state.serverName
-    }
-    catch (cause) {
-      error.value = errorMessage(cause)
-    }
-  }
+  else if (session.health?.ownerSetup && claimToken.value) await loadIdentity()
 })
+
+async function loadIdentity() {
+  error.value = null
+  try {
+    const identity = await api<{ email: string; serverName?: string }>('/api/setup/owner/identity', {
+      method: 'POST',
+      body: { token: claimToken.value },
+    })
+    ownerEmail.value = identity.email
+    state.serverName = identity.serverName || session.health?.appName || state.serverName
+  }
+  catch (cause) {
+    error.value = errorMessage(cause)
+    // A wrong or stale token falls back to the token field with the error.
+    claimToken.value = ''
+    try { sessionStorage.removeItem('df:owner-setup-token') } catch { /* Memory fallback. */ }
+  }
+}
+
+// Operator installs (Docker, Coolify) have the setup token in their deployment
+// settings rather than a link from the installer.
+async function usePastedToken() {
+  const token = pastedToken.value.trim()
+  if (!token) return
+  busy.value = true
+  claimToken.value = token
+  try { sessionStorage.setItem('df:owner-setup-token', token) } catch { /* Memory fallback. */ }
+  await loadIdentity()
+  busy.value = false
+}
 
 async function onSubmit(event: FormSubmitEvent<Schema>) {
   busy.value = true
@@ -115,14 +134,16 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
     <p v-else-if="signedIn" role="status" class="mt-6 text-sm text-muted">Signing you in…</p>
 
     <template v-else-if="health?.ownerSetup">
-      <UAlert
-        v-if="!claimToken"
-        color="warning"
-        variant="subtle"
-        title="This setup link is missing its private claim. Return to the installer and choose Finish setup on your Server."
-        class="mt-6"
-      />
-      <UButton v-if="!claimToken" to="https://llll.gg/create?tab=cloudflare" external target="_blank" rel="noopener" label="Return to the installer" class="mt-3" />
+      <form v-if="!claimToken" class="mt-7 space-y-4" @submit.prevent="usePastedToken">
+        <UAlert v-if="error" color="error" variant="subtle" :title="error" />
+        <UFormField
+          label="Setup token"
+          help="The SETUP_TOKEN of this Server's deployment. On Coolify it is SERVICE_PASSWORD_64_SETUPTOKEN. A Cloudflare install opens this page with the token already filled in."
+        >
+          <FormPasswordInput v-model="pastedToken" name="setupToken" autocomplete="off" size="lg" class="w-full" />
+        </UFormField>
+        <UButton type="submit" size="lg" label="Continue" block :loading="busy" :disabled="!pastedToken.trim()" />
+      </form>
       <template v-else>
         <UAlert v-if="error" color="error" variant="subtle" :title="error" class="mt-6" />
         <UForm v-if="ownerEmail" :schema="schema" :state="state" autocomplete="on" class="mt-7 space-y-4" @submit="onSubmit">

@@ -161,6 +161,7 @@ Inputs apply on first install. Reruns keep the saved values.
 | Input | Default and meaning |
 | --- | --- |
 | `LLLL_DOMAIN`, `LLLL_ADMIN_EMAIL` | Required on first install. Domain without scheme or path; email of the first Owner. |
+| `LLLL_ADMIN_PASSWORD` | Optional, at least 12 characters. Creates the first Owner with this password, so no claim link is printed. It is stored in `.env`; change it after signing in. |
 | `PUBLIC_ORIGIN`, `LLLL_ORIGINS` | Primary origin and comma-separated aliases. Managed by `llll domain`; do not edit by hand. |
 | `LLLL_DIR` | `/opt/llll`. Use the same value with every CLI command if you change it. |
 | `LLLL_CHANNEL` | `stable`. Set `prerelease` to install or upgrade to an alpha, beta or rc. |

@@ -233,6 +233,10 @@ configure_new() {
   put_env LLLL_HTTPS_PORT "$https_port" "$stage/.env"
   put_env LLLL_ACME_EMAIL "${LLLL_ACME_EMAIL:-$admin}" "$stage/.env"
   put_env ADMIN_EMAIL "$admin" "$stage/.env"
+  if [[ -n ${LLLL_ADMIN_PASSWORD:-} ]]; then
+    (( ${#LLLL_ADMIN_PASSWORD} >= 12 )) || fail 'LLLL_ADMIN_PASSWORD must be at least 12 characters'
+    put_env ADMIN_PASSWORD "$LLLL_ADMIN_PASSWORD" "$stage/.env"
+  fi
   put_env RUSTFS_BUCKET cells "$stage/.env"
   put_env AWS_REGION us-east-1 "$stage/.env"
   put_env LLLL_CHANNEL "$channel" "$stage/.env"
@@ -415,6 +419,8 @@ print_result() {
   if jq -e '.ready == false' "$stage/health.json" >/dev/null; then
     # No installer log or setup.url file. Explicit operator terminal output only.
     printf 'Claim owner: %s/setup#claim=%s\n' "$(get_env PUBLIC_ORIGIN)" "$(get_env SETUP_TOKEN)"
+  elif [[ -n $(get_env ADMIN_PASSWORD) ]]; then
+    say "Sign in as $(get_env ADMIN_EMAIL) with LLLL_ADMIN_PASSWORD."
   fi
   say 'Keep an encrypted off-host copy of .env and backups. Operations: llll status | logs | backup | upgrade | restore | domain | uninstall'
 }
