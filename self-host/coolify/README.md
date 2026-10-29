@@ -6,7 +6,7 @@
 
 1. Create a Docker Compose resource from `docker-compose.yaml`.
 2. Set `ADMIN_EMAIL` and the Server's domain. Coolify generates `SERVICE_URL_LLLL_8080`, `SERVICE_FQDN_LLLL_8080`, `SERVICE_PASSWORD_64_AUTHSECRET`, `SERVICE_PASSWORD_64_SETUPTOKEN`, `SERVICE_USER_RUSTFS` and `SERVICE_PASSWORD_64_RUSTFS`; keep them private and never regenerate them. `AUTH_SECRET` signs sessions and encrypts stored credentials.
-3. Deploy. The Server is ready once `/api/setup/health` answers 200. Open `/setup`, enter the generated setup token (`SERVICE_PASSWORD_64_SETUPTOKEN`) and create the owner.
+3. Deploy. The Server is ready once `/api/setup/health` answers 200. Open `/setup`, enter the generated setup token (`SERVICE_PASSWORD_64_SETUPTOKEN`) and create the owner. Alternatively set `ADMIN_PASSWORD` (12+ characters) before the first deploy: the first start creates the owner and there is no claim step.
 
 To serve more domains, add them in Coolify and list every origin in `LLLL_ORIGINS`, comma-separated. RustFS has no public port.
 

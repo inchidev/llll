@@ -84,6 +84,7 @@ sudo llll uninstall --purge            # additionally removes this Server's live
 | Input | Default / meaning |
 | --- | --- |
 | `LLLL_DOMAIN`, `LLLL_ADMIN_EMAIL` | Required on first install. Domain without scheme/path; first owner email. |
+| `LLLL_ADMIN_PASSWORD` | Optional (>= 12 characters). Written to `.env` as `ADMIN_PASSWORD`; the first start creates the owner and no claim is printed. |
 | `PUBLIC_ORIGIN`, `LLLL_ORIGINS` | Primary origin and comma-separated aliases. Managed by `llll domain`; do not edit by hand. |
 | `LLLL_DIR` | `/opt/llll`; canonical dedicated directory. Use the same value with each CLI command for a custom directory. |
 | `LLLL_CHANNEL` | `stable`; prerelease install/upgrade needs explicit `prerelease`. Until a stable release exists, `llll upgrade` without a version cannot select one. |

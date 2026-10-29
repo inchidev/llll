@@ -16,6 +16,8 @@ The template is [`self-host/coolify/docker-compose.yaml`](https://github.com/inc
 4. Wait until `https://<your-domain>/api/setup/health` answers with HTTP 200.
 5. Open `https://<your-domain>/setup`, paste the setup token and create the Owner. The token is the value of `SERVICE_PASSWORD_64_SETUPTOKEN` in the service's environment variables in Coolify.
 
+To skip step 5, also set `ADMIN_PASSWORD` (at least 12 characters) before the first deploy. The first start creates the Owner with `ADMIN_EMAIL` and that password, so you can sign in right away. Change the password after you sign in. Later changes to `ADMIN_PASSWORD` have no effect, and you can remove the variable.
+
 If the Server does not come up, read the logs of the `llll` container in Coolify; see also [Troubleshooting](../reference/troubleshooting.md).
 
 Coolify generates these values for the template:

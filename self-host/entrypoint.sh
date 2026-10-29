@@ -83,6 +83,7 @@ require_set SETUP_TOKEN
 require_set AWS_ACCESS_KEY_ID
 require_set AWS_SECRET_ACCESS_KEY
 require_min AUTH_SECRET 32
+require_min ADMIN_PASSWORD 12
 require_min SETUP_TOKEN 32
 require_min INBOUND_EMAIL_SECRET 32
 require_min POSTMARK_INBOUND_SECRET 32
@@ -122,6 +123,13 @@ put_var LLLL_ORIGINS
 put_var SERVER_ID
 put_var AUTH_SECRET
 put_var ADMIN_EMAIL
+# With ADMIN_PASSWORD the first start creates the Owner and skips the setup claim.
+if [ -n "${ADMIN_PASSWORD:-}" ]; then
+  export ADMIN_SERVER="${ADMIN_SERVER:-${APP_NAME:-L4}}"
+  put_var ADMIN_PASSWORD
+  put_var ADMIN_NAME
+  put_var ADMIN_SERVER
+fi
 put_var SETUP_TOKEN
 put_var CLOUDFLARE_ACCOUNT_ID
 put_var CLOUDFLARE_API_TOKEN
@@ -256,7 +264,11 @@ printf '%s\n' "$output"
 touch "${CELLD_WATCH}/.migrations-applied"
 if [ -n "$IMAGE_VERSION" ]; then printf '%s\n' "$IMAGE_VERSION" > "$DATA_VERSION_FILE"; fi
 echo "llll: celld d1 migrations apply ${DATABASE_NAME} finished"
-echo "llll: serving ${PUBLIC_ORIGIN}; before an Owner exists, open ${PUBLIC_ORIGIN}/setup and enter SETUP_TOKEN"
+if [ -n "${ADMIN_PASSWORD:-}" ]; then
+  echo "llll: serving ${PUBLIC_ORIGIN}; sign in as ${ADMIN_EMAIL} with ADMIN_PASSWORD"
+else
+  echo "llll: serving ${PUBLIC_ORIGIN}; before an Owner exists, open ${PUBLIC_ORIGIN}/setup and enter SETUP_TOKEN"
+fi
 
 if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
   export CELLD_CONFIG="$CONFIG" DATABASE_NAME CELLD_BUCKET CELLD_INTERNAL_LISTEN
