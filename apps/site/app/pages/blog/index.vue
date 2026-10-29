@@ -9,7 +9,7 @@ const { data: posts, error } = await useAsyncData('blog', async () => {
   return blogIndex() as PostSummary[]
 })
 if (error.value) throw error.value
-useSitePage({ title: 'Blog', description: 'Announcements and write-ups about L4, the open-source workspace for humans and agents.', path: '/blog' })
+useSitePage({ title: 'Blog', description: 'Announcements and write-ups about L4, open-source software where people and AI agents work together.', path: '/blog' })
 useHead({ link: [{ rel: 'alternate', type: 'application/rss+xml', title: 'L4 blog', href: 'https://llll.gg/blog/rss.xml' }] })
 </script>
 
