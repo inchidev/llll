@@ -66,7 +66,7 @@ docker pull ghcr.io/inchidev/llll:latest
    docker compose up -d --wait
    ```
 
-5. Open `<PUBLIC_ORIGIN>/setup#claim=<SETUP_TOKEN>` and create the Owner.
+5. Open `<PUBLIC_ORIGIN>/setup`, enter `SETUP_TOKEN` and create the Owner. `<PUBLIC_ORIGIN>/setup#claim=<SETUP_TOKEN>` skips the token field. If `.env` sets `ADMIN_PASSWORD` (at least 12 characters), the first start creates the Owner instead: sign in with `ADMIN_EMAIL` and that password, then change it.
 
 The `llll` container stays unhealthy until its database migrations have been applied. Caddy starts after that, and `/api/setup/health` returns HTTP 200. On first start, the log line `waiting for the celld node to join` is expected.
 

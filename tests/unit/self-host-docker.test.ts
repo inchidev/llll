@@ -74,6 +74,20 @@ describe('self-host docker stack', () => {
     expect(template).toContain('# logo: svgs/llll.png')
   })
 
+  it('drops the container port Coolify appends to the generated URL', () => {
+    const entrypoint = read('self-host/entrypoint.sh')
+    expect(entrypoint).toContain('PUBLIC_ORIGIN=${PUBLIC_ORIGIN%:8080}')
+    expect(entrypoint.indexOf('PUBLIC_ORIGIN=${PUBLIC_ORIGIN%:8080}')).toBeLessThan(entrypoint.indexOf('put_var PUBLIC_ORIGIN'))
+  })
+
+  it('creates the Owner from ADMIN_PASSWORD when the operator sets one', () => {
+    const entrypoint = read('self-host/entrypoint.sh')
+    expect(entrypoint).toContain('require_min ADMIN_PASSWORD 12')
+    expect(entrypoint).toContain('put_var ADMIN_PASSWORD')
+    expect(read('self-host/coolify/docker-compose.yaml')).toContain('ADMIN_PASSWORD=${ADMIN_PASSWORD:-}')
+    expect(read('self-host/install/install.sh')).toContain('put_env ADMIN_PASSWORD "$LLLL_ADMIN_PASSWORD"')
+  })
+
   it('runs the published image in Coolify, updated by its tag', () => {
     const template = read('self-host/coolify/docker-compose.yaml')
     expect(template).toContain('image: ghcr.io/inchidev/llll:${LLLL_VERSION:-latest}')

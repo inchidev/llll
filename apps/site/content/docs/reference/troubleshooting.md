@@ -23,7 +23,7 @@ The Server already has an Owner. Sign in instead. A lost password can be reset w
 
 `PUBLIC_ORIGIN` must be exactly the origin you open in the browser. Cookies, links and the setup claim depend on it. Additional hostnames must be listed as aliases (`LLLL_ORIGINS`, `llll domain add`, or **Server settings → Deployment → Domain** on Cloudflare). A hostname that only happens to reach the Server is rejected for sessions and changes.
 
-A request rejected with "Origin mismatch" came from an address that is not one of the Server's listed origins.
+A request rejected with "Origin mismatch" came from an address that is not one of the Server's listed origins. The message names the address the request came from and the Server's address. If they match, the reverse proxy changed the Host or scheme on the way to the Server.
 
 ## VPS installer
 
