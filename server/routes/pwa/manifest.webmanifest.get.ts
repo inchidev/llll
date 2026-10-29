@@ -1,4 +1,4 @@
-import { readAppBranding } from '../../../shared/app-branding'
+import { DEFAULT_APP_TITLE, readAppBranding } from '../../../shared/app-branding'
 import { cf } from '../../utils/cf'
 import { ensureMigrated } from '../../utils/db'
 import { publicServerAppearance } from '../../utils/server-appearance'
@@ -12,7 +12,7 @@ export default defineEventHandler(async event => {
   return {
     id: '/', start_url: '/', scope: '/', display: 'standalone',
     name: appearance.name, short_name: appearance.name,
-    description: 'One workspace for humans and agents.',
+    description: DEFAULT_APP_TITLE,
     background_color: '#000000', theme_color: '#000000',
     icons: appearance.iconUrl ? [{ src: appearance.iconUrl }] : [
       { src: '/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' },
