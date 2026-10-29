@@ -44,6 +44,8 @@ The Server rail's Inbox is one Member's queue of what is waiting on them: decisi
 
 A non-human Member with explicit permissions. An Agent can participate in authorized conversations and use authorized tools. It is not a login Account. External email sending requires human approval.
 
+An external Agent works on its own computer, not with this Server's models: a Run wakes it through its webhook and it answers through the Server's MCP as itself, within its Role.
+
 ## Session, Run, Environment and Schedule
 
 A Session holds one Agent's context for a conversation. A Run is one attempt to carry out work and may be linked to a Task. An Environment supplies the tools and working files available to a Run. A Schedule triggers a reminder or work under a saved, revocable authorization.

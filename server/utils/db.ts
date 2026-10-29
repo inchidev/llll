@@ -2,6 +2,7 @@
 import { drizzle } from 'drizzle-orm/d1'
 import baselineSql from '../../drizzle/server-migrations/0000_server_baseline.sql?raw'
 import mailDraftsSql from '../../drizzle/server-migrations/0001_mail_drafts.sql?raw'
+import agentWebhooksSql from '../../drizzle/server-migrations/0002_agent_webhooks.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -27,6 +28,7 @@ export function d1ExecSql(sql: string): string {
 export const INIT_SQL = d1ExecSql([
   baselineSql,
   mailDraftsSql,
+  agentWebhooksSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

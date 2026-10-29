@@ -17,6 +17,7 @@ import { fail } from './cf'
 import { admitRunEnvironment, findCodeEnvironment, requireRunEnvironment } from './code-environment-service'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
+import { agentWebhook } from './agent-webhooks'
 
 const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id as channelId, initiated_by as initiatedBy,
  task_id as taskId, source_message_id as sourceMessageId, status, prompt, model, instructions, mandate_json as mandateJson, result_text as resultText,
@@ -120,7 +121,10 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   }
   if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !(requestedProjectId ? projectPermissionAllowed(actor, requestedProjectId, Permission.useAgents) : hasPermission(actor.principal.permissions, Permission.useAgents)))) fail(403, 'forbidden', 'Cannot invoke agents')
   let admissionError: string | null = null
-  if (!await piConfigured(env)) {
+  // An external Agent thinks on its own computer: it needs a Run coordinator, not a model provider.
+  const external = Boolean(await agentWebhook(env, input.agentId))
+  if (external && !env.AGENT_RUN_DO) fail(409, 'pi_unconfigured', 'Agent execution is unavailable. Ask the Server operator to check its configuration.')
+  if (!external && !await piConfigured(env)) {
     if (input.sourceMessageId && env.AGENT_RUN_DO) admissionError = 'Agent execution is unavailable. Ask the Server operator to check its configuration.'
     else fail(409, 'pi_unconfigured', 'Agent execution is unavailable. Ask the Server operator to check its configuration.')
   }
@@ -161,12 +165,12 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
     environmentId ??= task.environmentId ?? null
   }
-  const catalog = await agentProviderCatalog(env, { actorId: actor.principal.id })
-  const selected = await agentConversationModel(env, input.channelId)
-  const requested = selected ?? (profile.model || catalog.defaultModel)
-  const resolved = requested ? catalogAgentModel(env, requested, catalog) : null
+  const catalog = external ? null : await agentProviderCatalog(env, { actorId: actor.principal.id })
+  const selected = catalog ? await agentConversationModel(env, input.channelId) : null
+  const requested = catalog ? selected ?? (profile.model || catalog.defaultModel) : 'external'
+  const resolved = catalog && requested ? catalogAgentModel(env, requested, catalog) : requested
   const model = resolved ?? requested ?? 'Unconfigured'
-  const modelError = selected && !resolved
+  const modelError = !catalog ? null : selected && !resolved
     ? 'The conversation model is disabled; choose another model'
     : profile.model && !selected && !resolved
       ? 'The agent model is unavailable; choose another model in agent settings'
