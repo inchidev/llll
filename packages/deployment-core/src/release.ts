@@ -75,3 +75,25 @@ export function releaseManifestUrl(version?: string): string {
     ? `https://github.com/inchidev/llll/releases/download/${tag}/llll-cloudflare-manifest.json`
     : 'https://github.com/inchidev/llll/releases/latest/download/llll-cloudflare-manifest.json'
 }
+
+/**
+ * Check that a tag publishes a Server manifest whose bytes match the
+ * release's SHA256SUMS and that it stays on this schema line. Module and
+ * asset hashes are checked again when the release is loaded for upload.
+ */
+export async function verifyPublishedRelease(version: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const target = version.replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(target)) installerError(400, 'The selected release version is invalid')
+  const base = `https://github.com/inchidev/llll/releases/download/v${target}`
+  const sums = await releaseFetch(`${base}/SHA256SUMS`, fetcher)
+  if (!sums.ok) installerError(502, `L4 v${target} is not published (${sums.status})`)
+  const text = await sums.text()
+  const expected = text.length <= 65536 ? text.match(/^([a-f0-9]{64})[ \t]+llll-cloudflare-manifest\.json$/m)?.[1] : undefined
+  if (!expected) installerError(502, 'The release does not publish a Server manifest')
+  const response = await releaseFetch(`${base}/llll-cloudflare-manifest.json`, fetcher)
+  if (!response.ok) installerError(502, `The L4 v${target} manifest is unavailable (${response.status})`)
+  const bytes = await response.arrayBuffer()
+  if (bytes.byteLength > 1024 * 1024 || await sha256(bytes) !== expected) installerError(502, 'The release manifest checksum did not match')
+  const manifest = JSON.parse(new TextDecoder().decode(bytes)) as { version?: string; capabilities?: string[] }
+  if (manifest.version !== target || !manifest.capabilities?.includes('llll-server-schema-v2')) installerError(409, 'The release cannot update this Server')
+}

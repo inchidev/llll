@@ -53,6 +53,7 @@ async function start() {
   attemptedRequest.value = attemptedRequest.value?.release === selected.value ? attemptedRequest.value : { id: crypto.randomUUID(), release: selected.value }
   try {
     await api(`/api/servers/${props.serverId}/updates/request`, { method: 'POST', body: { requestId: attemptedRequest.value.id, release: selected.value, prereleases: prereleases.value } })
+    if (selfMode.value) await api(`/api/servers/${props.serverId}/updates/run`, { method: 'POST', body: { requestId: attemptedRequest.value.id } })
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) } finally {
     await progressQ.refetch(); busy.value = false
   }
@@ -85,6 +86,21 @@ async function downloadUpdateBackup() {
   } catch (error) { toast.add({ title: 'Backup download did not complete', description: errorMessage(error), color: 'error' }) }
   finally { downloading.value = false }
 }
+// The installed Server can be newer than the cached interface until the service worker swaps it.
+const clientVersion = useAppConfig().version as string
+const staleClient = computed(() => Boolean(installed.value && clientVersion && installed.value !== clientVersion))
+function loadClient() { if ($pwa?.waiting.value) void $pwa.update(); else location.reload() }
+const accessCard = ref<{ connected: boolean } | null>(null)
+// With Cloudflare access kept here and a backup bucket, this Server runs the update itself.
+const selfMode = computed(() => Boolean(accessCard.value?.connected) && status.value?.updateControl?.backupDestination !== 'download')
+const selfRun = computed(() => Boolean(job.value?.buildId?.startsWith('server-')))
+async function run() {
+  if (!job.value || busy.value) return
+  busy.value = true
+  try { await api(`/api/servers/${props.serverId}/updates/run`, { method: 'POST', body: { requestId: job.value.id } }) }
+  catch (error) { toast.add({ title: 'The update did not start', description: errorMessage(error), color: 'error' }) }
+  finally { await progressQ.refetch(); busy.value = false }
+}
 const needsDownload = computed(() => status.value?.updateControl?.backupDestination === 'download' && !job.value?.backup?.verified)
 </script>
 
@@ -100,6 +116,7 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
     <LayoutSkeleton v-if="updateQ.isPending.value" variant="form" :rows="2" />
     <UAlert v-else-if="updateQ.error.value" color="error" title="Could not load update settings" description="Your Server is still available. Try refreshing." />
     <template v-if="status">
+      <SettingsCloudflareAccessCard ref="accessCard" :server-id="serverId" />
       <div class="rounded-lg border border-default bg-elevated p-5">
         <p class="text-sm text-muted">Installed version</p>
         <p class="mt-1 font-medium text-highlighted">L4 {{ installed }}</p>
@@ -109,17 +126,19 @@ const needsDownload = computed(() => status.value?.updateControl?.backupDestinat
           <h2 class="font-medium text-highlighted">{{ labels[job.stage] }}</h2>
           <UBadge :label="`${job.sourceVersion} → ${job.targetVersion}`" color="neutral" variant="subtle" />
         </div>
-        <p v-if="job.stage === 'queued'" class="text-sm text-muted">The request is saved on this Server. Continue on llll.gg to authorize Cloudflare for this one update. This Server receives no account credential.</p>
+        <p v-if="job.stage === 'queued'" class="text-sm text-muted">{{ selfMode ? 'The request is saved. Start it here; this Server runs the update itself.' : 'The request is saved on this Server. Continue on llll.gg to authorize Cloudflare for this one update.' }}</p>
         <p v-if="job.stage === 'backing_up'" class="text-sm text-muted">Keep Server activity low while the database and files are archived. Deployment starts only after the saved archive passes verification.</p>
+        <p v-if="selfRun && ['backing_up', 'updating', 'verifying'].includes(job.stage)" class="text-sm text-muted">This Server is updating itself. You can close this page and check back later.</p>
         <p v-if="job.backup" class="break-all text-sm text-muted">{{ job.backup.verified ? 'Backup verified' : 'Backup uploaded' }} · {{ formatBytes(job.backup.sizeBytes) }} · {{ formatDateTime(job.backup.createdAt) }}<br>{{ job.backup.key }}</p>
         <UAlert v-if="job.error" :color="job.stage === 'attention' ? 'warning' : 'error'" :title="job.error" />
-        <UAlert v-if="progressQ.error.value && active" color="warning" title="Waiting for the Server" description="The update may still be running. Open llll.gg to check its progress before starting another update." />
+        <UAlert v-if="progressQ.error.value && active" color="warning" title="Waiting for the Server" :description="selfRun ? 'The Server may be switching to the new version. Refresh in a minute.' : 'The update may still be running. Open llll.gg to check its progress before starting another update.'" />
         <div class="flex flex-wrap gap-2">
           <UButton v-if="needsDownload && job.stage === 'queued'" label="Download backup" icon="i-ph-download" :loading="downloading" @click="downloadUpdateBackup" />
-          <UButton v-if="!needsDownload && launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external target="_blank" rel="noopener" :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
-          <UButton v-if="canResume && launchUrl" :to="launchUrl" external target="_blank" rel="noopener" color="neutral" variant="outline" label="Open the official installer" />
+          <UButton v-if="selfMode && (job.stage === 'queued' || (job.stage === 'attention' && selfRun))" :label="job.stage === 'queued' ? 'Start update' : 'Retry update'" icon="i-ph-cloud-arrow-up" :loading="busy" @click="run" />
+          <UButton v-if="!selfRun && !(selfMode && job.stage === 'queued') && !needsDownload && launchUrl && ['queued', 'backing_up', 'updating', 'verifying', 'attention'].includes(job.stage)" :to="launchUrl" external target="_blank" rel="noopener" :label="job.stage === 'queued' ? 'Continue on llll.gg' : 'Check or resume on llll.gg'" icon="i-ph-cloud-arrow-up" />
+          <UButton v-if="!selfRun && !selfMode && canResume && launchUrl" :to="launchUrl" external target="_blank" rel="noopener" color="neutral" variant="outline" label="Open the official installer" />
           <UButton v-if="job.stage === 'queued'" label="Cancel request" color="neutral" variant="ghost" :disabled="busy" @click="resume(true)" />
-          <UButton v-if="job.stage === 'complete' && $pwa?.waiting.value" label="Update Client" data-client-update-action :loading="$pwa.updating.value" @click="$pwa.update()" />
+          <UButton v-if="job.stage === 'complete' && ($pwa?.waiting.value || staleClient)" :label="`Load the ${installed} interface`" data-client-update-action :loading="$pwa?.updating.value" @click="loadClient" />
         </div>
       </section>
       <UAlert v-if="!status.updateControl?.available" color="neutral" title="Operator-managed deployment" :description="status.updateControl?.reason || 'Use your deployment operator to update this Server.'" />

@@ -7,6 +7,7 @@ import { sendServerEvent, type ServerSocketAttachment } from './server-events'
 import { serverPresence } from './server-presence'
 import { authorizedSockets } from './socket-access'
 import { RealtimeKitRestProvisioner } from './realtimekit-rest'
+import { advanceSelfUpdate } from '../server/utils/server-self-update'
 
 const PRESENCE_TICK_MS = 60_000
 
@@ -109,8 +110,31 @@ export class ServerDurableObject extends DurableObject<L4Env> {
   }
 
   override async alarm(): Promise<void> {
+    if (this.updateRunner()) { await this.stepUpdate(); return }
     await this.broadcast()
     await this.scheduleTick()
+  }
+
+  /** A separate named instance runs this Server's own updates; it never holds sockets. */
+  private updateRunner() {
+    return Boolean(this.ctx.id.name?.startsWith('update:'))
+  }
+
+  async runUpdate(): Promise<void> {
+    if (!this.updateRunner()) throw new Error('Not the update runner')
+    // A run, or a retry after attention, starts its attempt counters again.
+    await this.ctx.storage.deleteAll()
+    await this.ctx.storage.setAlarm(Date.now())
+  }
+
+  private async stepUpdate() {
+    const storage = this.ctx.storage
+    const next = await advanceSelfUpdate(this.env, {
+      attempts: { get: key => storage.get<number>(key), put: (key, value) => storage.put(key, value) },
+      watchdog: ms => storage.setAlarm(Date.now() + ms),
+    })
+    if (next === null) await storage.deleteAlarm()
+    else await storage.setAlarm(Date.now() + next)
   }
 
   private async attach(ws: WebSocket, user: PublicUser, visible: boolean, sessionId?: string) {
