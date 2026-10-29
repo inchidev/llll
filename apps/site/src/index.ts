@@ -204,7 +204,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
         delete data.grant; authorized = false; await session.save()
       }
     }
-    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, progress: data.progress, paused: data.paused?.map(item => ({ serverId: item.serverId, name: item.name, version: item.version })), name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data), domainRequest: publicDomainRequest(data) })
+    return json({ authorized, accounts: accounts.map(a => ({ id: a.id, name: a.name })), accountId: data.accountId, sessionExpiresAt: session.expiresAt, grantExpiresAt: data.grant?.expiresAt, step: data.step, progress: data.progress, paused: data.paused?.map(item => ({ serverId: item.serverId, name: item.name, version: item.version })), name: data.name, ownerEmail: data.ownerEmail, version: data.version, grantExpiresIn: data.grant ? Math.max(0, Math.round((data.grant.expiresAt - Date.now()) / 1000)) : undefined, error: data.error, accessKept: data.accessKept, accessError: data.accessError, completed: data.completed, claim: data.completed ? `${data.origin}/setup#claim=${data.setupToken}` : undefined, origin: data.completed ? data.origin : undefined, deployments: data.deployments?.map(({ setupToken, ...item }) => ({ ...item, claim: `${item.origin}/setup#claim=${setupToken}` })), updateRequest: data.updateRequest, update: publicUpdate(data), domainRequest: publicDomainRequest(data) })
   }
   if (path === '/api/deploy/domain/prepare' && request.method === 'POST') {
     const session = await webSession(request, env, true)
@@ -296,7 +296,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const session = await webSession(request, env)
     if (!session.data.grant || session.data.grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
     if (session.data.worker && !session.data.completed) fail(409, 'Resume the existing deployment')
-    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), ownerEmail: z.string().email(), version: z.string().regex(VERSION_PATTERN) }).parse(await input(request))
+    const value = z.object({ accountId: z.string().regex(/^[a-f0-9]{32}$/), name: z.string().trim().min(1).max(80), ownerEmail: z.string().email(), version: z.string().regex(VERSION_PATTERN), keepAccess: z.boolean().default(true) }).parse(await input(request))
     const accounts = await cloudflare<{ id: string }[]>(session.data.grant.accessToken, '/accounts')
     if (!accounts.some(a => a.id === value.accountId)) fail(403, 'Choose an account authorized by Cloudflare')
     // Fail fast when the grant cannot touch Workers scripts (unchecked consent
@@ -307,7 +307,7 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
       if (probe.status === 403) fail(403, 'Cloudflare denied Workers access for this grant. Reconnect Cloudflare and approve every requested permission, or ask an account admin for Workers rights.')
     } catch (error) { if (error instanceof Error && 'status' in error) throw error }
     clearDeployment(session.data)
-    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail)); await session.save()
+    Object.assign(session.data, deploymentParameters(value.accountId, value.name, value.version, value.ownerEmail), { keepAccess: value.keepAccess }); await session.save()
     return json({ ok: true })
   }
   if (path === '/api/deploy/update/prepare' && request.method === 'POST') {
@@ -332,8 +332,10 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     const grant = session.data.grant
     if (!grant || grant.expiresAt <= Date.now()) fail(401, 'Reconnect Cloudflare first')
     if (!session.data.updateRequest) fail(409, 'Open this page from your Server’s Settings')
+    const options = z.object({ keepAccess: z.boolean().default(true) }).parse(await input(request).catch(() => ({})))
     await prepareUpdate(session.data, session.data.updateRequest, grant.accessToken)
     delete session.data.update!.error
+    session.data.update!.keepAccess = options.keepAccess
     await session.save()
     return json({ update: publicUpdate(session.data) })
   }

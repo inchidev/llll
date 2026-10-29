@@ -29,11 +29,16 @@ export type UpdateState = UpdateRequest & {
   backup?: UpdateBackupReceipt
   deploymentStarted?: boolean
   error?: string
+  /** Hand the Cloudflare grant to the Server once it runs the new version. */
+  keepAccess?: boolean
+  accessKept?: boolean
+  accessError?: string
 }
 export type DeploymentState = {
   state?: string; verifier?: string; grant?: CloudflareGrant
   accountId?: string; name?: string; version?: string; worker?: string; serverId?: string; ownerEmail?: string
   setupToken?: string; origin?: string
+  keepAccess?: boolean; accessKept?: boolean; accessError?: string
   step?: number; error?: string; completed?: boolean
   progress?: Extract<DeployProgressEvent, { type: 'progress' }>[]
   paused?: Omit<DeploymentState, 'paused' | 'grant' | 'deployments'>[]

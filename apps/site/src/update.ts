@@ -7,6 +7,7 @@ import { compareVersions } from '../../../shared/release-version'
 import { createUpdateStore } from '../../../shared/server-update-store'
 import { activeUpdate, changeUpdateRecord } from '../../../shared/server-updates'
 import { cloudflare } from './deploy'
+import { handOffCloudflareAccess } from './handoff'
 import type {
   DeploymentState,
   UpdateBackupReceipt,
@@ -71,6 +72,8 @@ export function publicUpdate(state: DeploymentState) {
     phase: update.phase,
     done: update.phase === 'done',
     deploymentStarted: Boolean(update.deploymentStarted),
+    accessKept: Boolean(update.accessKept),
+    accessError: update.accessError,
     backup: update.backup
       ? {
           sizeBytes: update.backup.sizeBytes,
@@ -319,7 +322,13 @@ export async function advanceUpdate(
     return
   }
   if (update.phase === 'verify') {
-    if (await verifyUpdatedServer(update, store)) update.phase = 'done'
+    if (await verifyUpdatedServer(update, store)) {
+      update.phase = 'done'
+      if (update.keepAccess) {
+        try { await handOffCloudflareAccess(state, { accountId: update.accountId, origin: update.origin, workerName: update.workerName, databaseId: update.databaseId }); update.accessKept = true }
+        catch (error) { update.accessError = error instanceof Error ? error.message : 'Cloudflare access was not kept on the Server' }
+      }
+    }
     await save()
   }
 }

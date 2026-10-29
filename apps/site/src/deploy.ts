@@ -1,3 +1,4 @@
+import { handOffCloudflareAccess } from './handoff'
 import {
   refreshCloudflareGrant,
   randomCode,
@@ -340,6 +341,11 @@ export async function advanceDeployment(
       return
     delete state.verifier
     delete state.state
+    if (state.keepAccess && state.accountId && state.worker) {
+      // A failed handoff never fails the install; Settings can connect later.
+      try { await handOffCloudflareAccess(state, { accountId: state.accountId, origin, workerName: state.worker }); state.accessKept = true }
+      catch (error) { state.accessError = error instanceof Error ? error.message : 'Cloudflare access was not kept on the Server' }
+    }
     state.completed = true
     state.step = 3
     rememberDeployment(state)

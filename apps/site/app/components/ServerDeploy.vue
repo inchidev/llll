@@ -13,6 +13,7 @@ type SessionUpdate = {
   origin: string; accountId: string; workerName: string; jobId: string
   installedVersion: string; targetVersion: string
   phase: 'release' | 'backup' | 'deploy' | 'verify' | 'done'; done: boolean
+  accessKept?: boolean; accessError?: string
   deploymentStarted: boolean
   backup?: { sizeBytes: number; verified: boolean; createdAt: string } | null
   error?: string | null
@@ -22,6 +23,7 @@ type Session = {
   authorized: boolean; accounts: { id: string; name: string }[]; accountId?: string
   sessionExpiresAt: number; grantExpiresAt?: number; step?: number; completed?: boolean
   name?: string; ownerEmail?: string; version?: string; error?: string; origin?: string; claim?: string
+  accessKept?: boolean; accessError?: string
   progress?: { step: string; state: string; detail?: string }[]
   paused?: { serverId: string; name: string; version: string }[]
   deployments?: Deployment[]
@@ -46,6 +48,9 @@ const updatePhases = ['Verify the published release', 'Back up and verify Server
 const updatePhase = computed(() => ({ release: 0, backup: 1, deploy: 2, verify: 3, done: 4 })[update.value?.phase || 'release'])
 const name = ref('My L4')
 const ownerEmail = ref('')
+// Opt-out: the Server keeps this Cloudflare access so it can update itself.
+const keepAccess = ref(true)
+const toast = useToast()
 const accountId = ref('')
 const formSchema = z.object({
   accountId: z.string().min(1, 'Choose a Cloudflare account'),
@@ -250,7 +255,7 @@ async function deploy() {
   busy.value = true
   error.value = ''
   try {
-    if (!pending.value) await $fetch('/api/deploy/start', { method: 'POST', body: { accountId: accountId.value, name: name.value, ownerEmail: ownerEmail.value, version: version.value } })
+    if (!pending.value) await $fetch('/api/deploy/start', { method: 'POST', body: { accountId: accountId.value, name: name.value, ownerEmail: ownerEmail.value, version: version.value, keepAccess: keepAccess.value } })
     await refresh()
     while (session.value && !session.value.completed) {
       const progressTimer = setInterval(() => { void refresh() }, 2000)
@@ -262,6 +267,7 @@ async function deploy() {
     creating.value = false
     await loadServers()
     if (session.value?.completed && session.value.origin) await checkServer(session.value.origin)
+    if (session.value?.completed && session.value.accessError) toast.add({ title: 'Cloudflare access was not kept on the Server', description: `${session.value.accessError} You can connect it later in the Server’s Settings.`, color: 'warning' })
   } catch (cause) {
     await refresh()
     error.value = session.value?.error || (cause as { data?: { error?: { message?: string } } }).data?.error?.message || 'Deployment paused. Retry to resume the same Server.'
@@ -304,7 +310,7 @@ async function runUpdate() {
   updating.value = true
   updateError.value = ''
   try {
-    await $fetch('/api/deploy/update/start', { method: 'POST' })
+    await $fetch('/api/deploy/update/start', { method: 'POST', body: { keepAccess: keepAccess.value } })
     await refresh()
     while (session.value?.update && !session.value.update.done) {
       await $fetch('/api/deploy/update/advance', { method: 'POST' })
@@ -447,6 +453,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
         </UFormField>
         <p v-if="releasesError" class="text-sm text-muted">{{ releasesError }}</p>
         <p class="text-sm text-muted">Your Server starts on workers.dev. Cloudflare bills usage directly. Basic file storage works without R2; no Git integration or Workers Builds token is required.</p>
+        <UCheckbox v-model="keepAccess" label="Keep Cloudflare access on this Server" description="The Server can then update itself from its Settings, without this site. For safety, give each Server its own Cloudflare account; a free account is enough." />
       </template>
       <ol v-else class="space-y-3"><li v-for="(phase, index) in phases" :key="phase" class="flex items-center gap-3" :class="index > (session?.step || 0) ? 'text-dimmed' : 'text-highlighted'"><UIcon :name="index < (session?.step || 0) ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-5" />{{ phase }}</li></ol>
       <ol v-if="pending && session?.progress?.length" class="space-y-2 text-sm" aria-label="Deployment details" aria-live="polite"><li v-for="item in session.progress" :key="item.step" class="flex gap-2"><UIcon :name="item.state === 'complete' ? 'i-ph-check-circle' : 'i-ph-circle-notch'" :class="item.state === 'active' ? 'animate-spin' : ''" class="size-4 shrink-0" /><span>{{ item.step }}<template v-if="item.detail"> · {{ item.detail }}</template></span></li></ol>
@@ -468,11 +475,14 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
           </div>
           <ol class="space-y-3">
             <li v-for="(phase, index) in updatePhases" :key="phase" class="flex items-center gap-3" :class="index > updatePhase ? 'text-dimmed' : 'text-highlighted'">
-              <UIcon :name="index < updatePhase || update.done ? 'i-ph-check-circle' : index === updatePhase ? 'i-ph-circle-notch' : 'i-ph-circle'" class="size-5" :class="index === updatePhase && !update.done ? 'animate-spin' : ''" />{{ phase }}
+              <UIcon :name="index < updatePhase || update.done ? 'i-ph-check-circle' : index === updatePhase && updating ? 'i-ph-circle-notch' : 'i-ph-circle'" class="size-5" :class="index === updatePhase && updating && !update.done ? 'animate-spin' : ''" />{{ phase }}
             </li>
           </ol>
           <p v-if="update.backup" class="text-sm text-muted">{{ update.backup.verified ? 'Backup verified' : 'Backup uploaded' }} · {{ Math.max(1, Math.ceil(update.backup.sizeBytes / 1024)) }} KB</p>
-          <p v-if="update.deploymentStarted && !update.done" class="text-sm text-muted">The new release has been uploaded. Keep this page open while Cloudflare verifies the Server.</p>
+          <p v-if="update.phase === 'verify' && !update.done" class="text-sm text-muted">The new release is uploaded. Waiting for the Server to start it.</p>
+          <UCheckbox v-if="!update.done && update.phase === 'release'" v-model="keepAccess" label="Keep Cloudflare access on this Server" description="Later updates then run from the Server’s own Settings. For safety, give each Server its own Cloudflare account; a free account is enough." />
+          <p v-if="update.done && update.accessKept" class="text-sm text-muted">Cloudflare access is kept on the Server. Next time, update it from its Settings.</p>
+          <UAlert v-if="update.done && update.accessError" color="warning" title="Cloudflare access was not kept on the Server" :description="update.accessError" />
           <div class="flex flex-wrap gap-2">
             <UButton v-if="!update.done" label="Back up and update" icon="i-ph-cloud-arrow-up" :loading="updating" :disabled="!connected || updating" @click="runUpdate" />
             <UButton v-else :to="update.origin" external label="Open your Server" icon="i-ph-arrow-square-out" />
