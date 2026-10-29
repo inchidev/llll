@@ -393,6 +393,7 @@ async function logout() {
                     :disabled="avatarBusy"
                     @click="removeAvatar"
                   />
+                  <AgentsAvatarGenerate :server-id="serverId" :name="session.user?.displayName ?? ''" @use="uploadAvatar" />
                 </div>
                 <p class="text-xs text-muted">PNG, JPEG, WebP, or GIF up to 2 MB. Images are cropped to a centered square.</p>
               </div>

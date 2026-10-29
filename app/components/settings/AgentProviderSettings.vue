@@ -215,7 +215,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
           <UFormField name="models" label="Models" description="Models listed here appear in the model picker of agent conversations and AI functions. Models without tool support are offered to AI functions only.">
             <div class="flex gap-2">
               <USelectMenu v-model="addModel" :items="modelItems" value-key="id" virtualize placeholder="Add a model…" class="min-w-0 flex-1" :loading="loadingModels" :disabled="!availableModels.length" :search-input="{ placeholder: 'Search model names…' }">
-                <template #item-trailing="{ item }"><AgentsModelCapabilities :inputs="item.inputs" :tools="item.tools" :reasoning="item.reasoning" /></template>
+                <template #item-trailing="{ item }"><AgentsModelCapabilities :inputs="item.inputs" :outputs="item.outputs" :tools="item.tools" :reasoning="item.reasoning" /></template>
               </USelectMenu>
               <UButton icon="i-ph-arrow-clockwise" aria-label="Reload provider catalog" color="neutral" variant="ghost" :loading="loadingModels" @click="loadModels" />
             </div>
@@ -223,7 +223,7 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
           <ul v-if="state.models.length" class="divide-y divide-default rounded-md border border-default" aria-label="Chosen models">
             <li v-for="model in state.models" :key="model.id" class="flex min-h-10 items-center gap-2 py-1.5 pe-1 ps-3 text-sm">
               <span class="min-w-0 flex-1 truncate" :title="model.id">{{ model.label ?? model.id }}</span>
-              <AgentsModelCapabilities :inputs="model.inputs" :tools="model.tools" :reasoning="model.reasoning" />
+              <AgentsModelCapabilities :inputs="model.inputs" :outputs="model.outputs" :tools="model.tools" :reasoning="model.reasoning" />
               <UButton icon="i-ph-x" :aria-label="`Remove ${model.label ?? model.id}`" size="xs" color="neutral" variant="ghost" @click="removeModel(model.id)" />
             </li>
           </ul>

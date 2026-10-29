@@ -249,6 +249,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
               size="sm"
               @click="removeCurrentAvatar = true"
             />
+            <AgentsAvatarGenerate :server-id="serverId" :name="form.displayName" @use="file => { avatarFile = file; removeCurrentAvatar = false }" />
           </div>
         </div>
       </UFormField>

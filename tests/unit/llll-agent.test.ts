@@ -45,7 +45,7 @@ it('references the author’s own images and strips references typed by members'
     ('image-other','m','chat','${agentId}','k2','b.png','image/png',10,'2026-01-01'),
     ('image-pdf-1','m','chat','${personId}','k3','c.pdf','application/pdf',10,'2026-01-01')`)
   const bare = await receive(`<@${agentId}>`, true)
-  expect(bare.prompt).toContain('sent an image')
+  expect(bare.prompt).toContain('sent an attachment')
   expect(bare.prompt).toContain('[l4-image:image-own-1]')
   expect(bare.prompt).not.toContain('image-other')
   const text = await receive('Что на фото? [l4-image:image-other]', true)
