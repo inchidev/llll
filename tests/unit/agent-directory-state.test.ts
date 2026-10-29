@@ -2,11 +2,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
+import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 
-const state = vi.hoisted(() => ({ target: 'removed-agent', body: { status: 'active' }, query: {} as Record<string, unknown> }))
-vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: true, ownerId: 'owner', perms: ALL_PERMISSIONS, user: { id: 'owner' }, authorization: { serverId: '00000000-0000-4000-8000-000000000001', principal: { id: 'owner', kind: 'human', roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true }, credential: { kind: 'session' } } }) }))
+const state = vi.hoisted(() => ({ target: 'removed-agent', body: { status: 'active' }, query: {} as Record<string, unknown>, permissions: 0, isOwner: true }))
+vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: state.isOwner, ownerId: 'owner', perms: state.permissions, user: { id: state.isOwner ? 'owner' : 'member' }, authorization: { serverId: '00000000-0000-4000-8000-000000000001', principal: { id: state.isOwner ? 'owner' : 'member', kind: 'human', roleId: 'owner-role', roleName: state.isOwner ? 'Owner' : 'Member', permissions: state.permissions, isOwner: state.isOwner }, credential: { kind: 'session' } } }) }))
 let db: DatabaseSync, env: L4Env
 const serverId = '00000000-0000-4000-8000-000000000001'
 const getFile = vi.fn(), putFile = vi.fn(), deleteFile = vi.fn()
@@ -21,6 +21,7 @@ beforeAll(() => {
 afterAll(() => vi.unstubAllGlobals())
 beforeEach(() => {
   state.target = 'removed-agent'; state.query = {}; state.body = { status: 'active' }
+  state.permissions = ALL_PERMISSIONS; state.isOwner = true
   vi.clearAllMocks()
   db = new DatabaseSync(':memory:'); db.exec(INIT_SQL)
   db.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'${serverId}');
@@ -48,6 +49,14 @@ it('excludes removed membership from both management listing modes and task assi
   expect((await taskAgents()).agents.map(a => a.id)).toEqual(['active-agent', 'paused-agent'])
   state.query = { page: 1, search: 'removed' }
   expect(await listAgents()).toEqual({ agents: [], total: 0 })
+})
+it('hides task assignees from members without agent visibility permission', async () => {
+  state.isOwner = false
+  state.permissions = Permission.readTasks
+  expect(await taskAgents()).toEqual({ agents: [] })
+
+  state.permissions |= Permission.useAgents
+  expect((await taskAgents()).agents.map(a => a.id)).toEqual(['active-agent', 'paused-agent'])
 })
 it('publishes only agent status, without management instructions, in member profiles', async () => {
   const members = (await (await import('../../server/api/servers/[id]/members.get')).default(event() as never)).members
