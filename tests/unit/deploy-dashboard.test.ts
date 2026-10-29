@@ -47,6 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('useRouter', () => ({ push: vi.fn(), replace: vi.fn() }))
   for (const [name, fn] of Object.entries({ ref, computed, watch, onMounted, onUnmounted })) vi.stubGlobal(name, fn)
   vi.stubGlobal('navigateTo', vi.fn())
+  vi.stubGlobal('useToast', () => ({ add: vi.fn() }))
   api.mockReset().mockImplementation(async (path: string) => {
     if (path === '/api/deploy/config') return { oauth: true }
     if (path === '/api/deploy/releases') return { releases: [{ version: 'v0.2.0-alpha.3' }] }

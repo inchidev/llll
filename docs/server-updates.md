@@ -9,7 +9,16 @@ A Cloudflare Server can be updated from **Settings → Deployment → Updates** 
 3. The Server also creates a one-job backup capability (`backupToken`). It is never returned by Settings APIs. The capability can create that request's pre-update backup once and cannot read account resources or upload code.
 4. An atomic SQL revision check prevents two owner requests, a browser update and a Build from claiming the same operation.
 
-No Cloudflare account API token is stored on the Server. The account is billed directly for resources the update uses.
+Unless the Owner keeps Cloudflare access on the Server (below), no Cloudflare credential is stored there. The account is billed directly for resources the update uses.
+
+## Update from the Server
+
+A Server can keep Cloudflare access and update itself, with no installer and no open tab. The installer offers **Keep Cloudflare access on this Server**, on by default, when it installs or updates a Server; Settings → Deployment → Updates can instead take an API token created from a pre-filled Cloudflare link (Workers Scripts, D1, R2, KV edit and Account Settings read). For safety, run each Server in its own Cloudflare account; a free account is enough. This is a recommendation, not a requirement.
+
+- **Handoff.** After the Server runs, the installer writes a single-use capability hash into the Server's D1, posts its OAuth grant to `/api/cloudflare-account/handoff`, and forgets the grant, so only the Server refreshes it. The Server checks that the grant reaches its own account and stores it encrypted with `AUTH_SECRET`. A failed handoff never fails an install or update.
+- **Use.** Only the Owner can connect or disconnect it. Settings show its kind, account and date, never the credential. Refreshed, rotated grants are written conditionally so a stale refresh cannot replace a newer one. Disconnecting deletes it from the Server; an OAuth grant also stays revocable in Cloudflare.
+- **Update.** **Back up and update** then runs in a Durable Object alarm: verify the published release against `SHA256SUMS`, write the backup to the separate `BACKUPS` bucket and read it back to check its size and SHA-256, upload the release with the same updater the installer uses, and let the new version confirm its own version and migrations. Each stage is recorded before it starts. A failure before the upload stops with nothing changed; a failure after it asks for attention, and **Retry update** resumes after the verified backup. Without a `BACKUPS` bucket the installer path with a downloaded backup remains.
+- **Known limits.** The upload runs in one alarm invocation; on the Workers Free plan its subrequest budget is tight for large asset changes. The backup check here compares the stored archive with what was written; the installer path also compares table and object inventories.
 
 ## Browser update
 

@@ -23,11 +23,11 @@ beforeEach(() => {
     }
     throw Error('Unexpected API call')
   })
-  for (const [name, fn] of Object.entries({ ref, computed, watch, useApi: () => ({ api }), useNuxtApp: () => ({ $pwa: { waiting: ref(false), check: vi.fn() } }), useToast: () => ({ add: vi.fn() }), errorMessage: String })) vi.stubGlobal(name, fn)
+  for (const [name, fn] of Object.entries({ ref, computed, watch, useApi: () => ({ api }), useNuxtApp: () => ({ $pwa: { waiting: ref(false), check: vi.fn() } }), useToast: () => ({ add: vi.fn() }), useAppConfig: () => ({ version: '0.2.21' }), errorMessage: String })) vi.stubGlobal(name, fn)
 })
 afterEach(() => { client.clear(); vi.unstubAllGlobals() })
 function view() {
-  return mount(Updates, { props: { serverId: 'server' }, global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, USelect: Select, UCheckbox: Checkbox, UBadge: { props: ['label'], template: '<span>{{ label }}</span>' }, UFormField: { template: '<label><slot /></label>' }, UAlert: { props: ['title', 'description'], template: '<p>{{ title }} {{ description }}</p>' }, LayoutSkeleton: true, UInput: true } } })
+  return mount(Updates, { props: { serverId: 'server' }, global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, USelect: Select, UCheckbox: Checkbox, UBadge: { props: ['label'], template: '<span>{{ label }}</span>' }, UFormField: { template: '<label><slot /></label>' }, UAlert: { props: ['title', 'description'], template: '<p>{{ title }} {{ description }}</p>' }, LayoutSkeleton: true, UInput: true, SettingsCloudflareAccessCard: true, ChatMarkdownView: true } } })
 }
 it('selects only newer numeric versions, explicitly includes prereleases, and starts one idempotent backup/update request', async () => {
   const v = view(); await flushPromises()

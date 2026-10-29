@@ -17,7 +17,7 @@ One release contains Server, Shell/site, client assets, Docs and matching migrat
 | `llll-compose.yml`, `compose.vps.yml`, `Caddyfile`, `Caddyfile.vps` | Exact common standalone Compose plus VPS HTTPS override. |
 | `SHA256SUMS` | Checksums for every accompanying release file. |
 
-`@llll/deployment-core` is the provisioning library used by the browser-bound installer and by operator tooling, not a deployed Admin or Server control plane. The installer uploads only the selected published release artifact after verifying its checksums, through the customer's own Cloudflare OAuth grant. It keeps that grant only inside the bounded, encrypted, browser-bound installer session; it is never handed to a Server as a permanent credential. Accounts, content and provider credentials remain on each Server.
+`@llll/deployment-core` is the provisioning library used by the browser-bound installer and by operator tooling, not a deployed Admin or Server control plane. The installer uploads only the selected published release artifact after verifying its checksums, through the customer's own Cloudflare OAuth grant. It keeps that grant only inside the bounded, encrypted, browser-bound installer session, unless the Owner chooses to keep Cloudflare access on the Server, which receives it once through a single-use capability. Accounts, content and provider credentials remain on each Server.
 
 Build with `pnpm release:installer`. Validate all module SHA-256, asset hashes/sizes, migration order and release provenance. Published tags and assets and merged SQL are immutable. The release workflow packages the portable runtime image and all components before publishing, then promotes the official web archive through Workers Builds.
 
