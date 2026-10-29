@@ -16,7 +16,9 @@ const active = computed(() => runs.data.value?.active.filter(run => run.agentId 
 const working = computed(() => active.value.some(run => run.status === 'running'))
 // The composer's activity row owns Stop for a reply here; a reply in a thread is stopped there.
 const presence = usePresenceStore()
-const replyingHere = computed(() => presence.agentTurnsIn(props.channelId).some(turn => turn.agentId === props.agentId))
+// Same condition as the activity row (any agent reply here), plus this conversation's own active Runs,
+// so the model row never shows alongside it, including before the first turn event arrives.
+const replyingHere = computed(() => presence.agentTurnsIn(props.channelId).length > 0 || active.value.some(run => run.channelId === props.channelId))
 const replyingInThread = computed(() => active.value.some(run => run.status === 'running' && run.channelId !== props.channelId))
 const queued = computed(() => active.value.filter(run => run.status === 'queued'))
 watch(() => active.value.length > 0, value => emit('busy', value), { immediate: true })

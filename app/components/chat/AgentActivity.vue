@@ -74,7 +74,7 @@ function control(agentId: string, action: 'stop' | 'approve' | 'reject', executi
         </span>
         <span class="min-w-0 flex-1 truncate"><span class="font-medium text-toned">{{ nameOf(agentId) }}</span> · {{ current(items)?.detail || 'Thinking' }}</span>
         <UBadge v-if="queueCount(items)" :label="`+${queueCount(items)} queued`" color="neutral" variant="subtle" size="sm" />
-        <UButton size="xs" color="error" variant="ghost" icon="i-ph-stop-fill" label="Stop" aria-label="Stop Agent" @click="control(agentId, 'stop')" />
+        <UTooltip text="Stop Agent"><UButton size="xs" color="error" variant="ghost" square icon="i-ph-stop-fill" aria-label="Stop Agent" @click="control(agentId, 'stop')" /></UTooltip>
       </div>
     </template>
   </div>

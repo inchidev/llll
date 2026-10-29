@@ -64,6 +64,12 @@
   outline-offset: 2px;
 }
 
+/* Text fields show focus with their own quiet border and the caret; a white
+   halo around every field reads as an error state on this dark theme. */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea):focus-visible {
+  outline: none;
+}
+
 /* The composer is a typing surface: the caret shows focus. The container also
    clips outlines, which turns this ring into stray left and right borders. */
 .df-composer textarea:focus-visible {

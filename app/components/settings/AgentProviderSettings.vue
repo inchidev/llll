@@ -69,7 +69,8 @@ async function save() {
 const local = computed(() => import.meta.client && location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname))
 async function connectChatGPT() {
   if (busy.value) return
-  const popup = local.value ? window.open('about:blank', '_blank') : null
+  // Opened during the click so the browser allows it; OpenAI's page loads once the attempt exists.
+  const popup = window.open('about:blank', '_blank')
   busy.value = true
   try {
     const id = await persist()
@@ -79,12 +80,16 @@ async function connectChatGPT() {
   } catch (error) { popup?.close(); toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
-// One pasteable command: it fetches this Server's helper and runs it, so nothing needs downloading first.
-const helperCommand = computed(() => connection.value && import.meta.client ? `curl -fsSL '${location.origin}/connect-chatgpt.mjs' | node --input-type=module - '${location.origin}' '${connection.value.authorizationUrl}'` : '')
-const copied = ref(false)
-async function copyCommand() {
-  try { await navigator.clipboard.writeText(helperCommand.value); copied.value = true; setTimeout(() => { copied.value = false }, 2000) }
-  catch { toast.add({ title: 'Copy failed. Select the command and copy it.', color: 'error' }) }
+// OpenAI returns ChatGPT sign-in only to 127.0.0.1. On a hosted Server nothing listens there, so the
+// browser shows a connection error whose address holds the one-time code; pasting it finishes here.
+const callbackUrl = ref(''), finishing = ref(false)
+const callbackValid = computed(() => { try { const url = new URL(callbackUrl.value.trim()); return url.origin === 'http://127.0.0.1:1455' && url.pathname === '/auth/callback' && url.searchParams.has('state') } catch { return false } })
+async function finishChatGPT() {
+  if (!callbackValid.value || finishing.value) return
+  finishing.value = true
+  try { await api('/api/agent-auth/complete', { method: 'POST', body: { callbackUrl: callbackUrl.value.trim() } }); callbackUrl.value = ''; await connecting.refetch() }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { finishing.value = false }
 }
 watch(() => connecting.data.value, value => {
   if (!connection.value || !editing.value) return
@@ -106,7 +111,7 @@ async function setDefault(model: string) {
   try { await api(`/api/servers/${props.serverId}/agent-providers/default`, { method: 'PUT', body: { model: model === noDefault ? '' : model } }); await refresh() }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
 }
-watch(open, value => { if (!value) { state.apiKey = ''; connection.value = null } })
+watch(open, value => { if (!value) { state.apiKey = ''; connection.value = null; callbackUrl.value = '' } })
 watch(() => state.kind, () => { if (!editing.value) { state.models = []; availableModels.value = []; modelError.value = '' } })
 </script>
 
@@ -150,19 +155,14 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
           <template v-if="connection">
             <div v-if="local" class="space-y-2"><p class="text-sm text-muted">Finish signing in in the new tab. This page will update automatically.</p><UButton :to="connection.authorizationUrl" target="_blank" label="Open ChatGPT sign-in" color="neutral" variant="link" /></div>
             <div v-else class="space-y-3 rounded-md border border-default p-3">
-              <p class="text-sm font-medium text-highlighted">Finish sign-in from your computer</p>
-              <p class="text-sm text-muted">OpenAI only returns ChatGPT sign-in to the computer you sign in on, not to a website. A small helper from this Server receives it there and passes the connection back. It needs Node.js 24 and stops after sign-in.</p>
-              <ol class="list-decimal space-y-1 ps-5 text-sm text-default">
-                <li>Copy the command.</li>
-                <li>Paste it into Terminal and press Return. Your browser opens ChatGPT.</li>
-                <li>Approve access. This page updates by itself.</li>
-              </ol>
+              <p class="text-sm font-medium text-highlighted">One more step after you approve</p>
+              <p class="text-sm text-muted">ChatGPT then opens a page that cannot load, at an address starting with <code class="text-xs">http://127.0.0.1:1455</code>. That is expected: OpenAI sends the sign-in back to your computer, not to a website. Copy that page’s full address and paste it here.</p>
+              <UInput v-model="callbackUrl" placeholder="http://127.0.0.1:1455/auth/callback?code=…" class="w-full" autocomplete="off" aria-label="Address of the page ChatGPT opened" @keydown.enter.prevent="finishChatGPT" />
               <div class="flex flex-wrap items-center gap-2">
-                <UButton :label="copied ? 'Copied' : 'Copy command'" :icon="copied ? 'i-ph-check' : 'i-ph-copy'" color="neutral" @click="copyCommand" />
-                <UButton to="/connect-chatgpt.mjs" download="connect-chatgpt.mjs" label="Download helper instead" icon="i-ph-download" color="neutral" variant="link" />
+                <UButton label="Finish connecting" :disabled="!callbackValid" :loading="finishing" @click="finishChatGPT" />
+                <UButton :to="connection.authorizationUrl" target="_blank" label="Open ChatGPT again" color="neutral" variant="link" />
               </div>
-              <details class="text-xs text-muted"><summary class="cursor-pointer">Show command</summary><pre class="mt-2 max-h-32 overflow-auto rounded-md bg-elevated p-3 whitespace-pre-wrap break-all">{{ helperCommand }}</pre></details>
-              <p class="text-xs text-muted">The sign-in link expires in 10 minutes.</p>
+              <p class="text-xs text-muted">The address works once and expires in 10 minutes.</p>
             </div>
           </template>
         </template>
