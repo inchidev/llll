@@ -1,4 +1,5 @@
 import type { L4Env } from '../../workers/env'
+import { wrapsBinding } from '../../shared/binding-identity'
 
 type Span = { count: number; ms: number }
 type D1Meta = { duration?: number; served_by_region?: string; served_by_primary?: boolean }
@@ -52,7 +53,7 @@ export function requestTiming(env: L4Env) {
   }
 
   function database<T extends object>(target: T): T {
-    return new Proxy(target, {
+    return wrapsBinding(new Proxy(target, {
       get(object, key) {
         const value = Reflect.get(object, key)
         if (typeof value !== 'function') return value
@@ -63,7 +64,7 @@ export function requestTiming(env: L4Env) {
         if (key === 'withSession') return (...args: unknown[]) => database(value.apply(object, args))
         return value.bind(object)
       },
-    })
+    }), target)
   }
 
   function stub<T extends object>(target: T): T {

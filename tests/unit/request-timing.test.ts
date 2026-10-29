@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { expect, it } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
 import { requestTiming } from '../../server/utils/request-timing'
+import { getServerId } from '../../shared/server-id'
 import type { L4Env } from '../../workers/env'
 
 function fixture() {
@@ -34,4 +35,14 @@ it('leaves the shared env untouched and marks only the first request as cold', a
   await env.DB.prepare('SELECT 1').first()
   expect(second.summary()).toMatchObject({ d1: 0, cold: false })
   expect(typeof first.summary().cold).toBe('boolean')
+})
+
+it('keeps per-isolate caches keyed on the real database', async () => {
+  const { env } = fixture()
+  await env.DB.prepare("CREATE TABLE server_identity(singleton INTEGER PRIMARY KEY, id TEXT)").run()
+  await env.DB.prepare("INSERT INTO server_identity VALUES(1,'00000000-0000-4000-8000-000000000001')").run()
+  await getServerId(env.DB)
+  const timing = requestTiming(env)
+  expect(await getServerId(timing.env.DB)).toBe('00000000-0000-4000-8000-000000000001')
+  expect(timing.summary().d1).toBe(0)
 })

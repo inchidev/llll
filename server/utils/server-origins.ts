@@ -6,6 +6,7 @@ import {
   type ServerOrigin,
 } from '../../shared/server-origins'
 import { nowIso } from '../../shared/ids'
+import { bindingIdentity } from '../../shared/binding-identity'
 
 export type ServerDomainRequestAction = 'add' | 'remove' | 'primary'
 export type ServerDomainRequestStatus = 'pending' | 'running' | 'complete' | 'failed'
@@ -41,7 +42,7 @@ function safeOrigin(value: string | undefined | null): string | null {
 
 async function storedOrigins(env: L4Env): Promise<ServerOrigin[]> {
   if (!env.DB) return []
-  const cached = originCache.get(env.DB)
+  const cached = originCache.get(bindingIdentity(env.DB))
   if (cached && cached.expiresAt > Date.now()) return cached.origins
 
   let rows: OriginRow[] = []
@@ -68,7 +69,7 @@ async function storedOrigins(env: L4Env): Promise<ServerOrigin[]> {
     })
   }
 
-  originCache.set(env.DB, { expiresAt: Date.now() + CACHE_TTL_MS, origins })
+  originCache.set(bindingIdentity(env.DB), { expiresAt: Date.now() + CACHE_TTL_MS, origins })
   return origins
 }
 
@@ -164,7 +165,7 @@ export async function ensurePrimaryServerOrigin(env: L4Env): Promise<void> {
   catch {
     // Before 0009 is applied the computed list still has the configured primary.
   }
-  originCache.delete(env.DB)
+  originCache.delete(bindingIdentity(env.DB))
 }
 
 export async function listServerDomainRequests(env: L4Env): Promise<ServerDomainRequest[]> {
