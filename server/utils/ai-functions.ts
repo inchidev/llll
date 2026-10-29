@@ -105,7 +105,7 @@ export async function inferAiFunction(env: L4Env, authorization: AuthorizationCo
 }
 
 const avatarBrief = [
-  'You draw one profile picture (avatar) for a member or an agent of an L4 workspace.',
+  'You draw one profile picture (avatar) for a member or an agent of an L4 Server, a team's chat and work space.',
   'Output exactly one square 1:1 image. One subject, centered, filling about two thirds of the frame, still readable at 40 pixels.',
   'Plain, uncluttered background. No text, letters, numbers, watermarks, borders or frames, and no logos unless the request asks for one.',
   'Friendly and characterful rather than corporate. Never depict a real, identifiable person.',
