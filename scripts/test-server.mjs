@@ -184,6 +184,13 @@ try {
       }),
     )
     const db = await runtimes[name].getD1Database('DB')
+    for (const path of ['/', '/agents', '/channels', '/app-shell']) {
+      const page = await runtimes[name].dispatchFetch(origins[name] + path, { headers: { 'User-Agent': 'TelegramBot' } })
+      const html = await page.text()
+      assert.equal(page.status, 200)
+      assert.match(html, /<meta property="og:description" content="One workspace for humans and agents\."/)
+      assert.doesNotMatch(html, /Chat that lives on your Cloudflare account/)
+    }
     for (const file of (await readdir(resolve(root, 'drizzle/server-migrations')))
       .filter((n) => n.endsWith('.sql'))
       .sort())
