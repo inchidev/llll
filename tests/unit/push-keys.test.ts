@@ -16,6 +16,10 @@ it('creates one stable encrypted identity even when members enable push concurre
   const keys = await Promise.all(Array.from({ length: 8 }, () => ensurePushKeys(env)))
   expect(keys.every(item => item?.publicKey === keys[0]?.publicKey)).toBe(true)
   expect(keys[0]?.subject).toBe('https://server.example')
+  const point = Buffer.from(keys[0]!.publicKey, 'base64url')
+  expect(point).toHaveLength(65)
+  expect(point[0]).toBe(4)
+  await expect(crypto.subtle.importKey('raw', point, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])).resolves.toBeDefined()
   const saved = db.prepare('SELECT value FROM server_settings').get() as { value: string }
   expect(saved.value).not.toContain(keys[0]!.privateKey)
   expect(await loadPushKeys(env)).toEqual(keys[0])
