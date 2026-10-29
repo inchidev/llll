@@ -231,33 +231,37 @@ function onEscape(event: KeyboardEvent) {
           class="min-w-0 flex-1 bg-default dark:bg-black md:flex md:flex-[1_1_800px]"
           :class="isMobile && mobileView === 'nav' ? 'hidden' : 'flex'"
         >
-          <!-- The whole pane scrolls, so the wheel works beside the content; only the content keeps its reading width. -->
-          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:py-[60px] md:[&>*]:max-w-[660px]">
-            <div class="mb-4 flex items-center gap-1 md:hidden">
-              <UButton
-                icon="i-ph-arrow-left"
-                color="neutral"
-                variant="ghost"
-                square
-                :aria-label="detailBack ? `Back to ${detailBack.label}` : 'Back to settings list'"
-                @click="detailBack ? detailBack.go() : mobileView = 'nav'"
-              />
-              <span class="min-w-0 flex-1 truncate text-sm text-muted">{{ activeLabel }}</span>
-              <UButton icon="i-ph-x" color="neutral" variant="ghost" square aria-label="Close settings" @click="close" />
+          <!-- The whole pane scrolls, so the wheel works beside the content; the close button floats right after the content. -->
+          <div class="l4-settings-pane min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 pb-24 pt-4 sm:px-10 md:py-[60px]">
+            <div class="flex items-start gap-6">
+              <div class="min-w-0 flex-1 md:max-w-[660px]">
+                <div class="mb-4 flex items-center gap-1 md:hidden">
+                  <UButton
+                    icon="i-ph-arrow-left"
+                    color="neutral"
+                    variant="ghost"
+                    square
+                    :aria-label="detailBack ? `Back to ${detailBack.label}` : 'Back to settings list'"
+                    @click="detailBack ? detailBack.go() : mobileView = 'nav'"
+                  />
+                  <span class="min-w-0 flex-1 truncate text-sm text-muted">{{ activeLabel }}</span>
+                  <UButton icon="i-ph-x" color="neutral" variant="ghost" square aria-label="Close settings" @click="close" />
+                </div>
+                <div v-show="!activeEditor" :key="sectionRevision"><slot /></div>
+                <div v-show="Boolean(activeEditor)" ref="editorTarget" />
+              </div>
+              <div class="sticky top-0 hidden w-12 shrink-0 md:block">
+                <button
+                  type="button"
+                  class="mx-auto flex size-9 items-center justify-center rounded-full border-2 border-muted text-muted transition-colors hover:border-default hover:text-highlighted"
+                  aria-label="Close settings"
+                  @click="close"
+                >
+                  <UIcon name="i-ph-x" class="size-5" />
+                </button>
+                <p class="mt-1.5 text-center text-[13px] font-bold tracking-wide text-muted">ESC</p>
+              </div>
             </div>
-            <div v-show="!activeEditor" :key="sectionRevision"><slot /></div>
-            <div v-show="Boolean(activeEditor)" ref="editorTarget" />
-          </div>
-          <div class="hidden w-14 shrink-0 pe-2 pt-[60px] md:block sm:w-16 sm:pe-3">
-            <button
-              type="button"
-              class="mx-auto flex size-9 items-center justify-center rounded-full border-2 border-muted text-muted transition-colors hover:border-default hover:text-highlighted"
-              aria-label="Close settings"
-              @click="close"
-            >
-              <UIcon name="i-ph-x" class="size-5" />
-            </button>
-            <p class="mt-1.5 text-center text-[13px] font-bold tracking-wide text-muted">ESC</p>
           </div>
         </div>
       </div>

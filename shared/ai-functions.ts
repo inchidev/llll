@@ -21,4 +21,4 @@ export const aiFunctionConfigSchema = z.object({
   model: z.string().min(1).max(300).nullable(),
 }).strict()
 export type AiFunctionConfig = z.infer<typeof aiFunctionConfigSchema>
-export type AiFunctionDTO = (typeof aiFunctions[number] & { requires?: AiFunctionRequirement }) & AiFunctionConfig & { available: boolean; invalid?: boolean }
+export type AiFunctionDTO = (typeof aiFunctions[number] & { requires?: AiFunctionRequirement }) & AiFunctionConfig & { available: boolean; invalid?: boolean; modelLabel?: string }

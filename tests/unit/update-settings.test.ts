@@ -45,7 +45,8 @@ it('selects only newer numeric versions, explicitly includes prereleases, and st
   const installer = v.findAll('button').find(b => b.text() === 'Continue on llll.gg')!
   expect(installer.attributes('target')).toBe('_blank')
   expect(installer.attributes('rel')).toBe('noopener')
-  expect(v.get('select').attributes('disabled')).toBeDefined()
+  // The release picker steps aside while an update is in progress.
+  expect(v.find('select').exists()).toBe(false)
   expect(v.get('[data-update-blocked]').attributes('data-update-blocked')).toBe('true')
   v.unmount()
   client.clear()

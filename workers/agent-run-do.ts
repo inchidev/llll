@@ -372,7 +372,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const diagnosed = await findAgentRun(this.env, run.id)
       await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=COALESCE(result_message_id,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
         // Keep the check's own reason (missing permission, paused agent, no channel access), not a generic label.
-        .bind(forbidden ? `Not authorized: ${(error as { data?: { error?: { message?: string } } }).data?.error?.message || (error instanceof Error && error.message) || 'authorization revoked'}` : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
+        .bind(forbidden ? (error as { data?: { error?: { message?: string } } }).data?.error?.message || `Not authorized: ${(error instanceof Error && error.message) || 'authorization revoked'}` : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
       const failed = await findAgentRun(this.env, run.id)
       const delivered = failed ? await deliverAgentRun(this.env, failed, () => this.publish(failed)) : true

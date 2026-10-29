@@ -33,7 +33,7 @@ export async function aiFunctionCatalog(env: L4Env, actorId: string) {
     const available = Boolean(provider?.configured && provider.enabled && chosen && modelMeetsRequirement(chosen, requires)
       && (definition.id !== 'web.search' || (provider.kind === 'openrouter' && provider.webSearch))
       && (definition.id !== 'avatar.generate' || provider.kind === 'openrouter'))
-    return { ...definition, ...config, available }
+    return { ...definition, ...config, available, ...(chosen && provider ? { modelLabel: `${provider.name} / ${chosen.label || chosen.id}` } : {}) }
   }))
   return { functions, models: catalog.models.map(model => ({ ...model, webSearch: catalog.providers.some(provider => provider.id === parseAgentModelRef(model.value)?.provider && provider.kind === 'openrouter' && provider.webSearch) })) }
 }

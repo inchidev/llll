@@ -12,7 +12,7 @@ it.each([403, 409, 0])('shows cancellation failure %s and refreshes the actual r
     if (path.endsWith('/cancel')) { current = 'completed'; throw Error(status ? `Cancel failed: ${status}` : 'Network unavailable') }
     return { run: { status: current, createdAt: '2026-10-24', modelCalls: 0 }, canCancel: true }
   })
-  for (const [name, value] of Object.entries({ computed, ref, definePageMeta: () => {}, useRoute: () => ({ params: { id: 'run' } }), useApi: () => ({ api }), useRoleGrants: () => ({ can: () => false }), useToast: () => ({ add: toast }), errorMessage: (error: Error) => error.message })) vi.stubGlobal(name, value)
+  for (const [name, value] of Object.entries({ computed, ref, definePageMeta: () => {}, useRoute: () => ({ params: { id: 'run' } }), useApi: () => ({ api }), useRoleGrants: () => ({ can: () => false }), useNavActions: () => ({ openServerSettings: () => {} }), useToast: () => ({ add: toast }), errorMessage: (error: Error) => error.message })) vi.stubGlobal(name, value)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const view = mount(RunPage, { global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: {
     LayoutPageHeader: true, LayoutSkeleton: true, LayoutLoadError: true, UBadge: { props: ['label'], template: '<span>{{ label }}</span>' }, UAlert: true,
