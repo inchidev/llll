@@ -50,7 +50,9 @@ export async function testGitConnections({api,runtimes,ids}){
  assert.equal((await api('beta',callback,{expected:302,redirect:'manual'})).response.headers.get('Location'),expired)
  const done=await api('alpha',callback,{expected:302,redirect:'manual'})
  assert.equal(done.response.headers.get('Referrer-Policy'),'no-referrer')
- assert.equal(done.response.headers.get('Location'),`/server/${ids.alpha}/settings?section=environments`)
+ // Setup continues straight to choosing the App's repositories on GitHub.
+ assert.equal(done.response.headers.get('Location'),'https://github.com/apps/l4-http-fixture/installations/new')
+ assert.equal(prepared.manifest.setup_url.endsWith(`/server/${ids.alpha}/settings?section=environments`),true)
  assert.equal((await api('alpha',callback,{expected:302,redirect:'manual'})).response.headers.get('Location'),expired)
  const listed=(await api('alpha',root)).payload,connection=listed.connections.find(c=>c.name===input.name)
  assert.ok(connection);assert.equal(JSON.stringify(listed).includes('PRIVATE KEY'),false)
