@@ -7,7 +7,7 @@ export const chatGPTFetch: typeof fetch = async (input, init) => {
   const tools = body.tools as Array<{ type: string }> | undefined
   if (tools?.some(t => t.type === 'function')) body.tools = [{ type: 'namespace', name: 'l4', description: 'Tools authorized by this L4 Server', tools: tools.filter(t => t.type === 'function') }, ...tools.filter(t => t.type !== 'function')]
   if (Array.isArray(body.input)) body.input = body.input.map(item => item.type === 'function_call' && !item.namespace ? { ...item, namespace: 'l4' } : item.role === 'system' ? { ...item, role: 'developer' } : item)
-  const response = await globalThis.fetch(input, { ...init, body: JSON.stringify(body), redirect: 'error' })
+  const response = await globalThis.fetch(input, { ...init, body: JSON.stringify(body), redirect: 'manual' })
   if (!response.ok || !response.body) return response
   let completed = false, pending = ''
   const decoder = new TextDecoder()

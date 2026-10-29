@@ -10,7 +10,7 @@ async function request(env: L4Env, id: string, path: string, body: unknown, time
   safeId.parse(id)
   const { apiKey } = await lizardCredential(env)
   let response: Response
-  try { response = await fetch(`https://lizard.build/api/sandboxes/${encodeURIComponent(id)}${path}`, { method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) }) }
+  try { response = await fetch(`https://lizard.build/api/sandboxes/${encodeURIComponent(id)}${path}`, { method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) }) }
   catch { fail(503, 'lizard_transport_uncertain', 'Lizard request outcome is unknown; inspect it before retrying') }
   if (!response.ok) fail(503, 'lizard_transport_failed', 'Lizard could not execute the requested setup step')
   const output = await readLimitedStream(response.body, 900000)

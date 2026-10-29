@@ -56,7 +56,7 @@ export async function loadChatGPTAttempt(env: L4Env, state: string): Promise<Pen
 }
 const tokensSchema = z.object({ access_token: z.string().min(1), refresh_token: z.string().min(1).optional(), id_token: z.string().min(1).optional(), expires_in: z.number().positive(), scope: z.string().optional() })
 async function tokenRequest(body: URLSearchParams) {
-  const response = await fetch(`${issuer}/api/accounts/oauth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(20000), redirect: 'error' })
+  const response = await fetch(`${issuer}/api/accounts/oauth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(20000), redirect: 'manual' })
   if (!response.ok) fail(409, 'chatgpt_auth_failed', 'ChatGPT authorization failed. Connect again.')
   const received = await readLimitedStream(response.body, 128000)
   if (!received.ok) fail(502, 'invalid_tokens', 'ChatGPT token response exceeded the limit')

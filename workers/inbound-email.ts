@@ -361,7 +361,7 @@ async function confirmSnsSubscription(subscribeUrl: string | undefined, fetcher:
   const url = subscribeUrl ? allowedSnsSubscribeUrl(subscribeUrl) : null
   if (!url) return badRequest('Invalid SubscribeURL')
   try {
-    const response = await fetcher(url, { redirect: 'error' })
+    const response = await fetcher(url, { redirect: 'manual' })
     if (!response.ok) return new Response('Subscription confirmation failed', { status: 500 })
   }
   catch {

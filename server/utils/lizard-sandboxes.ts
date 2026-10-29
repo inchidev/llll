@@ -19,7 +19,7 @@ export async function createLizardSandbox(env: L4Env, input: z.infer<typeof conf
   const values = config.parse(input), credential = await lizardCredential(env)
   let response: Response
   try {
-    response = await fetch(endpoint + '/sandboxes', { method: 'POST', headers: { 'X-API-Key': credential.apiKey, 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(30000), body: JSON.stringify({ template: 'base', projectId: credential.projectId, size: values.size, region: values.region, timeoutMs: values.timeoutMs, volumeId: values.volumeId, metadata: { l4Workspace: values.workspaceId } }) })
+    response = await fetch(endpoint + '/sandboxes', { method: 'POST', headers: { 'X-API-Key': credential.apiKey, 'Content-Type': 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(30000), body: JSON.stringify({ template: 'base', projectId: credential.projectId, size: values.size, region: values.region, timeoutMs: values.timeoutMs, volumeId: values.volumeId, metadata: { l4Workspace: values.workspaceId } }) })
   } catch { fail(503, 'lizard_create_uncertain', 'Lizard VM creation outcome is unknown; inspect the provider before retrying') }
   if (!response.ok) fail(response.status >= 500 ? 503 : 400, 'lizard_create_failed', 'Lizard did not accept the VM request')
   let parsed: z.infer<typeof createResult>
@@ -33,7 +33,7 @@ export async function deleteLizardSandbox(env: L4Env, id: string, workspaceId: s
   z.string().uuid().parse(workspaceId)
   let response: Response
   const url = endpoint + '/sandboxes/' + encodeURIComponent(safeId), headers = { 'X-API-Key': credential.apiKey }
-  try { response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM ownership could not be checked') }
   if (response.status === 404) return { deleted: true }
   if (!response.ok) fail(503, 'lizard_delete_failed', 'Lizard VM ownership could not be checked')
@@ -41,7 +41,7 @@ export async function deleteLizardSandbox(env: L4Env, id: string, workspaceId: s
   try { owner = z.object({ metadata: z.record(z.string(), z.string()).optional() }).parse(await boundedJson(response)) }
   catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM ownership response was invalid') }
   if (owner.metadata?.l4Workspace !== workspaceId) fail(403, 'lizard_delete_denied', 'Lizard VM belongs to a different workspace')
-  try { response = await fetch(url, { method: 'DELETE', headers, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(url, { method: 'DELETE', headers, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_delete_uncertain', 'Lizard VM cleanup outcome is unknown; inspect the provider') }
   if (!response.ok && response.status !== 404) fail(503, 'lizard_delete_failed', 'Lizard VM cleanup failed')
   return { deleted: true }
@@ -51,7 +51,7 @@ export async function listOwnedLizardSandboxes(env: L4Env, workspaceId: string) 
   z.string().uuid().parse(workspaceId)
   const credential = await lizardCredential(env)
   let response: Response
-  try { response = await fetch(endpoint + '/projects/' + encodeURIComponent(credential.projectId) + '/sandboxes', { headers: { 'X-API-Key': credential.apiKey }, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(endpoint + '/projects/' + encodeURIComponent(credential.projectId) + '/sandboxes', { headers: { 'X-API-Key': credential.apiKey }, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_list_unavailable', 'Lizard VM inventory is unavailable') }
   if (!response.ok) fail(503, 'lizard_list_unavailable', 'Lizard VM inventory is unavailable')
   let items: z.infer<typeof sandboxList>
@@ -66,7 +66,7 @@ export async function listOwnedLizardSandboxes(env: L4Env, workspaceId: string) 
     if (item.metadata?.l4Workspace === workspaceId) { matches.push(id); continue }
     if (item.metadata) continue
     let detail: Response
-    try { detail = await fetch(endpoint + '/sandboxes/' + encodeURIComponent(id), { headers: { 'X-API-Key': credential.apiKey }, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+    try { detail = await fetch(endpoint + '/sandboxes/' + encodeURIComponent(id), { headers: { 'X-API-Key': credential.apiKey }, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
     catch { fail(503, 'lizard_list_unavailable', 'Lizard VM ownership could not be checked') }
     if (detail.status === 404) continue
     if (!detail.ok) fail(503, 'lizard_list_unavailable', 'Lizard VM ownership could not be checked')
@@ -83,7 +83,7 @@ export async function extendLizardSandbox(env: L4Env, id: string, workspaceId: s
   z.string().uuid().parse(workspaceId)
   const base = endpoint + '/sandboxes/' + encodeURIComponent(safeId), headers = { 'X-API-Key': credential.apiKey }
   let info: Response
-  try { info = await fetch(base, { headers, redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { info = await fetch(base, { headers, redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_extend_uncertain', 'Lizard VM ownership could not be checked') }
   if (!info.ok) fail(503, 'lizard_extend_failed', 'Lizard VM is unavailable')
   let owner: { metadata?: Record<string, string> }
@@ -91,7 +91,7 @@ export async function extendLizardSandbox(env: L4Env, id: string, workspaceId: s
   catch { fail(503, 'lizard_extend_uncertain', 'Lizard VM ownership response was invalid') }
   if (owner.metadata?.l4Workspace !== workspaceId) fail(403, 'lizard_extend_denied', 'Lizard VM belongs to a different workspace')
   let response: Response
-  try { response = await fetch(base + '/timeout', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ timeoutMs: 600000 }), redirect: 'error', signal: AbortSignal.timeout(30000) }) }
+  try { response = await fetch(base + '/timeout', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ timeoutMs: 600000 }), redirect: 'manual', signal: AbortSignal.timeout(30000) }) }
   catch { fail(503, 'lizard_extend_uncertain', 'Lizard VM expiry could not be confirmed') }
   if (!response.ok) fail(503, 'lizard_extend_failed', 'Lizard VM expiry could not be extended')
   return { expiresAt: Date.now() + 600000 }
