@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { agentMarkdown, compareVersions, contentLink, docEntry, releaseEntry, releaseLink, renderMarkdown, robotsTxt, sitemapXml } from '../../apps/site/lib/content.mjs'
+import { agentMarkdown, compareVersions, contentLink, docEntry, indexMarkdown, releaseEntry, releaseLink, renderMarkdown, robotsTxt, sitemapXml } from '../../apps/site/lib/content.mjs'
 import { readSiteContent } from '../../apps/site/lib/content-files.mjs'
 import { contentMarkdownPath } from '../../apps/site/src/index'
 
@@ -41,6 +41,12 @@ describe('site content', () => {
     const release = releaseEntry('v0.3.4.md', '# L4 0.3.4\n\nThis release adds things.\n\n## Agents\n', { '0.3.4': '2026-10-29' })
     expect(release).toMatchObject({ version: '0.3.4', url: '/changelog/v0.3.4', date: '2026-10-29', description: 'This release adds things.', prerelease: false })
     expect(release!.body.startsWith('This release')).toBe(true)
+  })
+
+  it('lists blog and changelog entries in their Markdown index', () => {
+    const release = releaseEntry('v0.3.4.md', '# L4 0.3.4\n\nThis release adds things.\n', { '0.3.4': '2026-10-29' })!
+    expect(indexMarkdown({ title: 'L4 changelog', description: 'Releases.', url: '/changelog', items: [release] }))
+      .toBe('# L4 changelog\n\n> Releases.\n\nSource: https://llll.gg/changelog\n\n- [L4 0.3.4](https://llll.gg/changelog/v0.3.4.md) (2026-10-29): This release adds things.\n')
   })
 
   it('negotiates Markdown only for content pages', () => {

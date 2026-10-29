@@ -51,7 +51,9 @@ try {
   assert.match(homeMarkdown.headers.get('Content-Type'), /^text\/markdown/)
   assert.match(await homeMarkdown.text(), /^# L4\n/, 'The home page answers Accept: text/markdown with llms.txt')
   assert.match(await (await mf.dispatchFetch(origin + '/robots.txt')).text(), /Content-Signal: search=yes/)
-  for (const path of ['/changelog/v0.3.4', '/changelog/v0.3.4.md', '/docs/get-started/what-is-l4.md', '/llms.txt', '/docs/llms.txt', '/docs/llms-full.txt', '/robots.txt', '/sitemap.xml', '/changelog', '/changelog/rss.xml', '/blog', '/blog/rss.xml', '/docs']) {
+  const changelogMarkdown = await mf.dispatchFetch(origin + '/changelog', { headers: { Accept: 'text/markdown' } })
+  assert.match(await changelogMarkdown.text(), /^# L4 changelog\n[\s\S]*\n- \[L4 0\.3\.4\]\(https:\/\/llll\.gg\/changelog\/v0\.3\.4\.md\)/, 'The changelog index has a Markdown copy')
+  for (const path of ['/changelog/v0.3.4', '/changelog/v0.3.4.md', '/docs/get-started/what-is-l4.md', '/llms.txt', '/docs/llms.txt', '/docs/llms-full.txt', '/robots.txt', '/sitemap.xml', '/changelog', '/changelog.md', '/changelog/rss.xml', '/blog', '/blog.md', '/blog/rss.xml', '/docs']) {
     const response = await mf.dispatchFetch(origin + path)
     assert.equal(response.status, 200, path)
     if (/\.(?:md|txt|xml)$/.test(path)) assert.doesNotMatch(response.headers.get('Content-Type'), /html/, path)
