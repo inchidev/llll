@@ -6,7 +6,14 @@ import type { CodeEnvironment, CodeEnvironmentInput } from '~~/shared/code-envir
 
 defineProps<{ serverId: string }>()
 const providerTab = ref('github')
-const gitConnections = ref<{ connect: () => void; refresh: () => void } | null>(null)
+const gitConnections = ref<{ connect: () => void; refresh: () => Promise<void> } | null>(null)
+const refreshing = ref(false)
+async function refreshConnections() {
+  refreshing.value = true
+  // A fast refresh still shows the spinner long enough to register as a response.
+  try { await Promise.all([gitConnections.value?.refresh(), new Promise(resolve => setTimeout(resolve, 500))]) }
+  finally { refreshing.value = false }
+}
 const { api } = useApi()
 const toast = useToast()
 const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: { id: string; name: string; enabled: boolean; capabilities?: { provider?: string } }[] }>('/api/compute-nodes') })
@@ -58,7 +65,7 @@ async function disable(item: CodeEnvironment) {
 
 <template>
   <div class="space-y-6">
-    <SettingsHeader title="Git"><template #actions><UButton v-if="providerTab === 'github'" icon="i-ph-arrows-clockwise" aria-label="Refresh Git connections" color="neutral" variant="ghost" @click="gitConnections?.refresh()" /><UButton v-if="providerTab === 'github' && connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="gitConnections?.connect()" /><UButton v-else-if="providerTab === 'environments' && list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
+    <SettingsHeader title="Git"><template #actions><UButton v-if="providerTab === 'github'" icon="i-ph-arrows-clockwise" aria-label="Refresh Git connections" color="neutral" variant="ghost" :loading="refreshing" @click="refreshConnections" /><UButton v-if="providerTab === 'github' && connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="gitConnections?.connect()" /><UButton v-else-if="providerTab === 'environments' && list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
     <LayoutSegmentedTabs v-model="providerTab" :items="[{ label: 'GitHub', value: 'github' }, { label: 'GitLab', value: 'gitlab' }, { label: 'Gitea', value: 'gitea' }, { label: 'Environments', value: 'environments' }]" label="Git providers" />
     <SettingsGitConnections v-if="providerTab === 'github'" ref="gitConnections" />
     <p v-else-if="providerTab === 'gitlab' || providerTab === 'gitea'" class="text-sm text-muted">{{ providerTab === 'gitlab' ? 'GitLab' : 'Gitea' }} connections are not available yet.</p>

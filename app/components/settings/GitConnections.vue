@@ -4,10 +4,10 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { GitConnection } from '~~/shared/git-connections'
 type Repository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
 const {api}=useApi(),qc=useQueryClient(),toast=useToast()
-const connections=useQuery({queryKey:['git-connections'],queryFn:()=>api<{connections:GitConnection[];canConfigure:boolean}>('/api/git-connections')})
+const connections=useQuery({queryKey:['git-connections'],queryFn:({signal})=>api<{connections:GitConnection[];canConfigure:boolean}>('/api/git-connections',{signal,timeout:15000})})
 const enabled=computed(()=>(connections.data.value?.connections??[]).filter(c=>c.enabled))
 // Same key as the environment editor, so both views share one GitHub discovery.
-const repositories=useQueries({queries:computed(()=>enabled.value.map(c=>({queryKey:['agent-repositories',c.id],queryFn:()=>api<{configured:boolean;repositories:Repository[]}>('/api/code-environments/repositories',{query:{connectionId:c.id}}),retry:false})))})
+const repositories=useQueries({queries:computed(()=>enabled.value.map(c=>({queryKey:['agent-repositories',c.id],queryFn:({signal}:{signal:AbortSignal})=>api<{configured:boolean;repositories:Repository[]}>('/api/code-environments/repositories',{signal,timeout:30000,query:{connectionId:c.id}}),retry:false})))})
 const reposFor=(id:string)=>repositories.value[enabled.value.findIndex(c=>c.id===id)]
 const prepared=ref<{actionUrl:string;manifest:Record<string,unknown>}|null>(null)
 const submitted=ref(false)
