@@ -3,6 +3,8 @@ import type { PushNotificationPayload } from '../shared/notifications'
 import { pushDeliveryDisposition, pushRetryDelayMs } from '../shared/notifications'
 import type { L4Env } from './env'
 import { Permission } from '../shared/permissions'
+import { loadPushKeys } from './push-keys'
+import { unreadNavigationCount } from './unread'
 
 function isLiveTag(tag: string): boolean {
   return tag.startsWith('live:')
@@ -34,10 +36,6 @@ export function workerPushRequestInit(request: BuiltPushRequest) {
   return { ...request, headers, redirect: 'manual' as const }
 }
 
-export function pushConfigured(env: L4Env): boolean {
-  return Boolean(env.VAPID_SUBJECT?.trim() && env.VAPID_PUBLIC_KEY?.trim() && env.VAPID_PRIVATE_KEY?.trim())
-}
-
 /** Queued private-channel notifications do not retain a grant after membership removal. */
 export async function privatePushAccessAllowed(db: D1Database, channelId: string, userId: string): Promise<boolean> {
   return Boolean(await db.prepare(`SELECT u.id FROM users u JOIN channels c ON c.id=?
@@ -61,7 +59,8 @@ export async function mailPushAccessAllowed(db: D1Database, threadId: string, us
 async function deliverPush(env: L4Env, row: OutboxRow) {
   if (!await privatePushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   if (row.kind === 'mail' && !await mailPushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
-  if (!pushConfigured(env)) return { disposition: 'retry' as const, error: 'vapid_unconfigured' }
+  const keys = await loadPushKeys(env)
+  if (!keys) return { disposition: 'retry' as const, error: 'vapid_unconfigured' }
   let payload: PushNotificationPayload
   try {
     payload = JSON.parse(row.payload_json) as PushNotificationPayload
@@ -69,6 +68,10 @@ async function deliverPush(env: L4Env, row: OutboxRow) {
   catch {
     return { disposition: 'failed' as const, error: 'invalid_payload' }
   }
+
+  // Compute at delivery, not enqueue, so retries do not blindly increment badges.
+  try { payload.badgeCount = await unreadNavigationCount(env.DB, row.recipient_id) }
+  catch { /* An unread-count failure must not block the notification itself. */ }
 
   let request: BuiltPushRequest
   try {
@@ -83,9 +86,9 @@ async function deliverPush(env: L4Env, row: OutboxRow) {
       expirationTime: null,
       keys: { p256dh: row.p256dh, auth: row.auth },
     }, {
-      subject: env.VAPID_SUBJECT!.trim(),
-      publicKey: env.VAPID_PUBLIC_KEY!.trim(),
-      privateKey: env.VAPID_PRIVATE_KEY!.trim(),
+      subject: keys.subject,
+      publicKey: keys.publicKey,
+      privateKey: keys.privateKey,
     })
   }
   catch (error) {
