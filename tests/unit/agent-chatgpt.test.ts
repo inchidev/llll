@@ -66,9 +66,19 @@ describe('ChatGPT account connection', () => {
     expect(await chatGPTAccessToken(env, 'personal-codex', 'owner')).toBe('access-fixture')
     await expect(resolveSavedAgentModel(env, 'l4:personal-codex:allowed-model', 'other')).rejects.toMatchObject({ statusCode: 403 })
     await expect(loadChatGPTAttempt(env, attempt.state)).rejects.toMatchObject({ statusCode: 400 })
+    // Submitting the same address again confirms the connection instead of failing.
+    await expect(completeChatGPT(env, callback, keySet)).resolves.toMatchObject({ connectionId: 'personal-codex' })
     const reauth = new URL((await beginChatGPT(env, 'personal-codex', 'owner', 'http://localhost:3000', true)).authorizationUrl)
     expect(reauth.searchParams.get('client_id')).toBe('oaiapp_fixture')
     expect(reauth.searchParams.has('agent_name_hint')).toBe(false)
+  })
+  it('reports the real reason when the same sign-in address is submitted again', async () => {
+    const { callback } = await setup()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('denied', { status: 400 })))
+    await expect(completeChatGPT(env, callback)).rejects.toMatchObject({ statusCode: 409, data: { error: { code: 'chatgpt_auth_failed' } } })
+    const again = completeChatGPT(env, callback)
+    await expect(again).rejects.toMatchObject({ data: { error: { code: 'sign_in_failed' } } })
+    await expect(completeChatGPT(env, callback)).rejects.toThrow(/ChatGPT authorization failed.*Continue with ChatGPT/u)
   })
   it.each(['nonce', 'scope', 'signature'] as const)('rejects a mismatched %s without saving tokens', async failure => {
     const { pending, callback } = await setup()

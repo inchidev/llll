@@ -88,7 +88,8 @@ async function finishChatGPT() {
   if (!callbackValid.value || finishing.value) return
   finishing.value = true
   try { await api('/api/agent-auth/complete', { method: 'POST', body: { callbackUrl: callbackUrl.value.trim() } }); callbackUrl.value = ''; await connecting.refetch() }
-  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  // A sign-in address works once; after a failure the next try needs a fresh one.
+  catch (error) { callbackUrl.value = ''; connection.value = null; toast.add({ title: 'ChatGPT was not connected', description: errorMessage(error), color: 'error' }) }
   finally { finishing.value = false }
 }
 watch(() => connecting.data.value, value => {

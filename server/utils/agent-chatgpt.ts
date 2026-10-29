@@ -15,6 +15,15 @@ const random = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint
 const scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct'
 type Pending = { connectionId: string; actorId: string; state: string; nonce: string; verifier: string; redirectUri: string; returnOrigin: string; expires: number; clientId?: string; subject?: string; credentialVersion?: string }
 const pendingKey = (state: string) => `agents.oauth.${state}`
+// Plaintext outcome of one attempt, so a repeated Finish reports what happened instead of an empty state.
+const outcomeKey = (state: string) => `agents.oauth.${state}.outcome`
+type Outcome = { status: 'exchanging' | 'failed' | 'done'; message?: string; connectionId?: string; returnOrigin?: string }
+async function priorOutcome(env: L4Env, state: string) {
+  if (!/^[\w-]{43}$/u.test(state)) return null
+  const value = await readServerSetting(env.DB, outcomeKey(state))
+  return value ? JSON.parse(value) as Outcome : null
+}
+const errorText = (error: unknown) => (error as { data?: { error?: { message?: string } } })?.data?.error?.message ?? 'ChatGPT sign-in could not be completed'
 export async function beginChatGPT(env: L4Env, connectionId: string, actorId: string, origin: string, local: boolean) {
   if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'secret_unavailable', 'Server encryption is unavailable')
   const provider = await loadAgentProvider(env, connectionId)
@@ -55,14 +64,35 @@ async function tokenRequest(body: URLSearchParams) {
 }
 export async function completeChatGPT(env: L4Env, callback: URL, keySet: JWTVerifyGetKey = jwks) {
   const state = callback.searchParams.get('state') ?? ''
+  const prior = await priorOutcome(env, state)
+  if (prior?.status === 'done') return { returnOrigin: prior.returnOrigin!, connectionId: prior.connectionId! }
+  if (prior?.status === 'failed') fail(409, 'sign_in_failed', `${prior.message} Select Continue with ChatGPT to start again.`)
+  if (prior?.status === 'exchanging') fail(409, 'sign_in_in_progress', 'This sign-in is still finishing. Wait a moment and check the connection.')
   const pending = await loadChatGPTAttempt(env, state)
   if (`${callback.origin}${callback.pathname}` !== pending.redirectUri) fail(400, 'invalid_callback', 'Callback does not match this sign-in')
   const owner = await env.DB.prepare('SELECT owner_id as id,id as serverId FROM server LIMIT 1').first<{ id: string; serverId: string }>()
   if (owner?.id !== pending.actorId) fail(403, 'forbidden', 'Only the current Server owner can finish this connection')
   const clientId = callback.searchParams.get('client_id') ?? pending.clientId
   if (!clientId || clientId === 'dynamic_agent_client' || (pending.clientId && clientId !== pending.clientId)) fail(400, 'invalid_client', 'ChatGPT registration is incomplete')
-  const consumed = await env.DB.prepare('DELETE FROM server_settings WHERE key=? RETURNING key').bind(pendingKey(state)).first()
-  if (!consumed) fail(409, 'already_used', 'Sign-in was already completed')
+  // Claiming the outcome is the replay guard; the attempt stays readable until it settles.
+  const claimed = await env.DB.prepare("INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING RETURNING key")
+    .bind(outcomeKey(state), JSON.stringify({ status: 'exchanging' } satisfies Outcome), new Date().toISOString()).first()
+  if (!claimed) fail(409, 'already_used', 'This sign-in was already submitted. Check the connection before starting again.')
+  const settle = (outcome: Outcome) => env.DB.batch([
+    env.DB.prepare('UPDATE server_settings SET value=?,updated_at=? WHERE key=?').bind(JSON.stringify(outcome), new Date().toISOString(), outcomeKey(state)),
+    env.DB.prepare('DELETE FROM server_settings WHERE key=?').bind(pendingKey(state)),
+  ])
+  try {
+    const result = await exchangeChatGPT(env, callback, pending, owner, clientId, keySet)
+    await settle({ status: 'done', ...result })
+    return result
+  } catch (error) {
+    await settle({ status: 'failed', message: errorText(error) })
+    throw error
+  }
+}
+
+async function exchangeChatGPT(env: L4Env, callback: URL, pending: Pending, owner: { id: string; serverId: string }, clientId: string, keySet: JWTVerifyGetKey) {
   if (callback.searchParams.has('error')) fail(400, 'access_denied', 'ChatGPT sign-in was declined')
   const code = callback.searchParams.get('code')
   if (!code) fail(400, 'code_required', 'ChatGPT did not return an authorization code')
