@@ -272,6 +272,12 @@ function llmsLine(entry) {
   return `- [${entry.title}](${SITE.origin}${entry.url === '/docs' ? '/docs' : entry.url}.md)${entry.description ? `: ${entry.description}` : ''}`
 }
 
+/** Markdown for the blog and changelog indexes: one line per entry, newest first. */
+export function indexMarkdown({ title, description, url, items }) {
+  const lines = items.map(item => `- [${item.title}](${SITE.origin}${item.url}.md)${item.date ? ` (${item.date})` : ''}${item.description ? `: ${item.description}` : ''}`)
+  return `# ${title}\n\n> ${description}\n\nSource: ${SITE.origin}${url}\n\n${lines.join('\n')}\n`
+}
+
 /** `/llms.txt`: what L4 is and where the agent-readable pages are. */
 export function llmsTxt({ docs, blog, releases }) {
   const latest = releases[0]
