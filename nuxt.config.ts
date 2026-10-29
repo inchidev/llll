@@ -64,6 +64,7 @@ export default defineNuxtConfig({
   },
   nitro: bundledClient || staticWebClient ? {
     preset: 'static',
+    prerender: { ignore: ['/pwa/manifest.webmanifest', '/pwa/icon'] },
     ...(staticWebClient ? { output: { dir: '.client-output' } } : {}),
     rollupConfig: {
       plugins: [rawSqlPlugin],
@@ -172,8 +173,8 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
         { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/favicon-16x16.png' },
         { rel: 'shortcut icon', href: '/favicon.ico' },
-        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
-        { rel: 'manifest', href: '/site.webmanifest' },
+        { rel: 'apple-touch-icon', href: '/pwa/icon' },
+        { rel: 'manifest', href: '/pwa/manifest.webmanifest' },
       ],
     },
   },

@@ -14,6 +14,12 @@ self.addEventListener('push', (event) => {
     data: { url: typeof payload.url === 'string' ? payload.url : '/' },
   }
   event.waitUntil((async () => {
+    if (Number.isSafeInteger(payload.badgeCount) && payload.badgeCount >= 0) {
+      try {
+        if (payload.badgeCount === 0) await self.navigator.clearAppBadge?.()
+        else await self.navigator.setAppBadge?.(payload.badgeCount)
+      } catch { /* Badge support and permission vary by browser. */ }
+    }
     const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true })
     if (windows.some(client => client.focused && client.visibilityState === 'visible')) return
     await self.registration.showNotification(title, options)

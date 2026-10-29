@@ -9,6 +9,7 @@ export type PushNotificationPayload = {
   url: string
   icon: string
   badge: string
+  badgeCount?: number
 }
 
 export type BrowserPushSubscription = {

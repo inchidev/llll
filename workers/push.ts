@@ -4,6 +4,7 @@ import { pushDeliveryDisposition, pushRetryDelayMs } from '../shared/notificatio
 import type { L4Env } from './env'
 import { Permission } from '../shared/permissions'
 import { loadPushKeys } from './push-keys'
+import { unreadNavigationCount } from './unread'
 
 function isLiveTag(tag: string): boolean {
   return tag.startsWith('live:')
@@ -67,6 +68,10 @@ async function deliverPush(env: L4Env, row: OutboxRow) {
   catch {
     return { disposition: 'failed' as const, error: 'invalid_payload' }
   }
+
+  // Compute at delivery, not enqueue, so retries do not blindly increment badges.
+  try { payload.badgeCount = await unreadNavigationCount(env.DB, row.recipient_id) }
+  catch { /* An unread-count failure must not block the notification itself. */ }
 
   let request: BuiltPushRequest
   try {

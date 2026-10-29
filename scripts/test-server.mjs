@@ -210,6 +210,9 @@ try {
     await api(name, '/api/unknown-endpoint', { expected: 404 })
     await api(name, '/api/workspaces', { expected: 404 })
     assert.equal(discovery.payload.ready, false)
+    const initialManifest = (await api(name, '/pwa/manifest.webmanifest', { actor: 'anonymous' })).payload
+    assert.equal(initialManifest.id, '/')
+    assert.ok(initialManifest.icons.some(icon => icon.src === '/android-chrome-192x192.png'))
     await api(name, '/api/setup/owner', {
       method: 'POST',
       body: { token: setup, name: 'Owner', password },
@@ -251,11 +254,19 @@ try {
       assert.notEqual(appearance.iconUrl, previousIconUrl)
       previousIconUrl = appearance.iconUrl
       const publicIcon = await api(name, new URL(appearance.iconUrl).pathname + new URL(appearance.iconUrl).search, { actor: 'anonymous' })
+      const manifest = (await api(name, '/pwa/manifest.webmanifest', { actor: 'anonymous' })).payload
+      assert.equal(manifest.name, 'Renamed ' + name)
+      assert.equal(manifest.icons[0].src, appearance.iconUrl)
+      const touchIcon = await api(name, '/pwa/icon', { actor: 'anonymous', redirect: 'manual', expected: 302 })
+      assert.equal(touchIcon.response.headers.get('location'), appearance.iconUrl)
       assert.deepEqual(Buffer.from(await publicIcon.response.arrayBuffer()), bytes)
       assert.equal(publicIcon.response.headers.get('content-type'), 'image/png')
     }
     await api(name, `/api/servers/${ids[name]}/icon`, { method: 'DELETE' })
     assert.equal((await api(name, '/.well-known/llll', { actor: 'anonymous' })).payload.iconUrl, null)
+    const fallbackManifest = (await api(name, '/pwa/manifest.webmanifest', { actor: 'anonymous' })).payload
+    assert.ok(fallbackManifest.icons.some(icon => icon.src === '/android-chrome-192x192.png'))
+    assert.equal((await api(name, '/pwa/icon', { actor: 'anonymous', redirect: 'manual', expected: 302 })).response.headers.get('location'), '/apple-touch-icon.png')
     await api(name, '/.well-known/llll/icon', { actor: 'anonymous', expected: 404 })
     await api(name, '/api/servers/main/members', { expected: 404 })
     const page = await api(name, '/login', { actor: 'anonymous' })

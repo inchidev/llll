@@ -1,4 +1,5 @@
 import type { SidebarThreadDTO } from '../shared/types'
+import { Permission } from '../shared/permissions'
 type D1Reader = Pick<D1Database, 'prepare'>
 
 /** Counts stop here; the navigation shows 99+. */
@@ -87,6 +88,23 @@ export async function channelUnreadCounts(
     for (const row of rows.results ?? []) result.set(row.channel_id, Number(row.unread_count))
   }
   return result
+}
+
+/** The number of unread conversations visible in the member's Chat and DM navigation. */
+export async function unreadNavigationCount(db: D1Reader, userId: string): Promise<number> {
+  const rows = await db.prepare(`SELECT c.id FROM channels c
+    JOIN users u ON u.id = ? AND u.status = 'active'
+    JOIN roles r ON r.id = u.role_id CROSS JOIN server s
+    WHERE (c.type NOT IN ('dm','thread') AND c.archived_at IS NULL
+      AND (c.visibility = 'server' OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = u.id))
+      AND NOT EXISTS (SELECT 1 FROM email_mailboxes mb WHERE mb.channel_id = c.id)
+      AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.discussion_channel_id = c.id))
+    OR (c.type = 'dm' AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = u.id AND cm.hidden_at IS NULL)
+      AND (u.id = s.owner_id OR (r.permissions_bitmask & ?) != 0 OR NOT EXISTS (
+        SELECT 1 FROM channel_members cm JOIN users participant ON participant.id = cm.user_id
+        WHERE cm.channel_id = c.id AND participant.kind = 'agent')))`).bind(userId, Permission.useAgents).all<{ id: string }>()
+  const counts = await channelUnreadCounts(db, userId, rows.results.map(row => row.id))
+  return [...counts.values()].filter(count => count > 0).length
 }
 
 /**
