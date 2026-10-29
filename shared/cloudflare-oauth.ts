@@ -13,7 +13,7 @@ export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
 // browser's bounded deployment session, allowing another Server to be created.
 // workers-scripts.admin
 // is the new-model Admin role: the legacy Workers Scripts Write group
-// (discoflare's workers-scripts.write) is not registered on this client, and
+// (workers-scripts.write) is not registered on this client, and
 // provisioned workers must be created, so Editor alone dies at
 // assets-upload-session with 403.
 export const CLOUDFLARE_SCOPES = [
