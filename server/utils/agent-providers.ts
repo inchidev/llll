@@ -1,10 +1,10 @@
-import { workersAiModels } from '../../shared/workers-ai-models'
 import { agentProviderIds, agentModelRef, parseAgentModelRef, providerNames, type AgentProviderId, type AgentProviderCatalog, type AgentProviderDTO, type agentProviderSchema } from '../../shared/agent-providers'
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
 import { readServerSetting, writeServerSetting } from '../../shared/server-settings'
 import { aiProvider, resolveAgentModelId, type L4Env } from '../../workers/env'
 import type { z } from 'zod'
 import { fail } from './cf'
+import { allowedWorkersAiModels, deploymentProviderSetting } from './agent-deployment-provider'
 
 export type ChatGPTCredentials = { accessToken: string; refreshToken: string; idToken: string; expiresAt: number; clientId: string; subject: string; email: string; scope: string }
 export type StoredAgentProvider = { kind: AgentProviderId; name: string; enabled: boolean; webSearch?: boolean; models: AgentProviderDTO['models']; secret?: EncryptedSecret; keyPreview?: string; connectedBy?: string; account?: string; connectedAt?: string }
@@ -40,11 +40,15 @@ export async function agentProviderCatalog(env: L4Env, options: { owner?: boolea
   }))).filter((p): p is NonNullable<typeof p> => Boolean(p))
   const models = providers.filter(p => p.configured && p.enabled).flatMap(p => p.models.filter(m => options.requireTools === false || m.tools !== false).map(m => ({ value: agentModelRef(p.id, m.id), label: m.label ?? m.id, provider: p.name, ...(m.inputs ? { inputs: m.inputs } : {}), ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}) })))
   const imported = providers.some(p => p.kind === 'openrouter' && p.configured) && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
-  if (aiProvider(env) && !imported) {
+  const deploymentSetting = await deploymentProviderSetting(env)
+  if (aiProvider(env) && !imported && deploymentSetting.enabled) {
     if (aiProvider(env) === 'openai-compatible') models.push({ value: resolveAgentModelId(env), label: resolveAgentModelId(env), provider: 'Deployment' })
     else {
-      models.push({ value: resolveAgentModelId(env), label: workersAiModels.find(m => m.id === resolveAgentModelId(env))?.label ?? resolveAgentModelId(env), provider: 'Workers AI' })
-      models.push(...workersAiModels.filter(m => m.id !== resolveAgentModelId(env)).map(m => ({ value: m.id, label: m.label, provider: 'Workers AI' })))
+      const allowed = allowedWorkersAiModels(env, deploymentSetting) ?? []
+      // The deployment's own model stays first unless the Owner chose a list without it.
+      const own = resolveAgentModelId(env)
+      if (!deploymentSetting.models && !allowed.some(m => m.id === own)) models.push({ value: own, label: own, provider: 'Workers AI' })
+      models.push(...[...allowed].sort((a, b) => Number(b.id === own) - Number(a.id === own)).map(m => ({ value: m.id, label: m.label, provider: 'Workers AI' })))
     }
   }
   const savedDefault = await readServerSetting(env.DB, 'agents.defaultModel')

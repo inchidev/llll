@@ -1,9 +1,9 @@
 import { agentProviderKey, deploymentDefaultModel } from './agent-providers'
-import { workersAiModels } from '../../shared/workers-ai-models'
 import { readServerSetting } from '../../shared/server-settings'
 import { aiProvider, resolveAgentModelId, type L4Env } from '../../workers/env'
 import { parseAgentModelRef, type AgentModelOption } from '../../shared/agent-providers'
 import { fail } from './cf'
+import { allowedWorkersAiModels, deploymentProviderSetting } from './agent-deployment-provider'
 
 /** Search a bounded model page without hydrating every connection or its encrypted credentials. */
 export async function agentModelOptions(env: L4Env, actorId: string, search = '', selected?: string | null) {
@@ -27,9 +27,11 @@ export async function agentModelOptions(env: L4Env, actorId: string, search = ''
   const selectedOption = selections[0] ?? first
   if (selectedOption && !models.some(m => m.value === selectedOption.value)) models.unshift(selectedOption)
   const importedDeployment = Boolean(imported && env.AI_BASE_URL?.replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1')
-  const deployment = aiProvider(env) && !importedDeployment ? resolveAgentModelId(env) : null
+  const setting = await deploymentProviderSetting(env)
+  // The Owner can turn the deployment provider off or narrow its Workers AI models.
+  const deployment = aiProvider(env) && !importedDeployment && setting.enabled ? resolveAgentModelId(env) : null
   if (deployment && aiProvider(env) !== 'openai-compatible') {
-    for (const model of workersAiModels) if (!search || `${model.id} ${model.label}`.toLowerCase().includes(search.toLowerCase()) || selected === model.id || configuredDefault === model.id) models.push({ value: model.id, label: model.label, provider: 'Workers AI' })
+    for (const model of allowedWorkersAiModels(env, setting) ?? []) if (!search || `${model.id} ${model.label}`.toLowerCase().includes(search.toLowerCase()) || selected === model.id || configuredDefault === model.id) models.push({ value: model.id, label: model.label, provider: 'Workers AI' })
   }
   if (deployment && !models.some(m => m.value === deployment) && (!search || deployment.toLowerCase().includes(search.toLowerCase()) || selected === deployment || configuredDefault === deployment)) models.push({ value: deployment, label: deployment, provider: 'Deployment' })
   if (deployment && selected && !selected.startsWith('l4:') && aiProvider(env) === 'openai-compatible' && !selected.startsWith('@cf/') && !models.some(m => m.value === selected)) models.unshift({ value: selected, label: selected, provider: 'Deployment' })

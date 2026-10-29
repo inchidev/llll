@@ -5,7 +5,10 @@ import type { GitConnection } from '~~/shared/git-connections'
 import type { CodeEnvironment, CodeEnvironmentInput } from '~~/shared/code-environments'
 
 defineProps<{ serverId: string }>()
-const providerTab = ref('github')
+// Another settings pane can ask Git to open on a tab once, such as the setup checklist.
+const requestedTab = useState<string | null>('git-settings-tab', () => null)
+const providerTab = ref(requestedTab.value || 'github')
+requestedTab.value = null
 const gitConnections = ref<{ connect: () => void; refresh: () => Promise<void> } | null>(null)
 const refreshing = ref(false)
 async function refreshConnections() {
