@@ -132,3 +132,34 @@ it('offers a safe reload when another tab activates the new Client', async () =>
   blocker.remove(); pwa.update()
   expect(reload).toHaveBeenCalledOnce()
 })
+
+it('moves Update now to a newer version that replaces the waiting one, and waits while it downloads', async () => {
+  vi.useFakeTimers()
+  const handlers = new Map<string, () => void>()
+  const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
+  let installed!: () => void
+  let foundUpdate!: () => void
+  const first = { postMessage: vi.fn() }, second = { postMessage: vi.fn() }
+  const registration = {
+    waiting: first as typeof first | null, installing: null as null | { addEventListener: ReturnType<typeof vi.fn> },
+    addEventListener: vi.fn((name: string, listener: () => void) => { if (name === 'updatefound') foundUpdate = listener }),
+  }
+  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => registration), addEventListener: (name: string, fn: () => void) => handlers.set(name, fn) } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const pwa = scope.run(() => plugin({ hook: vi.fn() } as never))!.provide.pwa
+  await flushPromises()
+  pwa.update()
+  expect(first.postMessage).toHaveBeenCalledOnce()
+  // The next deployment starts downloading; the first waiting version becomes redundant.
+  registration.installing = { addEventListener: vi.fn((name: string, listener: () => void) => { if (name === 'statechange') installed = listener }) }
+  foundUpdate()
+  await vi.advanceTimersByTimeAsync(20_000)
+  expect(pwa.updating.value).toBe(true)
+  expect(pwa.error.value).toBe('')
+  registration.installing = null
+  registration.waiting = second
+  installed()
+  expect(second.postMessage).toHaveBeenCalledWith({ type: 'ACTIVATE_UPDATE' })
+  handlers.get('controllerchange')!()
+  expect(reload).toHaveBeenCalledOnce()
+})

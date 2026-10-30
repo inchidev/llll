@@ -7,15 +7,20 @@ self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE)
     // A failed/partial install must not replace the working version.
-    try {
-      for (const path of ASSETS) {
+    // A few requests at a time: one by one, hundreds of assets take long enough for the
+    // next deployment to replace this worker before anyone can activate it.
+    const queue = [...ASSETS]
+    async function next() {
+      for (let path = queue.shift(); path; path = queue.shift()) {
         const response = await fetch(new Request(path, { cache: 'reload', credentials: 'omit' }))
         if (!response.ok || response.redirected) throw new Error('Public asset unavailable: ' + path)
         // A shell without the Worker's policy would serve every page unprotected.
         if (path === '/app-shell' && !response.headers.get('Content-Security-Policy')?.includes('frame-ancestors')) throw new Error('App shell is missing its Content-Security-Policy')
         await cache.put(path, response)
       }
-    } catch (error) { await caches.delete(CACHE); throw error }
+    }
+    try { await Promise.all(Array.from({ length: 6 }, next)) }
+    catch (error) { queue.length = 0; await caches.delete(CACHE); throw error }
   })())
 })
 // Keep the preceding cache for tabs that still run the preceding client.

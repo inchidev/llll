@@ -8,10 +8,36 @@ export default defineNuxtPlugin((nuxtApp) => {
   let reloadRequested = false
   let readyToReload = false
   let activationTimer: ReturnType<typeof setTimeout> | undefined
+  // The waiting worker the last Update now was sent to. A newer deployment can replace it
+  // while the person waits; the request then moves to the newer one.
+  let activating: ServiceWorker | undefined
   let checking: Promise<void> | undefined
 
   function syncWaiting() {
     waiting.value = Boolean(registration?.waiting) || readyToReload
+    if (updating.value && reloadRequested && registration?.waiting && registration.waiting !== activating) activate(registration.waiting)
+  }
+
+  function activate(worker: ServiceWorker) {
+    activating = worker
+    clearTimeout(activationTimer)
+    const expire = () => {
+      // controllerchange can be missed while the page was in the background.
+      if (registration?.active && registration.active === activating && navigator.serviceWorker.controller === activating) { finishUpdate(); return }
+      // A newer version is still downloading; it takes over the request once installed.
+      if (registration?.installing) { activationTimer = setTimeout(expire, 15_000); return }
+      updating.value = false
+      reloadRequested = false
+      error.value = 'The update is taking longer than expected. Please try again.'
+    }
+    activationTimer = setTimeout(expire, 15_000)
+    try { worker.postMessage({ type: 'ACTIVATE_UPDATE' }) }
+    catch {
+      clearTimeout(activationTimer)
+      updating.value = false
+      reloadRequested = false
+      error.value = 'The update could not start. Please try again.'
+    }
   }
 
   function check() {
@@ -76,18 +102,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reloadRequested = true
     if (readyToReload) { finishUpdate(); return }
     updating.value = true
-    clearTimeout(activationTimer)
-    activationTimer = setTimeout(() => {
-      updating.value = false
-      error.value = 'The update is taking longer than expected. Please try again.'
-    }, 15_000)
-    try { registration!.waiting!.postMessage({ type: 'ACTIVATE_UPDATE' }) }
-    catch {
-      clearTimeout(activationTimer)
-      updating.value = false
-      reloadRequested = false
-      error.value = 'The update could not start. Please try again.'
-    }
+    activate(registration!.waiting!)
   }
   /**
    * Loads the client that matches the installed Server. A worker that is still downloading is

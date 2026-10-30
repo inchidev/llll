@@ -38,7 +38,7 @@ describe('generated PWA server', () => {
     const pending: Promise<unknown>[] = []
     worker.handlers.get('install')!({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
     await Promise.all(pending)
-    expect([...worker.stored.keys()]).toEqual(assets)
+    expect([...worker.stored.keys()].sort()).toEqual([...assets].sort())
     expect(worker.fetch.mock.calls.map(([request]) => ({ path: new URL(request.url).pathname, credentials: request.credentials }))).toEqual(assets.map(path => ({ path, credentials: 'omit' })))
   })
 
