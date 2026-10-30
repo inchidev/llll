@@ -42,12 +42,48 @@ async function generate() {
   catch (error) { toast.add({ title: 'No avatar was drawn', description: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
+/**
+ * Cuts away the flat backdrop the model was asked to draw: pixels connected to the edges
+ * that stay close to the corner colour become transparent, so the character stands alone.
+ */
+async function cutOut(bytes: Uint8Array<ArrayBuffer>, type: string): Promise<File | null> {
+  try {
+    const bitmap = await createImageBitmap(new Blob([bytes], { type }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width; canvas.height = bitmap.height
+    const context = canvas.getContext('2d')!
+    context.drawImage(bitmap, 0, 0)
+    const { width, height } = canvas, pixels = context.getImageData(0, 0, width, height), data = pixels.data
+    const at = (x: number, y: number) => (y * width + x) * 4
+    const corners = [at(0, 0), at(width - 1, 0), at(0, height - 1), at(width - 1, height - 1)]
+    const [r, g, b] = [0, 1, 2].map(channel => corners.reduce((sum, index) => sum + data[index + channel]!, 0) / 4)
+    // A backdrop the model did not keep flat is left alone rather than eaten into.
+    if (corners.some(index => Math.abs(data[index]! - r!) + Math.abs(data[index + 1]! - g!) + Math.abs(data[index + 2]! - b!) > 60)) return null
+    const close = (index: number) => Math.abs(data[index]! - r!) + Math.abs(data[index + 1]! - g!) + Math.abs(data[index + 2]! - b!) <= 48
+    const seen = new Uint8Array(width * height), stack: number[] = []
+    for (let x = 0; x < width; x++) stack.push(x, (height - 1) * width + x)
+    for (let y = 0; y < height; y++) stack.push(y * width, y * width + width - 1)
+    while (stack.length) {
+      const point = stack.pop()!
+      if (seen[point] || !close(point * 4)) continue
+      seen[point] = 1; data[point * 4 + 3] = 0
+      const x = point % width
+      if (x > 0) stack.push(point - 1)
+      if (x < width - 1) stack.push(point + 1)
+      if (point >= width) stack.push(point - width)
+      if (point < width * (height - 1)) stack.push(point + width)
+    }
+    context.putImageData(pixels, 0, 0)
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+    return blob && blob.size <= 2 * 1024 * 1024 ? new File([blob], 'avatar.png', { type: 'image/png' }) : null
+  } catch { return null }
+}
 /** The picture arrives as a data URL; the page policy forbids fetching data: URLs, so it is decoded here. */
-function use() {
+async function use() {
   const match = /^data:([^;,]+);base64,(.*)$/su.exec(image.value)
   if (!match) { toast.add({ title: 'This picture could not be used', color: 'error' }); return }
   const type = match[1]!, bytes = Uint8Array.from(atob(match[2]!), char => char.charCodeAt(0))
-  emit('use', new File([bytes], `avatar.${type.split('/')[1] || 'png'}`, { type }))
+  emit('use', await cutOut(bytes, type) ?? new File([bytes], `avatar.${type.split('/')[1] || 'png'}`, { type }))
   close()
 }
 function close() { open.value = false; image.value = ''; references.value = []; description.value = '' }

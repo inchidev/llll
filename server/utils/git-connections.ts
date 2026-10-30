@@ -76,15 +76,26 @@ export async function completeGithubSetup(env: L4Env, actor: AuthorizationContex
   const claimed = await env.DB.prepare("UPDATE git_setup_requests SET status='exchanging' WHERE state_hash=? AND actor_id=? AND status='pending' AND expires_at>? AND origin=? RETURNING name,account")
     .bind(stateHash, actor.principal.id, nowIso(), origin).first<{name:string;account:string}>()
   if (!claimed) fail(409, 'git_setup_expired', 'GitHub setup expired or was already used; start again')
+  // Each failure names its cause; none of them carries a credential.
+  let reason = 'GitHub setup could not be completed. No uncertain exchange will be retried; review Apps in your GitHub account before starting again.'
   try {
     const r = await transport(`https://api.github.com/app-manifests/${code}/conversions`, { method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10','User-Agent':'L4-git-setup'} })
-    if (!r.ok) { await r.body?.cancel(); throw Error('GitHub exchange unavailable') }
+    if (!r.ok) {
+      await r.body?.cancel()
+      reason = `GitHub did not hand over the new App (${r.status}). The setup code works once and expires within an hour; delete the App GitHub created under Settings → Developer settings → GitHub Apps, then start again.`
+      throw Error('GitHub exchange unavailable')
+    }
     const bytes = await readLimitedStream(r.body,64000)
     if (!bytes.ok) throw Error('GitHub exchange unavailable')
     const parsed = resultSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes.bytes)))
     // An organization setup must come back owned by that organization. A personal
     // setup has no expected login and is owned by whoever GitHub signed in.
     const expected = claimed.account ? parsed.data?.owner.login.toLowerCase() === claimed.account.toLowerCase() : parsed.data?.owner.type !== 'Organization'
+    if (parsed.success && !expected) {
+      reason = claimed.account
+        ? `GitHub created the App under ${parsed.data.owner.login}, not the organization ${claimed.account}. Delete it on GitHub, then use Connect GitHub for a personal account or enter the exact organization name.`
+        : `GitHub created the App under the organization ${parsed.data.owner.login}. Delete it on GitHub, then connect it as that organization.`
+    }
     if (!parsed.success || !expected || !/-----BEGIN (?:RSA )?PRIVATE KEY-----/u.test(parsed.data.pem)) throw Error('GitHub identity mismatch')
     const data=parsed.data
     await importPKCS8(githubPkcs8(data.pem), 'RS256')
@@ -96,9 +107,10 @@ export async function completeGithubSetup(env: L4Env, actor: AuthorizationContex
     ])
     await writeAudit(env,{serverId:server,actorId:actor.principal.id,action:'git.connection.create',targetType:'git_connection',targetId:id,authorization:actor})
     return (await listGitConnections(env)).find(c=>c.id===id)!
-  } catch {
+  } catch (error) {
+    console.error('git.setup.failed', { reason: error instanceof Error ? error.message : 'unknown' })
     await env.DB.prepare("UPDATE git_setup_requests SET status='failed' WHERE state_hash=? AND status='exchanging'").bind(stateHash).run()
-    fail(502,'git_setup_failed','GitHub setup could not be completed. No uncertain exchange will be retried; review Apps in your GitHub account before starting again.')
+    fail(502,'git_setup_failed',reason)
   }
 }
 /** Credentials remain inside the Server broker and are never included in connection DTOs. */

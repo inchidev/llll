@@ -271,15 +271,17 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       />
       <UFormField label="Avatar">
         <div class="flex items-center gap-4">
-          <UserAvatar :user="formAvatarUser" :preview="avatarPreview" size="2xl" />
+          <UserAvatar :user="formAvatarUser" :preview="avatarPreview" size="3xl" />
           <div class="space-y-2">
             <UFileUpload
               v-model="avatarFile"
               accept="image/png,image/jpeg,image/webp,image/gif"
               variant="button"
+              :preview="false"
               label="Choose image"
               :disabled="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)"
             />
+            <UButton v-if="avatarFile" label="Discard" color="neutral" variant="ghost" size="sm" @click="avatarFile = null" />
             <UButton
               v-if="selectedAgent?.avatarR2Key && !avatarFile && !removeCurrentAvatar"
               label="Remove"

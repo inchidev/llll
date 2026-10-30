@@ -15,9 +15,10 @@ const avatarSrc = computed(() => {
 </script>
 
 <template>
-  <!-- Agents are L4 blocks, people stay round, so the two read apart at a glance. -->
+  <!-- Agents are L4 blocks, people stay round, so the two read apart at a glance. An agent's
+       picture has no backdrop: generated ones are cut out, so the character stands alone. -->
   <UAvatar
-    :ui="props.user.kind === 'agent' ? { root: 'rounded-[28%]', image: 'rounded-[28%]' } : undefined"
+    :ui="props.user.kind === 'agent' ? { root: avatarSrc ? 'rounded-[28%] bg-transparent' : 'rounded-[28%]', image: 'rounded-[28%] object-contain' } : undefined"
     :src="avatarSrc"
     :text="(props.user.displayName || '?').slice(0, 1).toUpperCase()"
     :alt="props.user.displayName"
