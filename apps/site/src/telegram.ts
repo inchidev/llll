@@ -51,6 +51,8 @@ const notifyBody = z.object({
   serverName: z.string().trim().min(1).max(100),
   kind: z.enum(TELEGRAM_RELAY_KINDS),
   path: z.string().max(2000).regex(/^\/(?!\/)[^\s\\]*$/u).default('/'),
+  // Opaque per outbox delivery, so a retry after a lost answer does not send the message twice.
+  delivery: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
 }).strict()
 
 const relayText: Record<(typeof TELEGRAM_RELAY_KINDS)[number], string> = {
@@ -78,9 +80,18 @@ export async function relayTelegram(env: WebEnv, value: unknown, fail: Fail) {
   const target = await openRelayToken(env, body.token)
   // 410 tells the Server to drop the subscription, like an expired Web Push endpoint.
   if (!target || target.s !== body.serverId) fail(410, 'Unknown Telegram subscription')
+  const sent = body.delivery ? await digest('telegram-sent:' + body.token + ':' + body.delivery) : null
+  if (sent) {
+    const claim = await env.DB.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=1, expires_at=excluded.expires_at WHERE rate_limits.expires_at < ? RETURNING count')
+      .bind(sent, Date.now() + 86400000, Date.now()).first<{ count: number }>()
+    if (!claim) return { delivered: true }
+  }
+  // Let the Server retry a delivery that never reached Telegram.
+  const release = async () => { if (sent) await env.DB.prepare('DELETE FROM rate_limits WHERE key = ?').bind(sent).run() }
   const key = await digest('telegram:' + body.token + ':' + Math.floor(Date.now() / 60000))
   const row = await env.DB.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count').bind(key, Date.now() + 120000).first<{ count: number }>()
-  if ((row?.count || 0) > 30) fail(429, 'Too many notifications. Try again shortly.')
+  if ((row?.count || 0) > 30) { await release(); fail(429, 'Too many notifications. Try again shortly.') }
+  // A timeout may still have reached Telegram, so only a refusal releases the claim.
   const open = new URL('/' + body.serverId + (body.path === '/' ? '' : body.path), env.PUBLIC_ORIGIN).toString()
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
@@ -94,6 +105,7 @@ export async function relayTelegram(env: WebEnv, value: unknown, fail: Fail) {
     }),
   })
   if (response.ok) return { delivered: true }
+  await release()
   const description = String((await response.json().catch(() => null) as { description?: unknown } | null)?.description || '')
   // Blocked bot, deleted account or a chat that never allowed messages: the subscription is gone.
   if (response.status === 403 || (response.status === 400 && /chat not found/iu.test(description))) fail(410, 'Telegram no longer accepts messages for this subscription')
