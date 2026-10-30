@@ -5,6 +5,7 @@ import mailDraftsSql from '../../drizzle/server-migrations/0001_mail_drafts.sql?
 import agentWebhooksSql from '../../drizzle/server-migrations/0002_agent_webhooks.sql?raw'
 import telegramNotificationsSql from '../../drizzle/server-migrations/0003_telegram_notifications.sql?raw'
 import grantsSql from '../../drizzle/server-migrations/0004_grants.sql?raw'
+import grantsResourcesSql from '../../drizzle/server-migrations/0005_grants_resources.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -33,6 +34,7 @@ export const INIT_SQL = d1ExecSql([
   agentWebhooksSql,
   telegramNotificationsSql,
   grantsSql,
+  grantsResourcesSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

@@ -11,6 +11,7 @@ import {
 import { MCP_DEFAULT_TOKEN_SCOPES, MCP_SCOPES, type McpScope } from '../../shared/mcp'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const agentId = '00000000-0000-4000-8000-000000000002'
@@ -74,7 +75,7 @@ beforeEach(() => {
   `)
   for (const [channel, user, permission] of grants) {
     sqlite.prepare("INSERT INTO channel_members(channel_id,user_id,joined_at) VALUES (?,?,'2026-10-21')").run(channel, user)
-    sqlite.prepare('INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES (?,?,?)').run(channel, user, permission)
+    sqlite.exec(mailboxGrantsSql([channel, user, permission]))
   }
   thread('thread-0001', 'support-box', 'Refund request', '01-root', '2026-10-22T10:00:00Z',
     '<html><body><p>Please refund <b>order 42</b>.</p><script>steal()</script><img src="https://tracker.example/x.gif"></body></html>')
@@ -133,7 +134,7 @@ describe('MCP mail tools follow Mailbox grants and the email policy', () => {
   it('re-checks a revoked grant and a removed email policy on every call', async () => {
     const auth = await principal('reader-user')
     await expect(listMemberMailThreads(env, await requireMailMember(env, auth, 'mail:read'), { mailboxId: 'support-box' })).resolves.toHaveProperty('threads')
-    sqlite.exec("DELETE FROM email_mailbox_access WHERE user_id='reader-user'")
+    sqlite.exec("DELETE FROM grants WHERE mailbox_id IS NOT NULL AND member_id='reader-user'")
     expect((await listMemberMailboxes(env, await requireMailMember(env, auth, 'mail:read'))).mailboxes).toEqual([])
     await expect(listMemberMailThreads(env, await requireMailMember(env, auth, 'mail:read'), { mailboxId: 'support-box' })).rejects.toMatchObject({ statusCode: 404 })
     await expect(readMemberMailThread(env, await requireMailMember(env, auth, 'mail:read'), 'thread-0001')).rejects.toMatchObject({ statusCode: 404 })
@@ -231,7 +232,7 @@ describe('MCP mail tools follow Mailbox grants and the email policy', () => {
   it('limits an Agent connection to Mailboxes its approving human can also use', async () => {
     const agent = async (scopes = allMail) => requireMailMember(env, await principal(agentId, scopes, 'owner-user'), 'mail:read')
     await expect(readMemberMailThread(env, await agent(), 'thread-0001')).resolves.toHaveProperty('thread.channelId', 'thread-0001')
-    sqlite.exec("DELETE FROM email_mailbox_access WHERE user_id='owner-user'")
+    sqlite.exec("DELETE FROM grants WHERE mailbox_id IS NOT NULL AND member_id='owner-user'")
     await expect(readMemberMailThread(env, await agent(), 'thread-0001')).rejects.toMatchObject({ statusCode: 404 })
     expect((await listMemberMailboxes(env, await agent())).mailboxes).toEqual([])
   })

@@ -10,7 +10,7 @@ import { extractMentionIds } from '../shared/mentions'
 import { canAccessAgentConversation, dmFrozen, isDmType } from '../shared/dm'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission } from '../shared/permissions'
 import { liveKindFor } from '../shared/live'
-import { resolveChannelPermissions } from '../shared/channel-permissions'
+import { CHANNEL_ROLE_OVERRIDE_SQL, resolveChannelPermissions } from '../shared/channel-permissions'
 import { newId, nowIso } from '../shared/ids'
 import { asRpc, callsProvider, type L4Env } from './env'
 import type { RealtimeKitParticipant } from './realtimekit'
@@ -39,7 +39,7 @@ import { persistMessageEdit } from './message-edits'
 import { mentionedRoleIds, mentionFanout, roleMentionStatement, type RoleMention } from './role-mentions'
 import { listAgentTurns } from './agent-turns'
 import { AGENT_REACTION_EMOJIS, replaceAgentReaction } from './agent-reactions'
-import { mailPermissionAllows } from '../shared/mail'
+import { mailboxGrantPermissionSql, mailPermissionAllows } from '../shared/mail'
 import { ARCHIVED_CHANNEL_WITHHELD, CHANNEL_ARCHIVED_CODE, CHANNEL_ARCHIVED_MESSAGE } from '../shared/channel-archive'
 import { createSerialQueue } from './serial-queue'
 import { authorizedSockets } from './socket-access'
@@ -222,9 +222,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       if (!access) throw new Error('Agent cannot access this private channel')
     }
     const mailbox = await this.env.DB.prepare(
-      `SELECT mb.enabled, a.permission
+      `SELECT mb.enabled, CASE WHEN a.id IS NULL THEN NULL ELSE ${mailboxGrantPermissionSql('a')} END AS permission
        FROM email_mailboxes mb
-       LEFT JOIN email_mailbox_access a ON a.channel_id = mb.channel_id AND a.user_id = ?
+       LEFT JOIN grants a ON a.mailbox_id = mb.channel_id AND a.member_id = ?
        WHERE mb.channel_id = ?`,
     ).bind(agent.id, accessChannelId).first<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>()
     if (mailbox && (!mailbox.enabled || !mailbox.permission || !mailPermissionAllows(mailbox.permission, 'send') || !hasPermission(agent.permissions, Permission.sendMail))) {
@@ -1090,15 +1090,14 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     }
     let perms = membership.ownerId === userId ? ALL_PERMISSIONS : membership.perms
     if (membership.ownerId !== userId) {
-      const override = await this.env.DB.prepare(
-        'SELECT allow_mask, deny_mask FROM channel_role_overrides WHERE channel_id = ? AND role_id = ?',
-      ).bind(accessRoot.id, membership.roleId).first<{ allow_mask: number; deny_mask: number }>()
-      perms = resolveChannelPermissions(perms, override && { allow: override.allow_mask, deny: override.deny_mask })
+      const override = await this.env.DB.prepare(CHANNEL_ROLE_OVERRIDE_SQL)
+        .bind(accessRoot.id, membership.roleId).first<{ allow: number | null; deny: number | null }>()
+      perms = resolveChannelPermissions(perms, override)
     }
     const mailbox = await this.env.DB.prepare(
-      `SELECT mb.enabled, a.permission
+      `SELECT mb.enabled, CASE WHEN a.id IS NULL THEN NULL ELSE ${mailboxGrantPermissionSql('a')} END AS permission
        FROM email_mailboxes mb
-       LEFT JOIN email_mailbox_access a ON a.channel_id = mb.channel_id AND a.user_id = ?
+       LEFT JOIN grants a ON a.mailbox_id = mb.channel_id AND a.member_id = ?
        WHERE mb.channel_id = ?`,
     ).bind(userId, accessRoot.id).first<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>()
     if (mailbox) {

@@ -37,7 +37,6 @@ describe('server mail model', () => {
     const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'email_%' ORDER BY name").all()
     expect(tables).toEqual([
       { name: 'email_domains' },
-      { name: 'email_mailbox_access' },
       { name: 'email_mailboxes' },
       { name: 'email_messages' },
       { name: 'email_threads' },

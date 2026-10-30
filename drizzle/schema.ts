@@ -519,19 +519,15 @@ export const channels = sqliteTable('channels', {
   `),
 ])
 
-/** Per-role send/attach/start-live exceptions for server channels. Threads inherit their parent. */
-export const channelRoleOverrides = sqliteTable('channel_role_overrides', {
+/** Per-role send/attach/start-live denies for server channels. Allows are grants. Threads inherit their parent. */
+export const channelRoleDenies = sqliteTable('channel_role_denies', {
   channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
   roleId: text('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
-  allowMask: integer('allow_mask').notNull().default(0),
-  denyMask: integer('deny_mask').notNull().default(0),
-  ...isoTimestamps(),
+  denyMask: integer('deny_mask').notNull(),
+  createdAt: text('created_at').notNull(),
 }, table => [
   primaryKey({ columns: [table.channelId, table.roleId] }),
-  index('channel_role_overrides_role_id_idx').on(table.roleId),
-  check('channel_role_overrides_allow_check', sql`(${table.allowMask} & ~${sql.raw(String(CHANNEL_PERMISSION_MASK))}) = 0`),
-  check('channel_role_overrides_deny_check', sql`(${table.denyMask} & ~${sql.raw(String(CHANNEL_PERMISSION_MASK))}) = 0`),
-  check('channel_role_overrides_disjoint_check', sql`(${table.allowMask} & ${table.denyMask}) = 0`),
+  check('channel_role_denies_mask_check', sql`${table.denyMask} > 0 and (${table.denyMask} & ~${sql.raw(String(CHANNEL_PERMISSION_MASK))}) = 0`),
 ])
 
 /** Access to private channels, including DMs. Threads inherit their parent. */
@@ -691,17 +687,6 @@ export const emailMailboxes = sqliteTable('email_mailboxes', {
 }, table => [
   uniqueIndex('email_mailboxes_address_unique').on(table.domainId, table.localPart),
   check('email_mailboxes_local_part_check', sql`${table.localPart} = lower(${table.localPart}) and length(${table.localPart}) between 1 and 64`),
-])
-
-export const emailMailboxAccess = sqliteTable('email_mailbox_access', {
-  channelId: text('channel_id').notNull().references(() => emailMailboxes.channelId, { onDelete: 'cascade' }),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  permission: text('permission', { enum: ['read', 'send', 'manage'] }).notNull().default('read'),
-  ...isoTimestamps(),
-}, table => [
-  primaryKey({ columns: [table.channelId, table.userId] }),
-  index('email_mailbox_access_user_idx').on(table.userId),
-  check('email_mailbox_access_permission_check', sql`${table.permission} in ('read', 'send', 'manage')`),
 ])
 
 export const emailThreads = sqliteTable('email_threads', {
@@ -1010,24 +995,6 @@ export const gadgetVersions = sqliteTable('gadget_versions', {
   check('gadget_versions_version_check', sql`${table.version} > 0`),
 ])
 
-/** Mutable draft access. Publishing copies it into the immutable Version access list. */
-export const gadgetDraftRoleAccess = sqliteTable('gadget_draft_role_access', {
-  gadgetId: text('gadget_id').notNull().references(() => gadgets.id, { onDelete: 'cascade' }),
-  roleId: text('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
-}, table => [
-  primaryKey({ columns: [table.gadgetId, table.roleId] }),
-  index('gadget_draft_role_access_role_idx').on(table.roleId, table.gadgetId),
-])
-
-/** Role access captured for one immutable published Gadget Version. */
-export const gadgetVersionRoleAccess = sqliteTable('gadget_version_role_access', {
-  gadgetVersionId: text('gadget_version_id').notNull().references(() => gadgetVersions.id, { onDelete: 'cascade' }),
-  roleId: text('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
-}, table => [
-  primaryKey({ columns: [table.gadgetVersionId, table.roleId] }),
-  index('gadget_version_role_access_role_idx').on(table.roleId, table.gadgetVersionId),
-])
-
 /** Task boards are shared product state, so they live in D1 rather than an Agent DO. */
 export const taskBoards = sqliteTable('task_boards', {
   id: text('id').primaryKey(),
@@ -1057,18 +1024,27 @@ export const projectPolicies = sqliteTable('project_policies', {
   permissionsBitmask: integer('permissions_bitmask').notNull(), version: integer('version').notNull().default(1),
   createdBy: text('created_by').references(() => users.id), ...isoTimestamps(),
 })
-/** Scoped access: one Member or Role, one Policy, a Project or the whole Server, optionally through one Agent. */
+/**
+ * Scoped access: one Member or Role gets a Policy (a Project, or Agent access through one Agent)
+ * or a set of permissions on one resource: a channel, mailbox, App draft or version, or MCP connection.
+ */
 export const grants = sqliteTable('grants', {
   id: text('id').primaryKey(),
   memberId: text('member_id').references(() => users.id, { onDelete: 'cascade' }), roleId: text('role_id').references(() => roles.id, { onDelete: 'cascade' }),
   agentId: text('agent_id').references(() => agents.userId, { onDelete: 'cascade' }),
-  policyId: text('policy_id').notNull().references(() => projectPolicies.id, { onDelete: 'cascade' }),
+  policyId: text('policy_id').references(() => projectPolicies.id, { onDelete: 'cascade' }),
+  permissions: integer('permissions'),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
+  mailboxId: text('mailbox_id').references(() => emailMailboxes.channelId, { onDelete: 'cascade' }),
+  gadgetId: text('gadget_id').references(() => gadgets.id, { onDelete: 'cascade' }),
+  gadgetVersionId: text('gadget_version_id').references(() => gadgetVersions.id, { onDelete: 'cascade' }),
+  connectionId: text('connection_id').references(() => mcpOutboundConnections.id, { onDelete: 'cascade' }),
   dailyRuns: integer('daily_runs'), expiresAt: text('expires_at'),
-  createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
+  createdBy: text('created_by').references(() => users.id), createdAt: text('created_at').notNull(),
 }, table => [
   check('grants_subject', sql`(${table.memberId} IS NOT NULL AND ${table.roleId} IS NULL) OR (${table.roleId} IS NOT NULL AND ${table.memberId} IS NULL)`),
-  check('grants_server_scope', sql`${table.agentId} IS NOT NULL OR ${table.projectId} IS NOT NULL`),
+  check('grants_content', sql`(${table.policyId} IS NULL) <> (${table.permissions} IS NULL)`),
   index('grants_member').on(table.memberId, table.agentId, table.projectId),
   index('grants_role').on(table.roleId, table.agentId, table.projectId),
   index('grants_project').on(table.projectId),
@@ -1230,7 +1206,7 @@ export const schema = {
   roles,
   channelCategories,
   channels,
-  channelRoleOverrides,
+  channelRoleDenies,
   channelMembers,
   messages,
   channelReads,
@@ -1243,7 +1219,6 @@ export const schema = {
   notificationOutbox,
   emailDomains,
   emailMailboxes,
-  emailMailboxAccess,
   emailThreads,
   emailMessages,
   auditLog,

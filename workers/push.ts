@@ -54,8 +54,8 @@ export async function privatePushAccessAllowed(db: D1Database, channelId: string
 /** A queued email push needs the recipient's mailbox grant and email permission at delivery time. */
 export async function mailPushAccessAllowed(db: D1Database, threadId: string, userId: string): Promise<boolean> {
   return Boolean(await db.prepare(`SELECT 1 AS allowed FROM email_threads t
-    JOIN email_mailbox_access a ON a.channel_id = t.mailbox_channel_id AND a.user_id = ?
-    JOIN users u ON u.id = a.user_id AND u.status = 'active'
+    JOIN grants a ON a.mailbox_id = t.mailbox_channel_id AND a.member_id = ?
+    JOIN users u ON u.id = a.member_id AND u.status = 'active'
     JOIN roles r ON r.id = u.role_id CROSS JOIN server s
     WHERE t.channel_id = ? AND (u.id = s.owner_id OR (r.permissions_bitmask & ?) != 0)`)
     .bind(userId, threadId, Permission.readMail | Permission.sendMail).first())

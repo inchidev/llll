@@ -2,7 +2,7 @@ import { inArray } from 'drizzle-orm'
 import { emailMessages, messages } from '../../drizzle/schema'
 import type { L4Env } from '../../workers/env'
 import type { MailboxDTO, MailMessageDTO, MailThreadDTO } from '../../shared/types'
-import { mailAddressList, mailDeliveryUncertain } from '../../shared/mail'
+import { mailAddressList, mailboxGrantPermissionSql, mailDeliveryUncertain } from '../../shared/mail'
 import { readableMailContent } from '../../shared/mail-content'
 import { mailMarkdownText } from '../../shared/mail-html'
 import { getDb } from './db'
@@ -83,17 +83,17 @@ export function mailThreadDto(row: ThreadRow): MailThreadDTO {
 export async function listGrantedMailboxes(env: L4Env, userId: string): Promise<MailboxDTO[]> {
   const rows = await env.DB.prepare(
     `SELECT mb.channel_id as channelId, mb.display_name as displayName, mb.enabled,
-       a.permission, lower(mb.local_part || '@' || d.domain) as address,
+       ${mailboxGrantPermissionSql('a')} AS permission, lower(mb.local_part || '@' || d.domain) as address,
        (SELECT count(*) FROM email_threads t
-        LEFT JOIN channel_reads r ON r.channel_id = t.channel_id AND r.user_id = a.user_id
+        LEFT JOIN channel_reads r ON r.channel_id = t.channel_id AND r.user_id = a.member_id
         WHERE t.mailbox_channel_id = mb.channel_id AND t.status = 'inbox'
           AND (r.last_read_message_id IS NULL OR r.last_read_message_id < (
             SELECT max(em.message_id) FROM email_messages em WHERE em.thread_channel_id = t.channel_id AND em.direction = 'inbound'
           ))) as unreadCount
      FROM email_mailboxes mb
      JOIN email_domains d ON d.id = mb.domain_id
-     JOIN email_mailbox_access a ON a.channel_id = mb.channel_id
-     WHERE a.user_id = ? AND mb.enabled = 1
+     JOIN grants a ON a.mailbox_id = mb.channel_id
+     WHERE a.member_id = ? AND mb.enabled = 1
      ORDER BY mb.display_name, address`,
   ).bind(userId).all<MailboxDTO>()
   return rows.results || []

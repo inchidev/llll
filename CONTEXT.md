@@ -24,7 +24,7 @@ A human or Agent participating in one Server. A human's Account identifies them;
 
 A Member has one Server Role, which groups Server permissions. A reusable Project policy adds permissions for a person, an Agent or a Server Role in a particular Project. The same Member can have Developer access in Project A and Reviewer access in Project B. Policies add grants; they do not remove broader rights already supplied by a Server Role.
 
-A Grant permits an operation on a resource. Evaluate the operation in its Project and resource scope. The Server Owner operates its deployment; Project access does not grant Server administration or private-channel membership.
+A Grant gives one Member or Role either a Policy in a Project (or, as Agent access, across the Server) or a set of permissions on one resource: a channel, Mailbox, App or MCP connection. Grants only add permissions; channel denies are kept apart. Evaluate the operation in its Project and resource scope. The Server Owner operates its deployment; Project access does not grant Server administration or private-channel membership.
 
 **Agent access** is a Grant with an Agent: a person or Role may use that Agent with a Policy, in one Project or across the Server, beyond their own Role but never beyond the Agent's. Without it an Agent works no higher than the person who asks. An Agent either answers everyone who may use Agents (open) or only the Owner and holders of its access (granted). See [ADR 0004](docs/adr/0004-grants-and-agent-access.md).
 

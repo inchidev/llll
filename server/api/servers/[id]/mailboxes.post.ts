@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
       }),
       db.insert(emailMailboxes).values({ channelId, domainId: domain.id, localPart: localPart!, displayName: body.displayName, enabled: true, createdAt: created, updatedAt: created }),
     ])
-    await replaceMailboxAccess(env, channelId, [...grants].map(([userId, permission]) => ({ userId, permission })))
+    await replaceMailboxAccess(env, channelId, [...grants].map(([userId, permission]) => ({ userId, permission })), actor.user.id)
   }
   catch (error) {
     await env.DB.prepare('DELETE FROM channels WHERE id = ?').bind(channelId).run().catch(() => undefined)

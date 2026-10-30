@@ -6,6 +6,7 @@ import { Permission } from '../../shared/permissions'
 import { ingestServerEmail } from '../../workers/mail-ingress'
 import { mailPushAccessAllowed } from '../../workers/push'
 import type { L4Env } from '../../workers/env'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 let sqlite: DatabaseSync, env: L4Env, kicks = 0
 function stream(text: string): ReadableStream<Uint8Array> {
@@ -32,7 +33,7 @@ beforeEach(() => {
     INSERT INTO channels (id, name, type, visibility) VALUES ('support', 'support', 'text', 'private');
     INSERT INTO email_domains (id, zone_id, domain, app_hostname) VALUES ('main', 'zone', 'example.com', 'chat.example.com');
     INSERT INTO email_mailboxes (channel_id, domain_id, local_part, display_name) VALUES ('support', 'main', 'support', 'Support');
-    INSERT INTO email_mailbox_access (channel_id, user_id, permission) VALUES ('support', 'owner', 'manage'), ('support', 'reader', 'read'), ('support', 'no-policy', 'read');
+    ${mailboxGrantsSql(['support', 'owner', 'manage'], ['support', 'reader', 'read'], ['support', 'no-policy', 'read'])}
     INSERT INTO channel_members (channel_id, user_id, joined_at) VALUES ('support', 'owner', '2026-09-01'), ('support', 'reader', '2026-09-01'), ('support', 'no-policy', '2026-09-01');
     INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at) VALUES
       ('s-owner', 'owner', 'https://push.example/owner', 'k', 'a', 't', 't'), ('s-reader', 'reader', 'https://push.example/reader', 'k', 'a', 't', 't'),
@@ -68,6 +69,6 @@ it('drops a queued push once mailbox access or the email permission is removed',
   expect(await mailPushAccessAllowed(env.DB, thread, 'owner')).toBe(true)
   sqlite.exec("UPDATE roles SET permissions_bitmask=0 WHERE id='mail-role'")
   expect(await mailPushAccessAllowed(env.DB, thread, 'reader')).toBe(false)
-  sqlite.exec(`UPDATE roles SET permissions_bitmask=${Permission.readMail} WHERE id='mail-role'; DELETE FROM email_mailbox_access WHERE user_id='reader'`)
+  sqlite.exec(`UPDATE roles SET permissions_bitmask=${Permission.readMail} WHERE id='mail-role'; DELETE FROM grants WHERE mailbox_id IS NOT NULL AND member_id='reader'`)
   expect(await mailPushAccessAllowed(env.DB, thread, 'reader')).toBe(false)
 })

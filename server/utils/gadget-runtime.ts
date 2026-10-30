@@ -18,7 +18,7 @@ async function requireRuntimeAccess(env: L4Env, actor: Membership, gadgetId: str
   if (!gadget.publishedVersion) fail(404, 'not_found', 'App not found')
   const access = await env.DB.prepare(
     `SELECT 1 FROM gadget_versions versions
-     JOIN gadget_version_role_access access ON access.gadget_version_id = versions.id
+     JOIN grants access ON access.gadget_version_id = versions.id
      WHERE versions.gadget_id = ? AND versions.version = ? AND access.role_id = ?`,
   ).bind(gadgetId, gadget.publishedVersion, actor.roleId).first()
   if (!access && !canManageGadgets(actor)) fail(404, 'not_found', 'App not found')

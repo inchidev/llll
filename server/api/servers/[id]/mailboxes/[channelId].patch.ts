@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
   grants.set(actor.user.id, actor.isOwner ? 'manage' : (grants.get(actor.user.id) || 'manage'))
   await env.DB.prepare('UPDATE email_mailboxes SET display_name = ?, enabled = ?, updated_at = ? WHERE channel_id = ?')
     .bind(body.displayName, body.enabled ? 1 : 0, nowIso(), channelId).run()
-  await replaceMailboxAccess(env, channelId, [...grants].map(([userId, permission]) => ({ userId, permission })))
+  await replaceMailboxAccess(env, channelId, [...grants].map(([userId, permission]) => ({ userId, permission })), actor.user.id)
   await writeAudit(env, {
     serverId,
     actorId: actor.user.id,

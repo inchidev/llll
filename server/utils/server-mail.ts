@@ -8,7 +8,7 @@ import { hasPermission, Permission } from '../../shared/permissions'
 import { asRpc } from '../../workers/env'
 import type { L4Env } from '../../workers/env'
 import type { MailboxPermission } from '../../shared/types'
-import { MAIL_EXTERNAL_USER_ID, mailAddress, mailPermissionAllows, normalizeMailLocalPart } from '../../shared/mail'
+import { MAIL_EXTERNAL_USER_ID, mailAddress, mailboxGrantPermissions, mailPermissionAllows, normalizeMailLocalPart } from '../../shared/mail'
 import { requireChannelAccess } from './guards'
 import type { ServerChannelAccess } from './channel-access'
 import { fail } from './cf'
@@ -146,10 +146,10 @@ export async function ensureServerMailFromEnv(env: L4Env): Promise<void> {
        VALUES (?, ?, NULL, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET hidden_at = NULL`,
     ).bind(channelId, owner.ownerId, created),
     env.DB.prepare(
-      `INSERT INTO email_mailbox_access (channel_id, user_id, permission, created_at, updated_at)
-       VALUES (?, ?, 'manage', ?, ?)
-       ON CONFLICT(channel_id, user_id) DO UPDATE SET permission = 'manage', updated_at = excluded.updated_at`,
-    ).bind(channelId, owner.ownerId, created, created)] : []),
+      `INSERT INTO grants (id, member_id, permissions, mailbox_id, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(mailbox_id, member_id) WHERE mailbox_id IS NOT NULL DO UPDATE SET permissions = excluded.permissions`,
+    ).bind(newId(), owner.ownerId, mailboxGrantPermissions.manage, channelId, created)] : []),
   ])
   const placeholders = configuredIds.map(() => '?').join(', ')
   await env.DB.prepare(
@@ -174,18 +174,18 @@ export function mailboxPermission(access: ServerChannelAccess, needed: MailboxPe
   return { ...access, mailboxId, mailPermission: access.mailPermission }
 }
 
-export async function replaceMailboxAccess(env: L4Env, channelId: string, rows: Array<{ userId: string; permission: MailboxPermission }>) {
+export async function replaceMailboxAccess(env: L4Env, channelId: string, rows: Array<{ userId: string; permission: MailboxPermission }>, actorId: string) {
   const db = getDb(env.DB)
   const active = await db.select({ id: users.id }).from(users).where(eq(users.status, 'active'))
   const validIds = new Set(active.map(row => row.id))
   const unique = new Map(rows.filter(row => validIds.has(row.userId)).map(row => [row.userId, row.permission]))
   const created = nowIso()
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM email_mailbox_access WHERE channel_id = ?').bind(channelId),
+    env.DB.prepare('DELETE FROM grants WHERE mailbox_id = ?').bind(channelId),
     env.DB.prepare('DELETE FROM channel_members WHERE channel_id = ?').bind(channelId),
     ...[...unique].flatMap(([userId, permission]) => [
       env.DB.prepare('INSERT INTO channel_members (channel_id, user_id, hidden_at, joined_at) VALUES (?, ?, NULL, ?)').bind(channelId, userId, created),
-      env.DB.prepare('INSERT INTO email_mailbox_access (channel_id, user_id, permission, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(channelId, userId, permission, created, created),
+      env.DB.prepare('INSERT INTO grants (id, member_id, permissions, mailbox_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(newId(), userId, mailboxGrantPermissions[permission], channelId, actorId, created),
     ]),
   ])
 }

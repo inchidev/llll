@@ -5,6 +5,7 @@ import { d1 } from '../helpers/sqlite-d1'
 import type { L4Env } from '../../workers/env'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { deliverOutboundEmail } from '../../server/utils/mail-outbound'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 const state = vi.hoisted(() => ({ env: null as L4Env | null, confirmed: false, canSend: true, path: 'conversation', bodyId: 'reply-0001' }))
 vi.mock('../../server/utils/cf', async original => ({ ...await original<typeof import('../../server/utils/cf')>(), cf: () => ({ env: state.env!, waitUntil: (promise: Promise<unknown>) => promise }) }))
@@ -25,7 +26,7 @@ const fixture = `
   INSERT INTO channels(id,name,type,visibility) VALUES('support','Support','text','private');
   INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES('domain','zone','example.com','chat.example.com');
   INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES('support','domain','support','Support');
-  INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES('support','owner','manage');
+  ${mailboxGrantsSql(['support', 'owner', 'manage'])}
   INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('first','support','owner','Hello','2026-01-01');
   INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('conversation','Hello','thread','private','support','first');
   INSERT INTO email_threads(channel_id,mailbox_channel_id,subject,participants_json,last_message_at) VALUES('conversation','support','Hello','["recipient@example.net"]','2026-01-01');
