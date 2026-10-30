@@ -84,7 +84,7 @@ describe('self-host docker stack', () => {
     const entrypoint = read('self-host/entrypoint.sh')
     expect(entrypoint).toContain('require_min ADMIN_PASSWORD 12')
     expect(entrypoint).toContain('put_var ADMIN_PASSWORD')
-    expect(read('self-host/coolify/docker-compose.yaml')).toContain('ADMIN_PASSWORD=${ADMIN_PASSWORD:-}')
+    expect(read('self-host/coolify/docker-compose.yaml')).toContain('ADMIN_PASSWORD=$SERVICE_PASSWORD_ADMIN')
     expect(read('self-host/install/install.sh')).toContain('put_env ADMIN_PASSWORD "$LLLL_ADMIN_PASSWORD"')
   })
 
