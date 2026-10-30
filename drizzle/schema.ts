@@ -323,6 +323,8 @@ export const agents = sqliteTable('agents', {
   model: text('model').notNull().default('@cf/moonshotai/kimi-k2.7-code'),
   instructions: text('instructions').notNull().default(''),
   status: text('status', { enum: ['active', 'paused'] }).notNull().default('active'),
+  /** open: anyone who may use Agents invokes it; granted: only the Owner and holders of Agent access. */
+  access: text('access', { enum: ['open', 'granted'] }).notNull().default('open'),
   createdBy: text('created_by').notNull().references(() => users.id),
   lastActiveAt: text('last_active_at'),
   /** Set when the Agent is deleted. The profile row stays for history. */
@@ -1055,15 +1057,21 @@ export const projectPolicies = sqliteTable('project_policies', {
   permissionsBitmask: integer('permissions_bitmask').notNull(), version: integer('version').notNull().default(1),
   createdBy: text('created_by').references(() => users.id), ...isoTimestamps(),
 })
-export const projectPolicyAssignments = sqliteTable('project_policy_assignments', {
-  id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  policyId: text('policy_id').notNull().references(() => projectPolicies.id, { onDelete: 'cascade' }),
+/** Scoped access: one Member or Role, one Policy, a Project or the whole Server, optionally through one Agent. */
+export const grants = sqliteTable('grants', {
+  id: text('id').primaryKey(),
   memberId: text('member_id').references(() => users.id, { onDelete: 'cascade' }), roleId: text('role_id').references(() => roles.id, { onDelete: 'cascade' }),
+  agentId: text('agent_id').references(() => agents.userId, { onDelete: 'cascade' }),
+  policyId: text('policy_id').notNull().references(() => projectPolicies.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  dailyRuns: integer('daily_runs'), expiresAt: text('expires_at'),
   createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
 }, table => [
-  check('project_policy_target', sql`(${table.memberId} IS NOT NULL AND ${table.roleId} IS NULL) OR (${table.roleId} IS NOT NULL AND ${table.memberId} IS NULL)`),
-  uniqueIndex('project_policy_members').on(table.projectId, table.policyId, table.memberId).where(sql`${table.memberId} IS NOT NULL`),
-  uniqueIndex('project_policy_roles').on(table.projectId, table.policyId, table.roleId).where(sql`${table.roleId} IS NOT NULL`),
+  check('grants_subject', sql`(${table.memberId} IS NOT NULL AND ${table.roleId} IS NULL) OR (${table.roleId} IS NOT NULL AND ${table.memberId} IS NULL)`),
+  check('grants_server_scope', sql`${table.agentId} IS NOT NULL OR ${table.projectId} IS NOT NULL`),
+  index('grants_member').on(table.memberId, table.agentId, table.projectId),
+  index('grants_role').on(table.roleId, table.agentId, table.projectId),
+  index('grants_project').on(table.projectId),
 ])
 
 export const tasks = sqliteTable('tasks', {
@@ -1187,7 +1195,7 @@ export const mcpOutboundConnections = sqliteTable('mcp_outbound_connections', {
 
 export const schema = {
   projectPolicies,
-  projectPolicyAssignments,
+  grants,
   mcpOutboundConnections,
   fileDeletions,
   mailDrafts,

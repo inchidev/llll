@@ -25,7 +25,7 @@ it('seeds reusable policies without assigning or expanding anyone’s existing r
   const policies = (await listProjectPolicies(f.env)).filter(p => !p.id.startsWith('fixture-'))
   expect(policies.map(p => p.name)).toEqual(['Coordinator', 'Developer', 'Reviewer', 'Server administrator', 'Server member', 'Server owner', 'Task coordinator'])
   expect(policies.filter(p => p.id.startsWith('project-policy-')).every(p => (p.permissions & ~ProjectPolicyPermissions) === 0)).toBe(true)
-  expect(f.db.prepare('SELECT count(*) AS n FROM project_policy_assignments').get()!.n).toBe(0)
+  expect(f.db.prepare('SELECT count(*) AS n FROM grants').get()!.n).toBe(0)
   expect((await f.actor(ids.member)).principal.permissions).toBe(MemberPermissions)
 })
 it('preserves each project grant in a conversation Run and revokes it when access changes', async () => {

@@ -18,6 +18,7 @@ import { admitRunEnvironment, findCodeEnvironment, requireRunEnvironment } from 
 import { repositoryResourceId, type RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
 import { agentWebhook } from './agent-webhooks'
+import { agentAccessMode, agentInvocationAllowed } from './agent-access'
 
 const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id as channelId, initiated_by as initiatedBy,
  task_id as taskId, source_message_id as sourceMessageId, status, prompt, model, instructions, mandate_json as mandateJson, result_text as resultText,
@@ -64,11 +65,10 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.principal.projectPolicies = retainPolicies(auth.principal.projectPolicies, mandate.agentProjectPolicies)
   auth.delegation.projectPolicies = retainPolicies(auth.delegation.projectPolicies, mandate.initiatorProjectPolicies)
   if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: repositoryResourceId(JSON.parse(run.environmentJson) as RunEnvironment) } : {}) }
-  const actor = await env.DB.prepare(`SELECT u.kind, r.permissions_bitmask as permissions FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'`)
-    .bind(run.initiatedBy).first<{ kind: string; permissions: number }>()
-  if (!actor || actor.kind !== 'human' || (!auth.delegation.isOwner && !(mandate.projectId ? projectSubjectPermissionAllowed(auth.delegation, mandate.projectId, Permission.useAgents) : hasPermission(actor.permissions, Permission.useAgents)))) fail(403, 'run_revoked', 'Agent access was revoked')
-  const profile = await env.DB.prepare("SELECT status,harness FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string }>()
-  if (profile?.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
+  const actor = await env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>()
+  const profile = await env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>()
+  if (!actor || actor.kind !== 'human' || !profile || !agentInvocationAllowed(profile.access, auth.delegation, mandate.projectId)) fail(403, 'run_revoked', 'Agent access was revoked')
+  if (profile.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
   for (const id of [run.agentId, run.initiatedBy]) {
     const row = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'")
       .bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
@@ -103,9 +103,17 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   const { agentExecutionPolicy } = await import('./agent-execution-policy')
   const executionPolicy = await agentExecutionPolicy(env)
   const input = runRequestSchema.parse(request)
-  const requestedTask = input.taskId ? await getTask(env, actor, input.taskId) : null
+  if (actor.principal.kind !== 'human') fail(403, 'forbidden', 'Cannot invoke agents')
+  const agent = await loadAuthorizationContext(env, { principalId: input.agentId, credential: { kind: 'agent_runtime' }, delegatedBy: actor.principal.id })
+  // What this person may do through this Agent: their own Role plus Agent access they hold for it.
+  let invoker: AuthorizationContext = agent?.delegation && !actor.principal.isOwner
+    ? { ...actor, principal: { ...actor.principal, permissions: agent.delegation.permissions!, projectPolicies: agent.delegation.projectPolicies } } : actor
+  const requestedTask = input.taskId ? await getTask(env, invoker, input.taskId) : null
   const requestedProjectId = requestedTask?.projectId ?? null
-  if (requestedProjectId) actor = { ...actor, projectScope: { id: requestedProjectId } }
+  if (requestedProjectId) {
+    actor = { ...actor, projectScope: { id: requestedProjectId } }
+    invoker = { ...invoker, projectScope: { id: requestedProjectId } }
+  }
   const pairDm = await env.DB.prepare("SELECT id FROM channels WHERE id=? AND type='dm' AND (SELECT count(*) FROM channel_members WHERE channel_id=channels.id)=2").bind(input.channelId).first()
   if (pairDm) fail(400, 'thread_required', 'Send a message to the agent to start a reply thread')
   const sameRequest = (run: AgentRun) => {
@@ -119,7 +127,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
       .bind(input.channelId, input.sourceMessageId).first()
     if (!source) fail(404, 'not_found', 'Source message not found in this conversation')
   }
-  if (actor.principal.kind !== 'human' || (!actor.principal.isOwner && !(requestedProjectId ? projectPermissionAllowed(actor, requestedProjectId, Permission.useAgents) : hasPermission(actor.principal.permissions, Permission.useAgents)))) fail(403, 'forbidden', 'Cannot invoke agents')
+  if (agent?.delegation && !agentInvocationAllowed(await agentAccessMode(env, input.agentId), agent.delegation, requestedProjectId)) fail(403, 'forbidden', 'Cannot invoke agents')
   let admissionError: string | null = null
   // An external Agent thinks on its own computer: it needs a Run coordinator, not a model provider.
   const external = Boolean(await agentWebhook(env, input.agentId))
@@ -140,16 +148,15 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   const profile = await env.DB.prepare(`SELECT a.harness,a.status,a.model,a.instructions FROM agents a JOIN users u ON u.id=a.user_id WHERE a.user_id=? AND u.status='active'`)
     .bind(input.agentId).first<{ harness: string; status: string; model: string; instructions: string }>()
   if (!profile || profile.harness !== 'pi' || profile.status !== 'active') fail(409, 'agent_unavailable', 'Choose an active agent')
-  const agent = await loadAuthorizationContext(env, { principalId: input.agentId, credential: { kind: 'agent_runtime' }, delegatedBy: actor.principal.id })
   if (!agent) fail(403, 'forbidden', 'Agent unavailable')
   if (requestedProjectId) agent.projectScope = { id: requestedProjectId }
   const computer = Boolean(input.taskId && (requestedProjectId ? projectPermissionAllowed(agent, requestedProjectId, Permission.useComputer)
-    : hasPermission(agent.principal.permissions, Permission.useComputer) && (actor.principal.isOwner || hasPermission(actor.principal.permissions, Permission.useComputer))))
+    : hasPermission(agent.principal.permissions, Permission.useComputer) && (invoker.principal.isOwner || hasPermission(invoker.principal.permissions, Permission.useComputer))))
   let projectId: string | null = null
   let environmentId = input.environmentId ?? null
   if (input.taskId) {
     if (requestedProjectId ? !projectSubjectPermissionAllowed(agent.principal, requestedProjectId, Permission.executeTasks) : !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent needs Execute assigned tasks in this project or its Server role.')
-    if (!actor.principal.isOwner && (requestedProjectId ? !projectPermissionAllowed(actor, requestedProjectId, Permission.executeTasks) : !hasPermission(actor.principal.permissions, Permission.executeTasks))) fail(403, 'actor_task_permission', 'You need Execute assigned tasks in this project or your Server role.')
+    if (!invoker.principal.isOwner && (requestedProjectId ? !projectPermissionAllowed(invoker, requestedProjectId, Permission.executeTasks) : !hasPermission(invoker.principal.permissions, Permission.executeTasks))) fail(403, 'actor_task_permission', 'You need Execute assigned tasks in this project or your Server role.')
     const admissionTask = await getTask(env, agent, input.taskId)
     if (!admissionTask || admissionTask.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')
     for (const id of [input.agentId, actor.principal.id]) {
@@ -179,6 +186,12 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     if (input.sourceMessageId && env.AGENT_RUN_DO) admissionError = modelError
     else fail(409, 'model_unavailable', modelError)
   }
+  const accessBudget = agent.delegation?.agentAccess?.dailyRuns
+  if (accessBudget) {
+    const used = await env.DB.prepare('SELECT count(*) AS n FROM agent_runs WHERE agent_id=? AND initiated_by=? AND created_at>=?')
+      .bind(input.agentId, actor.principal.id, new Date(Date.now() - 86400000).toISOString()).first<{ n: number }>()
+    if ((used?.n ?? 0) >= accessBudget) fail(429, 'access_budget', 'Your daily run limit for this agent is reached')
+  }
   const now = nowIso()
   const sessionId = newId()
   await env.DB.prepare('INSERT INTO agent_sessions (id,agent_id,channel_id,created_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(agent_id,channel_id) DO NOTHING')
@@ -193,7 +206,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     await runAuthorization(env, parent)
   }
   const restrictPolicies = (current: ProjectPolicyGrant[] = [], cap?: ProjectPolicyGrant[]) => current.filter(grant => (!projectId || grant.projectId === projectId) && (!ceiling || cap?.some(saved => JSON.stringify(saved) === JSON.stringify(grant))))
-  const mandate: RunMandate = { projectId, agentProjectPolicies: restrictPolicies(agent.principal.projectPolicies, ceiling?.agentProjectPolicies), initiatorProjectPolicies: restrictPolicies(actor.principal.projectPolicies, ceiling?.initiatorProjectPolicies), permissions: actor.principal.permissions, resourceAccess: actor.principal.resourceAccess,
+  const mandate: RunMandate = { projectId, agentProjectPolicies: restrictPolicies(agent.principal.projectPolicies, ceiling?.agentProjectPolicies), initiatorProjectPolicies: restrictPolicies(invoker.principal.projectPolicies, ceiling?.initiatorProjectPolicies), permissions: invoker.principal.permissions, resourceAccess: actor.principal.resourceAccess,
     agentPermissions: agent.principal.permissions, agentResourceAccess: agent.principal.resourceAccess,
     computer, execution: ceiling ? ceiling.execution : executionPolicy, rootRunId: ceiling?.rootRunId ?? id, parentRunId: ceiling?.parentRunId, rootDeadline: ceiling?.rootDeadline,
     maxSteps: executionPolicy.maxSteps, maxModelCalls: executionPolicy.maxModelCalls,

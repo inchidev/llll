@@ -36,7 +36,7 @@ Create/Edit agent shows the selected Server Role. Templates provide starting ins
 
 The Role editor selects all or specific Boards, Tables, Documents and Canvases. Selecting no resources permits none of that kind. Grants govern operations; selecting a resource does not grant an operation. Restricted collections cannot create new top-level resources. Role administrators cannot grant permissions or resources they lack.
 
-Internal agent tools check the Agent's own Role plus the initiating person's delegation. Invoking an Agent as Owner never makes the Agent an Owner. MCP independently intersects the current acting Member's role/resource access with connection scopes. Tool access is checked at execution, rather than trusted from model instructions.
+Internal agent tools check the Agent's own Role plus the initiating person's delegation. Invoking an Agent as Owner never makes the Agent an Owner. Agent access can widen that delegation for one Agent: in the Agent's editor, **Who can use** lists people and Roles with a Policy, a scope (one Project or the whole Server), an optional daily Run limit and an end date. Only someone who holds those permissions in that scope can give them; removal stops Runs that relied on them. **Answers** chooses whether everyone who uses agents can invoke it or only the Owner and holders of access; a mention from anyone else does not wake it. See [ADR 0004](adr/0004-grants-and-agent-access.md). MCP independently intersects the current acting Member's role/resource access with connection scopes. Tool access is checked at execution, rather than trusted from model instructions.
 
 ## Upgrade behavior
 
