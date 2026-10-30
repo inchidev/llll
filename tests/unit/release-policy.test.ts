@@ -78,6 +78,16 @@ it('a production no-op exits successfully without Cloudflare credentials or depl
   expect(output).toContain('production unchanged')
   expect(() => execFileSync(process.execPath, [resolve(root, 'scripts/web-deploy.mjs'), 'production'], { env: { PATH: '/no-deployment-tools' }, stdio: 'pipe' })).toThrow()
 })
+it('deploys the main Preview only from main and PR Previews only from other branches', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'llll-main-preview-'))
+  temporary.push(root)
+  mkdirSync(resolve(root, 'scripts'))
+  for (const name of ['web-deploy.mjs', 'cloudflare-d1.mjs', 'ci-only.mjs', 'pull-request-ref.mjs', 'release-policy.mjs']) cpSync(resolve('scripts', name), resolve(root, 'scripts', name))
+  const run = (mode: string, branch: string) => execFileSync(process.execPath, [resolve(root, 'scripts/web-deploy.mjs'), mode], { encoding: 'utf8', stdio: 'pipe', env: { CI: 'true', WORKERS_CI: '1', WORKERS_CI_BUILD_UUID: 'isolated-test', WORKERS_CI_BRANCH: branch, PATH: '/no-deployment-tools' } })
+  expect(() => run('main', 'feature')).toThrow(/main Preview require main/)
+  expect(() => run('preview', 'main')).toThrow(/main Preview require main/)
+  expect(() => run('staging', 'main')).toThrow(/main Preview require main/)
+})
 it('the production resolver ignores existing tags and writes a no-op plan without fetching artifacts', () => {
   const root = mkdtempSync(resolve(tmpdir(), 'llll-production-plan-'))
   temporary.push(root)

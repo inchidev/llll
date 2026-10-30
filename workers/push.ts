@@ -75,13 +75,17 @@ async function deliverTelegram(env: L4Env, row: OutboxRow) {
   } catch { /* Open the Server's home instead. */ }
   const server = await env.DB.prepare('SELECT id, name FROM server LIMIT 1').first<{ id: string; name: string }>()
   if (!server) return { disposition: 'retry' as const, error: 'server_unavailable' }
+  // The same key on every attempt lets the relay skip a message it already sent.
+  const delivery = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${row.event_id}\n${row.subscription_id}`)))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('')
   try {
     const response = await fetch(new URL('/api/telegram/notify', row.relay_origin), {
       method: 'POST',
       redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
+      // Longer than the relay's own wait for Telegram, so an answer is not cut off.
+      signal: AbortSignal.timeout(20_000),
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: row.relay_token, serverId: server.id, serverName: server.name.slice(0, 100), kind: row.kind as TelegramRelayKind, path }),
+      body: JSON.stringify({ token: row.relay_token, serverId: server.id, serverName: server.name.slice(0, 100), kind: row.kind as TelegramRelayKind, path, delivery }),
     })
     return { disposition: pushDeliveryDisposition(response.status), error: `relay_${response.status}` }
   }

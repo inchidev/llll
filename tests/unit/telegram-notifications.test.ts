@@ -78,6 +78,24 @@ describe('Telegram relay on the official site', () => {
     status = 403
     expect((await post('/api/telegram/notify', body, null)).status).toBe(410)
   })
+
+  it('sends a retried delivery once, and again only if Telegram refused it', async () => {
+    const token = await createRelayToken(env, 42, SERVER)
+    let sent = 0
+    let status = 200
+    vi.stubGlobal('fetch', async () => { sent++; return Response.json({ ok: status === 200 }, { status }) })
+    const body = { token, serverId: SERVER, serverName: 'Friends', kind: 'dm_message', path: '/', delivery: 'a'.repeat(64) }
+    // The Server lost the first answer and retries the same delivery.
+    expect((await post('/api/telegram/notify', body, null)).status).toBe(200)
+    expect((await post('/api/telegram/notify', body, null)).status).toBe(200)
+    expect(sent).toBe(1)
+    status = 502
+    const refused = { ...body, delivery: 'b'.repeat(64) }
+    expect((await post('/api/telegram/notify', refused, null)).status).toBe(502)
+    status = 200
+    expect((await post('/api/telegram/notify', refused, null)).status).toBe(200)
+    expect(sent).toBe(3)
+  })
 })
 
 describe('Telegram delivery from a Server', () => {
@@ -108,7 +126,7 @@ describe('Telegram delivery from a Server', () => {
       return Response.json({ delivered: true })
     })
     await drainNotificationOutbox(env)
-    expect(calls).toEqual([{ url: `${SHELL}/api/telegram/notify`, body: { token: 'opaque-relay-token-123', serverId: SERVER, serverName: 'Friends', kind: 'mention', path: '/channels/general' } }])
+    expect(calls).toEqual([{ url: `${SHELL}/api/telegram/notify`, body: { token: 'opaque-relay-token-123', serverId: SERVER, serverName: 'Friends', kind: 'mention', path: '/channels/general', delivery: expect.stringMatching(/^[a-f0-9]{64}$/u) } }])
     expect(JSON.stringify(calls)).not.toContain('secret plans')
     expect(sqlite.prepare('SELECT delivered_at FROM notification_outbox').get()).toMatchObject({ delivered_at: expect.any(String) })
   })
