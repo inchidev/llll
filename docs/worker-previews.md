@@ -27,7 +27,7 @@ Each PR Preview shows one change alone. The main Preview shows everything merged
 
 - **What deploys it.** The main-branch Builds of both Workers, from Git, after every merge. Each Build first confirms that its commit is still the head of main, so an older Build never replaces a newer one. A release does not deploy it and it never changes production.
 - **Data.** It keeps its own D1 databases, `llll-main` and `llll-server-main`, across deployments: migrations apply in order on existing data, as on a customer Server that updates. Files, backups and tickets use the shared staging resources.
-- **Accounts.** Its Server keeps Accounts and sessions across deployments, so its secrets are separate and must not rotate: `LLLL_MAIN_PREVIEW_AUTH_SECRET` and `LLLL_MAIN_PREVIEW_SETUP_TOKEN` on the `llll-server` Build, `WEB_MAIN_PREVIEW_AUTH_SECRET` on the `llll` Build. Claim the Owner once with the setup token.
+- **Secrets.** Nothing new. Its Server uses the same `LLLL_PREVIEW_AUTH_SECRET` and `LLLL_PREVIEW_SETUP_TOKEN` as PR Previews; its own database keeps its Accounts apart. Claim the Owner once with the setup token. Like PR Previews, the web side gets a fresh secret on each deployment, so signing in to `main.dev.llll.gg` itself lasts until the next merge; Shell bookmarks stay on the device.
 - **Access.** It is public like other Previews. Put Cloudflare Access in front of `main.dev.llll.gg` and `main.server-preview.llll.gg` if it should be restricted.
 - **Reset.** If its data is no longer useful, delete `llll-main` or `llll-server-main` through administrative cleanup; the next main Build creates an empty one. Keep backup destinations.
 
@@ -38,7 +38,7 @@ Workers Builds configuration for the main branch (administrative, not code):
 | `llll` | `/apps/site` | `pnpm build:production` (unchanged) | `pnpm deploy:production && pnpm deploy:main` |
 | `llll-server` | `/` | `pnpm build` | `node scripts/server-preview.mjs` |
 
-For `llll` the production step stays first and remains a no-op without a newer published release; `deploy:main` then builds the site from the main commit and deploys the main Preview. Add the secrets before changing the commands, and change them only after this script is on main, or main Builds fail.
+For `llll` the production step stays first and remains a no-op without a newer published release; `deploy:main` then builds the site from the main commit and deploys the main Preview. Change them only after these scripts are on main, or main Builds fail.
 
 ## Request timing
 

@@ -82,9 +82,8 @@ await mkdir(work, { recursive: true })
 const configFile = resolve(work, 'web.json')
 await writeFile(configFile, JSON.stringify(config))
 const secretFile = resolve(work, 'secrets.json')
-// The main Preview keeps sessions across deployments; a PR Preview gets a fresh secret.
-const secret = mode === 'production' ? process.env.WEB_AUTH_SECRET : mode === 'main' ? process.env.WEB_MAIN_PREVIEW_AUTH_SECRET : randomBytes(32).toString('hex')
-if (!secret) throw new Error(mode === 'main' ? 'WEB_MAIN_PREVIEW_AUTH_SECRET is required' : 'Production WEB_AUTH_SECRET is required')
+const secret = mode === 'production' ? process.env.WEB_AUTH_SECRET : randomBytes(32).toString('hex')
+if (!secret) throw new Error('Production WEB_AUTH_SECRET is required')
 await writeFile(secretFile, JSON.stringify({ AUTH_SECRET: secret }), { mode: 0o600 })
 function wrangler(args, capture = false) {
   const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], { cwd: root, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' })

@@ -155,11 +155,10 @@ if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
   Object.assign(config.vars, { LLLL_VERSION: installed })
 }
 config.previews = isolatedPreviewBindings(config)
-// The main Preview keeps its Accounts across deployments, so its secrets are separate and stable.
-const auth = mainPreview ? process.env.LLLL_MAIN_PREVIEW_AUTH_SECRET : process.env.LLLL_PREVIEW_AUTH_SECRET,
-  claim = mainPreview ? process.env.LLLL_MAIN_PREVIEW_SETUP_TOKEN : process.env.LLLL_PREVIEW_SETUP_TOKEN
+const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
+  claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
-  throw new Error(mainPreview ? 'Configure the main Preview auth secret and owner claim' : 'Configure private Preview auth and owner claims')
+  throw new Error('Configure private Preview auth and owner claims')
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })
 const file = resolve(dir, 'server-preview.json'),
