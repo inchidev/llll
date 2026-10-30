@@ -89,6 +89,13 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   }
   // Servers call the relay from their Worker, without a browser Origin; the token and its own rate limit guard it.
   if (path === '/api/telegram/notify' && request.method === 'POST') return json(await relayTelegram(env, await input(request), fail))
+  // A Server opened in Telegram asks from its own origin. Telegram's signed launch data, not a
+  // cookie, proves who is asking, so any origin may call it.
+  if (path === '/api/telegram/subscribe' && request.method === 'OPTIONS') return new Response(null, { status: 204 })
+  if (path === '/api/telegram/subscribe' && request.method === 'POST') {
+    await rateLimit(request, env)
+    return json(await subscribeTelegram(env, await input(request), fail))
+  }
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')
     await rateLimit(request, env)
@@ -136,7 +143,6 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     if (!accounts.some(account => account.id === value.accountId)) fail(403, 'Choose the Cloudflare account that owns this Server')
     return json(await enableL4Files(grant.accessToken, value.accountId, value.workerName))
   }
-  if (path === '/api/telegram/subscribe' && request.method === 'POST') return json(await subscribeTelegram(env, await input(request), fail))
   if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID), telegramBot: env.TELEGRAM_BOT_USERNAME || null })
   if (path === '/api/deploy/releases' && request.method === 'GET') {
     const cacheKey = new Request(env.PUBLIC_ORIGIN + '/api/deploy/releases')
@@ -464,6 +470,13 @@ export default {
     catch (error) {
       const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error && 'status' in error ? Number(error.status) : 500
       response = json({ error: { message: error instanceof z.ZodError ? 'Invalid request' : error instanceof Error ? error.message : 'Request failed' } }, status)
+    }
+    if (new URL(request.url).pathname === '/api/telegram/subscribe') {
+      response = new Response(response.body, response)
+      response.headers.set('Access-Control-Allow-Origin', '*')
+      response.headers.set('Access-Control-Allow-Methods', 'POST')
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
+      response.headers.set('Access-Control-Max-Age', '86400')
     }
     // PR Previews share production's content; keep them out of search results.
     if (env.ENVIRONMENT === 'preview') { response = new Response(response.body, response); response.headers.set('X-Robots-Tag', 'noindex, nofollow') }

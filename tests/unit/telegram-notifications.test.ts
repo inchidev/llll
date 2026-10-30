@@ -60,6 +60,22 @@ describe('Telegram relay on the official site', () => {
     await expect(verifyMiniAppData(await signedLaunch(42, now - 1800), BOT)).rejects.toThrow()
   })
 
+  it('lets a Server opened as the Mini App subscribe from its own origin', async () => {
+    const server = 'https://chat.example.org'
+    const preflight = await web.fetch(new Request(SHELL + '/api/telegram/subscribe', { method: 'OPTIONS', headers: { Origin: server } }), env)
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    const now = Math.floor(Date.now() / 1000)
+    const ok = await post('/api/telegram/subscribe', { initData: await signedLaunch(42, now), serverId: SERVER }, server)
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    const refused = await post('/api/telegram/subscribe', { initData: 'auth_date=1&hash=00', serverId: SERVER }, server)
+    expect(refused.status).toBe(401)
+    expect(refused.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    // Other mutations still require the Shell's own origin.
+    expect((await post('/api/servers/register', { id: SERVER, origin: server }, server)).status).toBe(403)
+  })
+
   it('sends a content-free message with an Open button, and reports gone subscriptions', async () => {
     const token = await createRelayToken(env, 42, SERVER)
     const sent: Array<{ chat_id: number; text: string; reply_markup: { inline_keyboard: Array<Array<{ web_app: { url: string } }>> } }> = []

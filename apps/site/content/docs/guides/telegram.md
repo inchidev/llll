@@ -4,7 +4,7 @@ description: Open L4 Servers inside Telegram as a Mini App, sign in with Telegra
 order: 6
 ---
 
-L4 can run inside Telegram as a **Mini App**. The [llll.gg Shell](../concepts/server-and-shell.md) works there like it does in a browser: it shows the Servers saved on your device and embeds each Server's own Client. Each Server still keeps its own Accounts and sessions; Telegram never grants membership.
+L4 can run inside Telegram as a **Mini App**. The [llll.gg Shell](../concepts/server-and-shell.md) shows the Servers saved on your device, like in a browser. When you open one, that Server's own Client takes over the Mini App, so you sign in on the Server's own site and stay signed in; Telegram's **Back** button returns to My Servers. Each Server still keeps its own Accounts and sessions; Telegram never grants membership.
 
 ## Open a Server in Telegram
 
