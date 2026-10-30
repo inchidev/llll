@@ -1,10 +1,10 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import web from '../../apps/site/src/index'
 import type { WebEnv } from '../../apps/site/src/env'
 import { listL4Servers } from '../../packages/deployment-core/src/servers'
 import { webSession } from '../../apps/site/src/session'
+import { webMigrationsSql } from '../helpers/web-migrations'
 
 vi.mock('../../packages/deployment-core/src/servers', () => ({ listL4Servers: vi.fn(), readL4Server: vi.fn() }))
 
@@ -28,7 +28,7 @@ const origin = 'https://web.example.com'
 const req = (path: string, cookie = '', body?: object) => new Request(origin + path, { method: body ? 'POST' : 'GET', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
 beforeEach(() => {
   vi.mocked(listL4Servers).mockReset()
-  sqlite = new DatabaseSync(':memory:'); sqlite.exec(readFileSync('apps/site/migrations/0000_web_baseline.sql', 'utf8'))
+  sqlite = new DatabaseSync(':memory:'); sqlite.exec(webMigrationsSql())
   env = { DB: d1(sqlite), ASSETS: { fetch: async () => new Response('static') } as Fetcher, AUTH_SECRET: 'test-secret-'.repeat(5), PUBLIC_ORIGIN: origin, CLOUDFLARE_OAUTH_CLIENT_ID: 'public-client' }
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); sqlite.close() })

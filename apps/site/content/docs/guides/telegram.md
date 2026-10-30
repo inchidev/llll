@@ -4,7 +4,7 @@ description: Open L4 Servers inside Telegram as a Mini App, sign in with Telegra
 order: 6
 ---
 
-L4 can run inside Telegram as a **Mini App**. The [llll.gg Shell](../concepts/server-and-shell.md) works there like it does in a browser: it shows the Servers saved on your device and embeds each Server's own Client. Each Server still keeps its own Accounts and sessions; Telegram never grants membership.
+L4 can run inside Telegram as a **Mini App**. The [llll.gg Shell](../concepts/server-and-shell.md) shows the Servers saved on your device, like in a browser. When you open one, that Server's own Client takes over the Mini App, so you sign in on the Server's own site and stay signed in; Telegram's **Back** button returns to My Servers. Each Server still keeps its own Accounts and sessions; Telegram never grants membership.
 
 ## Open a Server in Telegram
 
@@ -20,11 +20,10 @@ Cloudflare sign-in does not work reliably inside Telegram, so **Create → Cloud
 
 ## Telegram notifications
 
-Browsers inside Telegram cannot receive push notifications, so the L4 bot can send them instead:
+The L4 bot can send your notifications to Telegram, next to or instead of push notifications. Turn them on from any browser or from Telegram:
 
-1. Open the Server in the Telegram Shell and sign in the usual way, with any login method.
-2. Open **User Settings → Notifications** and turn on **Telegram notifications**.
-3. Allow the bot to message you when Telegram asks.
+- **In a browser:** open **User Settings → Notifications** on the Server and turn on **Telegram notifications**. Telegram opens the L4 bot; press **Start**. The settings page notices by itself within a few seconds. The link works for ten minutes.
+- **In Telegram:** open the Server from [@L4_agent](https://t.me/L4_agent), sign in, turn on **Telegram notifications** in the same settings, and allow the bot to message you when Telegram asks.
 
 The bot then tells you about the same events as [push notifications](notifications.md#what-notifies-you): mentions, Direct Messages, new Live sessions and email. Each message names only the kind of event and the Server, with an **Open** button. It never contains what was said, who said it or where.
 

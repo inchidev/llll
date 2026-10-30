@@ -9,7 +9,7 @@ import { advanceDeployment, deploymentFailure, cloudflare, deploymentParameters,
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
 import { webSession, digest, clearDeployment } from './session'
-import { relayTelegram, subscribeTelegram } from './telegram'
+import { claimTelegramLink, createTelegramLink, ensureTelegramWebhook, relayTelegram, subscribeTelegram, telegramWebhook } from './telegram'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
 
@@ -89,6 +89,17 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   }
   // Servers call the relay from their Worker, without a browser Origin; the token and its own rate limit guard it.
   if (path === '/api/telegram/notify' && request.method === 'POST') return json(await relayTelegram(env, await input(request), fail))
+  // Pairing from a browser: the Server registers and collects a code from its Worker; Telegram calls the webhook.
+  if (path === '/api/telegram/links' && request.method === 'POST') { await rateLimit(request, env); return json(await createTelegramLink(env, await input(request), fail)) }
+  if (path === '/api/telegram/links/claim' && request.method === 'POST') { await rateLimit(request, env); return json(await claimTelegramLink(env, await input(request), fail)) }
+  if (path === '/api/telegram/webhook' && request.method === 'POST') return json(await telegramWebhook(env, request, await input(request), fail))
+  // A Server opened in Telegram asks from its own origin. Telegram's signed launch data, not a
+  // cookie, proves who is asking, so any origin may call it.
+  if (path === '/api/telegram/subscribe' && request.method === 'OPTIONS') return new Response(null, { status: 204 })
+  if (path === '/api/telegram/subscribe' && request.method === 'POST') {
+    await rateLimit(request, env)
+    return json(await subscribeTelegram(env, await input(request), fail))
+  }
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')
     await rateLimit(request, env)
@@ -136,7 +147,6 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     if (!accounts.some(account => account.id === value.accountId)) fail(403, 'Choose the Cloudflare account that owns this Server')
     return json(await enableL4Files(grant.accessToken, value.accountId, value.workerName))
   }
-  if (path === '/api/telegram/subscribe' && request.method === 'POST') return json(await subscribeTelegram(env, await input(request), fail))
   if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID), telegramBot: env.TELEGRAM_BOT_USERNAME || null })
   if (path === '/api/deploy/releases' && request.method === 'GET') {
     const cacheKey = new Request(env.PUBLIC_ORIGIN + '/api/deploy/releases')
@@ -465,11 +475,19 @@ export default {
       const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error && 'status' in error ? Number(error.status) : 500
       response = json({ error: { message: error instanceof z.ZodError ? 'Invalid request' : error instanceof Error ? error.message : 'Request failed' } }, status)
     }
+    if (new URL(request.url).pathname === '/api/telegram/subscribe') {
+      response = new Response(response.body, response)
+      response.headers.set('Access-Control-Allow-Origin', '*')
+      response.headers.set('Access-Control-Allow-Methods', 'POST')
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
+      response.headers.set('Access-Control-Max-Age', '86400')
+    }
     // PR Previews share production's content; keep them out of search results.
     if (env.ENVIRONMENT === 'preview') { response = new Response(response.body, response); response.headers.set('X-Robots-Tag', 'noindex, nofollow') }
     return withSiteSecurityHeaders(request, response)
   },
   async scheduled(_event: ScheduledController, env: WebEnv) {
-    await env.DB.batch([env.DB.prepare('DELETE FROM deployment_sessions WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM rate_limits WHERE expires_at<?').bind(Date.now())])
+    await env.DB.batch([env.DB.prepare('DELETE FROM deployment_sessions WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM rate_limits WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM telegram_links WHERE expires_at<?').bind(Date.now())])
+    await ensureTelegramWebhook(env).catch(() => {})
   },
 } satisfies ExportedHandler<WebEnv>

@@ -56,6 +56,8 @@ export function useShell() {
   const address = useState('shell-address', () => '')
   const busy = useState('shell-busy', () => false)
   const telegram = useState<string>('shell-telegram', () => '')
+  /** The Server this Telegram Shell is handing the whole Mini App to. */
+  const leaving = useState('shell-leaving', () => '')
   const route = useRoute()
   const router = useRouter()
   function persist() {
@@ -292,6 +294,7 @@ export function useShell() {
       if (server.id !== id)
         throw new Error('Server identity did not match the link')
     }
+    if (telegram.value) { openInTelegram(server.origin, path); return }
     if (!loaded.value.includes(server.origin)) await readMetadata(server.origin)
     if (unclaimed.value[server.origin]) await restoreClaim(server.origin, claim)
     selected.value = server.origin
@@ -302,6 +305,19 @@ export function useShell() {
       loaded.value.push(server.origin)
     }
     send(server.origin, { type: 'open', serverId: id, path })
+  }
+  /**
+   * iOS drops a Server's session cookie inside the Shell's cross-site frame, so in Telegram
+   * each Server runs as the Mini App page itself, with Telegram's launch data and the way back.
+   */
+  function openInTelegram(origin: string, path: string) {
+    const app = window.Telegram?.WebApp
+    const launch = new URLSearchParams({ tgWebAppData: telegram.value, llll_shell: location.origin })
+    if (app?.version) launch.set('tgWebAppVersion', app.version)
+    if (app?.platform) launch.set('tgWebAppPlatform', app.platform)
+    if (app?.themeParams) launch.set('tgWebAppThemeParams', JSON.stringify(app.themeParams))
+    leaving.value = origin
+    location.replace(new URL(path, origin).toString() + '#' + launch)
   }
   function initialize() {
     if (initialized.value) return
@@ -462,6 +478,7 @@ export function useShell() {
     connect,
     open,
     resolveServer,
+    leaving,
     persist,
     forget,
     address,

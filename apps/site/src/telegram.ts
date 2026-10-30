@@ -112,3 +112,87 @@ export async function relayTelegram(env: WebEnv, value: unknown, fail: Fail) {
   if (response.status === 429) fail(429, 'Telegram is rate limiting messages')
   fail(502, 'Telegram did not accept the message')
 }
+
+/*
+ * Pairing from a browser. A Server registers a one-time code with a hash of a secret only it
+ * can derive. The person presses Start on t.me/<bot>?start=<code>; the webhook seals that chat
+ * into a delivery token, and the Server collects it once with the secret. Codes last ten minutes.
+ */
+const LINK_TTL_MS = 10 * 60_000
+const linkCode = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/u)
+const linkBody = z.object({ code: linkCode, secretHash: z.string().regex(/^[a-f0-9]{64}$/u), serverId: uuidSchema, serverName: z.string().trim().min(1).max(100) }).strict()
+const claimBody = z.object({ code: linkCode, secret: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
+
+async function botApi(env: WebEnv, method: string, body: unknown) {
+  return fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000), body: JSON.stringify(body),
+  })
+}
+
+/** Telegram sends this with every update, so only Telegram reaches the webhook. */
+export async function webhookSecret(env: WebEnv) {
+  const key = await crypto.subtle.importKey('raw', encoder.encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode('llll-telegram-webhook-v1')))].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Point the bot at this site's webhook. Only production does this, and never over a webhook
+ * someone else set: Previews share the bot and must not take its updates.
+ */
+export async function ensureTelegramWebhook(env: WebEnv) {
+  if (!env.TELEGRAM_BOT_TOKEN || env.ENVIRONMENT === 'preview' || !env.PUBLIC_ORIGIN.startsWith('https://')) return
+  const url = env.PUBLIC_ORIGIN + '/api/telegram/webhook'
+  const info = await (await botApi(env, 'getWebhookInfo', {})).json().catch(() => null) as { result?: { url?: string } } | null
+  const current = info?.result?.url
+  if (current === undefined || (current && current !== url)) return
+  await botApi(env, 'setWebhook', { url, secret_token: await webhookSecret(env), allowed_updates: ['message'] })
+}
+
+export async function createTelegramLink(env: WebEnv, value: unknown, fail: Fail) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_BOT_USERNAME) fail(503, 'Telegram notifications are not configured')
+  const body = linkBody.parse(value)
+  const expiresAt = Date.now() + LINK_TTL_MS
+  const inserted = await env.DB.prepare('INSERT OR IGNORE INTO telegram_links(code,secret_hash,server_id,server_name,token,expires_at) VALUES (?,?,?,?,NULL,?)')
+    .bind(body.code, body.secretHash, body.serverId, body.serverName, expiresAt).run()
+  if (!inserted.meta.changes) fail(409, 'This Telegram link is already in use')
+  await ensureTelegramWebhook(env).catch(() => {})
+  return { bot: env.TELEGRAM_BOT_USERNAME, expiresAt }
+}
+
+export async function claimTelegramLink(env: WebEnv, value: unknown, fail: Fail) {
+  const body = claimBody.parse(value)
+  const row = await env.DB.prepare('SELECT secret_hash, token, expires_at FROM telegram_links WHERE code = ?').bind(body.code).first<{ secret_hash: string; token: string | null; expires_at: number }>()
+  if (!row || row.expires_at < Date.now() || row.secret_hash !== await digest(body.secret)) fail(410, 'This Telegram link expired. Start again.')
+  if (!row!.token) return { pending: true }
+  await env.DB.prepare('DELETE FROM telegram_links WHERE code = ?').bind(body.code).run()
+  return { token: row!.token }
+}
+
+type TelegramUpdate = { message?: { text?: unknown; chat?: { id?: unknown; type?: unknown } } }
+
+/** Answers every update with 200, so Telegram does not resend it; only a wrong secret is refused. */
+export async function telegramWebhook(env: WebEnv, request: Request, value: unknown, fail: Fail) {
+  if (!env.TELEGRAM_BOT_TOKEN || request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== await webhookSecret(env)) fail(401, 'Unknown sender')
+  const message = (value as TelegramUpdate | null)?.message
+  const chatId = message?.chat?.id
+  if (typeof message?.text !== 'string' || message.chat?.type !== 'private' || typeof chatId !== 'number' || !Number.isSafeInteger(chatId)) return { ok: true }
+  const start = /^\/start(?:@\w+)?(?:\s+(\S+))?$/u.exec(message.text.trim())
+  if (!start) return { ok: true }
+  const code = linkCode.safeParse(start[1])
+  if (!code.success) {
+    await botApi(env, 'sendMessage', {
+      chat_id: chatId,
+      text: 'L4 keeps your Servers in Telegram. Open it to connect a Server, or turn on Telegram notifications in a Server\'s settings.',
+      reply_markup: { inline_keyboard: [[{ text: 'Open L4', web_app: { url: env.PUBLIC_ORIGIN + '/servers' } }]] },
+    }).catch(() => {})
+    return { ok: true }
+  }
+  const row = await env.DB.prepare('SELECT server_id, server_name, expires_at FROM telegram_links WHERE code = ?').bind(code.data).first<{ server_id: string; server_name: string; expires_at: number }>()
+  if (!row || row.expires_at < Date.now()) {
+    await botApi(env, 'sendMessage', { chat_id: chatId, text: 'This link expired. Turn on Telegram notifications in L4 again.' }).catch(() => {})
+    return { ok: true }
+  }
+  await env.DB.prepare('UPDATE telegram_links SET token = ? WHERE code = ? AND token IS NULL').bind(await createRelayToken(env, chatId, row.server_id), code.data).run()
+  await botApi(env, 'sendMessage', { chat_id: chatId, text: `Telegram notifications are on for ${row.server_name}. You can go back to L4.`, link_preview_options: { is_disabled: true } }).catch(() => {})
+  return { ok: true }
+}

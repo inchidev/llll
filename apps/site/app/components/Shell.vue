@@ -212,12 +212,12 @@ function forgetSelected() {
           <template v-else><p class="text-sm text-muted">The Server is taking longer to open.</p><UButton label="Try again" @click="retryFrame" /><UButton :to="shell.selected.value" external target="_blank" label="Open Server directly" color="neutral" variant="outline" /><UButton label="Remove from this device" color="neutral" variant="ghost" @click="forgetSelected" /></template>
         </div>
         <div
-          v-if="checkingAddress"
+          v-if="checkingAddress || shell.leaving.value"
           role="status"
           class="flex h-full items-center justify-center bg-black text-white"
         >
           <BrandMark class="size-12 animate-pulse" />
-          <span class="sr-only">Opening {{ checkingAddress.replace(/^https?:\/\//, '') }}…</span>
+          <span class="sr-only">Opening {{ (checkingAddress || shell.leaving.value).replace(/^https?:\/\//, '') }}…</span>
         </div>
         <div
           v-else-if="showHome"
