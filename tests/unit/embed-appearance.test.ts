@@ -22,6 +22,7 @@ it('publishes renamed Server settings and icon changes from the real query cache
   vi.stubGlobal('useLiveStore', () => reactive({ connection: 'disconnected' }))
   const ui = reactive({ mobilePane: 'chat' })
   vi.stubGlobal('useUiStore', () => ui)
+  vi.stubGlobal('useTelegramEmbed', () => ref({ available: false, reply: null, request: null }))
   vi.stubGlobal('useColorMode', () => ({ preference: 'dark' }))
   vi.stubGlobal('useRouter', () => ({ afterEach: vi.fn(), replace: vi.fn() }))
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ product: 'llll', kind: 'server', apiVersion: 2, id, origin, name: 'Old name', version: 'test', ready: true, embedOrigins: ['https://llll.gg'] })))

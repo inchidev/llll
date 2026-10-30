@@ -6,6 +6,11 @@ export const embedCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('open'), serverId: uuidSchema, path: z.string().max(2000).default('/') }),
   z.object({ type: z.literal('theme'), theme: z.enum(['light', 'dark', 'system']) }),
   z.object({ type: z.literal('telegram'), initData: z.string().min(1).max(16000) }),
+  // The Shell runs in Telegram and can deliver this Server's notifications through its bot.
+  z.object({ type: z.literal('telegram-notifications'), available: z.boolean() }),
+  // Answer to telegram-subscribe: an opaque delivery token for the relay at relayOrigin, or why not.
+  z.object({ type: z.literal('telegram-relay'), token: z.string().min(16).max(256).regex(/^[A-Za-z0-9_-]+$/u), relayOrigin: z.string().url().max(2048) }),
+  z.object({ type: z.literal('telegram-relay-error'), message: z.string().max(300) }),
 ])
 export const embedEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), version: z.literal(EMBED_VERSION), name: z.string().max(100) }),
@@ -16,6 +21,8 @@ export const embedEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delivery'), pending: z.boolean() }),
   // Whether the Client's phone navigation drawer is open; the Shell shows its Server rail alongside.
   z.object({ type: z.literal('drawer'), open: z.boolean() }),
+  // Ask the Shell for a Telegram delivery token for this Server, after a click in its settings.
+  z.object({ type: z.literal('telegram-subscribe'), serverId: uuidSchema }),
   z.object({ type: z.literal('open-rejected'), serverId: uuidSchema, currentServerId: uuidSchema.optional(), path: z.string().max(2000).optional(), reason: z.enum(['call-active', 'unavailable']) }),
 ])
 

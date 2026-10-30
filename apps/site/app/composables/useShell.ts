@@ -359,7 +359,10 @@ export function useShell() {
         const initData = telegram.value || window.Telegram?.WebApp?.initData
         if (server.origin === selected.value && initData)
           send(server.origin, { type: 'telegram', initData })
+        if (initData) send(server.origin, { type: 'telegram-notifications', available: true })
       }
+      if (m.type === 'telegram-subscribe' && m.serverId === server.id)
+        void subscribeTelegram(server.origin, server.id)
       if (m.type === 'servers') {
         const info = m.servers.find((s) => s.id === server.id)
         if (info) {
@@ -390,6 +393,27 @@ export function useShell() {
       if (m.type === 'call') calls.value[server.origin] = m.active
       if (m.type === 'delivery') pendingMessages.value[server.origin] = m.pending
     })
+  }
+  /** Ask Telegram to let the bot write, then get this Server a relay token for that chat. */
+  async function subscribeTelegram(origin: string, serverId: string) {
+    const app = window.Telegram?.WebApp
+    const initData = telegram.value || app?.initData
+    try {
+      if (!initData) throw new Error('Open L4 in Telegram to get notifications there')
+      const granted = await new Promise<boolean>((resolve) => {
+        if (!app?.requestWriteAccess || app.isVersionAtLeast?.('6.9') === false) return resolve(true)
+        app.requestWriteAccess(resolve)
+      })
+      if (!granted) throw new Error('Allow L4 to message you in Telegram to get notifications there')
+      const { token } = await $fetch<{ token: string }>('/api/telegram/subscribe', {
+        method: 'POST',
+        body: { initData, serverId },
+      })
+      send(origin, { type: 'telegram-relay', token, relayOrigin: location.origin })
+    } catch (cause) {
+      const data = (cause as { data?: { error?: { message?: string } } }).data
+      send(origin, { type: 'telegram-relay-error', message: (data?.error?.message || (cause instanceof Error ? cause.message : '') || 'Telegram notifications could not be enabled').slice(0, 300) })
+    }
   }
   function forget(origin: string) {
     if (pendingMessages.value[origin])

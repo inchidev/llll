@@ -9,6 +9,7 @@ import { advanceDeployment, deploymentFailure, cloudflare, deploymentParameters,
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
 import { webSession, digest, clearDeployment } from './session'
+import { relayTelegram, subscribeTelegram } from './telegram'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
 
@@ -86,6 +87,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     }
     return Response.redirect(target.toString(), 307)
   }
+  // Servers call the relay from their Worker, without a browser Origin; the token and its own rate limit guard it.
+  if (path === '/api/telegram/notify' && request.method === 'POST') return json(await relayTelegram(env, await input(request), fail))
   if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(request.method)) {
     if (request.headers.get('origin') !== env.PUBLIC_ORIGIN) fail(403, 'Origin mismatch')
     await rateLimit(request, env)
@@ -133,7 +136,8 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
     if (!accounts.some(account => account.id === value.accountId)) fail(403, 'Choose the Cloudflare account that owns this Server')
     return json(await enableL4Files(grant.accessToken, value.accountId, value.workerName))
   }
-  if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID) })
+  if (path === '/api/telegram/subscribe' && request.method === 'POST') return json(await subscribeTelegram(env, await input(request), fail))
+  if (path === '/api/deploy/config') return json({ oauth: Boolean(env.CLOUDFLARE_OAUTH_CLIENT_ID), telegramBot: env.TELEGRAM_BOT_USERNAME || null })
   if (path === '/api/deploy/releases' && request.method === 'GET') {
     const cacheKey = new Request(env.PUBLIC_ORIGIN + '/api/deploy/releases')
     try {

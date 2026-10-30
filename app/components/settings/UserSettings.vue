@@ -13,6 +13,7 @@ const { api } = useApi()
 const live = useLiveStore()
 const prefs = usePrefsStore()
 const push = usePushNotifications()
+const telegram = useTelegramNotifications()
 const presence = usePresenceStore()
 const toast = useToast()
 const colorMode = useColorMode()
@@ -74,6 +75,7 @@ watch(open, async (v) => {
       accountProviders.value = []
     }
     await push.refresh()
+    await telegram.refresh()
   }
 })
 
@@ -219,6 +221,12 @@ async function enableNotifications() {
   catch (err) {
     toast.add({ title: errorMessage(err), color: 'error' })
   }
+}
+
+async function toggleTelegram(enabled: boolean) {
+  await (enabled ? telegram.enable() : telegram.disable())
+  if (telegram.error.value) toast.add({ title: telegram.error.value, color: 'error' })
+  else if (enabled) toast.add({ title: 'Telegram notifications enabled', color: 'success' })
 }
 
 async function disableNotifications() {
@@ -505,6 +513,18 @@ async function logout() {
             color="neutral"
             variant="soft"
             :label="push.status.value === 'blocked' ? 'Blocked' : push.status.value === 'unconfigured' ? 'Unavailable' : 'Unsupported'"
+          />
+        </div>
+        <div v-if="telegram.available.value" class="flex items-start justify-between gap-6 py-4">
+          <div>
+            <p class="font-medium text-highlighted">Telegram notifications</p>
+            <p class="text-sm text-muted mt-1">The L4 bot tells you about mentions, direct messages, live sessions and email in Telegram. Messages name only this Server, never what was said.</p>
+          </div>
+          <USwitch
+            :model-value="telegram.subscribed.value"
+            aria-label="Telegram notifications"
+            :disabled="telegram.busy.value"
+            @update:model-value="toggleTelegram"
           />
         </div>
         <div class="flex items-start justify-between gap-6 py-4">

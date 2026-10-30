@@ -5,6 +5,8 @@ import type { L4Env } from './env'
 import { Permission } from '../shared/permissions'
 import { loadPushKeys } from './push-keys'
 import { unreadNavigationCount } from './unread'
+import { embedOrigins } from '../shared/embed'
+import { TELEGRAM_RELAY_KINDS, type TelegramRelayKind } from '../shared/telegram-relay'
 
 function isLiveTag(tag: string): boolean {
   return tag.startsWith('live:')
@@ -26,6 +28,9 @@ type OutboxRow = {
   endpoint: string
   p256dh: string
   auth: string
+  transport: 'webpush' | 'telegram'
+  relay_origin: string | null
+  relay_token: string | null
 }
 
 type BuiltPushRequest = Awaited<ReturnType<typeof buildPushPayload>>
@@ -56,9 +61,39 @@ export async function mailPushAccessAllowed(db: D1Database, threadId: string, us
     .bind(userId, threadId, Permission.readMail | Permission.sendMail).first())
 }
 
+/**
+ * Telegram targets go through the Shell's relay and its bot. Only the kind of event, the
+ * Server's name and where to open it leave the Server; never the message, author or channel.
+ */
+async function deliverTelegram(env: L4Env, row: OutboxRow) {
+  if (!row.relay_origin || !row.relay_token || !embedOrigins(env.EMBED_ORIGINS).includes(row.relay_origin)) return { disposition: 'expired' as const, error: 'relay_untrusted' }
+  if (!(TELEGRAM_RELAY_KINDS as readonly string[]).includes(row.kind)) return { disposition: 'failed' as const, error: 'kind_unsupported' }
+  let path = '/'
+  try {
+    const url = (JSON.parse(row.payload_json) as Partial<PushNotificationPayload>).url
+    if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) path = url
+  } catch { /* Open the Server's home instead. */ }
+  const server = await env.DB.prepare('SELECT id, name FROM server LIMIT 1').first<{ id: string; name: string }>()
+  if (!server) return { disposition: 'retry' as const, error: 'server_unavailable' }
+  try {
+    const response = await fetch(new URL('/api/telegram/notify', row.relay_origin), {
+      method: 'POST',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: row.relay_token, serverId: server.id, serverName: server.name.slice(0, 100), kind: row.kind as TelegramRelayKind, path }),
+    })
+    return { disposition: pushDeliveryDisposition(response.status), error: `relay_${response.status}` }
+  }
+  catch (error) {
+    return { disposition: 'retry' as const, error: pushErrorCode('fetch', error) }
+  }
+}
+
 async function deliverPush(env: L4Env, row: OutboxRow) {
   if (!await privatePushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   if (row.kind === 'mail' && !await mailPushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
+  if (row.transport === 'telegram') return deliverTelegram(env, row)
   const keys = await loadPushKeys(env)
   if (!keys) return { disposition: 'retry' as const, error: 'vapid_unconfigured' }
   let payload: PushNotificationPayload
@@ -126,7 +161,7 @@ export async function drainNotificationOutbox(env: L4Env): Promise<void> {
   const nowIso = now.toISOString()
   const rows = await env.DB.prepare(
     `SELECT o.event_id, o.subscription_id, o.payload_json, o.attempts, o.channel_id, o.recipient_id, o.kind,
-            s.endpoint, s.p256dh, s.auth
+            s.endpoint, s.p256dh, s.auth, s.transport, s.relay_origin, s.relay_token
      FROM notification_outbox o
      JOIN push_subscriptions s ON s.id = o.subscription_id
      WHERE o.delivered_at IS NULL AND o.failed_at IS NULL

@@ -25,6 +25,7 @@
   "vars": {
     "PUBLIC_ORIGIN": "https://llll.gg",
     "CLOUDFLARE_OAUTH_CLIENT_ID": "080a432190799c0ffd21a0348993ccc5",
+    "TELEGRAM_BOT_USERNAME": "L4_agent",
     "ENVIRONMENT": "production"
   },
   "observability": {

@@ -62,7 +62,7 @@ try {
   const missing = await mf.dispatchFetch(origin + '/no-such-page')
   assert.equal(missing.status, 404, 'Unknown paths are real 404s, not the landing page')
   const config = await (await mf.dispatchFetch(origin + '/api/deploy/config')).json()
-  assert.deepEqual(config, { oauth: false })
+  assert.deepEqual(config, { oauth: false, telegramBot: null })
   assert.equal((await mf.dispatchFetch(origin + '/api/deploy/oauth')).status, 503)
   const forbidden = await mf.dispatchFetch(origin + '/api/servers/register', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: '{}' })
   assert.equal(forbidden.status, 403)

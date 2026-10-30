@@ -64,7 +64,18 @@ const loading = ref(true)
 const listing = ref(false)
 const error = ref('')
 const listError = ref('')
-const config = ref<{ oauth: boolean } | null>(null)
+const config = ref<{ oauth: boolean; telegramBot?: string | null } | null>(null)
+// Cloudflare sign-in does not work reliably in Telegram's in-app browser, so the installer runs in the device's own browser.
+const inTelegram = import.meta.client && Boolean(window.Telegram?.WebApp?.initData)
+function continueInBrowser() {
+  const target = new URL('/create?tab=cloudflare', location.origin).toString()
+  if (window.Telegram?.WebApp?.openLink) window.Telegram.WebApp.openLink(target)
+  else window.open(target, '_blank', 'noopener')
+}
+function telegramLink(origin: string) {
+  const id = shell.servers.value.find(server => server.origin === origin)?.id
+  return config.value?.telegramBot && id ? `https://t.me/${config.value.telegramBot}?startapp=server_${id}` : ''
+}
 const session = ref<Session | null>(null)
 const versions = ref<{ version: string; published_at: string }[]>([])
 const version = ref('')
@@ -397,12 +408,14 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
     <section v-else class="space-y-4 rounded-lg border border-default p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="font-medium">{{ connected ? 'Cloudflare connected' : expired ? 'Cloudflare connection ended' : 'Cloudflare account' }}</p>
-        <div class="flex flex-wrap gap-2"><UButton v-if="config?.oauth !== false" :to="oauthUrl" external :label="connected || expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth || busy || updating" size="sm" /><UButton v-if="connected" label="Disconnect" color="neutral" variant="ghost" size="sm" :disabled="busy || updating" @click="disconnectCloudflare" /></div>
+        <UButton v-if="inTelegram && config?.oauth" label="Continue in browser" icon="i-ph-arrow-square-out" size="sm" @click="continueInBrowser" />
+        <div v-else class="flex flex-wrap gap-2"><UButton v-if="config?.oauth !== false" :to="oauthUrl" external :label="connected || expired || pending ? 'Reconnect Cloudflare' : 'Connect Cloudflare'" icon="i-ph-cloud" :disabled="!config?.oauth || busy || updating" size="sm" /><UButton v-if="connected" label="Disconnect" color="neutral" variant="ghost" size="sm" :disabled="busy || updating" @click="disconnectCloudflare" /></div>
       </div>
       <template v-if="connected && session">
         <UFormField label="Cloudflare account"><USelect v-model="accountId" :items="session.accounts.map(account => ({ label: account.name, value: account.id }))" :disabled="pending || busy || updating" class="w-full" /></UFormField>
         <p class="text-xs leading-5 text-muted">Cloudflare access: {{ remaining(session.grantExpiresAt) }} · Installer session: {{ remaining(session.sessionExpiresAt) }}.<br>Your Servers keep running when this connection ends.</p>
       </template>
+      <p v-else-if="inTelegram && config?.oauth" class="text-sm text-muted">Cloudflare sign-in opens in your phone's browser. Create the Server there, then choose Open in Telegram to bring it back here.</p>
       <p v-else-if="config && !config.oauth" class="text-sm text-muted">Connecting Cloudflare is not available on this site. Follow the <a href="https://github.com/inchidev/llll/blob/main/docs/deployment.md" class="underline">manual deployment guide</a> instead.</p>
       <p v-else class="text-sm text-muted">{{ expired ? 'Reconnect to refresh the account list or create another Server. Saved Servers remain available on this device.' : 'Sign in to Cloudflare and allow L4 to create a Server in your account. You pay Cloudflare directly. By default the Server keeps this access, encrypted, so it can update itself; clear Keep Cloudflare access before creating it to opt out.' }}</p>
     </section>
@@ -431,6 +444,7 @@ onUnmounted(() => { clearInterval(readinessTimer); window.removeEventListener('f
           <div class="flex flex-wrap gap-2">
             <UButton v-if="statuses[entry.origin] === 'setup' && claimFor(entry.origin)" :to="claimFor(entry.origin)" external target="_blank" rel="noopener noreferrer" label="Finish setup on your Server" size="sm" />
             <UButton v-else :to="openRoute(entry.origin)" label="Open in Shell" size="sm" color="neutral" variant="outline" :disabled="statuses[entry.origin] !== 'ready'" />
+            <UButton v-if="!inTelegram && statuses[entry.origin] === 'ready' && telegramLink(entry.origin)" :to="telegramLink(entry.origin)" external label="Open in Telegram" icon="i-ph-telegram-logo" size="sm" color="neutral" variant="ghost" />
             <UButton :to="statuses[entry.origin] === 'setup' && claimFor(entry.origin) || entry.origin" external label="Open directly" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="ghost" />
             <UButton v-if="statuses[entry.origin] !== 'ready' && connected && 'workerName' in entry && entry.workerName" :label="statuses[entry.origin] === 'setup' && !claimFor(entry.origin) ? 'Finish setup on your Server' : 'Recover setup link'" size="sm" color="neutral" variant="ghost" :loading="recoveringSetup === entry.origin" :disabled="Boolean(recoveringSetup)" @click="recoverSetup(entry)" />
             <UButton :label="copied === entry.origin ? 'Copied' : 'Copy address'" size="sm" color="neutral" variant="ghost" @click="copyAddress(entry.origin)" />

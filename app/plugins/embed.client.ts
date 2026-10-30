@@ -42,6 +42,8 @@ export default defineNuxtPlugin(async (nuxt) => {
     })
   }
   watch(() => [session.user?.id, unread.value, appearance.value.name, appearance.value.iconUrl, appearance.value.updatedAt], publish)
+  const telegramNotifications = useTelegramEmbed()
+  telegramNotifications.value.request = () => post({ type: 'telegram-subscribe', serverId: server.id })
   const ui = useUiStore()
   const publishDrawer = () => post({ type: 'drawer', open: ui.mobilePane === 'channels' })
   watch(() => ui.mobilePane === 'channels', publishDrawer)
@@ -66,6 +68,16 @@ export default defineNuxtPlugin(async (nuxt) => {
     const command = parsed.data
     if (command.type === 'theme') {
       colorMode.preference = command.theme
+      return
+    }
+    if (command.type === 'telegram-notifications') {
+      telegramNotifications.value.available = command.available
+      return
+    }
+    if (command.type === 'telegram-relay' || command.type === 'telegram-relay-error') {
+      telegramNotifications.value.reply = command.type === 'telegram-relay'
+        ? { token: command.token, relayOrigin: command.relayOrigin }
+        : { error: command.message }
       return
     }
     if (command.type === 'telegram') {
