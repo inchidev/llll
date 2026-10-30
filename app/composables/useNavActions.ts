@@ -15,6 +15,7 @@ export function useNavActions() {
   const createDocumentOpen = useState('nav:create-document', () => false)
   const documentCreating = useState('nav:document-creating', () => false)
   const createAgentOpen = useState('nav:create-agent', () => false)
+  const createProjectOpen = useState('nav:create-project', () => false)
   const createCanvasOpen = useState('nav:create-canvas', () => false)
   const createGadgetOpen = useState('nav:create-gadget', () => false)
   const composeOpen = useState('nav:compose', () => false)
@@ -37,6 +38,7 @@ export function useNavActions() {
     serverSettingsOpen,
     serverSettingsSection,
     createBoardOpen,
+    createProjectOpen,
     createDatabaseOpen,
     createDocumentOpen,
     documentCreating,

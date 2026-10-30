@@ -52,6 +52,10 @@ An external Agent works on its own computer, not with this Server's models: a Ru
 
 A Session holds one Agent's context for a conversation. A Run is one attempt to carry out work and may be linked to a Task. An Environment supplies the tools and working files available to a Run. A Schedule triggers a reminder or work under a saved, revocable authorization.
 
+## Factory
+
+The Server rail section where Projects turn into work. It lists Projects, the Runs a Member started, and the Git and Compute setup that repository work needs. Factory is a place in the interface, not a resource: say Project, Task and Run for what it contains.
+
 ## Task, Data and App
 
 A Task records work and its responsibility. Data comprises user-managed Databases, Views, Records, Documents and Canvases. An App is a published internal interface over explicitly authorized Data. These resources belong to one Server.

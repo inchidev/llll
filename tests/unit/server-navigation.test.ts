@@ -25,8 +25,8 @@ describe('Server rail destinations', () => {
     expect(chatNavigationTarget(conversations, 'removed')).toBe('/channels')
   })
 
-  it('opens context menus and keeps Runs with Tasks', () => {
-    for (const section of ['tasks', 'mail', 'inbox', 'agents', 'gadgets']) {
+  it('opens context menus and keeps Projects and Runs in Factory', () => {
+    for (const section of ['factory', 'tasks', 'mail', 'inbox', 'agents', 'gadgets']) {
       expect(serverNavigationSection(`/${section}`)).toBe(section)
       expect(hasServerNavigationMenu(`/${section}`)).toBe(true)
     }
@@ -34,7 +34,10 @@ describe('Server rail destinations', () => {
       expect(serverNavigationSection(path)).toBe('data')
       expect(hasServerNavigationMenu(path)).toBe(true)
     }
-    expect(serverNavigationSection('/runs/run-id')).toBe('tasks')
+    for (const path of ['/factory/projects/project-id', '/projects', '/runs', '/runs/run-id']) {
+      expect(serverNavigationSection(path)).toBe('factory')
+      expect(hasServerNavigationMenu(path)).toBe(true)
+    }
   })
 
   it('leaves Schedule and settings with only the compact rail', () => {
