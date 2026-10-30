@@ -212,5 +212,6 @@ export async function codeProposalChecks(env: L4Env, runId: string) {
     try { const url = new URL(value); return url.protocol === 'https:' && item.previewHosts.some(host => url.hostname === host || url.hostname.endsWith('.' + host)) } catch { return false }
   })
   return { url: client.web(pullPath(client.provider, pr.number)), commit: proposal.publishedCommitSha,
-    readyForReview: checks.total_count <= 100 && required.every(check => check.status === 'success'), required, previews, state: pr.state }
+    // Without configured checks, every reported check must pass and there must be at least one.
+    readyForReview: checks.total_count <= 100 && (required.length ? required.every(check => check.status === 'success') : actual.size > 0 && [...actual.values()].every(status => status === 'success')), required, previews, state: pr.state }
 }

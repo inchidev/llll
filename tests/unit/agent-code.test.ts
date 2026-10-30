@@ -214,6 +214,13 @@ describe('GitHub capability broker', () => {
     head = 'e'.repeat(40)
     await expect(codeProposalChecks(env, run.id)).rejects.toMatchObject({ statusCode: 409 })
   })
+  it('without configured checks, needs every reported check to pass', async () => {
+    db.exec("UPDATE agent_environments SET config_json=json_set(config_json,'$.requiredChecks',json('[]')); UPDATE agent_runs SET environment_json=json_set(environment_json,'$.requiredChecks',json('[]')) WHERE environment_json IS NOT NULL")
+    await publishCodeProposal(env, run.id, input())
+    expect(await codeProposalChecks(env, run.id)).toMatchObject({ readyForReview: false, required: [] })
+    lintSuccess = true
+    expect(await codeProposalChecks(env, run.id)).toMatchObject({ readyForReview: true })
+  })
   it('revokes repository writes after environment edits or task reassignment', async () => {
     db.exec("UPDATE agent_environments SET version=version+1 WHERE id='code-env'")
     await expect(publishCodeProposal(env, run.id, input())).rejects.toMatchObject({ statusCode: 403 })
