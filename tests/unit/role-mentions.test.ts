@@ -8,6 +8,7 @@ import { editChannelMessage, listMentionRoles, requireMessageMember, sendChannel
 import { readableMentions } from '../../server/utils/member-names'
 import { mentionFanout, ROLE_MENTION_LIMIT } from '../../workers/role-mentions'
 import { messageNotificationStatement } from '../../workers/notifications'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const design = '20000000-0000-4000-8000-00000000000d'
@@ -141,7 +142,7 @@ describe('role mentions', () => {
       INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES('domain','zone','example.com','app.example.com');
       INSERT INTO channels(id,name,type,visibility) VALUES ('support','support','text','server');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES('support','domain','support','Support');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('support','${ids.ada}','read');
+      ${mailboxGrantsSql(['support', ids.ada, 'read'])}
     `)
     const reach = async () => (await mentionFanout(env, { channelId: 'support', authorId: ids.owner, content: `<@&${design}>`, mentions: [] })).recipients
     expect(await reach()).toEqual([])
@@ -154,7 +155,7 @@ describe('role mentions', () => {
       INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES('domain','zone','example.com','app.example.com');
       INSERT INTO channels(id,name,type,visibility) VALUES ('support','support','text','server');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES('support','domain','support','Support');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('support','${ids.ada}','read');
+      ${mailboxGrantsSql(['support', ids.ada, 'read'])}
       UPDATE roles SET permissions_bitmask = permissions_bitmask | ${Permission.readMail} WHERE id = '${design}';
     `)
     sqlite.exec(`INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES ('note','support','${ids.owner}','note','2026-10-28')`)

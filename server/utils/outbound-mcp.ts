@@ -1,6 +1,7 @@
 import { parseBody } from './validate'
 import { z } from 'zod'
 import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
+import { Permission } from '../../shared/permissions'
 import type { AgentRun, RunMandate } from '../../shared/agent-execution'
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
 import { newId, nowIso } from '../../shared/ids'
@@ -16,14 +17,37 @@ import { boundedMcpOutput, mcpSecretForms } from './outbound-mcp-output'
 
 type Connection = {
   id: string; serverId: string; ownerId: string | null; createdBy: string; name: string; providerId: string; enabled: number; revision: number
-  grantsJson: string; toolNamesJson: string; toolsJson: string; hasCredential: number; credentialExpiresAt: string | null; checkedAt: string | null; lastError: string | null
+  toolNamesJson: string; toolsJson: string; hasCredential: number; credentialExpiresAt: string | null; checkedAt: string | null; lastError: string | null
 }
-const fields = 'id,server_id AS serverId,owner_id AS ownerId,created_by AS createdBy,name,provider_id AS providerId,enabled,revision,grants_json AS grantsJson,tool_names_json AS toolNamesJson,tools_json AS toolsJson,credential_json IS NOT NULL AS hasCredential,credential_expires_at AS credentialExpiresAt,checked_at AS checkedAt,last_error AS lastError'
+const fields = 'id,server_id AS serverId,owner_id AS ownerId,created_by AS createdBy,name,provider_id AS providerId,enabled,revision,tool_names_json AS toolNamesJson,tools_json AS toolsJson,credential_json IS NOT NULL AS hasCredential,credential_expires_at AS credentialExpiresAt,checked_at AS checkedAt,last_error AS lastError'
 const scope = (serverId: string, id: string) => `outbound-mcp:${serverId}:${id}`
 const expired = (row: Connection) => Boolean(row.credentialExpiresAt && Date.parse(row.credentialExpiresAt) <= Date.now())
-function dto(row: Connection): McpConnectionDTO {
+/** Connection grants: Agents and Members (both users) and Roles that may use a connection. */
+async function connectionGrants(env: L4Env, ids: string[]): Promise<Map<string, McpConnectionGrant>> {
+  const grants = new Map(ids.map(id => [id, { agentIds: [], memberIds: [], roleIds: [] } as McpConnectionGrant]))
+  if (!ids.length) return grants
+  const rows = await env.DB.prepare(`SELECT g.connection_id AS connectionId,g.member_id AS memberId,g.role_id AS roleId,u.kind FROM grants g LEFT JOIN users u ON u.id=g.member_id
+    WHERE g.connection_id IN (${ids.map(() => '?').join(',')}) ORDER BY g.created_at,g.id`).bind(...ids).all<{ connectionId: string; memberId: string | null; roleId: string | null; kind: string | null }>()
+  for (const row of rows.results) {
+    const grant = grants.get(row.connectionId)!
+    if (row.roleId) grant.roleIds.push(row.roleId)
+    else (row.kind === 'agent' ? grant.agentIds : grant.memberIds).push(row.memberId!)
+  }
+  return grants
+}
+async function replaceConnectionGrants(env: L4Env, id: string, grants: McpConnectionGrant, actorId: string) {
+  const now = nowIso()
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM grants WHERE connection_id=?').bind(id),
+    ...[...grants.agentIds, ...grants.memberIds].map(memberId => env.DB.prepare('INSERT INTO grants(id,member_id,permissions,connection_id,created_by,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(newId(), memberId, Permission.useExternalTools, id, actorId, now)),
+    ...grants.roleIds.map(roleId => env.DB.prepare('INSERT INTO grants(id,role_id,permissions,connection_id,created_by,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(newId(), roleId, Permission.useExternalTools, id, actorId, now)),
+  ])
+}
+function dto(row: Connection, grants: McpConnectionGrant): McpConnectionDTO {
   return { id: row.id, name: row.name, providerId: row.providerId, ownership: row.ownerId ? 'member' : 'server', enabled: Boolean(row.enabled), revision: row.revision,
-    grants: JSON.parse(row.grantsJson), toolNames: JSON.parse(row.toolNamesJson), tools: JSON.parse(row.toolsJson), hasCredential: Boolean(row.hasCredential),
+    grants, toolNames: JSON.parse(row.toolNamesJson), tools: JSON.parse(row.toolsJson), hasCredential: Boolean(row.hasCredential),
     credentialExpiresAt: row.credentialExpiresAt, checkedAt: row.checkedAt, lastError: expired(row) ? 'credentials_expired' : row.lastError }
 }
 function humanSession(actor: AuthorizationContext) {
@@ -45,7 +69,8 @@ export async function mcpConnections(env: L4Env, actor: AuthorizationContext) {
   if (actor.serverId !== await getServerId(env.DB)) fail(404, 'not_found', 'Server not found')
   const rows = await env.DB.prepare(`SELECT ${fields} FROM mcp_outbound_connections WHERE server_id=? AND (owner_id=? OR (owner_id IS NULL AND ?)) ORDER BY name,id LIMIT 32`)
     .bind(actor.serverId, actor.principal.id, actor.principal.isOwner ? 1 : 0).all<Connection>()
-  return { connections: rows.results.map(dto), providers: outboundMcpProviders }
+  const grants = await connectionGrants(env, rows.results.map(row => row.id))
+  return { connections: rows.results.map(row => dto(row, grants.get(row.id)!)), providers: outboundMcpProviders }
 }
 
 async function validateGrants(env: L4Env, input: McpConnectionInput, actor: AuthorizationContext) {
@@ -82,19 +107,26 @@ export async function saveMcpConnection(env: L4Env, actor: AuthorizationContext,
   const changedTools = !current || current.toolNamesJson !== JSON.stringify(input.toolNames)
   const tools = changedTools ? '[]' : current.toolsJson
   if (input.enabled && (!JSON.parse(tools).length || (input.credentialExpiresAt && Date.parse(input.credentialExpiresAt) <= Date.now()))) fail(409, 'mcp_not_ready', 'Refresh reviewed tools and renew expired credentials before enabling the connection')
+  // Grants live in the grants table. grants_json keeps a copy only for the previous release
+  // during an update; a later migration drops it.
   if (current) {
     const result = await env.DB.prepare(`UPDATE mcp_outbound_connections SET name=?,enabled=?,revision=revision+1,grants_json=?,tool_names_json=?,tools_json=?,credential_json=?,credential_expires_at=?,last_error=NULL,updated_at=? WHERE id=? AND server_id=? AND revision=? RETURNING id`)
       .bind(input.name, Number(input.enabled), JSON.stringify(input.grants), JSON.stringify(input.toolNames), tools, credential, input.credentialExpiresAt, now, connectionId, actor.serverId, current.revision).first()
     if (!result) fail(409, 'mcp_changed', 'Connection changed; reload before saving')
+    await replaceConnectionGrants(env, connectionId, input.grants, actor.principal.id)
   } else {
     const ownerId = input.ownership === 'member' ? actor.principal.id : null
     const result = await env.DB.prepare(`INSERT INTO mcp_outbound_connections(id,server_id,owner_id,created_by,name,provider_id,enabled,grants_json,tool_names_json,credential_json,credential_expires_at,created_at,updated_at)
       SELECT ?,?,?,?,?,?,0,?,?,?,?,?,? WHERE (SELECT count(*) FROM mcp_outbound_connections WHERE server_id=? AND owner_id IS ?) < 8 RETURNING id`)
       .bind(connectionId, actor.serverId, ownerId, actor.principal.id, input.name, input.providerId, JSON.stringify(input.grants), JSON.stringify(input.toolNames), credential, input.credentialExpiresAt, now, now, actor.serverId, ownerId).first()
     if (!result) fail(409, 'mcp_limit', 'At most eight connections per owner are supported')
+    await replaceConnectionGrants(env, connectionId, input.grants, actor.principal.id)
   }
   await writeAudit(env, { serverId: actor.serverId, actorId: actor.principal.id, action: 'tool.connection.configure', targetType: 'tool_connection', targetId: connectionId, meta: { providerId: input.providerId, ownership: input.ownership, enabled: input.enabled, ownerId: input.ownership === 'member' ? actor.principal.id : null }, authorization: actor })
-  return dto(await connection(env, connectionId))
+  return connectionDto(env, connectionId)
+}
+async function connectionDto(env: L4Env, id: string) {
+  return dto(await connection(env, id), (await connectionGrants(env, [id])).get(id)!)
 }
 async function credential(env: L4Env, row: Connection) {
   if (expired(row)) fail(409, 'mcp_credentials', 'MCP credentials expired; reconnect before using tools')
@@ -115,7 +147,7 @@ export async function refreshMcpConnection(env: L4Env, actor: AuthorizationConte
       .bind(JSON.stringify(tools), nowIso(), nowIso(), id, actor.serverId, row.revision).first()
     if (!updated) fail(409, 'mcp_changed', 'MCP connection changed during refresh')
     await writeAudit(env, { serverId: actor.serverId, actorId: actor.principal.id, action: 'tool.connection.refresh', targetType: 'tool_connection', targetId: id, meta: { tools: tools.length, ownerId: row.ownerId }, authorization: actor })
-    return dto(await connection(env, id))
+    return connectionDto(env, id)
   } catch {
     await env.DB.prepare("UPDATE mcp_outbound_connections SET last_error='refresh_failed',enabled=0,revision=revision+1 WHERE id=? AND server_id=? AND revision=?").bind(id, actor.serverId, row.revision).run()
     fail(502, 'mcp_refresh_failed', 'MCP refresh failed. Check the connection, credentials and reviewed tool schemas.')
@@ -137,9 +169,10 @@ async function visibleConnections(env: L4Env, authorization: AuthorizationContex
   if (!initiator || initiator.principal.kind !== 'human') return []
   const rows = await env.DB.prepare(`SELECT ${fields} FROM mcp_outbound_connections WHERE server_id=? AND enabled=1 AND (owner_id IS NULL OR owner_id=?) ORDER BY id LIMIT 32`)
     .bind(authorization.serverId, initiator.principal.id).all<Connection>()
+  const allGrants = await connectionGrants(env, rows.results.map(row => row.id))
   return rows.results.filter(row => {
     if (expired(row) || !outboundMcpProviders.some(provider => provider.id === row.providerId)) return false
-    const grants = JSON.parse(row.grantsJson) as McpConnectionGrant
+    const grants = allGrants.get(row.id)!
     return granted(grants, authorization.principal.id, authorization.principal.roleId, true)
       && (row.ownerId === initiator.principal.id || granted(grants, initiator.principal.id, initiator.principal.roleId, false))
   })

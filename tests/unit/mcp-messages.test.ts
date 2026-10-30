@@ -11,6 +11,7 @@ import {
   readChannelMessages, requireMessageMember, searchChannelMessages, sendChannelMessage, setMessagePin, setMessageReaction,
 } from '../../server/utils/message-service'
 import { SEARCH_MESSAGES_SQL } from '../../server/utils/message-search'
+import { channelOverrideSql, mailboxGrantsSql } from '../helpers/grants'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const agentId = '00000000-0000-4000-8000-000000000002'
@@ -155,10 +156,10 @@ describe('MCP messages use the interface channel and send pipeline', () => {
   it('applies channel allow/deny and DM participation instead of requiring a global send grant', async () => {
     sqlite.prepare("UPDATE roles SET permissions_bitmask=? WHERE id='member-role'").run(Permission.mcpConnect)
     await expect(send()).rejects.toMatchObject({ statusCode: 403 })
-    sqlite.exec(`INSERT INTO channel_role_overrides(channel_id,role_id,allow_mask,deny_mask) VALUES ('public-chat','member-role',${Permission.sendMessages},0)`)
+    sqlite.exec(channelOverrideSql('public-chat', 'member-role', Permission.sendMessages, 0))
     await expect(send()).resolves.toHaveProperty('message.author.id', 'member-user')
     await expect(send('member-dm')).resolves.toHaveProperty('message.author.id', 'member-user')
-    sqlite.exec(`UPDATE channel_role_overrides SET allow_mask=0,deny_mask=${Permission.sendMessages}`)
+    sqlite.exec(channelOverrideSql('public-chat', 'member-role', 0, Permission.sendMessages))
     await expect(send()).rejects.toMatchObject({ statusCode: 403 })
     await expect(read()).resolves.toHaveProperty('messages')
     await expect(read('agent-dm')).rejects.toMatchObject({ statusCode: 404 })
@@ -235,7 +236,7 @@ describe('MCP messages use the interface channel and send pipeline', () => {
       INSERT INTO channels(id,name,type,visibility) VALUES ('mailbox-chat','Inbox','text','server');
       INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES ('domain-1','zone-1','example.com','community.example.com');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES ('mailbox-chat','domain-1','inbox','Inbox');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('mailbox-chat','member-user','read');
+      ${mailboxGrantsSql(['mailbox-chat', 'member-user', 'read'])}
     `)
     await expect(read('mailbox-chat')).rejects.toMatchObject({ statusCode: 404 })
     sqlite.exec("INSERT INTO roles(id,key,name,permissions_bitmask) VALUES ('mail-only-role','custom:mail-only','Mail only',0); UPDATE users SET role_id='mail-only-role' WHERE id='member-user'")
@@ -243,11 +244,11 @@ describe('MCP messages use the interface channel and send pipeline', () => {
     sqlite.prepare('INSERT INTO role_policies(role_id,policy_id) VALUES (?,?)').run('mail-only-role', 'mail-reader')
     await expect(read('mailbox-chat')).resolves.toHaveProperty('messages')
     await expect(send('mailbox-chat')).rejects.toMatchObject({ statusCode: 403 })
-    sqlite.exec("UPDATE email_mailbox_access SET permission='send' WHERE channel_id='mailbox-chat'")
+    sqlite.exec(`UPDATE grants SET permissions=${Permission.readMail | Permission.sendMail} WHERE mailbox_id='mailbox-chat'`)
     await expect(send('mailbox-chat')).rejects.toMatchObject({ statusCode: 403 })
     sqlite.prepare('UPDATE project_policies SET permissions_bitmask=? WHERE id=?').run(Permission.readMail | Permission.sendMail | Permission.mcpConnect, 'mail-reader')
     await expect(send('mailbox-chat')).resolves.toHaveProperty('message.author.id', 'member-user')
-    sqlite.exec("DELETE FROM email_mailbox_access WHERE channel_id='mailbox-chat'")
+    sqlite.exec("DELETE FROM grants WHERE mailbox_id='mailbox-chat'")
     await expect(read('mailbox-chat')).rejects.toMatchObject({ statusCode: 404 })
   })
 })
@@ -261,7 +262,7 @@ describe('Server-wide search and MCP chat actions', () => {
       INSERT INTO channels(id,name,type,visibility) VALUES ('mailbox-chat','Inbox','text','server');
       INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES ('domain-1','zone-1','example.com','community.example.com');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES ('mailbox-chat','domain-1','inbox','Inbox');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES ('mailbox-chat','member-user','send');
+      ${mailboxGrantsSql(['mailbox-chat', 'member-user', 'send'])}
       INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES
         ('hit-public','public-chat','other-user','Launch checklist','2026-10-22T00:00:01Z'),
         ('hit-thread','public-thread','other-user','Launch in the thread','2026-10-22T00:00:02Z'),

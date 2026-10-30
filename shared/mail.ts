@@ -1,4 +1,5 @@
 import type { MailboxPermission } from './types'
+import { Permission } from './permissions'
 
 export const MAIL_EXTERNAL_USER_ID = 'mail-external'
 
@@ -17,6 +18,18 @@ export function mailAddress(localPart: string, domain: string): string {
 export function mailPermissionAllows(actual: MailboxPermission, needed: MailboxPermission): boolean {
   const rank: Record<MailboxPermission, number> = { read: 1, send: 2, manage: 3 }
   return rank[actual] >= rank[needed]
+}
+
+/** A mailbox grant's permissions: read, send as well, or manage the mailbox too. */
+export const mailboxGrantPermissions: Record<MailboxPermission, number> = {
+  read: Permission.readMail,
+  send: Permission.readMail | Permission.sendMail,
+  manage: Permission.readMail | Permission.sendMail | Permission.manageChannels,
+}
+
+/** SQL for the mailbox permission of a grants row aliased `alias`. */
+export function mailboxGrantPermissionSql(alias: string): string {
+  return `CASE WHEN ${alias}.permissions & ${Permission.manageChannels} THEN 'manage' WHEN ${alias}.permissions & ${Permission.sendMail} THEN 'send' ELSE 'read' END`
 }
 
 /** Bounds on inbound mail. Email Routing accepts messages up to 25 MiB. */

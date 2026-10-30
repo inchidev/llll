@@ -92,7 +92,7 @@ async function accessibleMentions(env: L4Env, root: ChannelRow, actorId: string,
   // preview. Mailboxes use the guard's rule; a discussion stays with people who certainly
   // read its Task (Owner, creator, assignee, or a Role reading every Board or this one).
   const access = mailbox
-    ? `EXISTS (SELECT 1 FROM email_mailbox_access a WHERE a.channel_id = ?1 AND a.user_id = u.id)
+    ? `EXISTS (SELECT 1 FROM grants a WHERE a.mailbox_id = ?1 AND a.member_id = u.id)
        AND (u.id = s.owner_id OR (r.permissions_bitmask & ${Permission.readMail | Permission.sendMail}) != 0)`
     : `(u.id = s.owner_id OR u.id IN (SELECT created_by FROM tasks WHERE id = ?1) OR u.id IN (SELECT assignee_id FROM tasks WHERE id = ?1)
        OR ((r.permissions_bitmask & ${Permission.readTasks | Permission.writeTasks | Permission.manageTasks}) != 0
@@ -224,10 +224,10 @@ export async function liveNotificationStatement(
  * People who may read a mailbox now: a mailbox grant plus Read or Send email (or Owner).
  * Delivery checks this again, so a grant removed while the push waits stops it.
  */
-export const MAILBOX_READERS_SQL = `SELECT a.user_id AS id FROM email_mailbox_access a
-  JOIN users u ON u.id = a.user_id AND u.status = 'active' AND u.kind = 'human'
+export const MAILBOX_READERS_SQL = `SELECT a.member_id AS id FROM grants a
+  JOIN users u ON u.id = a.member_id AND u.status = 'active' AND u.kind = 'human'
   JOIN roles r ON r.id = u.role_id CROSS JOIN server s
-  WHERE a.channel_id = ? AND (u.id = s.owner_id OR (r.permissions_bitmask & ${Permission.readMail | Permission.sendMail}) != 0)`
+  WHERE a.mailbox_id = ? AND (u.id = s.owner_id OR (r.permissions_bitmask & ${Permission.readMail | Permission.sendMail}) != 0)`
 
 type InboundMail = { messageId: string; mailboxId: string; threadId: string; subject: string; fromName: string | null; fromAddress: string; content: string }
 

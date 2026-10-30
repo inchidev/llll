@@ -1,6 +1,7 @@
 import { retryMailFileCleanup } from '../../../utils/mail-cleanup'
 import type { MailSettingsDTO, MailboxPermission } from '../../../../shared/types'
 import { Permission } from '../../../../shared/permissions'
+import { mailboxGrantPermissionSql } from '../../../../shared/mail'
 import { requireMember } from '../../../utils/guards'
 import { cf } from '../../../utils/cf'
 import { serverEmailAvailable } from '../../../../workers/mail-transport'
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event): Promise<{ mail: MailSettingsDTO
      ORDER BY mb.display_name, address`,
   ).all<{ channelId: string; domainId: string; address: string; displayName: string; enabled: number; conversationCount: number }>()
   const access = await env.DB.prepare(
-    'SELECT channel_id as channelId, user_id as userId, permission FROM email_mailbox_access',
+    `SELECT mailbox_id AS channelId, member_id AS userId, ${mailboxGrantPermissionSql('g')} AS permission FROM grants g WHERE mailbox_id IS NOT NULL`,
   ).all<{ channelId: string; userId: string; permission: MailboxPermission }>()
   return {
     mail: {

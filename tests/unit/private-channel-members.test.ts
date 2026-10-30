@@ -5,6 +5,7 @@ import { privatePushAccessAllowed } from '../../workers/push'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 import { requireChannelAccess } from '../../server/utils/guards'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 const state = vi.hoisted(() => ({ env: null as L4Env | null, actor: 'manager-001', channel: 'private-001', target: 'member-001', body: {} as Record<string, unknown> }))
 vi.mock('../../server/utils/auth', () => ({ requireUser: async () => ({ id: state.actor, kind: 'human' }) }))
@@ -115,7 +116,7 @@ describe('private channel member management', () => {
   it('rejects Mailbox membership changes through the channel API', async () => {
     sqlite.exec(`INSERT INTO email_domains(id,zone_id,domain,app_hostname) VALUES('domain-001','zone','test.example','test.example');
       INSERT INTO email_mailboxes(channel_id,domain_id,local_part,display_name) VALUES('mailbox-001','domain-001','mail','Mail');
-      INSERT INTO email_mailbox_access(channel_id,user_id,permission) VALUES('mailbox-001','manager-001','manage');
+      ${mailboxGrantsSql(['mailbox-001', 'manager-001', 'manage'])}
       INSERT INTO project_policies(id,name,permissions_bitmask) VALUES('manager-mail','Manager mail',${Permission.manageChannels | Permission.sendMessages | Permission.readMail | Permission.sendMail});
       INSERT INTO role_policies(role_id,policy_id) VALUES('manager-role','manager-mail');`)
     state.channel = 'mailbox-001'

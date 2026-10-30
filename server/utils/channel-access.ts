@@ -4,10 +4,10 @@ import { taskPermissionAllowed } from './task-policy'
 import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
 import { and, eq, inArray } from 'drizzle-orm'
-import { channelRoleOverrides, channels, channelMembers, emailMailboxAccess, emailMailboxes, roles, tasks, users, server } from '../../drizzle/schema'
-import { resolveChannelPermissions } from '../../shared/channel-permissions'
+import { channels, channelMembers, emailMailboxes, roles, tasks, users, server } from '../../drizzle/schema'
+import { CHANNEL_ROLE_OVERRIDE_SQL, resolveChannelPermissions } from '../../shared/channel-permissions'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
-import { mailPermissionAllows } from '../../shared/mail'
+import { mailboxGrantPermissionSql, mailPermissionAllows } from '../../shared/mail'
 import type { ChannelType, MailboxPermission, PublicUser } from '../../shared/types'
 import { dmFrozen } from '../../shared/dm'
 import { ARCHIVED_CHANNEL_WITHHELD, CHANNEL_ARCHIVED_CODE, CHANNEL_ARCHIVED_MESSAGE } from '../../shared/channel-archive'
@@ -133,10 +133,8 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
       : null,
     db.select({ enabled: emailMailboxes.enabled }).from(emailMailboxes)
       .where(eq(emailMailboxes.channelId, accessRoot.id)).limit(1),
-    db.select({ permission: emailMailboxAccess.permission }).from(emailMailboxAccess).where(and(
-      eq(emailMailboxAccess.channelId, accessRoot.id),
-      eq(emailMailboxAccess.userId, user.id),
-    )).limit(1),
+    env.DB.prepare(`SELECT ${mailboxGrantPermissionSql('g')} AS permission FROM grants g WHERE g.mailbox_id = ? AND g.member_id = ?`)
+      .bind(accessRoot.id, user.id).all<{ permission: MailboxPermission }>().then(rows => rows.results),
     db.select({ id: tasks.id, boardId: tasks.boardId, projectId: tasks.projectId }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
   ])
   if (privateParts && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
@@ -199,13 +197,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
 
   let perms = baseMember.perms
   if (!baseMember.isOwner) {
-    const override = (await db.select({
-      allow: channelRoleOverrides.allowMask,
-      deny: channelRoleOverrides.denyMask,
-    }).from(channelRoleOverrides).where(and(
-      eq(channelRoleOverrides.channelId, accessRoot.id),
-      eq(channelRoleOverrides.roleId, baseMember.roleId),
-    )).limit(1))[0]
+    const override = await env.DB.prepare(CHANNEL_ROLE_OVERRIDE_SQL).bind(accessRoot.id, baseMember.roleId).first<{ allow: number | null; deny: number | null }>()
     perms = resolveChannelPermissions(perms, override)
   }
   if (mailbox && mailPermissionAllows(grants[0]!.permission, 'send') && (baseMember.isOwner || hasPermission(baseMember.perms, Permission.sendMail))) {

@@ -19,7 +19,7 @@ export type ChannelPermissionMasks = {
   deny: number
 }
 
-export function resolveChannelPermissions(base: number, override?: Partial<ChannelPermissionMasks> | null): number {
+export function resolveChannelPermissions(base: number, override?: { allow?: number | null; deny?: number | null } | null): number {
   if (!override) return base
   const allow = override.allow ?? 0
   const deny = override.deny ?? 0
@@ -46,3 +46,8 @@ export function channelPermissionMasks(modes: Partial<Record<ChannelPermissionGr
   }
   return { allow, deny }
 }
+
+/** A Role's channel override: allows are grants, denies stay in channel_role_denies. Binds channel ID, then Role ID. */
+export const CHANNEL_ROLE_OVERRIDE_SQL = `SELECT
+  (SELECT permissions FROM grants WHERE channel_id = ?1 AND role_id = ?2) AS allow,
+  (SELECT deny_mask FROM channel_role_denies WHERE channel_id = ?1 AND role_id = ?2) AS deny`

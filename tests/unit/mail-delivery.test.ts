@@ -8,6 +8,7 @@ import { messages } from '../../drizzle/schema'
 import { MAIL_LIMITS } from '../../shared/mail'
 import type { L4Env } from '../../workers/env'
 import { ingestServerEmail } from '../../workers/mail-ingress'
+import { mailboxGrantsSql } from '../helpers/grants'
 
 let sqlite: DatabaseSync
 let files: Map<string, unknown>
@@ -88,7 +89,7 @@ beforeEach(() => {
     INSERT INTO channels (id, name, type, visibility) VALUES ('support', 'support', 'text', 'private'), ('sales', 'sales', 'text', 'private');
     INSERT INTO email_domains (id, zone_id, domain, app_hostname) VALUES ('main', 'zone', 'example.com', 'chat.example.com');
     INSERT INTO email_mailboxes (channel_id, domain_id, local_part, display_name) VALUES ('support', 'main', 'support', 'Support'), ('sales', 'main', 'sales', 'Sales');
-    INSERT INTO email_mailbox_access (channel_id, user_id, permission) VALUES ('support', 'owner', 'manage'), ('sales', 'owner', 'manage');
+    ${mailboxGrantsSql(['support', 'owner', 'manage'], ['sales', 'owner', 'manage'])}
   `)
   files = new Map()
   notified = []

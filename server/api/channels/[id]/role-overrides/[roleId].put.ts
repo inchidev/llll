@@ -1,10 +1,7 @@
-import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { channelRoleOverrides } from '../../../../../drizzle/schema'
 import { CHANNEL_PERMISSION_MASK, isChannelPermissionMask } from '../../../../../shared/channel-permissions'
-import { nowIso } from '../../../../../shared/ids'
 import { cf } from '../../../../utils/cf'
-import { requireChannelOverrideManager, requireOverridableRole, toChannelRoleOverrideDto } from '../../../../utils/channel-role-overrides'
+import { requireChannelOverrideManager, requireOverridableRole, setChannelRoleOverride } from '../../../../utils/channel-role-overrides'
 import { getDb } from '../../../../utils/db'
 import { writeAudit } from '../../../../utils/messages'
 import { parseBody } from '../../../../utils/validate'
@@ -29,27 +26,7 @@ export default defineEventHandler(async (event) => {
   const { env } = cf(event)
   const db = getDb(env.DB)
   await requireOverridableRole(db, roleId)
-  const updatedAt = nowIso()
-
-  if (body.allow === 0 && body.deny === 0) {
-    await db.delete(channelRoleOverrides).where(and(
-      eq(channelRoleOverrides.channelId, channelId),
-      eq(channelRoleOverrides.roleId, roleId),
-    ))
-  }
-  else {
-    await db.insert(channelRoleOverrides).values({
-      channelId,
-      roleId,
-      allowMask: body.allow,
-      denyMask: body.deny,
-      createdAt: updatedAt,
-      updatedAt,
-    }).onConflictDoUpdate({
-      target: [channelRoleOverrides.channelId, channelRoleOverrides.roleId],
-      set: { allowMask: body.allow, denyMask: body.deny, updatedAt },
-    })
-  }
+  await setChannelRoleOverride(env, channelId, roleId, body.allow, body.deny, actor.user.id)
   await writeAudit(env, {
     serverId: actor.serverId,
     actorId: actor.user.id,
@@ -61,6 +38,6 @@ export default defineEventHandler(async (event) => {
   return {
     override: body.allow === 0 && body.deny === 0
       ? null
-      : toChannelRoleOverrideDto({ channelId, roleId, allowMask: body.allow, denyMask: body.deny }),
+      : { channelId, roleId, allow: body.allow, deny: body.deny },
   }
 })

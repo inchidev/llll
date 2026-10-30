@@ -77,7 +77,7 @@ export async function mentionFanout(env: L4Env, message: { channelId: string; au
     binds.push(root.id)
   }
   if (mailbox) {
-    access.push(`EXISTS (SELECT 1 FROM email_mailbox_access a WHERE a.channel_id = ? AND a.user_id = u.id)
+    access.push(`EXISTS (SELECT 1 FROM grants a WHERE a.mailbox_id = ? AND a.member_id = u.id)
       AND (u.id = s.owner_id OR (r.permissions_bitmask & ${Permission.readMail | Permission.sendMail}) != 0)`)
     binds.push(root.id)
   }

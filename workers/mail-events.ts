@@ -7,10 +7,10 @@ import { Permission } from '../shared/permissions'
 /** Tells everyone with access to a mailbox that it changed, so open mail views refresh. */
 export async function signalMailChanged(env: L4Env, mailboxId: string, threadId: string | null = null): Promise<void> {
   const rows = await env.DB.prepare(
-    `SELECT a.user_id as userId FROM email_mailbox_access a
-     JOIN users u ON u.id = a.user_id
+    `SELECT a.member_id as userId FROM grants a
+     JOIN users u ON u.id = a.member_id
      JOIN roles r ON r.id = u.role_id CROSS JOIN server s
-     WHERE a.channel_id = ? AND u.status = 'active'
+     WHERE a.mailbox_id = ? AND u.status = 'active'
        AND (u.id = s.owner_id OR (r.permissions_bitmask & ?) != 0)`,
   ).bind(mailboxId, Permission.readMail | Permission.sendMail).all<{ userId: string }>()
   const recipientIds = (rows.results ?? []).map(row => row.userId)

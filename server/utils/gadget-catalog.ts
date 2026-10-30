@@ -1,6 +1,7 @@
 import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { emptyGadgetSpec, type GadgetDetailDTO, type GadgetListDTO, type GadgetSpec, type GadgetSummaryDTO } from '../../shared/gadgets'
 import { newId, nowIso } from '../../shared/ids'
+import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import type { Membership } from './guards'
@@ -56,7 +57,7 @@ export async function listGadgets(env: L4Env, actor: Membership): Promise<Gadget
      FROM gadgets
      JOIN gadget_versions versions
        ON versions.gadget_id = gadgets.id AND versions.version = gadgets.published_version
-     JOIN gadget_version_role_access access ON access.gadget_version_id = versions.id
+     JOIN grants access ON access.gadget_version_id = versions.id
      WHERE access.role_id = ?
      ORDER BY gadgets.position, gadgets.created_at`,
   ).bind(actor.roleId).all<GadgetSummaryDTO>()
@@ -66,7 +67,7 @@ export async function listGadgets(env: L4Env, actor: Membership): Promise<Gadget
 export async function getGadgetDetail(env: L4Env, actor: Membership, id: string): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Missing permission')
   const row = await requireGadget(env, id)
-  const access = await env.DB.prepare('SELECT role_id as roleId FROM gadget_draft_role_access WHERE gadget_id = ? ORDER BY role_id').bind(id).all<{ roleId: string }>()
+  const access = await env.DB.prepare('SELECT role_id as roleId FROM grants WHERE gadget_id = ? ORDER BY role_id').bind(id).all<{ roleId: string }>()
   let draftSpec: GadgetSpec
   try { draftSpec = parseGadgetSpec(JSON.parse(row.draftSpecJson)) }
   catch { fail(409, 'gadget_draft_invalid', 'The App draft is invalid') }
@@ -83,9 +84,13 @@ async function validateRoleIds(env: L4Env, roleIds: string[]): Promise<string[]>
   return ids
 }
 
-async function replaceRoleAccess(env: L4Env, gadgetId: string, roleIds: string[]): Promise<void> {
-  const statements = [env.DB.prepare('DELETE FROM gadget_draft_role_access WHERE gadget_id = ?').bind(gadgetId)]
-  for (const roleId of roleIds) statements.push(env.DB.prepare('INSERT INTO gadget_draft_role_access (gadget_id, role_id) VALUES (?, ?)').bind(gadgetId, roleId))
+async function replaceRoleAccess(env: L4Env, gadgetId: string, roleIds: string[], actorId: string): Promise<void> {
+  const statements = [env.DB.prepare('DELETE FROM grants WHERE gadget_id = ?').bind(gadgetId)]
+  const now = nowIso()
+  for (const roleId of roleIds) {
+    statements.push(env.DB.prepare('INSERT INTO grants (id, role_id, permissions, gadget_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(newId(), roleId, Permission.useGadgets, gadgetId, actorId, now))
+  }
   await env.DB.batch(statements)
 }
 
@@ -106,7 +111,7 @@ export async function createGadget(
     `INSERT INTO gadgets (id, name, description, draft_spec_json, draft_revision, position, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)`,
   ).bind(id, input.name, input.description ?? '', JSON.stringify(spec), position?.value ?? 1024, actor.user.id, now, now).run()
-  await replaceRoleAccess(env, id, roleIds)
+  await replaceRoleAccess(env, id, roleIds, actor.user.id)
   await writeAudit(env, { serverId: actor.serverId, actorId: actor.user.id, action: 'gadget.create', targetType: 'gadget', targetId: id, meta: { name: input.name }, authorization: actor.authorization })
   return { id, name: input.name, description: input.description ?? '', position: position?.value ?? 1024, draftRevision: 1, publishedVersion: null, createdBy: actor.user.id, createdAt: now, updatedAt: now, draftSpec: spec, roleIds }
 }
@@ -130,7 +135,7 @@ export async function updateGadget(
      WHERE id = ? AND draft_revision = ?`,
   ).bind(input.name ?? current.name, input.description ?? current.description, JSON.stringify(spec), nowIso(), id, input.revision).run()
   if (!updated.meta.changes) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')
-  if (roleIds) await replaceRoleAccess(env, id, roleIds)
+  if (roleIds) await replaceRoleAccess(env, id, roleIds, actor.user.id)
   await writeAudit(env, { serverId: actor.serverId, actorId: actor.user.id, action: 'gadget.update', targetType: 'gadget', targetId: id, meta: { fields: Object.keys(input).filter(key => key !== 'revision') }, authorization: actor.authorization })
   return getGadgetDetail(env, actor, id)
 }
@@ -149,12 +154,12 @@ export async function publishGadget(env: L4Env, actor: Membership, id: string, r
        SELECT ?, id, ?, name, description, ?, ?, ? FROM gadgets WHERE id = ? AND draft_revision = ?`,
     ).bind(versionId, version, JSON.stringify(spec), actor.user.id, now, id, revision),
     env.DB.prepare(
-      `INSERT INTO gadget_version_role_access (gadget_version_id, role_id)
-       SELECT versions.id, access.role_id
+      `INSERT INTO grants (id, role_id, permissions, gadget_version_id, created_by, created_at)
+       SELECT lower(hex(randomblob(16))), access.role_id, access.permissions, versions.id, ?, ?
        FROM gadget_versions versions
-       JOIN gadget_draft_role_access access ON access.gadget_id = versions.gadget_id
+       JOIN grants access ON access.gadget_id = versions.gadget_id
        WHERE versions.id = ? AND versions.gadget_id = ?`,
-    ).bind(versionId, id),
+    ).bind(actor.user.id, now, versionId, id),
     env.DB.prepare('UPDATE gadgets SET published_version = ?, updated_at = ? WHERE id = ? AND draft_revision = ?')
       .bind(version, now, id, revision),
   ])
