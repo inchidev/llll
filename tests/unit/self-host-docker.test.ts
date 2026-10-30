@@ -88,6 +88,12 @@ describe('self-host docker stack', () => {
     expect(read('self-host/install/install.sh')).toContain('put_env ADMIN_PASSWORD "$LLLL_ADMIN_PASSWORD"')
   })
 
+  it('shows the exact Coolify template on the Coolify docs page', () => {
+    const page = read('apps/site/content/docs/self-host/coolify.md')
+    const block = page.match(/```yaml\n([\s\S]*?)```/)?.[1]
+    expect(block).toBe(read('self-host/coolify/docker-compose.yaml'))
+  })
+
   it('runs the published image in Coolify, updated by its tag', () => {
     const template = read('self-host/coolify/docker-compose.yaml')
     expect(template).toContain('image: ghcr.io/inchidev/llll:${LLLL_VERSION:-latest}')

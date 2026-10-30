@@ -39,6 +39,7 @@ body { background: var(--ui-bg); }
 .prose-content pre { position: relative; overflow-x: auto; padding: 1rem 1.1rem; border: 1px solid var(--ui-border); border-radius: .5rem; background: var(--ui-bg-elevated); font-size: .85rem; line-height: 1.6; }
 .prose-content pre .copy-code { position: absolute; top: .5rem; right: .5rem; padding: .15rem .5rem; border: 1px solid var(--ui-border); border-radius: .3rem; background: var(--ui-bg); color: var(--ui-text-muted); font-size: .75rem; opacity: 0; transition: opacity .15s; }
 .prose-content pre:hover .copy-code, .prose-content pre .copy-code:focus-visible { opacity: 1; }
+@media (hover: none) { .prose-content pre .copy-code { opacity: 1; } }
 .prose-content .table-wrap { overflow-x: auto; }
 .prose-content table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .prose-content th, .prose-content td { padding: .55rem .75rem; border: 1px solid var(--ui-border); text-align: left; vertical-align: top; }
