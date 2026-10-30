@@ -38,7 +38,7 @@ A Coordinator can delegate selected work to selected Agents in a Project under a
 
 ## Interface and release work
 
-Use Projects, Tasks, Repositories, Agents, Task workspace and Compute node in product copy. Remove the former Factory feature branding. Internal identifiers and immutable released assets are compatibility details, not product names.
+Factory is the Server rail section where Projects turn into work: Projects, their Runs, and the Git and Compute setup they need (decided 2026-10-30, reversing the earlier plan to drop the name). It names a place, not a separate resource. Use Projects, Tasks, Repositories, Agents, Task workspace and Compute node for what is inside it. Internal identifiers and immutable released assets are compatibility details, not product names.
 
 Settings show searchable lists. Creation and editing open a modal or a dedicated detail view. Apply this consistently to Git connections, compute nodes, repository configuration and project setup.
 

@@ -1,6 +1,6 @@
 import { channelPath, type ChannelRef } from './paths'
 
-export type ServerNavigationSection = 'projects' | 'chat' | 'inbox' | 'agents' | 'tasks' | 'schedules' | 'mail' | 'data' | 'gadgets'
+export type ServerNavigationSection = 'factory' | 'chat' | 'inbox' | 'agents' | 'tasks' | 'schedules' | 'mail' | 'data' | 'gadgets'
 
 /** The Chat rail must not reopen an Agent DM remembered by an older Client. */
 export function chatNavigationTarget(conversations: readonly ChannelRef[], lastId?: string): string {
@@ -9,18 +9,18 @@ export function chatNavigationTarget(conversations: readonly ChannelRef[], lastI
   return path.startsWith('/agents/') ? '/channels' : path
 }
 
-/** Resource routes retain their section; Schedule uses the content area directly. */
+/** Resource routes retain their section; Schedule uses the content area directly.
+ * Factory is where Projects turn into work: their Runs belong there too. */
 export function serverNavigationSection(path: string): ServerNavigationSection | null {
   const segment = path.split('/')[1]
   if (segment === 'channels') return 'chat'
-  if (segment === 'runs') return 'tasks'
+  if (segment === 'factory' || segment === 'projects' || segment === 'runs') return 'factory'
   if (['data', 'databases', 'documents', 'canvases'].includes(segment || '')) return 'data'
-  if (segment === 'projects') return 'projects'
   if (segment === 'inbox' || segment === 'agents' || segment === 'tasks' || segment === 'schedules' || segment === 'mail' || segment === 'gadgets') return segment
   return null
 }
 
 export function hasServerNavigationMenu(path: string): boolean {
   const section = serverNavigationSection(path)
-  return section !== null && section !== 'schedules' && section !== 'projects'
+  return section !== null && section !== 'schedules'
 }

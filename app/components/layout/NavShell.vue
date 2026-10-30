@@ -76,7 +76,7 @@ const mailTarget = computed(() => {
 const views = computed(() => [
   { label: 'Inbox', icon: 'i-ph-tray', to: '/inbox', path: '/inbox', count: attention.value, dot: false },
   { label: 'Chat', icon: 'i-ph-chat-circle', to: chatTarget.value, path: '/channels', count: 0, dot: chatUnread.value },
-  ...(canAnyProject(Permission.readProjects) ? [{ label: 'Projects', icon: 'i-ph-folder-simple', to: '/projects', path: '/projects', count: 0, dot: false }] : []),
+  ...(canAnyProject(Permission.readProjects) ? [{ label: 'Factory', icon: 'i-ph-factory', to: '/factory', path: '/factory', count: 0, dot: false }] : []),
   ...(canAnyProject(Permission.readTasks) ? [{ label: 'Tasks', icon: 'i-ph-kanban', to: '/tasks', path: '/tasks', count: 0, dot: false }] : []),
   ...(can(Permission.manageSchedules) ? [{ label: 'Schedule', icon: 'i-ph-calendar-blank', to: '/schedules', path: '/schedules', count: 0, dot: false }] : []),
   { label: 'Mail', icon: 'i-ph-envelope-simple', to: mailTarget.value, path: '/mail', count: 0, dot: mailUnread.value },
@@ -282,6 +282,7 @@ watch(nav.inviteOpen, (open) => {
       <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted dark:bg-black" @click.capture="selectResource">
         <header class="flex h-12 shrink-0 items-center gap-2 px-3 shadow-[0_1px_0_var(--ui-border)]">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
+          <UButton v-if="section === 'factory' && can(Permission.manageProjects)" icon="i-ph-plus" color="neutral" variant="ghost" square class="size-9 justify-center" aria-label="Create project" @click="nav.createProjectOpen.value = true" />
           <UButton v-if="section === 'agents' && can(Permission.manageAgents)" icon="i-ph-plus" color="neutral" variant="ghost" square class="size-9 justify-center" aria-label="Create agent" @click="nav.createAgentOpen.value = true" />
           <UButton icon="i-ph-x" color="neutral" variant="ghost" class="size-9 justify-center md:hidden" aria-label="Close navigation" @click="ui.mobilePane = 'chat'" />
         </header>
@@ -292,6 +293,7 @@ watch(nav.inviteOpen, (open) => {
           </nav>
           <LayoutInboxNav v-else-if="section === 'inbox'" :server-id="serverId" />
           <LayoutAgentsNav v-else-if="section === 'agents'" :server-id="serverId" />
+          <LayoutFactoryNav v-else-if="section === 'factory' && canAnyProject(Permission.readProjects)" :server-id="serverId" />
           <LayoutTasksNav v-else-if="section === 'tasks' && canAnyProject(Permission.readTasks)" :server-id="serverId" />
           <LayoutDatabasesNav v-else-if="section === 'data' && can(Permission.readData)" :server-id="serverId" />
           <LayoutGadgetsNav v-else-if="section === 'gadgets' && (can(Permission.useGadgets) || can(Permission.manageGadgets))" :server-id="serverId" />
@@ -325,6 +327,7 @@ watch(nav.inviteOpen, (open) => {
       <LayoutUserPanel class="pointer-events-auto" />
     </div>
     <SettingsAgentEditorModal v-if="can(Permission.manageAgents)" v-model:open="nav.createAgentOpen.value" :server-id="serverId" />
+    <ProjectsCreateModal v-if="can(Permission.manageProjects)" v-model:open="nav.createProjectOpen.value" :server-id="serverId" />
     <SettingsServerSettings v-if="canOpenServerSettings" v-model:open="nav.serverSettingsOpen.value" v-model:section="nav.serverSettingsSection.value" :server-id="serverId" />
 
     <UModal v-model:open="nav.createChannelOpen.value" title="Create Channel">
