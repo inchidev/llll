@@ -68,7 +68,7 @@ const countLabel=(id:string)=>{
     <ol class="list-decimal space-y-1 pl-5 text-sm text-muted">
      <li>Create a separate account for L4 in Gitea, for example <span class="font-mono">l4-bot</span>.</li>
      <li>Add it as a collaborator with write access to the repositories agents may work on.</li>
-     <li>Signed in as that account, open Settings → Applications and generate a token with read and write access to repositories and issues.</li>
+     <li>Signed in as that account, open Settings → Applications and generate a token for All repositories, with Read and Write for repository and issue, and Read for user.</li>
     </ol>
     <UFormField label="Gitea address"><UInput v-model="host" placeholder="https://git.example.com" class="w-full" autocomplete="off" /></UFormField>
     <UFormField label="Access token" help="Stored encrypted on this Server. Agents and Compute Nodes never receive it."><UInput v-model="token" type="password" class="w-full" autocomplete="off" /></UFormField>

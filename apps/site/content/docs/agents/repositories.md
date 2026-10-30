@@ -43,7 +43,7 @@ Gitea has no Apps, so L4 uses one account's access token. Use a separate bot acc
 
 1. In Gitea, create an account for L4, for example `l4-bot`.
 2. Add it as a collaborator with **Write** access to each repository Agents may work on.
-3. Signed in as that account, open **Settings → Applications**, generate a token with **read and write** access to **repository** and **issue**, and copy it.
+3. Signed in as that account, open **Settings → Applications** and generate a token. Set **Repository and Organization Access** to **All**, so private repositories are included. Give it **Read and Write** for **repository** and **issue**, and **Read** for **user**: Gitea needs it to identify the account and list its repositories. Copy the token; Gitea shows it only once.
 4. In L4, open **Server settings → Git**, select the **Gitea** tab, then **Connect Gitea**. Enter your Gitea address, for example `https://git.example.com`, paste the token and select **Connect Gitea**.
 
 L4 checks the token with Gitea before saving it. The connection lists the repositories the account can push to. To change them, change the account's collaborator access in Gitea and refresh.
