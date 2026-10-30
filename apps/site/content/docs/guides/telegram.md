@@ -12,7 +12,7 @@ When the Shell opens as a Telegram Mini App, it fits itself to Telegram's window
 
 A Server's own Client can also be opened as a Mini App. A start parameter of `invite_<code>` then opens that invitation.
 
-Open the official Shell in Telegram from [@L4_agent](https://t.me/L4_agent). It is the same Shell as on the web: connect a Server by its address, open the Servers saved on this device, or create a new one.
+Open the official Shell in Telegram from [@L4_agent](https://t.me/L4_agent). It opens on **My Servers**, like the installed app, and is the same Shell as on the web: connect a Server by its address, open the Servers saved on this device, or create a new one.
 
 ## Create a Server from Telegram
 

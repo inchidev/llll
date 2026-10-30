@@ -7,6 +7,10 @@ declare global {
         ready?: () => void
         expand?: () => void
         isVersionAtLeast?: (version: string) => boolean
+        /** Bot API 8.0+: the device's insets, and Telegram's own controls over a full-screen app. */
+        safeAreaInset?: { top?: number; bottom?: number }
+        contentSafeAreaInset?: { top?: number; bottom?: number }
+        onEvent?: (name: string, callback: () => void) => void
         /** Bot API 6.9+: asks the person to let the bot message them. */
         requestWriteAccess?: (callback?: (granted: boolean) => void) => void
         /** Opens a link in the device's own browser, outside Telegram. */
