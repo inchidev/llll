@@ -1,14 +1,14 @@
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
 import { drainNotificationOutbox } from '../../workers/push'
 import type { L4Env } from '../../workers/env'
 import web from '../../apps/site/src/index'
-import { createRelayToken, openRelayToken } from '../../apps/site/src/telegram'
+import { createRelayToken, ensureTelegramWebhook, openRelayToken, webhookSecret } from '../../apps/site/src/telegram'
 import type { WebEnv } from '../../apps/site/src/env'
 import { verifyMiniAppData } from '../../shared/telegram'
+import { webMigrationsSql } from '../helpers/web-migrations'
 
 const SERVER = '00000000-0000-4000-8000-000000000001'
 const SHELL = 'https://web.example.com'
@@ -34,7 +34,7 @@ describe('Telegram relay on the official site', () => {
   }), env)
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(':memory:'); sqlite.exec(readFileSync('apps/site/migrations/0000_web_baseline.sql', 'utf8'))
+    sqlite = new DatabaseSync(':memory:'); sqlite.exec(webMigrationsSql())
     env = { DB: d1(sqlite), ASSETS: { fetch: async () => new Response('static') } as Fetcher, AUTH_SECRET: 'test-secret-'.repeat(5), PUBLIC_ORIGIN: SHELL, TELEGRAM_BOT_TOKEN: BOT }
   })
   afterEach(() => { vi.unstubAllGlobals(); sqlite.close() })
@@ -111,6 +111,74 @@ describe('Telegram relay on the official site', () => {
     status = 200
     expect((await post('/api/telegram/notify', refused, null)).status).toBe(200)
     expect(sent).toBe(3)
+  })
+})
+
+describe('Pairing Telegram from a browser', () => {
+  let sqlite: DatabaseSync
+  let env: WebEnv
+  let sent: Array<{ method: string; body: Record<string, unknown> }>
+  let webhookUrl = ''
+  const post = (path: string, body: object, headers: Record<string, string> = {}) => web.fetch(new Request(SHELL + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+  }), env)
+  const sha = async (value: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(b => b.toString(16).padStart(2, '0')).join('')
+  const start = async (text: string, chat = { id: 42, type: 'private' }) => post('/api/telegram/webhook', { update_id: 1, message: { text, chat } }, { 'X-Telegram-Bot-Api-Secret-Token': await webhookSecret(env) })
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:'); sqlite.exec(webMigrationsSql())
+    env = { DB: d1(sqlite), ASSETS: { fetch: async () => new Response('static') } as Fetcher, AUTH_SECRET: 'test-secret-'.repeat(5), PUBLIC_ORIGIN: 'https://llll.example', TELEGRAM_BOT_TOKEN: BOT, TELEGRAM_BOT_USERNAME: 'L4_agent' }
+    sent = []
+    webhookUrl = ''
+    vi.stubGlobal('fetch', async (input: string, init: RequestInit) => {
+      const method = String(input).split('/').at(-1)!
+      const body = JSON.parse(String(init.body || '{}'))
+      sent.push({ method, body })
+      if (method === 'getWebhookInfo') return Response.json({ ok: true, result: { url: webhookUrl } })
+      if (method === 'setWebhook') webhookUrl = body.url
+      return Response.json({ ok: true })
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals(); sqlite.close() })
+
+  it('hands the chat that pressed Start to the Server that knows the secret, once', async () => {
+    const code = 'c'.repeat(24)
+    const secret = 'd'.repeat(64)
+    // Servers call from their Worker, with no browser Origin.
+    const link = await post('/api/telegram/links', { code, secretHash: await sha(secret), serverId: SERVER, serverName: 'Friends' })
+    expect(link.status).toBe(200)
+    expect(await link.json()).toMatchObject({ bot: 'L4_agent' })
+    expect((await post('/api/telegram/links', { code, secretHash: await sha(secret), serverId: SERVER, serverName: 'Other' })).status).toBe(409)
+    expect(await (await post('/api/telegram/links/claim', { code, secret })).json()).toEqual({ pending: true })
+
+    expect((await post('/api/telegram/webhook', { message: { text: '/start ' + code, chat: { id: 7, type: 'private' } } }, { 'X-Telegram-Bot-Api-Secret-Token': 'wrong' })).status).toBe(401)
+    expect((await start('/start ' + code)).status).toBe(200)
+    expect(sent.find(call => call.method === 'sendMessage')?.body).toMatchObject({ chat_id: 42, text: 'Telegram notifications are on for Friends. You can go back to L4.' })
+
+    expect((await post('/api/telegram/links/claim', { code, secret: 'e'.repeat(64) })).status).toBe(410)
+    const { token } = await (await post('/api/telegram/links/claim', { code, secret })).json() as { token: string }
+    expect(await openRelayToken(env, token)).toMatchObject({ c: 42, s: SERVER })
+    expect((await post('/api/telegram/links/claim', { code, secret })).status).toBe(410)
+  })
+
+  it('ignores groups and answers a plain Start with the Shell, and expired codes with a retry hint', async () => {
+    expect((await start('/start ' + 'g'.repeat(24), { id: -100, type: 'group' })).status).toBe(200)
+    expect(sent.filter(call => call.method === 'sendMessage')).toEqual([])
+    await start('/start')
+    expect(sent.at(-1)?.body).toMatchObject({ chat_id: 42, reply_markup: { inline_keyboard: [[{ web_app: { url: 'https://llll.example/servers' } }]] } })
+    await start('/start ' + 'x'.repeat(24))
+    expect(sent.at(-1)?.body).toMatchObject({ text: 'This link expired. Turn on Telegram notifications in L4 again.' })
+  })
+
+  it('takes the bot webhook only in production and never over someone else\'s', async () => {
+    await ensureTelegramWebhook({ ...env, ENVIRONMENT: 'preview' })
+    expect(sent).toEqual([])
+    webhookUrl = 'https://elsewhere.example/hook'
+    await ensureTelegramWebhook(env)
+    expect(sent.map(call => call.method)).toEqual(['getWebhookInfo'])
+    webhookUrl = ''
+    await ensureTelegramWebhook(env)
+    expect(sent.at(-1)).toMatchObject({ method: 'setWebhook', body: { url: 'https://llll.example/api/telegram/webhook', secret_token: await webhookSecret(env), allowed_updates: ['message'] } })
   })
 })
 

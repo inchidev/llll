@@ -20,11 +20,10 @@ Cloudflare sign-in does not work reliably inside Telegram, so **Create → Cloud
 
 ## Telegram notifications
 
-Browsers inside Telegram cannot receive push notifications, so the L4 bot can send them instead:
+The L4 bot can send your notifications to Telegram, next to or instead of push notifications. Turn them on from any browser or from Telegram:
 
-1. Open the Server in the Telegram Shell and sign in the usual way, with any login method.
-2. Open **User Settings → Notifications** and turn on **Telegram notifications**.
-3. Allow the bot to message you when Telegram asks.
+- **In a browser:** open **User Settings → Notifications** on the Server and turn on **Telegram notifications**. Telegram opens the L4 bot; press **Start**. The settings page notices by itself within a few seconds. The link works for ten minutes.
+- **In Telegram:** open the Server from [@L4_agent](https://t.me/L4_agent), sign in, turn on **Telegram notifications** in the same settings, and allow the bot to message you when Telegram asks.
 
 The bot then tells you about the same events as [push notifications](notifications.md#what-notifies-you): mentions, Direct Messages, new Live sessions and email. Each message names only the kind of event and the Server, with an **Open** button. It never contains what was said, who said it or where.
 

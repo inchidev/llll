@@ -9,7 +9,7 @@ import { advanceDeployment, deploymentFailure, cloudflare, deploymentParameters,
 import { advanceUpdate, failUpdate, prepareUpdate, publicUpdate, rememberUpdate, updateRequestSchema } from './update'
 import { applyDomainChange, publicDomainRequest, rememberDomainRequest } from './domains'
 import { webSession, digest, clearDeployment } from './session'
-import { relayTelegram, subscribeTelegram } from './telegram'
+import { claimTelegramLink, createTelegramLink, ensureTelegramWebhook, relayTelegram, subscribeTelegram, telegramWebhook } from './telegram'
 import type { WebEnv } from './env'
 import { listL4Servers } from '../../../packages/deployment-core/src/servers'
 
@@ -89,6 +89,10 @@ async function handle(request: Request, env: WebEnv): Promise<Response> {
   }
   // Servers call the relay from their Worker, without a browser Origin; the token and its own rate limit guard it.
   if (path === '/api/telegram/notify' && request.method === 'POST') return json(await relayTelegram(env, await input(request), fail))
+  // Pairing from a browser: the Server registers and collects a code from its Worker; Telegram calls the webhook.
+  if (path === '/api/telegram/links' && request.method === 'POST') { await rateLimit(request, env); return json(await createTelegramLink(env, await input(request), fail)) }
+  if (path === '/api/telegram/links/claim' && request.method === 'POST') { await rateLimit(request, env); return json(await claimTelegramLink(env, await input(request), fail)) }
+  if (path === '/api/telegram/webhook' && request.method === 'POST') return json(await telegramWebhook(env, request, await input(request), fail))
   // A Server opened in Telegram asks from its own origin. Telegram's signed launch data, not a
   // cookie, proves who is asking, so any origin may call it.
   if (path === '/api/telegram/subscribe' && request.method === 'OPTIONS') return new Response(null, { status: 204 })
@@ -483,6 +487,7 @@ export default {
     return withSiteSecurityHeaders(request, response)
   },
   async scheduled(_event: ScheduledController, env: WebEnv) {
-    await env.DB.batch([env.DB.prepare('DELETE FROM deployment_sessions WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM rate_limits WHERE expires_at<?').bind(Date.now())])
+    await env.DB.batch([env.DB.prepare('DELETE FROM deployment_sessions WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM rate_limits WHERE expires_at<?').bind(Date.now()), env.DB.prepare('DELETE FROM telegram_links WHERE expires_at<?').bind(Date.now())])
+    await ensureTelegramWebhook(env).catch(() => {})
   },
 } satisfies ExportedHandler<WebEnv>

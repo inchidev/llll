@@ -48,6 +48,8 @@ const builder = await context({
         const db = await mf.getD1Database('DB')
         const existing = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='server_directory'").first()
         if (!existing) await db.exec(await readFile(resolve(root, 'apps/site/migrations/0000_web_baseline.sql'), 'utf8'))
+        if (!await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='telegram_links'").first())
+          await db.exec(await readFile(resolve(root, 'apps/site/migrations/0001_telegram_links.sql'), 'utf8'))
         frontend = spawn('pnpm', ['exec', 'nuxt', 'dev', 'apps/site', '--host', '127.0.0.1', '--port', String(port), '--dotenv', resolve(root, '.deployment/dev-stack/frontend.env')], {
           cwd: root,
           env: { ...process.env, LLLL_DEV_SHELL_API_ORIGIN: apiOrigin },

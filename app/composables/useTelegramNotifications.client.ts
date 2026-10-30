@@ -10,9 +10,10 @@ export function useTelegramEmbed() {
 }
 
 /**
- * Telegram notifications for this Account, offered only when a Telegram Shell embeds the
- * Server. The Shell asks Telegram for permission and returns an opaque delivery token,
- * which this Server stores like a push subscription.
+ * Telegram notifications for this Account. In Telegram, the Shell (or this Server's own Mini
+ * App) asks Telegram for permission and returns an opaque delivery token. In a browser, the
+ * person presses Start on the L4 bot with a one-time code and this Server collects the token.
+ * Either way the Server stores it like a push subscription.
  */
 export function useTelegramNotifications() {
   const embed = useTelegramEmbed()
@@ -22,13 +23,12 @@ export function useTelegramNotifications() {
   const error = ref<string | null>(null)
 
   async function refresh() {
-    if (!available.value) return
     try { subscribed.value = (await plainFetch<{ subscribed: boolean }>('/api/push/telegram')).subscribed }
     catch (cause) { error.value = errorMessage(cause) }
   }
 
   async function enable() {
-    if (!embed.value.request) return
+    if (!embed.value.request) return pair()
     busy.value = true
     error.value = null
     embed.value.reply = null
@@ -57,6 +57,33 @@ export function useTelegramNotifications() {
       subscribed.value = false
     }
     catch (cause) { error.value = errorMessage(cause) }
+    finally { busy.value = false }
+  }
+
+  /** Opens the bot from the click itself, so the browser does not block it, then waits for Start. */
+  async function pair() {
+    busy.value = true
+    error.value = null
+    const tab = window.open('about:blank', '_blank')
+    try {
+      const { code, url } = await plainFetch<{ code: string; url: string }>('/api/push/telegram/link', { method: 'POST' })
+      if (tab) tab.location.href = url
+      else window.location.href = url
+      const until = Date.now() + 10 * 60_000
+      while (Date.now() < until) {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        if (document.hidden) continue
+        if ((await plainFetch<{ connected: boolean }>('/api/push/telegram/claim', { method: 'POST', body: { code } })).connected) {
+          subscribed.value = true
+          return
+        }
+      }
+      throw new Error('Telegram did not answer. Try again.')
+    }
+    catch (cause) {
+      tab?.close()
+      error.value = errorMessage(cause)
+    }
     finally { busy.value = false }
   }
 
