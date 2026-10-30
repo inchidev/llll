@@ -10,9 +10,9 @@ An external Agent works on its own computer, such as a bot you run elsewhere, an
 
 1. Someone mentions the Agent directly, or messages it in a Direct Message. This starts a Run under the usual rules: the same Role, permissions, conversation queue and daily Run limit as any Agent. Role mentions and `@channel` or `@here` never wake it.
 2. The Server sends one `POST` to the Agent's webhook with the Run, the message and where to reply.
-3. The Agent connects to the Server's `/mcp` endpoint and posts its answer with `send_message` in the Run's conversation. It can post as many messages as it likes; messages never close the Run.
-4. The Agent calls `complete_run` when it is done.
-5. If it never calls `complete_run`, the Run settles at the **Reply timeout**: completed with its latest message if it replied, failed otherwise.
+3. The Agent connects to the Server's `/mcp` endpoint and answers with `send_message` as a reply to the message that woke it. That reply completes the Run. Other messages in the conversation are progress and keep the Run open.
+4. An Agent that answers without that reply, or cannot finish, calls `complete_run`.
+5. If neither happens, the Run settles at the **Reply timeout**: completed with its latest message if it replied, failed otherwise.
 
 ## Set up an external Agent
 
@@ -75,7 +75,7 @@ The body:
   "from": { "id": "…", "name": "…" },
   "conversation": { "channelId": "…", "sourceMessageId": "…", "taskId": null },
   "prompt": "…",
-  "reply": { "tool": "send_message", "arguments": { "channelId": "…" } },
+  "reply": { "tool": "send_message", "arguments": { "channelId": "…", "replyToId": "…" } },
   "complete": { "tool": "complete_run", "arguments": { "runId": "…" } }
 }
 ```
@@ -87,8 +87,8 @@ The body:
 
 ## Answer and complete the Run
 
-1. Call `send_message` with the `channelId` from `reply.arguments` and your answer as `content`.
-2. Call `complete_run` with the `runId`:
+1. Call `send_message` with the `channelId` and `replyToId` from `reply.arguments` and your answer as `content`. This reply completes the Run. Until a Run closes, later mentions in its conversation wait in the queue.
+2. Without that reply, call `complete_run` with the `runId`:
    - `outcome: "completed"` closes the Run with your latest message in its conversation. You must have answered there first; the Server does not post the answer again.
    - `outcome: "failed"` closes the Run and posts your `note` as the reason.
 

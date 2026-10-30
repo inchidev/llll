@@ -5,7 +5,7 @@ import { d1 } from '../helpers/sqlite-d1'
 import { INIT_SQL } from '../../server/utils/db'
 import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { createAgentRun } from '../../server/utils/agent-run-service'
-import { agentWebhook, completeExternalRun, saveAgentWebhook } from '../../server/utils/agent-webhooks'
+import { agentWebhook, completeExternalRun, completeExternalRunOnReply, saveAgentWebhook } from '../../server/utils/agent-webhooks'
 import { publicWebhookUrl } from '../../shared/agent-webhooks'
 import { AgentRunDurableObject } from '../../workers/agent-run-do'
 import { Permission } from '../../shared/permissions'
@@ -87,6 +87,25 @@ it('keeps the Run open through progress messages until the Agent completes it', 
   await coordinatorRun.alarm()
   expect(db.prepare('SELECT status,result_text,result_message_id FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'completed', result_text: 'Mostly praise.', result_message_id: 'answer' })
   expect(post).not.toHaveBeenCalled()
+})
+
+it('closes the Run when the Agent replies to the message that woke it', async () => {
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('mention-msg','public-chat','owner-user','@Grok hi',?)").run(new Date().toISOString())
+  await saveAgentWebhook(env, agentId, 'owner-user', { url: 'https://hooks.grok.example/routine/abc', headerValue: 'Bearer sender-key' })
+  const owner = (await loadAuthorizationContext(env, { principalId: 'owner-user', credential: { kind: 'session' } }))!
+  const run = await createAgentRun(env, owner, { agentId, channelId: 'public-chat', sourceMessageId: 'mention-msg', prompt: 'hi', idempotencyKey: 'mention-2' })
+  const { run: coordinatorRun } = coordinator(run.id)
+  await coordinatorRun.alarm()
+  expect(JSON.parse(String(hook.mock.calls[0]![1].body))).toMatchObject({ reply: { arguments: { channelId: 'public-chat', replyToId: 'mention-msg' } } })
+  const agent = (await loadAuthorizationContext(env, { principalId: agentId, credential: { kind: 'mcp', id: 'token', scopes: ['messages:write'] }, delegatedBy: 'owner-user' }))!
+  const later = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString()
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('progress','public-chat',?,'Looking…',?)").run(agentId, later(1))
+  expect(await completeExternalRunOnReply(env, agent, { channelId: 'public-chat' })).toBeNull()
+  expect(await completeExternalRunOnReply(env, owner, { channelId: 'public-chat', replyToId: 'mention-msg' })).toBeNull()
+  expect(db.prepare('SELECT status FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'running' })
+  db.prepare("INSERT INTO messages(id,channel_id,author_id,content,reply_to_id,created_at) VALUES('answer','public-chat',?,'Hello!','mention-msg',?)").run(agentId, later(2))
+  expect(await completeExternalRunOnReply(env, agent, { channelId: 'public-chat', replyToId: 'mention-msg' })).toMatchObject({ changed: true })
+  expect(db.prepare('SELECT status,result_message_id FROM agent_runs WHERE id=?').get(run.id)).toMatchObject({ status: 'completed', result_message_id: 'answer' })
 })
 
 it('settles at the reply timeout from what the Agent posted', async () => {

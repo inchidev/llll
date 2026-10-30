@@ -54,7 +54,7 @@ export async function agentWebhookPayload(env: L4Env, run: AgentRun): Promise<Ag
     agent: { id: run.agentId, name: name(run.agentId) }, from: { id: run.initiatedBy, name: name(run.initiatedBy) },
     conversation: { channelId: run.channelId, sourceMessageId: run.sourceMessageId, taskId: run.taskId },
     prompt: stripAgentImageMarkers(run.prompt).trim(),
-    reply: { tool: 'send_message', arguments: { channelId: run.channelId } },
+    reply: { tool: 'send_message', arguments: { channelId: run.channelId, ...(run.sourceMessageId ? { replyToId: run.sourceMessageId } : {}) } },
     complete: { tool: 'complete_run', arguments: { runId: run.id } },
   }
 }
@@ -103,4 +103,16 @@ export async function completeExternalRun(env: L4Env, actor: AuthorizationContex
   // The Run's coordinator settles delivery and releases the conversation queue.
   if (changed && env.AGENT_RUN_DO) await asRpc<{ wake: (id: string) => Promise<void> }>(env.AGENT_RUN_DO.getByName(`run:${run.id}`)).wake(run.id)
   return { runId: run.id, status: input.outcome, changed: Boolean(changed) }
+}
+
+/**
+ * A reply to the message that woke the external Agent is its answer: it closes that Run as
+ * complete_run would. Other messages stay progress, so the conversation queue never waits on a forgotten call.
+ */
+export async function completeExternalRunOnReply(env: L4Env, actor: AuthorizationContext, message: { channelId: string; replyToId?: string | null }) {
+  if (actor.principal.kind !== 'agent' || !message.replyToId) return null
+  const run = await env.DB.prepare(`SELECT r.id FROM agent_runs r JOIN agent_webhooks w ON w.agent_id=r.agent_id
+    WHERE r.agent_id=? AND r.channel_id=? AND r.source_message_id=? AND r.status='running' ORDER BY r.created_at DESC LIMIT 1`)
+    .bind(actor.principal.id, message.channelId, message.replyToId).first<{ id: string }>()
+  return run ? completeExternalRun(env, actor, { runId: run.id, outcome: 'completed' }) : null
 }
