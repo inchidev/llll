@@ -3,6 +3,7 @@ import type { McpScope } from './mcp'
 import { hasPermission, Permission, type PermissionFlag } from './permissions'
 import type { UserKind } from './types'
 import { projectPermissionAllowed, ProjectPolicyPermissions, type ProjectPolicyGrant } from './project-access'
+import type { DelegatedAgentAccess } from './agent-access'
 
 export const ServerAction = {
   delegateTasks: 'tasks:delegate',
@@ -54,6 +55,8 @@ export type AuthorizationContext = {
     isOwner?: boolean
     roleName?: string
     projectPolicies?: ProjectPolicyGrant[]
+    /** Agent access the initiating person holds for this Agent, already included above. */
+    agentAccess?: DelegatedAgentAccess
   }
 }
 

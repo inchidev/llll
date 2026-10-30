@@ -2,9 +2,9 @@
 const route = useRoute()
 const router = useRouter()
 const items = [
-  { label: 'Connect', value: 'connect', slot: 'connect' as const },
-  { label: 'New on Cloudflare', value: 'cloudflare', slot: 'cloudflare' as const },
-  { label: 'New on a VPS', value: 'vps', slot: 'vps' as const },
+  { label: 'Connect', short: 'Connect', value: 'connect', slot: 'connect' as const },
+  { label: 'New on Cloudflare', short: 'Cloudflare', value: 'cloudflare', slot: 'cloudflare' as const },
+  { label: 'New on a VPS', short: 'VPS', value: 'vps', slot: 'vps' as const },
 ]
 const tab = computed({
   get: () => ['cloudflare', 'vps'].includes(String(route.query.tab)) ? String(route.query.tab) : 'connect',
@@ -27,6 +27,8 @@ watch(tab, value => { if (value === 'cloudflare') cloudflareOpened.value = true 
     <div v-else class="mx-auto w-full max-w-2xl px-4 py-6 sm:px-8 sm:py-8">
       <p class="mb-6 text-sm leading-6 text-muted">Open a Server you already use, or create your own on your Cloudflare account or VPS. Every Server keeps its own accounts and data.</p>
       <UTabs v-model="tab" :items="items" :unmount-on-hide="false" class="gap-6" :ui="{ list: 'w-full', trigger: 'flex-auto px-1 sm:px-3' }">
+        <!-- Phones and Telegram leave about 300px beside the rail: short names there. -->
+        <template #default="{ item }"><span class="sm:hidden">{{ item.short }}</span><span class="hidden sm:inline">{{ item.label }}</span></template>
         <template #connect><ServerConnect /></template>
         <template #cloudflare><ServerDeploy v-if="cloudflareOpened" /></template>
         <template #vps><ServerVps /></template>

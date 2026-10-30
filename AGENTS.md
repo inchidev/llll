@@ -16,7 +16,8 @@ Landing, Shell, Docs, Blog, Changelog and `/create` (Connect / Cloudflare / VPS)
 ## Domains
 
 - Production: `https://llll.gg`.
-- Native PR Previews: `https://<preview-slug>.dev.llll.gg`. The base `dev.llll.gg` does not serve production or a shared development app.
+- Native PR Previews: `https://<preview-slug>.dev.llll.gg` and `https://<preview-slug>.server-preview.llll.gg`. The base `dev.llll.gg` does not serve production or a shared development app.
+- The main Preview: `https://main.dev.llll.gg` and `https://main.server-preview.llll.gg` — the current head of main, everything merged before any release, with its own standing data. It is deployed from Git by Workers Builds like every other Preview and never by a release.
 - Production and Preview `workers.dev` URLs remain disabled. Domain administration uses the connected Cloudflare API.
 - Customer Servers use operator-owned origins; they do not depend on an official hosted service or demo Server.
 
@@ -31,7 +32,7 @@ Landing, Shell, Docs, Blog, Changelog and `/create` (Connect / Cloudflare / VPS)
 - The active Server schema starts at `drizzle/server-migrations/0000_server_baseline.sql` with schema marker `server-v2`. It accepts fresh databases only. Append migrations within this lineage; merged SQL and published tags/assets are immutable. Earlier schema histories remain in Git and existing releases only.
 - Keep personal targets and credentials in ignored files. Verify the target checkout and Git remote before mutations.
 - Preserve unrelated work. Changes after the initial bootstrap go through focused PRs to main with local and isolated deployment verification. Published release tags/assets are immutable.
-- **Our deployments** — the official `llll` Worker, llll.gg production, PR Previews and Server Previews: only Workers Builds from Git. Never deploy them from a developer machine, through local Wrangler or a direct API upload. PR -> Worker Preview -> protected main; ordinary merges never change production. Only a merged PR labelled release that increases the shared package version may publish all components and trigger production from immutable release artifacts. There is one main and no production branch. The connected Cloudflare API tool is for administrative configuration and cleanup. Local Wrangler is limited to types, dry runs and isolated development.
+- **Our deployments** — the official `llll` Worker, llll.gg production, PR Previews and Server Previews: only Workers Builds from Git. Never deploy them from a developer machine, through local Wrangler or a direct API upload. PR -> Worker Preview -> protected main -> main Preview; ordinary merges never change production. Only a merged PR labelled release that increases the shared package version may publish all components and trigger production from immutable release artifacts. There is one main and no production branch. The connected Cloudflare API tool is for administrative configuration and cleanup. Local Wrangler is limited to types, dry runs and isolated development.
 - **Customer Server installation and updates** are outside that rule. The `/create` installer may upload a published, immutable release artifact directly through the customer's own browser-bound OAuth grant, after verifying the release's checksums. Customers must not need Git, GitHub or Workers Builds. The installer must never upload unreleased or locally built code. With the Owner's consent (on by default) a Server keeps Cloudflare access, either the installer's OAuth grant or a pasted API token, encrypted with its `AUTH_SECRET`, and updates itself with it; it still uploads only published, checksum-verified releases. Recommend, never require, a separate Cloudflare account per Server.
 
 ## Guides

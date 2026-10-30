@@ -26,6 +26,8 @@ A Member has one Server Role, which groups Server permissions. A reusable Projec
 
 A Grant permits an operation on a resource. Evaluate the operation in its Project and resource scope. The Server Owner operates its deployment; Project access does not grant Server administration or private-channel membership.
 
+**Agent access** is a Grant with an Agent: a person or Role may use that Agent with a Policy, in one Project or across the Server, beyond their own Role but never beyond the Agent's. Without it an Agent works no higher than the person who asks. An Agent either answers everyone who may use Agents (open) or only the Owner and holders of its access (granted). See [ADR 0004](docs/adr/0004-grants-and-agent-access.md).
+
 ## Channel, Thread and Direct Message
 
 A Channel is a conversation in one Server. A Thread is a child conversation. A Direct Message is a private conversation between Members of the same Server.
