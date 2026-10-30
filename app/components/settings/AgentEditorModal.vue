@@ -327,10 +327,10 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <LayoutLoadError v-if="roles.error.value" message="Roles did not load." :retry="roles.refetch" inline />
         <p v-if="selectedSummary" class="mt-2 text-sm text-muted">{{ selectedSummary }}</p>
         <p v-if="selectedGrants" class="mt-1 text-xs text-muted">Permissions: {{ selectedGrants }}.</p>
-        <p class="mt-2 text-xs text-muted">Grant project work through a policy in Projects → Access. One agent can be Developer in one project and Reviewer in another. Templates do not change permissions.</p>
+        <p class="mt-2 text-xs text-muted">Grant project work through a policy in a Factory project's access. One agent can be Developer in one project and Reviewer in another. Templates do not change permissions.</p>
       </UFormField>
       <p v-else-if="isNew" class="text-sm text-muted">New agents start with the Member role. Ask someone with Manage roles to grant task execution and reporting permissions.</p>
-      <UFormField label="Fill instructions from an example" help="Replaces the instructions below with example text. It grants no access; what the agent may do comes from policies in Projects → Access."><div class="flex flex-wrap gap-2"><UButton v-for="template in agentTemplates" :key="template.id" :label="template.name" color="neutral" variant="outline" :title="`Recommended project policy: ${template.policy}`" @click="form.instructions = template.instructions" /></div></UFormField>
+      <UFormField label="Fill instructions from an example" help="Replaces the instructions below with example text. It grants no access; what the agent may do comes from policies in each Factory project's access."><div class="flex flex-wrap gap-2"><UButton v-for="template in agentTemplates" :key="template.id" :label="template.name" color="neutral" variant="outline" :title="`Recommended project policy: ${template.policy}`" @click="form.instructions = template.instructions" /></div></UFormField>
       <UFormField name="instructions" label="Profile instructions">
         <UTextarea v-model="form.instructions" :rows="10" autoresize :maxrows="18" class="w-full" />
       </UFormField>
