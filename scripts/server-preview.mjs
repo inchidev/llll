@@ -5,6 +5,7 @@ import { requireWorkersBuild } from './ci-only.mjs'
 import { isolatedPreviewBindings, nativeServerPreviewOrigin } from './server-preview-config.mjs'
 import { compareVersions, parseVersion } from './release-policy.mjs'
 import { findD1Database } from './cloudflare-d1.mjs'
+import { cleanupClosedPreviews, openPullRequests } from './preview-cleanup.mjs'
 import {
   pullRequestCandidate,
   verifyMergeParents,
@@ -220,3 +221,8 @@ for (let attempt = 0; attempt < 150; attempt++) {
 }
 if (!verified) throw new Error('Server Preview discovery verification failed')
 console.log(mainPreview ? `main Server Preview verified at ${sourceCommit}: ${url}` : `Server Preview verified for PR #${prNumber}: ${url}`)
+// After each merge, remove what closed PRs left. A cleanup failure never fails the main Preview.
+if (mainPreview) {
+  try { await cleanupClosedPreviews({ api, open: await openPullRequests() }) }
+  catch (error) { console.warn(`Preview cleanup skipped: ${error.message}`) }
+}
