@@ -24,6 +24,12 @@ INSERT INTO grants(id,member_id,role_id,agent_id,policy_id,project_id,created_by
 --> statement-breakpoint
 DROP TABLE project_policy_assignments;
 --> statement-breakpoint
+-- An update applies migrations before the new code is uploaded, so the previous release
+-- briefly runs on this schema. This view keeps its project-access reads working; its
+-- writes fail until the new code is active. A later migration removes the view.
+CREATE VIEW project_policy_assignments AS
+  SELECT id,project_id,policy_id,member_id,role_id,created_by,created_at FROM grants WHERE agent_id IS NULL AND project_id IS NOT NULL;
+--> statement-breakpoint
 CREATE UNIQUE INDEX grants_member_identity ON grants(member_id,coalesce(agent_id,''),coalesce(project_id,''),policy_id) WHERE member_id IS NOT NULL;
 --> statement-breakpoint
 CREATE UNIQUE INDEX grants_role_identity ON grants(role_id,coalesce(agent_id,''),coalesce(project_id,''),policy_id) WHERE role_id IS NOT NULL;

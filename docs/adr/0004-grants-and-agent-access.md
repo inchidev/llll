@@ -32,6 +32,7 @@ Example: Mike's Role can merge. Petya holds Developer access to Mike in Project 
 ## Consequences
 
 - One evaluation path covers every Run a person starts — mentions, DMs, Tasks, Schedules and retries: `loadAuthorizationContext` adds the initiator's Agent access to the delegation, and `runAuthorization` revalidates it on every step.
+- **Existing Servers** apply `0004_grants` on their next update. Project assignments keep their IDs and every Agent starts *open*, so nothing changes until someone gives access or restricts an Agent. An update applies migrations before uploading the new code; during that window a read-only `project_policy_assignments` view keeps the previous release's authorization working, while its project-access edits fail. A later migration drops the view.
 - Mailbox access, channel overrides and Gadget access still use their own tables. They move into `grants` in later migrations, one resource kind at a time, with a scope column per kind so foreign keys keep removing Grants with their resource.
 - External MCP tokens that an Agent holds are unchanged: they act as the Agent within its creator's authority. Agent access applies to Runs a person starts.
 - Merge and release remain outside Agent permissions until they exist as Policy permissions; when they do, Agent access is how a person gets an Agent to merge for them.

@@ -112,6 +112,11 @@ it('moves existing project assignments into grants without changing them', async
     { id: 'a1', member_id: 'u', role_id: null, agent_id: null, policy_id: 'project-policy-developer', project_id: 'p', created_at: '2026-10-25' },
     { id: 'a2', member_id: null, role_id: 'r', agent_id: null, policy_id: 'project-policy-reviewer', project_id: 'p', created_at: '2026-10-26' },
   ])
+  // The previous release's project-access read still works between migration and code upload.
+  expect(db.prepare(`SELECT a.id FROM project_policy_assignments a JOIN project_policies p ON p.id=a.policy_id JOIN projects j ON j.id=a.project_id
+    WHERE (a.member_id=? OR a.role_id=?) AND j.archived_at IS NULL ORDER BY a.id`).all('u', 'r').map(row => row.id)).toEqual(['a1', 'a2'])
+  db.exec("INSERT INTO agents(user_id,created_by) VALUES('u','u'); INSERT INTO grants(id,member_id,agent_id,policy_id,project_id,created_by,created_at) VALUES('mike','u','u','project-policy-developer','p','u','x')")
+  expect(db.prepare('SELECT count(*) AS n FROM project_policy_assignments').get()!.n).toBe(2)
   expect(() => db.exec("INSERT INTO grants(id,member_id,policy_id,project_id,created_by,created_at) VALUES('dup','u','project-policy-developer','p','u','x')")).toThrow()
   expect(() => db.exec("INSERT INTO grants(id,member_id,policy_id,created_by,created_at) VALUES('server','u','project-policy-developer','u','x')")).toThrow()
   db.close()
