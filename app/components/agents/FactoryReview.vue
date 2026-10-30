@@ -59,11 +59,21 @@ async function decide(action: FactoryAction, decision: 'approve' | 'reject') {
 {{ JSON.stringify(query.data.value.workspace.snapshot.evidence, null, 2) }}</pre></details>
       </div>
       <article v-for="action in query.data.value.actions" :key="action.id" class="space-y-2 rounded border border-default p-3">
-        <p class="text-sm">{{ action.request.operation }} · {{ action.status }} · {{ action.approvalMode === 'role' ? 'Authorized by Run permissions' : 'Human review' }}</p>
+        <p class="text-sm">{{ action.request.operation }} · {{ action.status }} · {{ action.approvalMode === 'role' ? 'Authorized by Run permissions' : action.approvalMode === 'plan' ? 'Covered by the approved plan' : 'Human review' }}</p>
         <p class="break-all text-xs text-muted">Action {{ action.id }} · Run {{ action.runId }} · expires {{ new Date(action.expiresAt).toLocaleString() }}</p>
         <p class="break-all text-xs text-muted">Image {{ action.computeImage }} · Workspace revision {{ action.workspaceRevision }} · {{ action.computeLimits.cpu }} CPU, {{ action.computeLimits.memoryMiB }} MiB memory, {{ action.computeLimits.processes }} processes, {{ Math.round(action.diskBytes / 1048576) }} MiB hard disk capacity; commands up to {{ action.computeLimits.timeoutMs / 1000 }} seconds.</p>
-        <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(action.request, null, 2) }}</pre>
-        <template v-if="action.status === 'pending' && can(Permission.approveAgentActions)">
+        <div v-if="action.request.operation === 'plan'" class="space-y-2 text-sm">
+          <p class="whitespace-pre-wrap">{{ action.request.summary }}</p>
+          <ol class="list-decimal space-y-1 ps-5"><li v-for="(step, index) in action.request.steps" :key="index">{{ step }}</li></ol>
+          <p class="text-muted">Up to {{ action.request.operations }} workspace operations · network: {{ action.request.networkHosts.length ? action.request.networkHosts.join(', ') : 'none' }}</p>
+        </div>
+        <pre v-else class="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(action.request, null, 2) }}</pre>
+        <template v-if="action.status === 'pending' && can(Permission.approveAgentActions) && action.request.operation === 'plan'">
+          <p class="text-xs text-warning">Approving lets the agent run up to {{ action.request.operations }} workspace operations in this Task without asking each time: commands, file edits and snapshots, with network access only to the hosts listed. Anything else, and opening a pull request, still waits for you. Current permissions are checked on every operation.</p>
+          <UCheckbox v-model="confirmed[action.id]" label="I reviewed this plan and its limits." />
+          <div class="flex flex-wrap gap-2"><UButton label="Approve plan" :disabled="!confirmed[action.id]" :loading="busy" @click="decide(action, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(action, 'reject')" /></div>
+        </template>
+        <template v-else-if="action.status === 'pending' && can(Permission.approveAgentActions)">
           <p class="text-xs text-warning">Approval applies only to these arguments, Task, repository snapshot and Node. Commands can change or delete workspace files. Approved network hosts may receive source data. Publication writes the exact reviewed commits to a dedicated GitHub branch and draft PR; it grants no merge or release.</p>
           <UCheckbox v-model="confirmed[action.id]" label="I reviewed this exact operation, destination, changes and effects." />
           <div class="flex flex-wrap gap-2"><UButton label="Approve exact action" :disabled="!confirmed[action.id]" :loading="busy" @click="decide(action, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(action, 'reject')" /></div>

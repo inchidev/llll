@@ -22,7 +22,7 @@ const shows = (name: string) => section.value === 'all' || section.value === nam
 const warm = useMessagePrefetch()
 
 const operations: Record<string, string> = {
-  bootstrap: 'set up its workspace', exec: 'run a command', read: 'read a file', write: 'edit a file',
+  plan: 'start work on a plan', bootstrap: 'set up its workspace', exec: 'run a command', read: 'read a file', write: 'edit a file',
   snapshot: 'save a snapshot', publish: 'open a pull request', suspend: 'pause its workspace', release: 'release its workspace', share: 'share its result',
 }
 const approvalText = (approval: InboxApprovalDTO) => `${approval.agentName} wants to ${operations[approval.operation] ?? 'take an action'}`
