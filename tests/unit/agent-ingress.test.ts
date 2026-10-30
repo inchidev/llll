@@ -32,7 +32,8 @@ beforeEach(() => {
     CREATE TABLE roles (id TEXT PRIMARY KEY, permissions_bitmask INTEGER NOT NULL);
     CREATE TABLE server (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL);
     CREATE TABLE users (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, role_id TEXT NOT NULL);
-    CREATE TABLE agents (user_id TEXT PRIMARY KEY, status TEXT NOT NULL);
+    CREATE TABLE agents (user_id TEXT PRIMARY KEY, status TEXT NOT NULL, access TEXT NOT NULL DEFAULT 'open');
+    CREATE TABLE grants (id TEXT PRIMARY KEY, member_id TEXT, role_id TEXT, agent_id TEXT, expires_at TEXT);
     CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, visibility TEXT NOT NULL, parent_id TEXT);
     CREATE TABLE channel_members (channel_id TEXT NOT NULL, user_id TEXT NOT NULL);
     CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT, content_type TEXT NOT NULL);
@@ -44,7 +45,7 @@ beforeEach(() => {
       ('human', 'human', 'active', 'admin-role'),
       ('member', 'human', 'active', 'member-role'),
       ('agent', 'agent', 'active', 'member-role');
-    INSERT INTO agents VALUES ('agent', 'active');
+    INSERT INTO agents(user_id,status) VALUES ('agent', 'active');
     INSERT INTO channels VALUES
       ('dm', 'dm', 'private', NULL),
       ('thread', 'thread', 'private', 'dm');
@@ -179,5 +180,27 @@ describe('agent message ingress', () => {
     })
 
     expect(receiveMessage).not.toHaveBeenCalled()
+  })
+
+  it('lets Agent access reach one Agent without Use agents, and keeps a granted-access Agent silent for others', async () => {
+    sqlite.exec(`INSERT INTO channel_members VALUES ('dm','member');
+      UPDATE agents SET access='granted' WHERE user_id='agent'`)
+    const receiveMessage = vi.fn(async () => 'workflow-id')
+    const env = { DB: db, AI: {}, AGENT_DO: { getByName: () => ({ receiveMessage }) } }
+    const send = (authorId: string, messageId: string) => signalAgentsForMessage(env as never,
+      { messageId, channelId: 'dm', authorId, authorName: authorId, content: 'Review this', mentionIds: ['agent'] })
+
+    await send('human', 'uses-agents-without-access')
+    expect(receiveMessage).not.toHaveBeenCalled()
+    await send('owner', 'owner-always')
+    expect(receiveMessage).toHaveBeenCalledTimes(1)
+
+    sqlite.exec(`INSERT INTO grants VALUES ('expired','member',NULL,'agent','2020-01-01T00:00:00.000Z')`)
+    await send('member', 'expired-access')
+    expect(receiveMessage).toHaveBeenCalledTimes(1)
+    sqlite.exec(`INSERT INTO grants VALUES ('current','member',NULL,'agent',NULL)`)
+    await send('member', 'granted-member')
+    expect(receiveMessage).toHaveBeenCalledTimes(2)
+    expect(receiveMessage).toHaveBeenLastCalledWith(expect.objectContaining({ messageId: 'granted-member', authorId: 'member' }))
   })
 })

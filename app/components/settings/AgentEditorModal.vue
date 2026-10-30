@@ -345,6 +345,7 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       <UButton type="submit" :label="isNew ? 'Create agent' : 'Save changes'" :loading="saving" :disabled="isNew && !external && (providers.isPending.value || modelRequired)" />
       </div>
     </UForm>
+    <AgentsAccess v-if="selectedAgent && can(Permission.manageAgents)" class="mt-6" :server-id="serverId" :agent-id="selectedAgent.id" :agent-name="selectedAgent.displayName || 'this agent'" />
     </template>
   </SettingsEditor>
   <UModal v-model:open="confirmDelete" :title="`Delete ${selectedAgent?.displayName || 'agent'}?`" :dismissible="!deleting">

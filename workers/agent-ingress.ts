@@ -27,13 +27,22 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
   const hasImages = Boolean(image)
   if (!message.content.trim() && !hasImages) return
   const actor = await env.DB.prepare(
-    `SELECT r.permissions_bitmask as permissions, w.owner_id as ownerId
+    `SELECT r.id as roleId, r.permissions_bitmask as permissions, w.owner_id as ownerId
      FROM users u
      JOIN roles r ON r.id = u.role_id
      CROSS JOIN server w
      WHERE u.id = ? AND u.status = 'active'`,
-  ).bind(message.authorId).first<{ permissions: number; ownerId: string }>()
-  if (!actor || (actor.ownerId !== message.authorId && !hasPermission(actor.permissions, Permission.useAgents))) return
+  ).bind(message.authorId).first<{ roleId: string; permissions: number; ownerId: string }>()
+  if (!actor) return
+  const isOwner = actor.ownerId === message.authorId
+  const usesAgents = isOwner || hasPermission(actor.permissions, Permission.useAgents)
+  // Agent access lets someone without Use agents reach one Agent. Without either, nothing wakes.
+  const access = await env.DB.prepare(
+    `SELECT DISTINCT agent_id as agentId FROM grants
+     WHERE agent_id IS NOT NULL AND (member_id = ? OR role_id = ?) AND (expires_at IS NULL OR expires_at > ?)`,
+  ).bind(message.authorId, actor.roleId, new Date().toISOString()).all<{ agentId: string }>()
+  const granted = new Set((access.results ?? []).map(row => row.agentId))
+  if (!usesAgents && !granted.size) return
 
   const channel = await env.DB.prepare(
     'SELECT type, visibility, parent_id as parentId FROM channels WHERE id = ?',
@@ -67,13 +76,15 @@ export async function signalAgentsForMessage(env: L4Env, message: AgentIngressMe
     ? `AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = ? AND cm.user_id = u.id)`
     : ''
   const rows = await env.DB.prepare(
-    `SELECT u.id
+    `SELECT u.id, a.access
      FROM users u JOIN agents a ON a.user_id = u.id
      WHERE u.id IN (${placeholders}) AND u.kind = 'agent' AND u.status = 'active' AND a.status = 'active'
      ${accessClause}`,
-  ).bind(...ids, ...(accessChannel.visibility === 'private' ? [accessChannelId] : [])).all<{ id: string }>()
+  ).bind(...ids, ...(accessChannel.visibility === 'private' ? [accessChannelId] : [])).all<{ id: string; access: 'open' | 'granted' }>()
+  // A granted-access Agent stays silent for people without access to it, as if not addressed.
+  const addressed = (rows.results ?? []).filter(row => isOwner || granted.has(row.id) || (row.access === 'open' && usesAgents))
 
-  await Promise.allSettled((rows.results ?? []).map(async ({ id }) => {
+  await Promise.allSettled(addressed.map(async ({ id }) => {
     const stub = asRpc<{
       receiveMessage: (input: AgentReceiveMessage) => Promise<string>
     }>(env.AGENT_DO.getByName(`agent:${id}`))

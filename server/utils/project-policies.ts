@@ -8,8 +8,8 @@ import { writeAudit } from './messages'
 
 export async function loadProjectPolicies(env: L4Env, memberId: string, roleId: string): Promise<ProjectPolicyGrant[]> {
   const rows = await env.DB.prepare(`SELECT a.id,a.project_id AS projectId,p.id AS policyId,p.version AS policyVersion,p.permissions_bitmask AS permissions
-    FROM project_policy_assignments a JOIN project_policies p ON p.id=a.policy_id JOIN projects j ON j.id=a.project_id
-    WHERE (a.member_id=? OR a.role_id=?) AND j.archived_at IS NULL ORDER BY a.id`).bind(memberId, roleId).all<ProjectPolicyGrant>()
+    FROM grants a JOIN project_policies p ON p.id=a.policy_id JOIN projects j ON j.id=a.project_id
+    WHERE a.agent_id IS NULL AND (a.member_id=? OR a.role_id=?) AND j.archived_at IS NULL ORDER BY a.id`).bind(memberId, roleId).all<ProjectPolicyGrant>()
   return rows.results
 }
 export function requirePolicyManager(auth: AuthorizationContext) {
@@ -38,13 +38,15 @@ export async function saveProjectPolicy(env: L4Env, auth: AuthorizationContext, 
     const roleAssignment = await env.DB.prepare('SELECT role_id FROM role_policies WHERE policy_id=? LIMIT 1').bind(id).first()
     if (roleAssignment && !auth.principal.isOwner) fail(403, 'policy_denied', 'Only the owner can edit a policy assigned to a role')
     if ((input.permissions & ~ProjectPolicyPermissions) !== 0) {
-      const projectAssignment = await env.DB.prepare('SELECT id FROM project_policy_assignments WHERE policy_id=? LIMIT 1').bind(id).first()
+      const projectAssignment = await env.DB.prepare('SELECT id FROM grants WHERE policy_id=? AND project_id IS NOT NULL LIMIT 1').bind(id).first()
       if (projectAssignment) fail(400, 'policy_scope', 'Policies assigned in projects cannot include server permissions')
     }
+    const serverAgentAccess = await env.DB.prepare('SELECT id FROM grants WHERE policy_id=? AND project_id IS NULL LIMIT 1').bind(id).first()
+    if (serverAgentAccess && !auth.principal.isOwner) fail(403, 'policy_denied', 'Only the owner can edit a policy granted as Server-wide agent access')
     // Editing a reusable policy affects every assignment. A scoped manager may
     // not use a definition edit to expand another project's authority.
     if (!auth.principal.isOwner) {
-      const targets = await env.DB.prepare('SELECT DISTINCT project_id AS id FROM project_policy_assignments WHERE policy_id=?').bind(id).all<{ id: string }>()
+      const targets = await env.DB.prepare('SELECT DISTINCT project_id AS id FROM grants WHERE policy_id=? AND project_id IS NOT NULL').bind(id).all<{ id: string }>()
       for (const target of targets.results) {
         if (!projectPermissionAllowed(auth, target.id, Permission.manageProjects)) fail(403, 'policy_denied', 'Manage every affected project before editing a shared policy')
         assertPolicyGrant(auth, input.permissions, target.id)
@@ -68,7 +70,7 @@ async function assignmentAuthority(env: L4Env, auth: AuthorizationContext, proje
 export async function listProjectAssignments(env: L4Env, projectId: string) {
   return (await env.DB.prepare(`SELECT a.id,a.project_id AS projectId,a.policy_id AS policyId,a.member_id AS memberId,a.role_id AS roleId,
     coalesce(u.display_name,r.name) AS name,coalesce(u.kind,'role') AS kind,p.name AS policyName,p.permissions_bitmask AS permissions
-    FROM project_policy_assignments a JOIN project_policies p ON p.id=a.policy_id LEFT JOIN users u ON u.id=a.member_id LEFT JOIN roles r ON r.id=a.role_id WHERE a.project_id=? ORDER BY name,p.name,a.id`)
+    FROM grants a JOIN project_policies p ON p.id=a.policy_id LEFT JOIN users u ON u.id=a.member_id LEFT JOIN roles r ON r.id=a.role_id WHERE a.project_id=? AND a.agent_id IS NULL ORDER BY name,p.name,a.id`)
     .bind(projectId).all<ProjectAssignment>()).results
 }
 export async function assignProjectPolicy(env: L4Env, auth: AuthorizationContext, projectId: string, request: unknown) {
@@ -82,7 +84,7 @@ export async function assignProjectPolicy(env: L4Env, auth: AuthorizationContext
     : await env.DB.prepare("SELECT id FROM roles WHERE id=? AND key<>'owner'").bind(input.roleId).first()
   if (!target) fail(400, 'policy_target', 'Choose an active member or a non-owner role')
   const id = newId()
-  const inserted = await env.DB.prepare('INSERT INTO project_policy_assignments(id,project_id,policy_id,member_id,role_id,created_by,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id')
+  const inserted = await env.DB.prepare('INSERT INTO grants(id,project_id,policy_id,member_id,role_id,created_by,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id')
     .bind(id, projectId, input.policyId, input.memberId, input.roleId, auth.principal.id, nowIso()).first()
   if (!inserted) fail(409, 'policy_exists', 'This access is already assigned')
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'project.access.assign', targetType: 'project', targetId: projectId, meta: { assignmentId: id, policyId: policy.id }, authorization: auth })
@@ -93,7 +95,7 @@ export async function revokeProjectPolicy(env: L4Env, auth: AuthorizationContext
   const current = (await listProjectAssignments(env, projectId)).find(a => a.id === id)
   if (!current) fail(404, 'not_found', 'Assignment not found')
   assertPolicyGrant(auth, current.permissions, projectId)
-  await env.DB.prepare('DELETE FROM project_policy_assignments WHERE id=? AND project_id=?').bind(id, projectId).run()
+  await env.DB.prepare('DELETE FROM grants WHERE id=? AND project_id=? AND agent_id IS NULL').bind(id, projectId).run()
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'project.access.revoke', targetType: 'project', targetId: projectId, meta: { assignmentId: id }, authorization: auth })
 }
 export async function replaceProjectPolicy(env: L4Env, auth: AuthorizationContext, projectId: string, id: string, request: unknown) {
@@ -108,7 +110,7 @@ export async function replaceProjectPolicy(env: L4Env, auth: AuthorizationContex
   // A replacement gets a fresh identity. Changing A -> B -> A must not revive
   // a Run whose original assignment was revoked in between.
   const replacementId = newId()
-  const changed = await env.DB.prepare('UPDATE project_policy_assignments SET id=?,policy_id=? WHERE id=? AND project_id=? RETURNING id').bind(replacementId, policy.id, id, projectId).first()
+  const changed = await env.DB.prepare('UPDATE grants SET id=?,policy_id=? WHERE id=? AND project_id=? AND agent_id IS NULL RETURNING id').bind(replacementId, policy.id, id, projectId).first()
   if (!changed) fail(409, 'policy_changed', 'Project access changed; reload before saving')
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'project.access.update', targetType: 'project', targetId: projectId, meta: { assignmentId: replacementId, previousAssignmentId: id, policyId: policy.id }, authorization: auth })
   return (await listProjectAssignments(env, projectId)).find(a => a.id === replacementId)!
