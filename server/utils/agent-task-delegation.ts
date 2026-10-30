@@ -1,4 +1,5 @@
 import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import { autonomousExecution } from '../../shared/agent-execution-policy'
 import { authorize, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { Permission } from '../../shared/permissions'
 import { ProjectPolicyPermissions } from '../../shared/project-access'
@@ -13,7 +14,7 @@ import { fail } from './cf'
 export async function delegateProjectTask(env: L4Env, run: AgentRun, authorization: AuthorizationContext, taskId: string, attempt = 1, instructions = '') {
   authorize(authorization, ServerAction.delegateTasks)
   const mandate = JSON.parse(run.mandateJson) as RunMandate
-  if (!mandate.projectId || mandate.execution?.mode !== 'role') fail(403, 'delegation_scope', 'Delegation requires a role-authorized project run')
+  if (!mandate.projectId || !mandate.execution || !autonomousExecution(mandate.execution.mode)) fail(403, 'delegation_scope', 'Delegation requires a role-authorized project run')
   if ((mandate.depth ?? 0) >= mandate.execution.maxDepth) fail(409, 'task_depth', 'Delegation depth limit reached')
   const task = await getTask(env, authorization, taskId)
   if (!task || task.projectId !== mandate.projectId || !task.assigneeId || task.assigneeId === run.agentId || task.archivedAt || task.status === 'done') fail(403, 'delegation_scope', 'Choose active work assigned to another agent in this project')

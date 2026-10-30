@@ -1,4 +1,5 @@
 import { toolSecurityReason } from './agent-tool-security'
+import { autonomousExecution } from '../../shared/agent-execution-policy'
 import { agentExecutionPolicy } from './agent-execution-policy'
 import { agentBrowserConfigured } from '../../workers/env'
 import { getServerId } from '../../shared/server-id'
@@ -26,10 +27,10 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
   const result: ToolsSettingsDTO = { agents: agents.results, members, roles, mayConnect: granted(actor, Permission.useExternalTools), mayManageServer: actor.principal.isOwner, mayPreview: granted(actor, Permission.useAgents), mayAudit: granted(actor, Permission.useExternalTools),
     capabilities: [
       { name: 'Built-in Server tools', available: true, detail: 'Tasks, Data, documents and time. Current Agent and initiating Member Roles/resources govern every call.' },
-      { name: 'Read-only MCP', available: policy.mode === 'role', detail: 'Requires an explicitly shared connection, current tool schema and Use external tools for both parties. Review mode blocks outbound calls.' },
-      { name: 'Public page reading', available: policy.mode === 'role' && agentBrowserConfigured(env), detail: 'Requires Browse web for both parties and a browser provider. Public URLs only; private network and Server origins are blocked.' },
+      { name: 'Read-only MCP', available: autonomousExecution(policy.mode), detail: 'Requires an explicitly shared connection, current tool schema and Use external tools for both parties. Review mode blocks outbound calls.' },
+      { name: 'Public page reading', available: autonomousExecution(policy.mode) && agentBrowserConfigured(env), detail: 'Requires Browse web for both parties and a browser provider. Public URLs only; private network and Server origins are blocked.' },
       { name: 'Computer execution', available: Boolean(env.AGENT_COMPUTE || (env.AGENT_RUNNER_URL && env.AGENT_RUNNER_TOKEN)), detail: 'Requires a Task and Use computer for both parties. Repository access and Run limits apply.' },
-      { name: 'Repository proposals', available: policy.mode === 'role', detail: 'Requires Propose code changes in the task project, an admitted repository and current access for both parties. Publishes only to a working branch and draft PR.' },
+      { name: 'Repository proposals', available: autonomousExecution(policy.mode), detail: 'Requires Propose code changes in the task project, an admitted repository and current access for both parties. Publishes only to a working branch and draft PR.' },
       { name: 'External writes and approvals', available: false, detail: 'Unavailable until the approval policy is implemented. No approval or external write authority is granted here.' },
     ] }
   if (agentId) {
@@ -42,7 +43,7 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
     const external = await mcpToolExposure(env, auth)
     result.preview = { agentId, tools: [...builtins, ...external].filter(tool => !toolSecurityReason(tool.name, true, policy.mode)), diagnostics: [
       'Preview uses current Agent and your Role/resource grants. A Task, conversation, Run mandate and current connection revision can narrow access further.',
-      policy.mode === 'role' ? 'Granted tools execute autonomously within the admitted scope and budgets. Unknown tools remain blocked.' : 'Review mode blocks outbound calls and writes; workspace operations wait for approval.',
+      autonomousExecution(policy.mode) ? 'Granted tools execute autonomously within the admitted scope and budgets.' + (policy.mode === 'plan' ? ' Repository workspace operations wait for an approved plan.' : '') + ' Unknown tools remain blocked.' : 'Review mode blocks outbound calls and writes; workspace operations wait for approval.',
       'Task execution, schedules and repository/computer tools additionally require a suitable active Run.',
       ...[{flag:Permission.readTasks,label:'Read tasks'},{flag:Permission.writeTasks,label:'Write tasks'},{flag:Permission.readData,label:'Read Data'},{flag:Permission.browseWeb,label:'Browse web'},{flag:Permission.useComputer,label:'Use computer'}].flatMap(({flag,label}) => {
         const missing = [!hasPermission(auth.principal.permissions,flag) ? 'Agent Role' : '', !granted(actor,flag) ? 'your Role' : ''].filter(Boolean)

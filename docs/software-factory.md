@@ -76,6 +76,8 @@ Treat this trusted source-fetch component as part of the provider credential bro
 
 ## Run, review and repair
 
+In plan mode (Settings → Agents → Execution) the Agent first proposes a plan for the Task; one approval covers the workspace operations it lists, within its operation count and network hosts, while publication still needs its own approval. See [Agents](agents.md).
+
 Start the Agent on the Task and open its private Run. `factory_workspace` is an object-schema tool compatible with embedded and container Pi. Native Pi shell/filesystem tools remain disabled. Each factory operation records a SHA-256 digest over its exact arguments, Run/Agent/initiator, Task/channel/workspace, frozen repository/base/connection, current authority, pinned image, workspace revision and expiry.
 
 The Run and Task indicate review is required. The private Software Factory panel displays destination repository/ref, identities, Node, image, exact command or file content, timeout, selected network hosts and the committed diff/test receipts. Select the explicit acknowledgement and approve or reject. Approval is for that action only; it does not approve later commands, changed arguments, merge or release. An approved publication must retain exact local Git commit and tree SHAs; a provider mismatch stops before branch publication.

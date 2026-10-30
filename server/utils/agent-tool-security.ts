@@ -1,4 +1,5 @@
 import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import { autonomousExecution, type AgentExecutionMode } from '../../shared/agent-execution-policy'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 
@@ -22,7 +23,7 @@ export function toolEffect(name: string): ToolEffect {
   if (external.has(name) || name.startsWith('mcp_')) return 'external'
   return 'unknown'
 }
-export type ToolSecurityStatus = { mode: 'role' | 'review'; untrustedContext: boolean; outboundReviewAvailable: false; decisions: Array<{ tool: string; effect: ToolEffect; untrustedContext: boolean; decision: 'allowed' | 'blocked'; reason: string; createdAt: string }> }
+export type ToolSecurityStatus = { mode: AgentExecutionMode; untrustedContext: boolean; outboundReviewAvailable: false; decisions: Array<{ tool: string; effect: ToolEffect; untrustedContext: boolean; decision: 'allowed' | 'blocked'; reason: string; createdAt: string }> }
 
 /** Context belongs to the Session, including restored transcripts, failed reads, retries and other Runs. */
 export async function untrustedContext(env: L4Env, run: AgentRun): Promise<boolean> {
@@ -48,14 +49,14 @@ export async function privateContext(env: L4Env, run: AgentRun): Promise<boolean
     .bind(run.sessionId, run.sessionId, ...privateSourceTools).first<{ private: number }>()
   return !row || Boolean(row.private)
 }
-export function toolSecurityReason(name: string, untrusted: boolean, mode: 'role' | 'review' = 'review', privateData = false): string | null {
+export function toolSecurityReason(name: string, untrusted: boolean, mode: AgentExecutionMode = 'review', privateData = false): string | null {
   const effect = toolEffect(name)
   if (effect === 'unknown') return 'unclassified_tool'
   // Tool identity is only a gate. The service still checks current principal,
   // delegator, project, resources and the immutable Run scope on every call.
   // Role mode runs autonomously, except that private data never meets open egress:
   // that pairing is how an injected instruction would exfiltrate it.
-  if (mode === 'role') return privateData && arbitraryEgress(name) ? 'private_context_blocks_egress' : null
+  if (autonomousExecution(mode)) return privateData && arbitraryEgress(name) ? 'private_context_blocks_egress' : null
   if (effect === 'external') return 'exact_outbound_review_unavailable'
   if (effect === 'write') return untrusted ? 'untrusted_context_requires_review' : 'exact_write_review_unavailable'
   return null
@@ -64,7 +65,7 @@ export async function guardRunTool(env: L4Env, run: AgentRun, name: string, call
   const effect = toolEffect(name)
   const untrusted = await untrustedContext(env, run)
   const mandate = JSON.parse(run.mandateJson) as RunMandate
-  const role = mandate.execution?.mode === 'role'
+  const role = autonomousExecution(mandate.execution?.mode)
   const reason = toolSecurityReason(name, untrusted, mandate.execution?.mode, role && arbitraryEgress(name) && await privateContext(env, run))
   // Mark before starting any read: concurrent calls, failed reads and process death cannot clear taint.
   if (!reason && (effect === 'read' || effect === 'external')) await markUntrustedContext(env, run)
@@ -94,7 +95,7 @@ export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: stri
   const mandate = JSON.parse(run.mandateJson) as RunMandate
   // The initiating Member chose this conversation as the destination for the answer. An answer
   // drawn from private sources may only be posted where the initiator is the only human reader.
-  if (!run.taskId && run.status === 'completed' && run.resultText && mandate.execution?.mode === 'role'
+  if (!run.taskId && run.status === 'completed' && run.resultText && autonomousExecution(mandate.execution?.mode)
     && (!await privateContext(env, run) || await initiatorOnlyAudience(env, run))) {
     return { restricted: false, text: run.resultText.slice(0, 12000) }
   }

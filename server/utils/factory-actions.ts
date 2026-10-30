@@ -1,6 +1,6 @@
 import { dispatchCloudflareFactory } from './factory-setup'
 import { patchAgentTurn, fanoutAgentTurns } from '../../workers/agent-turns'
-import { factoryRequest, parseFactoryToolInput, factorySnapshot, type FactoryAction } from '../../shared/software-factory'
+import { factoryRequest, parseFactoryToolInput, factorySnapshot, planRequest, type FactoryAction, type FactoryRequest } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { factoryAuthority, factoryHash, factoryWorkspace, type FactoryWorkspace, workspaceColumns } from './factory-authority'
@@ -33,14 +33,30 @@ export async function authorizeFactoryAction(env: L4Env, row: ActionRow, actorId
   if (request.operation === 'publish' && (!workspace.snapshotJson || await factoryHash(workspace.snapshotJson) !== request.snapshotDigest)) fail(409, 'factory_snapshot_changed', 'Review the new snapshot before publication')
   return { ...context, workspace, request }
 }
+/** The Task's current plan, if the person approved it, and how many operations it still covers.
+ * Only the latest plan counts: proposing a new one pauses automatic approval until it is decided. */
+export async function approvedPlan(env: L4Env, workspaceId: string) {
+  const row = await env.DB.prepare(`SELECT request_json AS requestJson,status,decided_at AS decidedAt FROM factory_actions
+    WHERE workspace_id=? AND json_extract(request_json,'$.operation')='plan' ORDER BY created_at DESC LIMIT 1`).bind(workspaceId).first<{ requestJson: string; status: string; decidedAt: string | null }>()
+  if (!row || row.status !== 'completed' || !row.decidedAt) return null
+  const used = await env.DB.prepare(`SELECT count(*) AS n FROM factory_actions WHERE workspace_id=? AND created_at>? AND json_extract(request_json,'$.operation')<>'plan'`)
+    .bind(workspaceId, row.decidedAt).first<{ n: number }>()
+  const plan = planRequest.parse(JSON.parse(row.requestJson))
+  return { plan, remaining: plan.operations - (used?.n ?? 0) }
+}
+export function planCovers(approved: Awaited<ReturnType<typeof approvedPlan>>, request: FactoryRequest) {
+  if (!approved || approved.remaining <= 0 || request.operation === 'publish' || request.operation === 'plan') return false
+  return request.operation !== 'exec' || request.networkHosts.every(host => approved.plan.networkHosts.includes(host))
+}
 /** Every effect has an immutable receipt, current authorization and a single claim.
- * New role-authorized mandates preapprove operations; legacy/review mandates wait. */
+ * Role mandates preapprove operations; plan mandates preapprove what an approved plan covers;
+ * review and legacy mandates wait for each one. */
 export async function factoryToolCall(env: L4Env, runId: string, callId: string, input: unknown) {
   const request = parseFactoryToolInput(input)
   const context = await factoryAuthority(env, runId, undefined, request.operation === 'publish')
   if (request.operation === 'exec' && request.networkHosts.length) authorize(context.auth, ServerAction.browseWeb)
   const execution = (JSON.parse(context.run.mandateJson) as RunMandate).execution
-  const automatic = execution?.mode === 'role'
+  const isPlan = request.operation === 'plan'
   if (request.operation === 'exec' && request.timeoutMs > ('timeoutMs' in context.capabilities ? context.capabilities.timeoutMs : 120000)) fail(400, 'factory_timeout', 'Command timeout exceeds this provider’s configured execution limit')
   await markUntrustedContext(env, context.run)
   await expireFactoryActions(env)
@@ -50,22 +66,26 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     if (row.requestJson !== encoded) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
     await authorizeFactoryAction(env, row)
     if (['completed','failed'].includes(row.status) && row.resultJson) return JSON.parse(row.resultJson)
+    if (isPlan && row.status === 'rejected') return { factoryPending: false, actionId: row.id, status: row.status, message: 'The plan was rejected. Ask the person what to change, then propose a revised plan.' }
     if (!['pending', 'approved', 'claimed', 'executing'].includes(row.status)) return { factoryPending: false, actionId: row.id, status: row.status, message: 'This action did not complete. Inspect its outcome; it will not be replayed.' }
     if (row.status === 'approved' && request.operation !== 'publish') await dispatchCloudflareFactory(env, row.id, row.workspaceId, (await factoryWorkspace(env, context)).nodeId)
     return { factoryPending: true, actionId: row.id, status: row.status, reviewUrl: `/runs/${runId}` }
   }
   const workspace = await factoryWorkspace(env, context)
-  if (!['release','suspend'].includes(request.operation) && (workspace.commands >= (execution?.workspaceActions ?? 50) || workspace.runtimeMs >= (execution?.workspaceRuntimeMs ?? 3600000) || workspace.publicationCount >= (execution?.workspacePublications ?? 10))) fail(429, 'factory_budget', 'Task workspace action, runtime or publication limit reached')
+  const automatic = execution?.mode === 'role' || (execution?.mode === 'plan' && planCovers(await approvedPlan(env, workspace.id), request))
+  if (!isPlan && !['release','suspend'].includes(request.operation) && (workspace.commands >= (execution?.workspaceActions ?? 50) || workspace.runtimeMs >= (execution?.workspaceRuntimeMs ?? 3600000) || workspace.publicationCount >= (execution?.workspacePublications ?? 10))) fail(429, 'factory_budget', 'Task workspace action, runtime or publication limit reached')
   if (request.operation === 'exec' && workspace.runtimeMs + request.timeoutMs > (execution?.workspaceRuntimeMs ?? 3600000)) fail(429, 'factory_budget', 'Command exceeds the remaining Task runtime budget')
-  if (request.operation !== 'bootstrap' && request.operation !== 'release' && workspace.status !== 'ready') fail(409, 'workspace_unavailable', 'Bootstrap the workspace first')
+  if (!isPlan && request.operation !== 'bootstrap' && request.operation !== 'release' && workspace.status !== 'ready') fail(409, 'workspace_unavailable', 'Bootstrap the workspace first')
   if (request.operation === 'bootstrap' && !['new', 'released'].includes(workspace.status)) fail(409, 'workspace_exists', 'The workspace already has a pinned checkout')
   if (request.operation === 'publish') {
     if (context.environment.sourceRepoId !== context.environment.workRepoId) fail(409, 'factory_fork_unavailable', 'MVP publication uses a dedicated branch in the original repository')
     if (!workspace.snapshotJson || await factoryHash(workspace.snapshotJson) !== request.snapshotDigest) fail(409, 'factory_snapshot_changed', 'Snapshot the exact committed changes before publication')
     factorySnapshot.parse(JSON.parse(workspace.snapshotJson))
   }
-  const id = newId(), expiresAt = new Date(Math.min(Date.parse(context.run.deadline), Date.now() + 15 * 60000)).toISOString()
-  const policy = JSON.stringify({ auth: context.auth, compute: context.capabilities, workspaceRevision: workspace.commands, approvalMode: automatic ? 'role' : 'review' })
+  // A plan waits for the person as long as the Run does; an operation review stays short.
+  const id = newId(), expiresAt = new Date(isPlan ? Date.parse(context.run.deadline) : Math.min(Date.parse(context.run.deadline), Date.now() + 15 * 60000)).toISOString()
+  const approvalMode = execution?.mode === 'role' ? 'role' : automatic ? 'plan' : 'review'
+  const policy = JSON.stringify({ auth: context.auth, compute: context.capabilities, workspaceRevision: workspace.commands, approvalMode })
   const digest = await factoryHash(JSON.stringify({ id, workspaceId: workspace.id, runId, callId, request, policy, environment: context.environment, expiresAt }))
   const inserted = await env.DB.prepare(`INSERT INTO factory_actions(id,workspace_id,run_id,call_id,digest,request_json,policy_json,status,expires_at,created_at)
     SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE (SELECT count(*) FROM factory_actions WHERE workspace_id=?)<? ON CONFLICT DO NOTHING RETURNING id`)
@@ -75,10 +95,15 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     if (existing && existing.requestJson === encoded) return { factoryPending: true, actionId: existing.id, status: existing.status, reviewUrl: `/runs/${runId}` }
     fail(409, 'factory_pending', 'Review the existing action before requesting another operation')
   }
-  if (automatic) await env.DB.prepare("UPDATE factory_actions SET status='approved',decided_by=NULL,decided_at=? WHERE id=? AND status='pending'").bind(nowIso(), id).run()
-  await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(automatic ? 'queued' : 'approval_pending', context.run.taskId, context.run.agentId).run()
-  await patchAgentTurn(env, runId, automatic ? { status: 'tool', detail: 'Using a tool' } : { status: 'waiting_approval', detail: 'Review required' })
+  // In role mode a plan is a record, not a gate.
+  const planAccepted = isPlan && execution?.mode === 'role'
+  if (planAccepted) await settlePlan(env, id, null)
+  else if (automatic) await env.DB.prepare("UPDATE factory_actions SET status='approved',decided_by=NULL,decided_at=? WHERE id=? AND status='pending'").bind(nowIso(), id).run()
+  const proceeding = automatic || planAccepted
+  await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(proceeding ? 'queued' : 'approval_pending', context.run.taskId, context.run.agentId).run()
+  await patchAgentTurn(env, runId, proceeding ? { status: 'tool', detail: 'Using a tool' } : { status: 'waiting_approval', detail: 'Review required' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
+  if (planAccepted) return JSON.parse((await env.DB.prepare('SELECT result_json AS resultJson FROM factory_actions WHERE id=?').bind(id).first<{ resultJson: string }>())!.resultJson)
   if (automatic && request.operation !== 'publish') await dispatchCloudflareFactory(env, id, workspace.id, workspace.nodeId)
   if (automatic && request.operation === 'publish') {
     const { executeFactoryPublication } = await import('./factory-github')
@@ -116,17 +141,29 @@ export async function decideFactoryAction(env: L4Env, runId: string, actorId: st
   if (!row || row.digest !== request.digest) fail(409, 'factory_changed', 'Review the exact action again')
   const context = await authorizeFactoryAction(env, row, actorId)
   if (row.status !== 'pending') return visibleAction(row)
-  const updated = await env.DB.prepare("UPDATE factory_actions SET status=?,decided_by=?,decided_at=? WHERE id=? AND status='pending' AND expires_at>? RETURNING id")
-    .bind(request.decision === 'approve' ? 'approved' : 'rejected', actorId, nowIso(), row.id, nowIso()).first()
+  const updated = context.request.operation === 'plan' && request.decision === 'approve'
+    ? await settlePlan(env, row.id, actorId)
+    : await env.DB.prepare("UPDATE factory_actions SET status=?,decided_by=?,decided_at=? WHERE id=? AND status='pending' AND expires_at>? RETURNING id")
+      .bind(request.decision === 'approve' ? 'approved' : 'rejected', actorId, nowIso(), row.id, nowIso()).first()
   if (!updated) fail(409, 'factory_settled', 'Action was already decided')
   await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(request.decision === 'approve' ? 'queued' : 'rejected', context.run.taskId, context.run.agentId).run()
   await patchAgentTurn(env, runId, { status: 'tool', detail: 'Using a tool' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
-  if (request.decision === 'approve' && context.request.operation !== 'publish') await dispatchCloudflareFactory(env, row.id, row.workspaceId, context.workspace.nodeId)
+  if (request.decision === 'approve' && !['publish', 'plan'].includes(context.request.operation)) await dispatchCloudflareFactory(env, row.id, row.workspaceId, context.workspace.nodeId)
   if (request.decision === 'approve' && context.request.operation === 'publish') {
     const { executeFactoryPublication } = await import('./factory-github')
     const work = executeFactoryPublication(env, row.id)
     if (schedule) schedule(work.catch(() => undefined)); else await work
   }
   return visibleAction((await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(row.id).first<ActionRow>())!)
+}
+
+/** An approved plan completes at once: it is a decision, never work for a computer. */
+async function settlePlan(env: L4Env, id: string, decidedBy: string | null) {
+  const row = await env.DB.prepare('SELECT request_json AS requestJson FROM factory_actions WHERE id=?').bind(id).first<{ requestJson: string }>()
+  const plan = planRequest.parse(JSON.parse(row!.requestJson))
+  const result = JSON.stringify({ approved: true, operations: plan.operations, networkHosts: plan.networkHosts,
+    message: decidedBy ? 'The person approved this plan. Operations it covers now run without separate review; publishing still waits for approval. Propose a new plan if the work changes.' : 'Plan recorded.' })
+  return env.DB.prepare("UPDATE factory_actions SET status='completed',decided_by=?,decided_at=?,result_json=? WHERE id=? AND status='pending' AND expires_at>? RETURNING id")
+    .bind(decidedBy, nowIso(), result, id, nowIso()).first()
 }

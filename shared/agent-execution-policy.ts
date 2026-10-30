@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 /** Admission snapshots these limits. Changing settings cannot expand an existing Run. */
 export const agentExecutionPolicySchema = z.object({
-  mode: z.enum(['role', 'review']).default('role'),
+  /** role: autonomous within permissions. plan: autonomous after the person approves the Agent's plan
+   * for repository work; publication still waits. review: every workspace operation waits. */
+  mode: z.enum(['role', 'plan', 'review']).default('role'),
   maxSteps: z.number().int().min(1).max(2048).default(256),
   maxModelCalls: z.number().int().min(1).max(2048).default(256),
   maxToolCalls: z.number().int().min(1).max(32768).default(4096),
@@ -19,3 +21,7 @@ export const agentExecutionPolicySchema = z.object({
 }).strict()
 export type AgentExecutionPolicy = z.infer<typeof agentExecutionPolicySchema>
 export const defaultAgentExecutionPolicy = (): AgentExecutionPolicy => agentExecutionPolicySchema.parse({})
+
+export type AgentExecutionMode = AgentExecutionPolicy['mode']
+/** Outside repository work, plan mode runs like role mode: permissions and Run scope decide. */
+export const autonomousExecution = (mode: AgentExecutionMode | undefined): boolean => mode === 'role' || mode === 'plan'
