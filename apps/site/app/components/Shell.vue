@@ -168,7 +168,7 @@ function forgetSelected() {
 </script>
 
 <template>
-  <main class="flex h-dvh overflow-hidden bg-default">
+  <main class="flex h-dvh overflow-hidden bg-default pb-[var(--shell-safe-bottom,0px)] pt-[var(--shell-safe-top,0px)]">
     <div class="shrink-0" :class="railOnPhone ? 'block' : 'hidden md:block'">
       <CommunityRail
         :groups="shell.groups.value"
