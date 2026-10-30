@@ -33,12 +33,12 @@ Each PR Preview shows one change alone. The main Preview shows everything merged
 
 Workers Builds configuration for the main branch (administrative, not code):
 
-| Worker | Deploy command for `main` |
-| --- | --- |
-| `llll` | `node scripts/web-deploy.mjs production && pnpm build:site && node scripts/web-deploy.mjs main` |
-| `llll-server` | `node scripts/server-preview.mjs` (after the existing `pnpm build`) |
+| Worker | Root | Build command | Deploy command |
+| --- | --- | --- | --- |
+| `llll` | `/apps/site` | `pnpm build:production` (unchanged) | `pnpm deploy:production && pnpm deploy:main` |
+| `llll-server` | `/` | `pnpm build` | `node scripts/server-preview.mjs` |
 
-The production step stays first and remains a no-op without a newer published release.
+For `llll` the production step stays first and remains a no-op without a newer published release; `deploy:main` then builds the site from the main commit and deploys the main Preview. Add the secrets before changing the commands, and change them only after this script is on main, or main Builds fail.
 
 ## Request timing
 
