@@ -113,7 +113,9 @@ async function authorizeSchedule(env: L4Env, auth: AuthorizationContext, input: 
     const task = await getTask(env, agent, input.taskId!)
     if (!task || task.assigneeId !== input.agentId) fail(403, 'schedule_denied', 'Task must be assigned to the selected agent')
     if (task.archivedAt || task.status === 'done') fail(409, 'task_closed', 'Choose an open task')
-    const humanPermissions = auth.delegation ? (auth.delegation.isOwner ? auth.principal.permissions : auth.delegation.permissions!) : auth.principal.permissions
+    // A person's scheduled work keeps any Agent access they hold for this Agent, as their direct Runs do.
+    const humanPermissions = auth.delegation ? (auth.delegation.isOwner ? auth.principal.permissions : auth.delegation.permissions!)
+      : agent.delegation && !agent.delegation.isOwner ? agent.delegation.permissions! : auth.principal.permissions
     mandate = { permissions: humanPermissions, resourceAccess: auth.delegation?.resourceAccess ?? auth.principal.resourceAccess,
       agentPermissions: agent.principal.permissions & (auth.principal.kind === 'agent' ? auth.principal.permissions : agent.principal.permissions),
       agentResourceAccess: auth.principal.kind === 'agent' ? intersectResources(agent.principal.resourceAccess, auth.principal.resourceAccess) : agent.principal.resourceAccess,
