@@ -106,13 +106,13 @@ export async function inferAiFunction(env: L4Env, authorization: AuthorizationCo
 
 const avatarBrief = [
   'You draw one profile picture (avatar) for a member or an agent of an L4 Server, where a team chats and works.',
-  'Output exactly one square 1:1 image. One subject, centered, filling about two thirds of the frame, still readable at 40 pixels.',
-  'Plain, uncluttered background. No text, letters, numbers, watermarks, borders or frames, and no logos unless the request asks for one.',
+  'Output exactly one square 1:1 image. One subject, centered, filling about 85 percent of the frame, still readable at 24 pixels.',
+  'One flat, solid background colour with no gradient, texture or cast shadow, so it can be cut away. No text, letters, numbers, watermarks, borders or frames, and no logos unless the request asks for one.',
   'Friendly and characterful rather than corporate. Never depict a real, identifiable person.',
 ].join(' ')
 const l4Style = [
   'L4 house style: a playful, toy-like 3D object character with a small simple face (two eyes, an optional small mouth), like a designer vinyl figure.',
-  'Matte materials and soft studio light. A black-and-white palette with at most one muted accent colour, on a solid off-white or near-black background.',
+  'Matte materials and soft studio light. A black-and-white palette with at most one muted accent colour, on a solid off-white background.',
   'The first attached image is the L4 logo: echo its blocky, rounded pixel geometry in the character\'s shape, but do not draw the logo itself.',
 ].join(' ')
 const dataImage = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/u

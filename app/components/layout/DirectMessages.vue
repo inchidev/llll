@@ -113,7 +113,7 @@ function searchName(member: DmSearchMember) {
             @pointerleave="warm.cancel()"
             @focus="warm.prefetch(ch.id)"
           >
-            <UserAvatar v-if="avatarUser(ch)" :user="avatarUser(ch)!" size="2xs" />
+            <UserAvatar v-if="avatarUser(ch)" :user="avatarUser(ch)!" size="xs" />
             <UAvatar v-else size="2xs" :text="initials(ch)" />
             <span class="truncate flex-1">{{ titleOf(ch) }}</span>
             <UBadge

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowSize } from '@vueuse/core'
 import { useQuery } from '@tanstack/vue-query'
 import type { ChannelDTO, ClientMsg, MemberDTO, MessageDTO } from '~~/shared/types'
 import { hasPermission, Permission } from '~~/shared/permissions'
@@ -15,6 +16,9 @@ const props = defineProps<{
   agentId?: string
 }>()
 const ui = useUiStore()
+// A thread can take most of the window; the conversation beside it keeps room to read.
+const { width: windowWidth } = useWindowSize()
+const threadMaxWidth = computed(() => Math.max(640, windowWidth.value - 700))
 const creating = computed(() => Boolean(ui.threadId?.startsWith(PENDING_THREAD_PREFIX)))
 // While the thread is being created there is nothing to load or connect to yet.
 const threadId = computed(() => creating.value ? '' : ui.threadId)
@@ -73,14 +77,14 @@ defineShortcuts({
     v-if="ui.threadId"
     id="channel-details"
     class="absolute inset-x-0 bottom-[calc(-1*var(--df-safe-area-bottom))] top-[calc(-1*var(--df-safe-area-top))] z-30 flex min-h-0 w-full shrink-0 flex-col border-l border-default bg-elevated dark:bg-black pb-[var(--df-safe-area-bottom)] pt-[var(--df-safe-area-top)] lg:relative lg:inset-auto lg:z-auto lg:w-[var(--df-right-panel-width)] lg:p-0"
-    :style="{ '--df-right-panel-width': `${ui.rightPanelWidth}px` }"
+    :style="{ '--df-right-panel-width': `${Math.min(ui.rightPanelWidth, threadMaxWidth)}px` }"
     aria-label="Thread"
   >
     <LayoutResizeHandle
       v-model="ui.rightPanelWidth"
       class="hidden lg:block"
       :min="180"
-      :max="640"
+      :max="threadMaxWidth"
       side="start"
       label="Resize thread panel"
     />

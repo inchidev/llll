@@ -105,6 +105,8 @@ export function llllNitroPlugins() {
     {
       name: 'llll-runtime-chunks',
       outputOptions(options) {
+        // The dev server bundles into one file, where Rollup rejects manual chunks.
+        if (options.inlineDynamicImports) return options
         const previous = options.manualChunks
         return {
           ...options,
