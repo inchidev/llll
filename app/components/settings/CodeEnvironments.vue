@@ -10,11 +10,12 @@ const requestedTab = useState<string | null>('git-settings-tab', () => null)
 const providerTab = ref(requestedTab.value || 'github')
 requestedTab.value = null
 const gitConnections = ref<{ connect: () => void; refresh: () => Promise<void> } | null>(null)
+const giteaConnections = ref<{ connect: () => void; refresh: () => Promise<void> } | null>(null)
 const refreshing = ref(false)
 async function refreshConnections() {
   refreshing.value = true
   // A fast refresh still shows the spinner long enough to register as a response.
-  try { await Promise.all([gitConnections.value?.refresh(), new Promise(resolve => setTimeout(resolve, 500))]) }
+  try { await Promise.all([(providerTab.value === 'gitea' ? giteaConnections : gitConnections).value?.refresh(), new Promise(resolve => setTimeout(resolve, 500))]) }
   finally { refreshing.value = false }
 }
 const { api } = useApi()
@@ -22,10 +23,11 @@ const toast = useToast()
 const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: { id: string; name: string; enabled: boolean; capabilities?: { provider?: string } }[] }>('/api/compute-nodes') })
 const computeNodeId = ref<string | null>(null)
 const list = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ configured: boolean; deploymentConfigured: boolean; environments: CodeEnvironment[] }>('/api/code-environments') })
-type Repository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
+type Repository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string; resourceId: string }
 const connections = useQuery({ queryKey: ['git-connections'], queryFn: () => api<{ connections: GitConnection[]; canConfigure: boolean }>('/api/git-connections') })
 const connectionId = ref<string | null>(null)
-const connectionOptions = computed(() => [...(list.data.value?.deploymentConfigured ? [{ label: 'Deployment-configured App', value: null }] : []), ...(connections.data.value?.connections ?? []).filter(c => c.enabled).map(c => ({ label: c.name, value: c.id }))])
+const connectionOptions = computed(() => [...(list.data.value?.deploymentConfigured ? [{ label: 'Deployment-configured App', value: null }] : []), ...(connections.data.value?.connections ?? []).filter(c => c.enabled).map(c => ({ label: `${c.name} · ${c.provider === 'gitea' ? 'Gitea' : 'GitHub'}`, value: c.id }))])
+const selectedProvider = computed(() => connections.data.value?.connections.find(c => c.id === connectionId.value)?.provider ?? 'github')
 const repositories = useQuery({ queryKey: computed(() => ['agent-repositories', connectionId.value]), queryFn: () => api<{ configured: boolean; repositories: Repository[] }>('/api/code-environments/repositories', { query: { connectionId: connectionId.value || undefined } }) })
 watch(connectionId, () => { sourceId.value = undefined; workId.value = undefined }, { flush: 'sync' })
 const options = computed(() => (repositories.data.value?.repositories ?? []).map(repo => ({ label: repo.name, value: repo.id })))
@@ -68,13 +70,14 @@ async function disable(item: CodeEnvironment) {
 
 <template>
   <div class="space-y-6">
-    <SettingsHeader title="Git"><template #actions><UButton v-if="providerTab === 'github'" icon="i-ph-arrows-clockwise" aria-label="Refresh Git connections" color="neutral" variant="ghost" :loading="refreshing" @click="refreshConnections" /><UButton v-if="providerTab === 'github' && connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="gitConnections?.connect()" /><UButton v-else-if="providerTab === 'environments' && list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
+    <SettingsHeader title="Git"><template #actions><UButton v-if="providerTab === 'github' || providerTab === 'gitea'" icon="i-ph-arrows-clockwise" aria-label="Refresh Git connections" color="neutral" variant="ghost" :loading="refreshing" @click="refreshConnections" /><UButton v-if="providerTab === 'github' && connections.data.value?.canConfigure" label="Connect GitHub" icon="i-ph-plus" @click="gitConnections?.connect()" /><UButton v-else-if="providerTab === 'gitea' && connections.data.value?.canConfigure" label="Connect Gitea" icon="i-ph-plus" @click="giteaConnections?.connect()" /><UButton v-else-if="providerTab === 'environments' && list.data.value?.configured" label="Add environment" icon="i-ph-plus" @click="edit()" /></template></SettingsHeader>
     <LayoutSegmentedTabs v-model="providerTab" :items="[{ label: 'GitHub', value: 'github' }, { label: 'GitLab', value: 'gitlab' }, { label: 'Gitea', value: 'gitea' }, { label: 'Environments', value: 'environments' }]" label="Git providers" />
     <SettingsGitConnections v-if="providerTab === 'github'" ref="gitConnections" />
-    <p v-else-if="providerTab === 'gitlab' || providerTab === 'gitea'" class="text-sm text-muted">{{ providerTab === 'gitlab' ? 'GitLab' : 'Gitea' }} connections are not available yet.</p>
+    <SettingsGiteaConnections v-else-if="providerTab === 'gitea'" ref="giteaConnections" />
+    <p v-else-if="providerTab === 'gitlab'" class="text-sm text-muted">GitLab connections are not available yet.</p>
     <template v-else>
       <LayoutLoadError v-if="list.error.value || repositories.error.value" message="Repository configuration did not load." :retry="() => { list.refetch(); repositories.refetch() }" />
-      <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a GitHub App" description="Connect GitHub and authorize repositories before adding an environment." color="neutral" variant="subtle" />
+      <UAlert v-if="list.data.value && !list.data.value.configured" title="Connect a Git provider" description="Connect GitHub or Gitea and give it repositories before adding an environment." color="neutral" variant="subtle" />
       <SettingsList :items="list.data.value?.environments ?? []" :item-key="item => item.id" :search-text="item => `${item.name} ${item.sourceRepo}`" placeholder="Search environments" :noun="['environment', 'environments']" @select="edit">
         <template #row="{ item }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-git-branch" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block font-medium">{{ item.name }} <UBadge v-if="!item.enabled" label="Disabled" color="neutral" variant="subtle" /></span><span class="block truncate text-xs text-muted">{{ item.sourceRepo }} · {{ item.baseBranch }}</span></span></template>
       </SettingsList>
@@ -84,7 +87,7 @@ async function disable(item: CodeEnvironment) {
         <UFormField label="Name" help="A short label for this repository and execution setup, for example Website fixes."><UInput v-model="name" class="w-full" /></UFormField>
         <UFormField label="Git connection"><USelect v-model="connectionId" :items="connectionOptions" placeholder="Choose a Git connection" class="w-full" /></UFormField>
         <UButton label="Refresh repositories" color="neutral" variant="outline" @click="repositories.refetch()" />
-        <p v-if="repositories.data.value && !repositories.data.value.repositories.length" class="text-sm text-muted">Choose a Git connection. If no repositories appear, authorize them on GitHub and refresh the list.</p>
+        <p v-if="repositories.data.value && !repositories.data.value.repositories.length" class="text-sm text-muted">{{ selectedProvider === 'gitea' ? 'No repositories appear until the connected account can push to them in Gitea. Add it as a collaborator and refresh the list.' : 'Choose a Git connection. If no repositories appear, authorize them on GitHub and refresh the list.' }}</p>
         <UFormField label="Source repository"><USelect v-model="sourceId" :items="options" placeholder="Choose source" class="w-full" /></UFormField>
         <UFormField label="Working repository" help="Choose the source repository for ordinary branch-based work, or an optional fork. Changes use a dedicated working branch."><USelect v-model="workId" :items="options" placeholder="Choose repository" class="w-full" /></UFormField>
         <UFormField label="Compute Node" help="Choose where this repository's task runs execute."><USelect v-model="computeNodeId" :items="[{ label: 'No compute backend', value: null }, ...(nodes.data.value?.nodes ?? []).filter(node => node.enabled).map(node => ({ label: node.capabilities?.provider === 'lizard' ? 'Lizard' : node.name, value: node.id }))]" class="w-full" /></UFormField>

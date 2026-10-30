@@ -19,7 +19,15 @@ export function requireGitSetupOwner(actor: AuthorizationContext) {
 }
 export async function listGitConnections(env: L4Env): Promise<GitConnection[]> {
   const rows = await env.DB.prepare(`SELECT ${columns} FROM git_connections ORDER BY created_at,id LIMIT 20`).all<Row>()
-  return rows.results.map(r => ({ ...r, enabled: Boolean(r.enabled), setupUrl: `https://github.com/apps/${r.appSlug}/installations/new` }))
+  // A Gitea bot account reaches the repositories it collaborates on; its profile lists them.
+  return rows.results.map(r => ({ ...r, enabled: Boolean(r.enabled), setupUrl: r.provider === 'gitea' ? `${r.host}/${r.account}` : `https://github.com/apps/${r.appSlug}/installations/new` }))
+}
+/** The provider of an enabled connection, or null for the deployment-configured GitHub App. */
+export async function gitConnectionProvider(env: L4Env, id?: string | null) {
+  if (!id) return 'github' as const
+  const row = await env.DB.prepare('SELECT provider FROM git_connections WHERE id=? AND enabled=1').bind(id).first<{ provider: string }>()
+  if (!row || !['github', 'gitea'].includes(row.provider)) fail(403, 'git_connection_revoked', 'Selected Git connection is unavailable')
+  return row.provider as 'github' | 'gitea'
 }
 const digest = async (s: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('')
 export async function prepareGithubSetup(env: L4Env, actor: AuthorizationContext, request: unknown) {

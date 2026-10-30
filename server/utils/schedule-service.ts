@@ -1,3 +1,4 @@
+import { repositoryResourceId } from '../../shared/code-environments'
 import { sendChannelMessage } from './message-service'
 import { createAgentRun, piConfigured } from './agent-run-service'
 import { nextScheduleAt, SCHEDULE_ACTIVE_LIMIT, scheduleListQuerySchema } from '../../shared/schedules'
@@ -122,8 +123,8 @@ async function authorizeSchedule(env: L4Env, auth: AuthorizationContext, input: 
       if (!mandate.computer) fail(403, 'code_denied', 'Scheduled repository work requires computer permission')
       const environment = await findCodeEnvironment(env, task.environmentId)
       if (!environment?.enabled) fail(403, 'code_denied', 'Repository environment is unavailable')
-      authorizeResource(auth, 'repositories', String(environment.sourceRepoId))
-      authorizeResource(agent, 'repositories', String(environment.sourceRepoId))
+      authorizeResource(auth, 'repositories', repositoryResourceId(environment))
+      authorizeResource(agent, 'repositories', repositoryResourceId(environment))
       mandate.environmentId = environment.id
       mandate.environmentVersion = environment.version
     }

@@ -6,7 +6,8 @@ import type { RunMandate } from '../../shared/agent-execution'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { findAgentRun, runAuthorization } from './agent-run-service'
-import { githubAgentClient } from './github-agent-client'
+import { pullPath, repositoryClient } from './git-provider'
+import { publishGiteaProposal } from './gitea-proposal'
 import { requireRunEnvironment } from './code-environment-service'
 import { getTask } from './task-service'
 import { fail } from './cf'
@@ -15,13 +16,19 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 
 export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<Response> {
   const { environment: item } = await codeRun(env, runId)
-  const key = `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
+  const key = item.provider === 'gitea' ? `agent-repositories/gitea/${item.gitConnectionId}/${item.sourceRepoId}/${item.baseSha}.tar.gz` : `agent-repositories/${item.sourceRepoId}/${item.baseSha}.tar.gz`
   // Revalidate the dedicated App grant even when private code is already cached.
-  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
+  const client = await repositoryClient(env, item, 'source', 'read', async () => { await codeRun(env, runId) })
   const cached = await fileStorage(env).get(key)
   if (cached && cached.size <= 20000000) {
     await codeRun(env, runId)
     return new Response(cached.body, { headers: { 'Content-Type': 'application/gzip' } })
+  }
+  // Gitea serves the archive itself, with the repository name as its top-level directory.
+  if (client.provider === 'gitea') {
+    const archive = await client.raw(`/repos/${item.sourceRepo}/archive/${item.baseSha}.tar.gz`)
+    if (!archive.ok) { await archive.body?.cancel(); fail(502, 'code_archive', 'Gitea repository archive is unavailable') }
+    return storeArchive(env, runId, key, archive)
   }
   const redirected = await client.raw(`/repos/${item.sourceRepo}/tarball/${item.baseSha}`)
   if (![302, 303].includes(redirected.status)) fail(502, 'code_archive', 'GitHub repository archive is unavailable')
@@ -37,6 +44,9 @@ export async function codeRepositoryArchive(env: L4Env, runId: string): Promise<
     await downloaded.body?.cancel()
     fail(502, 'code_archive', 'GitHub repository archive is unavailable')
   }
+  return storeArchive(env, runId, key, downloaded)
+}
+async function storeArchive(env: L4Env, runId: string, key: string, downloaded: Response) {
   const body = await readLimitedStream(downloaded.body, 20000000)
   if (!body.ok) fail(413, 'code_archive', 'Repository archive exceeds the execution limit or is unavailable')
   await codeRun(env, runId)
@@ -69,15 +79,15 @@ export async function codeRun(env: L4Env, id: string, write = false) {
 }
 export async function readCodeTree(env: L4Env, runId: string) {
   const { environment: item } = await codeRun(env, runId)
-  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
-  const tree = z.object({ truncated: z.boolean().optional(), tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })) })
-    .parse(await client.json(`/repos/${item.sourceRepo}/git/trees/${item.baseTreeSha}?recursive=1`))
+  const client = await repositoryClient(env, item, 'source', 'read', async () => { await codeRun(env, runId) })
+  const tree = z.object({ truncated: z.boolean().optional(), tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })).nullable().transform(value => value ?? []) })
+    .parse(await client.json(`/repos/${item.sourceRepo}/git/trees/${item.baseTreeSha}?${client.provider === 'gitea' ? 'recursive=true&per_page=5000' : 'recursive=1'}`))
   return { repository: item.sourceRepo, commit: item.baseSha, truncated: tree.truncated || tree.tree.length > 5000, files: tree.tree.slice(0, 5000) }
 }
 export async function readCodeFile(env: L4Env, runId: string, path: string) {
   safePath.parse(path)
   const { environment: item } = await codeRun(env, runId)
-  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'read' }, async () => { await codeRun(env, runId) })
+  const client = await repositoryClient(env, item, 'source', 'read', async () => { await codeRun(env, runId) })
   const file = z.object({ type: z.literal('file'), encoding: z.literal('base64'), size: z.number().max(100000), content: z.string().max(150000) })
     .parse(await client.json(`/repos/${item.sourceRepo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${item.baseSha}`))
   let content
@@ -116,8 +126,17 @@ export async function publishCodeProposal(env: L4Env, runId: string, request: z.
   }
   try {
     proposal = (await env.DB.prepare(`SELECT ${proposalColumns} FROM agent_code_proposals WHERE run_id=?`).bind(runId).first<Proposal>())!
-    const work = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.workInstallationId, repositoryId: item.workRepoId, access: 'work' }, ensure)
-    const target = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'pull_request' }, ensure)
+    if (item.provider === 'gitea') {
+      const published = await publishGiteaProposal(env, { runId, environment: item, input, description, branch, proposal, ensure,
+        recordCommit: async commitSha => { await env.DB.prepare('UPDATE agent_code_proposals SET commit_sha=?,updated_at=? WHERE run_id=? AND lease_token=?').bind(commitSha, nowIso(), runId, lease).run() } })
+      await env.DB.prepare("UPDATE agent_code_proposals SET pull_number=?,published_commit_sha=commit_sha,status='published',lease_until=NULL,lease_token=NULL,updated_at=? WHERE run_id=? AND lease_token=?")
+        .bind(published.number, nowIso(), runId, lease).run()
+      await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'agent.code.propose', targetType: 'run', targetId: runId,
+        meta: { provider: 'gitea', repository: item.sourceRepo, workingFork: item.workRepo, pull: published.number, commit: published.commit }, authorization: auth })
+      return { url: published.url, number: published.number, commit: published.commit, status: 'draft', checks: 'unverified' }
+    }
+    const work = await repositoryClient(env, item, 'work', 'work', ensure)
+    const target = await repositoryClient(env, item, 'source', 'pull_request', ensure)
     const validatePull = (value: unknown) => {
       const pr = pull.parse(value)
       if (pr.head.repo.id !== item.workRepoId || pr.base.repo.id !== item.sourceRepoId || pr.head.ref !== branch || pr.base.ref !== item.baseBranch) fail(409, 'proposal_mismatch', 'Pull request identity changed')
@@ -175,14 +194,16 @@ export async function codeProposalChecks(env: L4Env, runId: string) {
   const { environment: item } = await codeRun(env, runId)
   const proposal = await env.DB.prepare(`SELECT ${proposalColumns} FROM agent_code_proposals WHERE run_id=?`).bind(runId).first<Proposal>()
   if (!proposal?.pullNumber || !proposal.publishedCommitSha) fail(404, 'not_found', 'Published code proposal not found')
-  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'checks' }, async () => { await codeRun(env, runId) })
+  const client = await repositoryClient(env, item, 'source', 'checks', async () => { await codeRun(env, runId) })
   const pr = pull.parse(await client.json(`/repos/${item.sourceRepo}/pulls/${proposal.pullNumber}`))
   if (pr.head.repo.id !== item.workRepoId || pr.head.ref !== proposal.branch || pr.base.repo.id !== item.sourceRepoId || pr.base.ref !== item.baseBranch) fail(409, 'proposal_changed', 'Pull request identity changed')
   if (pr.head.sha !== proposal.publishedCommitSha) fail(409, 'proposal_changed', 'Pull request head changed; verify the new commit separately')
-  const checks = z.object({ total_count: z.number(), check_runs: z.array(z.object({ name: z.string(), head_sha: sha, status: z.string(), conclusion: z.string().nullable(), details_url: z.string().nullable().optional() })) })
+  // Gitea has commit statuses only; Gitea Actions reports each job as one. Its status field is `status`.
+  const checks = client.provider === 'gitea' ? { total_count: 0, check_runs: [] } : z.object({ total_count: z.number(), check_runs: z.array(z.object({ name: z.string(), head_sha: sha, status: z.string(), conclusion: z.string().nullable(), details_url: z.string().nullable().optional() })) })
     .parse(await client.json(`/repos/${item.sourceRepo}/commits/${proposal.publishedCommitSha}/check-runs?per_page=100`))
-  const statuses = z.object({ statuses: z.array(z.object({ context: z.string(), state: z.string(), target_url: z.string().nullable() })) })
-    .parse(await client.json(`/repos/${item.sourceRepo}/commits/${proposal.publishedCommitSha}/status?per_page=100`))
+  const statuses = z.object({ statuses: z.array(z.object({ context: z.string(), state: z.string().optional(), status: z.string().optional(), target_url: z.string().nullable().optional() })
+    .transform(status => ({ context: status.context, state: status.state ?? status.status ?? 'pending', target_url: status.target_url || null }))).nullable().transform(value => value ?? []) })
+    .parse(await client.json(`/repos/${item.sourceRepo}/commits/${proposal.publishedCommitSha}/status?${client.provider === 'gitea' ? 'limit=50' : 'per_page=100'}`))
   const actual = new Map<string, string>()
   for (const check of checks.check_runs) if (check.head_sha === proposal.publishedCommitSha && !actual.has(check.name)) actual.set(check.name, check.status === 'completed' ? check.conclusion ?? 'unknown' : 'pending')
   for (const status of statuses.statuses) if (!actual.has(status.context)) actual.set(status.context, status.state)
@@ -190,6 +211,6 @@ export async function codeProposalChecks(env: L4Env, runId: string) {
   const previews = statuses.statuses.filter(status => status.state === 'success' && status.target_url).map(status => status.target_url!).filter(value => {
     try { const url = new URL(value); return url.protocol === 'https:' && item.previewHosts.some(host => url.hostname === host || url.hostname.endsWith('.' + host)) } catch { return false }
   })
-  return { url: `https://github.com/${item.sourceRepo}/pull/${pr.number}`, commit: proposal.publishedCommitSha,
+  return { url: client.web(pullPath(client.provider, pr.number)), commit: proposal.publishedCommitSha,
     readyForReview: checks.total_count <= 100 && required.every(check => check.status === 'success'), required, previews, state: pr.state }
 }

@@ -6,7 +6,7 @@ import type { L4Env } from '../../workers/env'
 import { runAuthorization } from './agent-run-service'
 import { authorize, ServerAction, authorizeResource } from '../../shared/authorization'
 import type { AuthorizationContext } from '../../shared/authorization'
-import type { RunEnvironment } from '../../shared/code-environments'
+import { repositoryResourceId, type RunEnvironment } from '../../shared/code-environments'
 import { getTask } from './task-service'
 import { fail } from './cf'
 
@@ -18,7 +18,7 @@ export const workingFilesSchema = z.object({ version: z.literal(1), files: z.arr
 export async function requireRunFiles(env: L4Env, auth: AuthorizationContext, run: AgentRun) {
   authorize(auth, ServerAction.useComputer)
   if (run.taskId) await getTask(env, auth, run.taskId)
-  if (run.environmentJson) authorizeResource(auth, 'repositories', String((JSON.parse(run.environmentJson) as RunEnvironment).sourceRepoId))
+  if (run.environmentJson) authorizeResource(auth, 'repositories', repositoryResourceId(JSON.parse(run.environmentJson) as RunEnvironment))
 }
 export async function previousRunFiles(env: L4Env, run: AgentRun) {
   // Private artifacts must not inherit data from a different initiator or changed authority.

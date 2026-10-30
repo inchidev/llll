@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers'
 import type { L4Env } from './env'
 import { actionColumns, authorizeFactoryAction, type ActionRow } from '../server/utils/factory-actions'
 import { nowIso } from '../shared/ids'
+import { giteaRemote, giteaSourceFetch } from '../server/utils/gitea'
 
 type FactoryEgress = { actionId: string; lease: string; phase: 'source' | 'restore' | 'checkpoint' | 'command'; remote?: string; token?: string }
 /** Expiring per-operation capabilities stay in Workers, outside the Task VM. */
@@ -27,6 +28,10 @@ export class FactoryOutbound extends WorkerEntrypoint<L4Env, FactoryEgress> {
       if (url.origin !== remote.origin || !url.pathname.startsWith(remote.pathname)
         || !(request.method === 'GET' && suffix === '/info/refs' && service === (write ? 'git-receive-pack' : 'git-upload-pack')
           || request.method === 'POST' && suffix === (write ? '/git-receive-pack' : '/git-upload-pack') && !url.search)) return new Response('Repository capability denied', { status: 403 })
+      if (grant.phase === 'source' && context.environment.provider === 'gitea') {
+        if (remote.href !== await giteaRemote(this.env, context.environment.gitConnectionId, context.environment.sourceRepo)) return new Response('Repository capability denied', { status: 403 })
+        return giteaSourceFetch(this.env, context.environment.gitConnectionId, context.environment.sourceRepo, suffix, request)
+      }
       // Source is a single-repository read grant; private code store is one isolated Task repo.
       headers.set('authorization', grant.phase === 'source' ? 'Basic ' + btoa(`x-access-token:${grant.token}`) : `Bearer ${grant.token}`)
     }

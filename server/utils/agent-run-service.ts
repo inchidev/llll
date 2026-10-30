@@ -15,7 +15,7 @@ import { requireChannelAccessForMember, requireMemberForUser } from './channel-a
 import { getTask } from './task-service'
 import { fail } from './cf'
 import { admitRunEnvironment, findCodeEnvironment, requireRunEnvironment } from './code-environment-service'
-import type { RunEnvironment } from '../../shared/code-environments'
+import { repositoryResourceId, type RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
 import { agentWebhook } from './agent-webhooks'
 
@@ -63,7 +63,7 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   })
   auth.principal.projectPolicies = retainPolicies(auth.principal.projectPolicies, mandate.agentProjectPolicies)
   auth.delegation.projectPolicies = retainPolicies(auth.delegation.projectPolicies, mandate.initiatorProjectPolicies)
-  if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: String((JSON.parse(run.environmentJson) as RunEnvironment).sourceRepoId) } : {}) }
+  if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: repositoryResourceId(JSON.parse(run.environmentJson) as RunEnvironment) } : {}) }
   const actor = await env.DB.prepare(`SELECT u.kind, r.permissions_bitmask as permissions FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'`)
     .bind(run.initiatedBy).first<{ kind: string; permissions: number }>()
   if (!actor || actor.kind !== 'human' || (!auth.delegation.isOwner && !(mandate.projectId ? projectSubjectPermissionAllowed(auth.delegation, mandate.projectId, Permission.useAgents) : hasPermission(actor.permissions, Permission.useAgents)))) fail(403, 'run_revoked', 'Agent access was revoked')
@@ -224,7 +224,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   if (ceiling && environmentId !== (ceiling.environmentId ?? null)) fail(403, 'code_denied', 'Subtasks and scheduled work cannot change repository environments')
   if (environmentId) {
     if (!mandate.computer) fail(403, 'code_denied', 'Repository execution needs computer permission in a task-backed mandate')
-    if (execution.projectScope) execution.projectScope.repositoryId = String((await findCodeEnvironment(env, environmentId))?.sourceRepoId ?? '')
+    if (execution.projectScope) { const found = await findCodeEnvironment(env, environmentId); execution.projectScope.repositoryId = found ? repositoryResourceId(found) : '' }
     environment = await admitRunEnvironment(env, execution, environmentId)
     if (ceiling?.environmentVersion !== undefined && environment.version !== ceiling.environmentVersion) fail(403, 'code_revoked', 'Repository mandate must be renewed after configuration changes')
     mandate.environmentId = environment.id

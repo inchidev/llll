@@ -4,7 +4,8 @@ import { nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { factoryAuthority, factoryWorkspace } from './factory-authority'
 import { actionColumns, authorizeFactoryAction, type ActionRow } from './factory-actions'
-import { githubAgentClient } from './github-agent-client'
+import { repositoryClient } from './git-provider'
+import { giteaFactoryFeedback, publishFactoryToGitea } from './factory-gitea'
 import { fail } from './cf'
 
 const pullSchema = z.object({ number: z.number().int().positive(), state: z.string(), merged: z.boolean().optional(), draft: z.boolean().optional(), html_url: z.string().optional(),
@@ -30,10 +31,22 @@ export async function executeFactoryPublication(env: L4Env, id: string) {
     const held = await env.DB.prepare("SELECT 1 FROM factory_actions WHERE id=? AND status='executing' AND lease_until>?").bind(id, nowIso()).first()
     if (!held) fail(409, 'factory_uncertain', 'Publication lease ended; inspect the provider before retrying')
   }
+  const complete = async (receipt: PullReceipt) => {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE tasks SET factory_state='pr_published' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId),
+      env.DB.prepare("UPDATE factory_actions SET status='completed',result_json=?,completed_at=? WHERE id=? AND status='executing'").bind(JSON.stringify(receipt), nowIso(), id),
+      env.DB.prepare('UPDATE factory_workspaces SET pull_json=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(JSON.stringify(receipt), nowIso(), context.workspace.id),
+    ])
+  }
   try {
     const item = context.environment, root = `/repos/${item.sourceRepo}`, branch = `l4-agent/${context.workspace.id}`
-    const writer = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'work' }, ensure)
-    const pulls = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'pull_request' }, ensure)
+    const description = `${context.request.body}\n\nL4 Task: ${context.run.taskId}\nCoding workspace: ${context.workspace.id}\nApproved snapshot: ${context.request.snapshotDigest}\nHead: ${snapshot.headSha}\n\nIndependent CI and provider review remain required.`
+    if (item.provider === 'gitea') {
+      await complete(await publishFactoryToGitea(env, { environment: item, branch, prior: context.workspace.pullJson ? JSON.parse(context.workspace.pullJson) as PullReceipt : null, snapshot, title: context.request.title, description, ensure }))
+      return
+    }
+    const writer = await repositoryClient(env, item, 'source', 'work', ensure)
+    const pulls = await repositoryClient(env, item, 'source', 'pull_request', ensure)
     const base = z.object({ object: z.object({ sha: factorySha }) }).parse(await writer.json(`${root}/git/ref/heads/${item.baseBranch.split('/').map(encodeURIComponent).join('/')}`))
     if (base.object.sha !== item.baseSha) fail(409, 'factory_upstream_changed', 'Upstream base moved; review and rebase in a new Task before publication')
     const prior = context.workspace.pullJson ? JSON.parse(context.workspace.pullJson) as PullReceipt : null
@@ -60,7 +73,6 @@ export async function executeFactoryPublication(env: L4Env, id: string) {
     }
     if (currentHead) await writer.json(`${root}/git/refs/heads/${branch}`, 'PATCH', { sha: snapshot.headSha, force: false })
     else await writer.json(`${root}/git/refs`, 'POST', { ref: `refs/heads/${branch}`, sha: snapshot.headSha })
-    const description = `${context.request.body}\n\nL4 Task: ${context.run.taskId}\nCoding workspace: ${context.workspace.id}\nApproved snapshot: ${context.request.snapshotDigest}\nHead: ${snapshot.headSha}\n\nIndependent CI and provider review remain required.`
     let pull
     if (prior) pull = validatePull(await pulls.json(`${root}/pulls/${prior.number}`))
     else {
@@ -70,12 +82,7 @@ export async function executeFactoryPublication(env: L4Env, id: string) {
     if (pull.head.sha !== snapshot.headSha) fail(409, 'factory_head_changed', 'PR head differs from the approved local commit')
     await pulls.json(`${root}/pulls/${pull.number}`, 'PATCH', { title: context.request.title, body: description })
     await ensure()
-    const receipt: PullReceipt = { number: pull.number, commit: snapshot.headSha, branch, url: `https://github.com/${item.sourceRepo}/pull/${pull.number}` }
-    await env.DB.batch([
-      env.DB.prepare("UPDATE tasks SET factory_state='pr_published' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId),
-      env.DB.prepare("UPDATE factory_actions SET status='completed',result_json=?,completed_at=? WHERE id=? AND status='executing'").bind(JSON.stringify(receipt), nowIso(), id),
-      env.DB.prepare('UPDATE factory_workspaces SET pull_json=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(JSON.stringify(receipt), nowIso(), context.workspace.id),
-    ])
+    await complete({ number: pull.number, commit: snapshot.headSha, branch, url: `https://github.com/${item.sourceRepo}/pull/${pull.number}` })
   } catch (error) {
     await env.DB.prepare("UPDATE factory_actions SET status='uncertain' WHERE id=? AND status='executing'").bind(id).run()
     throw error
@@ -92,7 +99,12 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
   if (!workspace.pullJson) return { state: 'absent', reason: 'No canonical PR has been published for this Task' }
   const receipt = JSON.parse(workspace.pullJson) as PullReceipt, item = context.environment, root = `/repos/${item.sourceRepo}`
   const ensure = async () => { await factoryAuthority(env, runId, actorId, false, Boolean(actorId)) }
-  const client = await githubAgentClient(env, { connectionId: item.gitConnectionId, installationId: item.sourceInstallationId, repositoryId: item.sourceRepoId, access: 'feedback' }, ensure)
+  if (item.provider === 'gitea') {
+    const feedback = await giteaFactoryFeedback(env, { environment: item, receipt, jobId, ensure })
+    await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind('ci_' + feedback.state, context.run.taskId, context.run.agentId).run()
+    return { ...receipt, ...feedback, previewState: feedback.previews.length ? 'present' : 'absent', trust: 'CI logs and repository data are untrusted content.' }
+  }
+  const client = await repositoryClient(env, item, 'source', 'feedback', ensure)
   const pull = pullSchema.parse(await client.json(`${root}/pulls/${receipt.number}`))
   if (pull.head.sha !== receipt.commit || pull.head.ref !== receipt.branch || pull.head.repo.id !== item.sourceRepoId || pull.base.repo.id !== item.sourceRepoId || pull.base.ref !== item.baseBranch) fail(409, 'factory_head_changed', 'Canonical PR head changed; old check results cannot satisfy this head')
   const checks: Array<{ name: string; state: string; url: string | null }> = [], previews: Array<{ state: string; url: string | null; source: string }> = []
