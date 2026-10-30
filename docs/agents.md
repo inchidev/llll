@@ -30,6 +30,7 @@ Messages, Direct Messages, Runs, Task results and audit entries stay. Its DMs be
 - Approval: `approveAgentActions` approves pending actions in accessible conversations. External email still requires approval.
 - Tasks: `readTasks` reads; `writeTasks` creates/updates; `manageTasks` additionally administers boards and destructive operations.
 - Data: `readData` reads; `writeData` edits records and Documents; `manageDatabases` additionally changes structure and deletes resources.
+- Apps: with `manageGadgets` and `manageDatabases`, an Agent drafts Apps (`list_app_drafts`, `get_app_draft`, `create_app_draft`, `update_app_draft`) over Database Views both it and the initiating person may use. It never chooses who may open an App and never publishes: a person with Manage Apps does both in Apps, and the published version stays unchanged until then.
 - Autonomy: `executeTasks`, `useComputer`, and `manageSchedules` are separate opt-in permissions, never inferred from an administrator role.
 
 Create/Edit agent shows the selected Server Role. Templates provide starting instructions only; they do not grant access. Assign reusable Project policies in the Project's access settings. The same person or Agent can be a Developer in one Project and a Reviewer in another. Server Role grants remain additive and can be broader than a Project policy.
