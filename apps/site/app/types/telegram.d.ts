@@ -7,6 +7,15 @@ declare global {
         ready?: () => void
         expand?: () => void
         isVersionAtLeast?: (version: string) => boolean
+        platform?: string
+        /** Bot API 8.0+. */
+        requestFullscreen?: () => void
+        /** Bot API 7.7+: a vertical swipe no longer minimizes or closes the app. */
+        disableVerticalSwipes?: () => void
+        setHeaderColor?: (color: string) => void
+        setBackgroundColor?: (color: string) => void
+        /** Bot API 7.10+. */
+        setBottomBarColor?: (color: string) => void
         /** Bot API 8.0+: the device's insets, and Telegram's own controls over a full-screen app. */
         safeAreaInset?: { top?: number; bottom?: number }
         contentSafeAreaInset?: { top?: number; bottom?: number }
