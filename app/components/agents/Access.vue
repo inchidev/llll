@@ -5,27 +5,29 @@ import { ProjectPolicyPermissions, type ProjectPolicy } from '~~/shared/project-
 import type { Project } from '~~/shared/projects'
 import type { MemberDTO, RoleDTO } from '~~/shared/types'
 const props = defineProps<{ serverId: string; agentId: string; agentName: string }>()
-const { api } = useApi(), toast = useToast()
+// Select items cannot use an empty value, so the whole-Server scope has its own.
+const SERVER = 'server'
+const { api } = useApi(), toast = useToast(), session = useSessionStore()
 const base = computed(() => `/api/servers/${props.serverId}/agents/${props.agentId}`)
 const open = ref(false), busy = ref(false), removing = ref<AgentAccessGrant | null>(null)
-const kind = ref<'member' | 'role'>('member'), target = ref(''), policyId = ref(''), projectId = ref(''), dailyRuns = ref<number | null>(null), expiresOn = ref('')
+const kind = ref<'member' | 'role'>('member'), target = ref(''), policyId = ref(''), projectId = ref(SERVER), dailyRuns = ref<number | null>(null), expiresOn = ref('')
 const query = useQuery({ queryKey: computed(() => ['agent-access', props.serverId, props.agentId]), queryFn: () => api<AgentAccessDTO & { policies: ProjectPolicy[] }>(`${base.value}/access`) })
 const members = useQuery({ queryKey: computed(() => ['members', props.serverId]), queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`), enabled: open })
 const roles = useQuery({ queryKey: computed(() => ['roles', props.serverId]), queryFn: () => api<{ roles: RoleDTO[] }>(`/api/servers/${props.serverId}/roles`), enabled: open })
 const projects = useQuery({ queryKey: computed(() => ['projects', props.serverId]), queryFn: () => api<{ projects: Project[] }>(`/api/servers/${props.serverId}/projects`), enabled: open })
 const targets = computed(() => kind.value === 'member'
-  ? (members.data.value?.members ?? []).filter(m => m.user.kind === 'human').map(m => ({ value: m.user.id, label: m.nickname || m.user.displayName }))
+  ? (members.data.value?.members ?? []).filter(m => m.user.kind === 'human' && m.user.id !== session.user?.id).map(m => ({ value: m.user.id, label: m.nickname || m.user.displayName }))
   : (roles.data.value?.roles ?? []).filter(r => r.key !== 'owner').map(r => ({ value: r.id, label: r.name })))
-const scopes = computed(() => [{ value: '', label: 'Whole Server' }, ...(projects.data.value?.projects ?? []).filter(p => !p.archivedAt).map(p => ({ value: p.id, label: p.name }))])
+const scopes = computed(() => [{ value: SERVER, label: 'Whole Server' }, ...(projects.data.value?.projects ?? []).filter(p => !p.archivedAt).map(p => ({ value: p.id, label: p.name }))])
 // A project grant carries only project permissions, as project assignments do.
-const policies = computed(() => (query.data.value?.policies ?? []).filter(p => !projectId.value || (p.permissions & ~ProjectPolicyPermissions) === 0).map(p => ({ value: p.id, label: p.name })))
+const policies = computed(() => (query.data.value?.policies ?? []).filter(p => projectId.value === SERVER || (p.permissions & ~ProjectPolicyPermissions) === 0).map(p => ({ value: p.id, label: p.name })))
 const modeItems = [
   { value: 'open', label: 'Everyone who uses agents', description: 'Others are limited to what they may do themselves.' },
   { value: 'granted', label: 'Only people with access below', description: 'Everyone else is ignored when they mention it.' },
 ]
 watch(kind, () => { target.value = '' })
 watch(projectId, () => { if (!policies.value.some(p => p.value === policyId.value)) policyId.value = '' })
-function add() { kind.value = 'member'; target.value = ''; policyId.value = ''; projectId.value = ''; dailyRuns.value = null; expiresOn.value = ''; open.value = true }
+function add() { kind.value = 'member'; target.value = ''; policyId.value = ''; projectId.value = SERVER; dailyRuns.value = null; expiresOn.value = ''; open.value = true }
 async function setMode(access: AgentAccessMode) {
   busy.value = true
   try { await api(`${base.value}/access-mode`, { method: 'PUT', body: { access } }); await query.refetch() }
@@ -36,7 +38,7 @@ async function save() {
   try {
     await api(`${base.value}/access`, { method: 'POST', body: {
       policyId: policyId.value, ...(kind.value === 'member' ? { memberId: target.value } : { roleId: target.value }),
-      projectId: projectId.value || null, dailyRuns: dailyRuns.value || null,
+      projectId: projectId.value === SERVER ? null : projectId.value, dailyRuns: dailyRuns.value || null,
       expiresAt: expiresOn.value ? new Date(`${expiresOn.value}T23:59:59`).toISOString() : null,
     } })
     open.value = false; await query.refetch()
