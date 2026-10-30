@@ -117,6 +117,27 @@ it('executes a model-requested L4 tool with its stable call ID and capability, t
   expect(events.some((event: unknown) => (event as { type: string }).type === 'text')).toBe(true)
 })
 
+it('sends model and tool calls through the host fetch, never the network', async () => {
+  const network = vi.fn(async () => { throw new Error('Embedded Pi must not reach the network') })
+  vi.stubGlobal('fetch', network)
+  const seen: string[] = []
+  let modelCalls = 0
+  const hostFetch = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(target, init)
+    seen.push(`${request.method} ${new URL(request.url).pathname} ${request.headers.get('Authorization')}`)
+    if (request.url.endsWith('/tools')) return Response.json({ boards: [] })
+    modelCalls++
+    return modelCalls === 1
+      ? streamAnswer({ role: 'assistant', tool_calls: [{ index: 0, id: 'host-call-1', type: 'function', function: { name: 'list_tasks', arguments: '{}' } }] }, 'tool_calls')
+      : streamAnswer({ role: 'assistant', content: 'Done through the host.' })
+  }) as unknown as typeof fetch
+  const outcome = await runEmbeddedPi({ ...input, runId: 'run-host', toolEndpoint: 'https://fixture.invalid/tools', tools: [{ name: 'list_tasks', description: 'Read tasks', parameters: { type: 'object', properties: {} } }] }, {} as DurableObjectStorage, { fetch: hostFetch })
+  expect(outcome.result).toMatchObject({ type: 'result', text: 'Done through the host.' })
+  expect(network).not.toHaveBeenCalled()
+  expect(seen.filter(line => line.includes('/tools'))).toEqual(['POST /tools Bearer test-capability'])
+  expect(seen.filter(line => line.includes('/chat/completions'))).toHaveLength(2)
+})
+
 it('Stop aborts the in-flight provider request and settles the harness', async () => {
   const stop = new AbortController()
   let started!: () => void
