@@ -118,7 +118,7 @@ The database argument is the `database_name` (`llll` unless you set `DATABASE_NA
 
 Empty values in `.env` are omitted from the generated Wrangler file.
 
-- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. The account id is 32 hex characters. The token must be at least 32 characters.
+- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` call Workers AI, Browser Run, Email Sending, and RealtimeKit over REST. The account id is 32 hex characters. The token must be at least 32 characters. Without them, the owner can still connect calls in Settings → Live with a Realtime Admin token.
 - `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` are the OpenAI-compatible fallback when that token is not set.
 - `MAIL_GATEWAY_URL` / `MAIL_GATEWAY_TOKEN` or `SMTP_GATEWAY_URL` / `SMTP_GATEWAY_TOKEN` send outbound mail. The process does not open an SMTP port.
 - `INBOUND_EMAIL_SECRET`, `POSTMARK_INBOUND_SECRET`, `MAILGUN_WEBHOOK_SIGNING_KEY`, and `SES_SNS_TOPIC_ARN` enable inbound webhooks. Secrets must be at least 32 characters.

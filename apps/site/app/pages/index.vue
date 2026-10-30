@@ -74,6 +74,11 @@ useSeoMeta({
 useHead({
   link: [{ rel: 'canonical', href: siteUrl }],
   script: [{
+    // Telegram opens the Shell, like the installed app: leave before the landing page paints.
+    innerHTML: "if(/(^#|&)tgWebAppData=/.test(location.hash))location.replace('/servers'+location.hash)",
+    tagPosition: 'head',
+    tagPriority: 'critical',
+  }, {
     type: 'application/ld+json',
     innerHTML: JSON.stringify({
       '@context': 'https://schema.org',

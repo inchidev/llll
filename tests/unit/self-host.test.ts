@@ -269,7 +269,7 @@ describe('mail gateways', () => {
 })
 
 describe('runtime capabilities', () => {
-  it('turns calls and inbound email off away from Cloudflare and never enables containers', () => {
+  it('keeps calls connectable and turns inbound email off away from Cloudflare, and never enables containers', () => {
     expect(cloudflareNetwork({} as never)).toBe(true)
     expect(cloudflareNetwork({ LLLL_RUNTIME: 'cloudflare' } as never)).toBe(true)
     expect(cloudflareNetwork({ LLLL_RUNTIME: 'celld' } as never)).toBe(false)
@@ -284,13 +284,13 @@ describe('runtime capabilities', () => {
       SMTP_GATEWAY_TOKEN: 'smtp-token',
     } as never)
     expect(capabilities).toEqual({
-      calls: false,
+      calls: true,
       containers: false,
       browser: 'cdp',
       emailOutbound: true,
       emailInbound: null,
       emailProvider: 'smtp',
-      callsProvider: null,
+      callsProvider: 'realtimekit',
     })
     expect(serverCapabilities(restEnv() as never)).toEqual({
       calls: true,

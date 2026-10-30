@@ -30,6 +30,8 @@ const selectedRole = computed(() => roles.data.value?.roles.find(role => role.id
 const selectedPermissions = computed(() => selectedRole.value?.permissions ?? (roleId.value === 'member' ? MemberPermissions : null))
 const selectedSummary = computed(() => selectedPermissions.value === null ? '' : agentRoleSummary({ permissions: selectedPermissions.value }))
 const selectedGrants = computed(() => PermissionGrants.filter(grant => !pausedPermissionKeys.has(grant.key) && selectedPermissions.value !== null && ((selectedPermissions.value & grant.flag) === grant.flag)).map(grant => grant.label).join(', '))
+// An external agent answers only through MCP, so its Role needs Connect MCP clients.
+const roleBlocksMcp = computed(() => selectedPermissions.value !== null && (selectedPermissions.value & Permission.mcpConnect) !== Permission.mcpConnect)
 const memberRoleId = computed(() => roles.data.value?.roles.find(role => role.key === 'member')?.id ?? 'member')
 const roleSelection = computed({
   get: () => roleId.value === 'member' ? memberRoleId.value : roleId.value,
@@ -314,7 +316,8 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
         <UFormField label="Reply timeout" description="Minutes to wait for its reply in the thread before the Run fails.">
           <UInputNumber v-model="webhook.replyTimeoutMinutes" :min="2" :max="120" class="w-40" />
         </UFormField>
-        <UAlert color="neutral" variant="subtle" title="Connect it back to this Server" :description="`In User Settings → Access tokens, create an access token that acts as this agent and add ${mcpUrl} to the agent with that token. It answers with send_message in the Run's thread and keeps the permissions of its Role.`" />
+        <UAlert v-if="roleBlocksMcp" color="warning" variant="subtle" title="Its Role cannot connect to MCP" :description="`The ${selectedRole?.key === 'admin' ? 'Admin' : selectedRole?.name ?? 'Member'} Role does not include Connect MCP clients, so no access token can act as this agent. Choose a Role with it, or add it to this Role in Server settings → Roles and policies.`" />
+        <UAlert color="neutral" variant="subtle" title="Connect it back to this Server" :description="`In User Settings → Access tokens, create an access token that acts as this agent and add ${mcpUrl} to the agent with that token. It answers with send_message in the Run's thread, then calls complete_run with the webhook's runId; otherwise the Run keeps working until the reply timeout. It keeps the permissions of its Role.`" />
       </template>
 
       <UFormField v-else name="model" :label="providers.data.value?.defaultModel ? 'Model (optional)' : 'Model'" description="Choose a model, or leave empty to use an available Server default. The conversation can override this model.">

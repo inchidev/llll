@@ -8,6 +8,8 @@ declare global {
         expand?: () => void
         isVersionAtLeast?: (version: string) => boolean
         platform?: string
+        version?: string
+        themeParams?: Record<string, string>
         /** Bot API 8.0+. */
         requestFullscreen?: () => void
         /** Bot API 7.7+: a vertical swipe no longer minimizes or closes the app. */

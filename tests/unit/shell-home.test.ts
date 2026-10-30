@@ -23,7 +23,7 @@ const shell = {
   groups: computed(() => [{ origin, name: 'Fixture', servers: servers.value }]),
   frames: ref({}), pendingMessages: ref({} as Record<string, boolean>),
   drawers: ref({} as Record<string, boolean>), signedIn: ref({} as Record<string, boolean>),
-  frameSrc: () => 'about:blank', initialize, forget,
+  frameSrc: () => 'about:blank', initialize, forget, leaving: ref(''),
   refreshMetadata: vi.fn(async () => {}),
   removed: ref([] as string[]), pruneMissing: vi.fn(async () => [] as string[]),
   resolveServer: vi.fn(async () => { selected.value = origin }),

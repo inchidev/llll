@@ -1,5 +1,5 @@
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
 import assert from 'node:assert/strict'
 const root = resolve(import.meta.dirname, '..')
@@ -28,7 +28,8 @@ async function assets(request) {
 const mf = new Miniflare(convertV4MiniflareOptions({ host: '127.0.0.1', port, workers: [{ name: 'web', modules: true, scriptPath: resolve(root, 'apps/site/.bundle/index.mjs'), compatibilityDate: '2026-09-26', d1Databases: { DB: 'web' }, serviceBindings: { ASSETS: assets }, bindings: { PUBLIC_ORIGIN: origin, AUTH_SECRET: 'local-web-test-secret-'.repeat(3), TEST_ALLOW_LOCAL_ORIGINS: 'true' } }] }))
 try {
   const db = await mf.getD1Database('DB')
-  await db.exec(await readFile(resolve(root, 'apps/site/migrations/0000_web_baseline.sql'), 'utf8'))
+  for (const name of (await readdir(resolve(root, 'apps/site/migrations'))).filter(name => name.endsWith('.sql')).sort())
+    await db.exec(await readFile(resolve(root, 'apps/site/migrations', name), 'utf8'))
   assert.equal((await mf.dispatchFetch(origin + '/')).status, 200)
   const home = await mf.dispatchFetch(origin + '/servers/')
   assert.equal(home.status, 200)

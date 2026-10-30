@@ -1,5 +1,4 @@
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import web from '../../apps/site/src/index'
 import { webSession, digest } from '../../apps/site/src/session'
@@ -7,13 +6,14 @@ import { readL4Server } from '../../packages/deployment-core/src/servers'
 import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
 import type { WebEnv } from '../../apps/site/src/env'
+import { webMigrationsSql } from '../helpers/web-migrations'
 vi.mock('../../packages/deployment-core/src/servers', () => ({ listL4Servers: vi.fn(), readL4Server: vi.fn() }))
 const accountId = 'a'.repeat(32), serverOrigin = 'https://community.example.com', origin = 'https://llll.gg'
 let sqlite: DatabaseSync, server: DatabaseSync, env: WebEnv, cookie: string
 const body = { accountId, workerName: 'community', origin: serverOrigin }
 const req = (value = body, headers = {}) => new Request(origin + '/api/deploy/setup/recover', { method: 'POST', headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(value) })
 beforeEach(async () => {
-  sqlite = new DatabaseSync(':memory:'); sqlite.exec(readFileSync('apps/site/migrations/0000_web_baseline.sql', 'utf8'))
+  sqlite = new DatabaseSync(':memory:'); sqlite.exec(webMigrationsSql())
   server = new DatabaseSync(':memory:'); server.exec(INIT_SQL)
   server.prepare("INSERT INTO server_setup VALUES(1,'owner@example.com',?,'Community','now','now')").run(await digest('old-claim'))
   env = { DB: d1(sqlite), AUTH_SECRET: 'fixture-secret-'.repeat(4), PUBLIC_ORIGIN: origin, ASSETS: { fetch: async () => new Response('missing', { status: 404 }) } } as WebEnv

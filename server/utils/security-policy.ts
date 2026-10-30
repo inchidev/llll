@@ -11,6 +11,8 @@
  * - `connect-src https: wss: ws:`: Live (RealtimeKit), operator-configured
  *   providers and local development use origins the Client cannot enumerate.
  *   `ws:` is needed for Vite HMR on http://localhost.
+ * - `https://telegram.org`: Telegram's Mini App SDK, loaded only when the
+ *   Client opens inside Telegram.
  */
 /**
  * Nuxt's built-in 404 page injects one fixed inline script at runtime (it
@@ -25,7 +27,7 @@ export function serverContentSecurityPolicy(frameAncestors: string): string {
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     "connect-src 'self' https: wss: ws:",
-    `script-src 'self' https://challenges.cloudflare.com ${NUXT_ERROR_404_SCRIPT_HASH}`,
+    `script-src 'self' https://challenges.cloudflare.com https://telegram.org ${NUXT_ERROR_404_SCRIPT_HASH}`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     'frame-src https://challenges.cloudflare.com',

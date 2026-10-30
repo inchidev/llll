@@ -515,10 +515,12 @@ async function logout() {
             :label="push.status.value === 'blocked' ? 'Blocked' : push.status.value === 'unconfigured' ? 'Unavailable' : 'Unsupported'"
           />
         </div>
-        <div v-if="telegram.available.value" class="flex items-start justify-between gap-6 py-4">
+        <div class="flex items-start justify-between gap-6 py-4">
           <div>
             <p class="font-medium text-highlighted">Telegram notifications</p>
             <p class="text-sm text-muted mt-1">The L4 bot tells you about mentions, direct messages, live sessions and email in Telegram. Messages name only this Server, never what was said.</p>
+            <p v-if="!telegram.available.value && telegram.busy.value && !telegram.subscribed.value" class="text-sm text-muted mt-1">Press <strong>Start</strong> in the L4 bot in Telegram. This page continues by itself.</p>
+            <p v-else-if="!telegram.available.value && !telegram.subscribed.value" class="text-sm text-muted mt-1">Turning it on opens the L4 bot in Telegram.</p>
           </div>
           <USwitch
             :model-value="telegram.subscribed.value"

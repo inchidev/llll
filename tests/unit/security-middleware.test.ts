@@ -49,7 +49,7 @@ describe('Server security headers', () => {
     const e = event('/login')
     await middleware(e)
     const scriptSrc = e.response['content-security-policy']!.split('; ').find(part => part.startsWith('script-src '))!
-    expect(scriptSrc).toMatch(/^script-src 'self' https:\/\/challenges\.cloudflare\.com 'sha256-[^']+'$/)
+    expect(scriptSrc).toMatch(/^script-src 'self' https:\/\/challenges\.cloudflare\.com https:\/\/telegram\.org 'sha256-[^']+'$/)
     expect(e.response['content-security-policy']).toContain("frame-ancestors 'self' https://llll.gg")
     expect(e.response['permissions-policy']).toContain('camera=(self)')
     expect(e.response['strict-transport-security']).toBe('max-age=31536000')

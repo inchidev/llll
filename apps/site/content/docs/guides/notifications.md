@@ -49,7 +49,7 @@ When you install a Server as an app from its own address, each push also updates
 
 Each Server sends its own notifications. Adding a Server to the [llll.gg Shell](../concepts/server-and-shell.md) does not change who is notified, and the Shell receives no message content.
 
-In the Telegram Shell, push notifications are not available; turn on **Telegram notifications** in the same settings to get them from the L4 bot instead. See [Telegram notifications](telegram.md#telegram-notifications).
+To get them in Telegram as well, or in the Telegram Shell where push notifications are not available, turn on **Telegram notifications** in the same settings. See [Telegram notifications](telegram.md#telegram-notifications).
 
 ## For operators
 
