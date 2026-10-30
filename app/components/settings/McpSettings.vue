@@ -4,6 +4,7 @@ import { useClipboard } from '@vueuse/core'
 import { pausedMcpScopes } from '~~/shared/features'
 import { MCP_DEFAULT_TOKEN_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '~~/shared/mcp'
 import type { MemberDTO } from '~~/shared/types'
+import { Permission } from '~~/shared/permissions'
 import { formatDateTime } from '~~/shared/format'
 
 const props = defineProps<{ serverId: string }>()
@@ -26,11 +27,17 @@ const membersQ = useQuery({
   queryKey: computed(() => ['members', props.serverId]),
   queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${props.serverId}/members`),
 })
-const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).filter(member => member.user.id === session.user?.id || member.user.kind === 'agent').map(member => ({
-  label: `${member.user.displayName} · ${member.user.kind === 'agent' ? 'Agent' : member.role.name}`,
-  value: member.user.id,
-})))
-watch(subjectOptions, (options) => { if (!subjectId.value && options[0]) subjectId.value = options.find(option => option.value === session.user?.id)?.value ?? options[0].value }, { immediate: true })
+// Tokens act within the subject's Role, so an Agent whose Role lacks Connect MCP clients cannot be chosen.
+const subjectOptions = computed(() => (membersQ.data.value?.members ?? []).filter(member => member.user.id === session.user?.id || member.user.kind === 'agent').map((member) => {
+  const blocked = member.user.kind === 'agent' && (member.role.permissions & Permission.mcpConnect) !== Permission.mcpConnect
+  return {
+    label: `${member.user.displayName} · ${member.user.kind === 'agent' ? 'Agent' : member.role.name}`,
+    description: blocked ? `${member.role.key === 'admin' ? 'Admin' : member.role.name} Role lacks Connect MCP clients` : undefined,
+    disabled: blocked,
+    value: member.user.id,
+  }
+}))
+watch(subjectOptions, (options) => { if (!subjectId.value && options[0]) subjectId.value = options.find(option => option.value === session.user?.id)?.value ?? options.find(option => !option.disabled)?.value }, { immediate: true })
 
 const scopeOptions: Array<{ value: McpScope; label: string }> = [
   { value: 'tasks:read', label: 'Read tasks' },
