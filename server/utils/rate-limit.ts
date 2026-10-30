@@ -29,7 +29,9 @@ export async function requireRateLimit(event: H3Event, rules: RateLimitRule[], m
   try {
     allowed = await Promise.all(rules.map(rule => asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(rule.key)).take(rule.limit, rule.windowMs)))
   }
-  catch {
+  catch (error) {
+    // The reason stays in Worker logs; the response never says which limiter failed.
+    console.warn('rate_limit.unavailable', error instanceof Error ? `${error.name}: ${error.message}` : String(error))
     fail(503, 'rate_limit_unavailable', 'Sign-in protection is temporarily unavailable. Try again in a moment.')
   }
   if (allowed.some(ok => !ok)) fail(429, 'rate_limited', message)
