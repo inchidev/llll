@@ -11,7 +11,8 @@ requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
 const mode = process.argv[2]
 const branch = process.env.WORKERS_CI_BRANCH
-if (!['preview', 'production'].includes(mode) || (mode === 'production') !== (branch === 'main')) throw new Error('Production requires main; all other branches require an open PR and a Preview')
+// main: the standing Preview of everything merged into main, before any release.
+if (!['preview', 'production', 'main'].includes(mode) || (mode !== 'preview') !== (branch === 'main')) throw new Error('Production and the main Preview require main; all other branches require an open PR and a Preview')
 let production
 if (mode === 'production') {
   production = JSON.parse(await readFile(resolve(root, '.deployment/released/plan.json'), 'utf8'))
@@ -40,6 +41,11 @@ function git(args) {
 // commit to equal the current PR head and verify both merge parents below.
 const sourceCommit = process.env.WORKERS_CI_COMMIT_SHA || git(['rev-parse', 'HEAD']).trim()
 let pr
+if (mode === 'main') {
+  // An older main Build must not replace a newer one.
+  const head = git(['ls-remote', 'https://github.com/inchidev/llll.git', 'refs/heads/main']).split(/\s/)[0]
+  if (head !== sourceCommit) throw new Error('The main Preview deploys only the current head of main')
+}
 if (mode === 'preview') {
   // Git refs avoid the shared unauthenticated REST API quota in Builds.
   // A merge ref plus both parents proves this head is mergeable into current main.
@@ -55,7 +61,7 @@ if (mode === 'preview') {
   }
   if (!pr) throw new Error('Preview requires the current head of a mergeable PR to main. Open or update the PR and retry the Build.')
 }
-const databaseName = mode === 'production' ? 'llll' : `llll-pr-${pr.number}`
+const databaseName = mode === 'production' ? 'llll' : mode === 'main' ? 'llll-main' : `llll-pr-${pr.number}`
 let database = await findD1Database(api, databaseName)
 if (!database && mode === 'production') throw new Error('Production D1 llll must already exist; provision or migrate it through the connected API before deploying')
 database ||= (await api('/d1/database', { name: databaseName })).result
@@ -65,10 +71,10 @@ if (config.name !== 'llll') throw new Error('Release archive targets an unexpect
 config.main = resolve(site, '.bundle/index.mjs')
 config.assets.directory = resolve(site, '.output/public')
 config.d1_databases = [{ binding: 'DB', database_name: databaseName, database_id: database.uuid || database.id, migrations_dir: resolve(site, 'migrations') }]
-config.vars.ENVIRONMENT = mode
+config.vars.ENVIRONMENT = mode === 'production' ? 'production' : 'preview'
 config.vars.BUILD_COMMIT = production?.commit || sourceCommit
 config.vars.BUILD_VERSION = production?.version || JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version
-if (mode === 'preview') delete config.vars.CLOUDFLARE_OAUTH_CLIENT_ID
+if (mode !== 'production') delete config.vars.CLOUDFLARE_OAUTH_CLIENT_ID
 // Each Preview has its own D1. Do not inherit a shared base-config database.
 config.previews = { vars: config.vars, d1_databases: config.d1_databases }
 const work = resolve(root, '.deployment/builds')
@@ -85,11 +91,11 @@ function wrangler(args, capture = false) {
   return result.stdout
 }
 wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', configFile])
-const output = wrangler(mode === 'preview'
-  ? ['preview', '--config', configFile, '--name', branch, '--ignore-base-config', '--secrets-file', secretFile, '--json']
+const output = wrangler(mode !== 'production'
+  ? ['preview', '--config', configFile, '--name', mode === 'main' ? 'main' : branch, '--ignore-base-config', '--secrets-file', secretFile, '--json']
   : ['deploy', '--config', configFile, '--secrets-file', secretFile], true)
 process.stdout.write(output)
-if (mode === 'preview') {
+if (mode !== 'production') {
   const data = JSON.parse(output.slice(output.indexOf('{')))
   const url = data.preview?.urls?.find(value => {
     const candidate = new URL(value)
@@ -103,7 +109,7 @@ if (mode === 'preview') {
     await new Promise(resolveWait => setTimeout(resolveWait, 2000))
   }
   if (!verified) throw new Error('Deployed Preview verification failed')
-  console.log(`Verified PR ${pr.number} Preview: ${url}`)
+  console.log(mode === 'main' ? `Verified main Preview at ${sourceCommit}: ${url}` : `Verified PR ${pr.number} Preview: ${url}`)
 }
 
 if (mode === 'production') {
