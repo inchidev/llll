@@ -43,7 +43,7 @@ describe('inline script hashes', () => {
     const policy = serverContentSecurityPolicy("'none'")
     const result = await policyForHtml(policy, html)
     const scriptSrc = result.split('; ').find(part => part.startsWith('script-src '))!
-    expect(scriptSrc).toBe(`script-src 'self' https://challenges.cloudflare.com ${NUXT_ERROR_404_SCRIPT_HASH} ${sha(importMap)} ${sha(colorMode)} ${sha(config)}`)
+    expect(scriptSrc).toBe(`script-src 'self' https://challenges.cloudflare.com https://telegram.org ${NUXT_ERROR_404_SCRIPT_HASH} ${sha(importMap)} ${sha(colorMode)} ${sha(config)}`)
     expect(result).toContain("style-src 'self' 'unsafe-inline'")
     expect(withScriptSources("frame-ancestors 'none'", ["'sha256-x'"])).toBe("frame-ancestors 'none'; script-src 'self' 'sha256-x'")
     expect(withScriptSources(policy, [])).toBe(policy)
