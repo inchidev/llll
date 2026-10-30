@@ -10,6 +10,7 @@ export default defineEventHandler(async event => {
   const actor = await requireMember(event, await getServerId(env.DB), Permission.manageServer)
   const connectionId = getQuery(event).connectionId
   if (connectionId !== undefined && (typeof connectionId !== 'string' || !/^[a-f0-9-]{36}$/u.test(connectionId))) throw createError({ statusCode: 400, message: 'Invalid Git connection' })
-  const configured = await gitAgentConfigured(env, connectionId as string | undefined)
-  return { configured, repositories: configured ? (await discoverRepositories(env, connectionId as string | undefined)).filter(repo => resourceAllowed(actor.authorization, 'repositories', repo.resourceId)) : [] }
+  // Discovery fails closed for a disabled or unreadable connection rather than listing nothing.
+  const repositories = await discoverRepositories(env, connectionId as string | undefined)
+  return { configured: await gitAgentConfigured(env, connectionId as string | undefined), repositories: repositories.filter(repo => resourceAllowed(actor.authorization, 'repositories', repo.resourceId)) }
 })
