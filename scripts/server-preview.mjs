@@ -12,38 +12,42 @@ import {
 requireWorkersBuild()
 const root = resolve(import.meta.dirname, '..')
 const branch = process.env.WORKERS_CI_BRANCH
-if (!branch || branch === 'main')
-  throw new Error('An isolated Server Preview requires a PR branch')
+if (!branch) throw new Error('A Server Preview requires a Workers Builds branch')
+// main has one standing Preview, `main`: everything merged, before any release. It keeps
+// its own database, so migrations accumulate as they do on a Server that updates.
+const mainPreview = branch === 'main'
 function git(args) {
   const r = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
   if (r.status !== 0) throw new Error('Cannot verify PR Git refs')
   return r.stdout
 }
 const repo = 'https://github.com/inchidev/llll.git'
-const candidate = pullRequestCandidate(
-  git([
-    'ls-remote',
-    repo,
-    'refs/heads/main',
-    `refs/heads/${branch}`,
-    'refs/pull/*',
-  ]),
-  branch,
-  process.env.WORKERS_CI_COMMIT_SHA || git(['rev-parse', 'HEAD']).trim(),
-)
-if (!candidate)
-  throw new Error(
-    'Server Preview requires the current head of an open mergeable PR',
+const sourceCommit = process.env.WORKERS_CI_COMMIT_SHA || git(['rev-parse', 'HEAD']).trim()
+let candidate = null
+if (mainPreview) {
+  // An older main Build must not replace a newer one.
+  const head = git(['ls-remote', repo, 'refs/heads/main']).split(/\s/)[0]
+  if (head !== sourceCommit) throw new Error('The main Preview deploys only the current head of main')
+} else {
+  candidate = pullRequestCandidate(
+    git(['ls-remote', repo, 'refs/heads/main', `refs/heads/${branch}`, 'refs/pull/*']),
+    branch,
+    sourceCommit,
   )
-git([
-  'fetch',
-  '--no-tags',
-  '--depth=1',
-  repo,
-  `refs/pull/${candidate.number}/merge`,
-])
-if (!verifyMergeParents(git(['cat-file', '-p', 'FETCH_HEAD']), candidate))
-  throw new Error('Server Preview merge parents did not match')
+  if (!candidate)
+    throw new Error(
+      'Server Preview requires the current head of an open mergeable PR',
+    )
+  git([
+    'fetch',
+    '--no-tags',
+    '--depth=1',
+    repo,
+    `refs/pull/${candidate.number}/merge`,
+  ])
+  if (!verifyMergeParents(git(['cat-file', '-p', 'FETCH_HEAD']), candidate))
+    throw new Error('Server Preview merge parents did not match')
+}
 const account = process.env.CLOUDFLARE_ACCOUNT_ID,
   token = process.env.CLOUDFLARE_API_TOKEN
 if (!account || !token) throw new Error('Workers Builds credentials are missing')
@@ -75,9 +79,9 @@ const base = JSON.parse(
 if (base.name !== 'llll-server') throw new Error('The Server build config must target the staging Server Worker')
 // A fresh isolated database can replace an obsolete, unmerged PR schema.
 // The shared staging database stays available for every other Preview.
-const prNumber = candidate.number
-const databaseName = process.env.LLLL_PREVIEW_DATABASE || `llll-server-pr-${prNumber}`
-if (!new RegExp(`^llll-server-pr-${prNumber}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$`).test(databaseName))
+const prNumber = candidate?.number
+const databaseName = mainPreview ? 'llll-server-main' : process.env.LLLL_PREVIEW_DATABASE || `llll-server-pr-${prNumber}`
+if (!mainPreview && !new RegExp(`^llll-server-pr-${prNumber}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$`).test(databaseName))
   throw new Error('A per-PR Preview database must belong to this PR')
 async function ensureStagingResource(kind, list, create, name) {
   let resource
@@ -130,7 +134,7 @@ const config = {
     PUBLIC_ORIGIN: previewOrigin,
     ADMIN_EMAIL: 'owner@example.com',
     AUTH_REGISTRATION_MODE: 'invite_only',
-    EMBED_ORIGINS: process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
+    EMBED_ORIGINS: mainPreview ? 'https://main.dev.llll.gg' : process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
     ACCOUNT_ID: account,
     // Every app response carries Server-Timing for D1 and Durable Object waits.
     SERVER_TIMING: '1',
@@ -151,10 +155,11 @@ if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
   Object.assign(config.vars, { LLLL_VERSION: installed })
 }
 config.previews = isolatedPreviewBindings(config)
-const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
-  claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
+// The main Preview keeps its Accounts across deployments, so its secrets are separate and stable.
+const auth = mainPreview ? process.env.LLLL_MAIN_PREVIEW_AUTH_SECRET : process.env.LLLL_PREVIEW_AUTH_SECRET,
+  claim = mainPreview ? process.env.LLLL_MAIN_PREVIEW_SETUP_TOKEN : process.env.LLLL_PREVIEW_SETUP_TOKEN
 if (!auth || !claim)
-  throw new Error('Configure private Preview auth and owner claims')
+  throw new Error(mainPreview ? 'Configure the main Preview auth secret and owner claim' : 'Configure private Preview auth and owner claims')
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })
 const file = resolve(dir, 'server-preview.json'),
@@ -211,4 +216,4 @@ for (let attempt = 0; attempt < 150; attempt++) {
   await new Promise((resolveWait) => setTimeout(resolveWait, 2000))
 }
 if (!verified) throw new Error('Server Preview discovery verification failed')
-console.log(`Server Preview verified for PR #${prNumber}: ${url}`)
+console.log(mainPreview ? `main Server Preview verified at ${sourceCommit}: ${url}` : `Server Preview verified for PR #${prNumber}: ${url}`)

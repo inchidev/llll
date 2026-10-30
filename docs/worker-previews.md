@@ -4,9 +4,9 @@ Feature/fix PRs target protected `main`. Run lint, root/Shell/client type checks
 
 The official `llll` Worker has a native Preview at `<preview-slug>.dev.llll.gg` with its own D1. Production and Preview workers.dev addresses stay disabled. CI also builds immutable candidate artifacts; developer machines do not upload them.
 
-A Server Preview deploys the one staging Server Worker (`llll-server`) with a **native Worker Preview per PR** via `wrangler preview` (Wrangler ≥ 4.135) inside Workers Builds. The script `scripts/server-preview.mjs` requires the exact head of an open mergeable PR and private Preview secrets; it never creates a per-PR Worker. Developer machines do not run it. Connected Cloudflare tools configure resources and Builds; they never upload code.
+A Server Preview deploys the one staging Server Worker (`llll-server`) with a **native Worker Preview per PR** via `wrangler preview` (Wrangler ≥ 4.135) inside Workers Builds. The script `scripts/server-preview.mjs` requires the exact head of an open mergeable PR (or, on main, the current head of main for the main Preview) and private Preview secrets; it never creates a per-PR Worker. Developer machines do not run it. Connected Cloudflare tools configure resources and Builds; they never upload code.
 
-The staging Server has its own Workers Builds configuration for the same Git repository. Its PR build runs `pnpm build` and `node scripts/server-preview.mjs` from the repository root with private Preview secrets. The official web Worker retains its separate build configuration. Workers Builds binds each job to its Worker identity, so a web Worker build must not deploy the staging Server. The staging main-branch job performs no application deployment.
+The staging Server has its own Workers Builds configuration for the same Git repository. Its PR build runs `pnpm build` and `node scripts/server-preview.mjs` from the repository root with private Preview secrets. The official web Worker retains its separate build configuration. Workers Builds binds each job to its Worker identity, so a web Worker build must not deploy the staging Server. The staging main-branch job deploys only the [main Preview](#the-main-preview); it has no production deployment.
 
 Native Preview behavior for the Server Worker:
 
@@ -20,6 +20,25 @@ Native Preview behavior for the Server Worker:
 - Limits: 500 Previews per Worker (Paid) and 100 deployments per Preview; PR churn stays low-retention because DO state and bindings die with each Preview.
 
 Update-flow verification can opt into `LLLL_PREVIEW_UPDATE_FIXTURE=1`. Only that Preview receives the fixture version override. `LLLL_PREVIEW_INSTALLED_VERSION` may identify an older version (never newer than the candidate package) to exercise a real upgrade to a published artifact without publishing a test release. After the upgrade, redeploy the same candidate from Git to inspect the persisted completion record and leave the Preview reviewable. Backup state and fixture Accounts must never point at customer Servers.
+
+## The main Preview
+
+Each PR Preview shows one change alone. The main Preview shows everything merged into main together, before any release: `https://main.dev.llll.gg` (Landing, Shell, `/create`) and `https://main.server-preview.llll.gg` (a Server). Check it before opening a release PR.
+
+- **What deploys it.** The main-branch Builds of both Workers, from Git, after every merge. Each Build first confirms that its commit is still the head of main, so an older Build never replaces a newer one. A release does not deploy it and it never changes production.
+- **Data.** It keeps its own D1 databases, `llll-main` and `llll-server-main`, across deployments: migrations apply in order on existing data, as on a customer Server that updates. Files, backups and tickets use the shared staging resources.
+- **Accounts.** Its Server keeps Accounts and sessions across deployments, so its secrets are separate and must not rotate: `LLLL_MAIN_PREVIEW_AUTH_SECRET` and `LLLL_MAIN_PREVIEW_SETUP_TOKEN` on the `llll-server` Build, `WEB_MAIN_PREVIEW_AUTH_SECRET` on the `llll` Build. Claim the Owner once with the setup token.
+- **Access.** It is public like other Previews. Put Cloudflare Access in front of `main.dev.llll.gg` and `main.server-preview.llll.gg` if it should be restricted.
+- **Reset.** If its data is no longer useful, delete `llll-main` or `llll-server-main` through administrative cleanup; the next main Build creates an empty one. Keep backup destinations.
+
+Workers Builds configuration for the main branch (administrative, not code):
+
+| Worker | Deploy command for `main` |
+| --- | --- |
+| `llll` | `node scripts/web-deploy.mjs production && pnpm build:site && node scripts/web-deploy.mjs main` |
+| `llll-server` | `node scripts/server-preview.mjs` (after the existing `pnpm build`) |
+
+The production step stays first and remains a no-op without a newer published release.
 
 ## Request timing
 
