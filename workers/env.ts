@@ -187,13 +187,13 @@ export function cloudflareNetwork(env: L4Env): boolean {
 }
 
 /**
- * Calls on Cloudflare's network use the existing RealtimeKit connection.
- * Off that network, the shared Cloudflare API token can drive RealtimeKit's REST API.
+ * RealtimeKit is reached over HTTPS from any runtime, so the owner can always
+ * connect it in Live settings. Off Cloudflare's network, the shared Cloudflare
+ * API token also drives RealtimeKit's REST API without that step.
  */
 export function callsProvider(env: L4Env): CallsProviderName {
-  if (cloudflareNetwork(env)) return 'realtimekit'
-  if (cloudflareRestConfigured(env)) return 'realtimekit-rest'
-  return null
+  if (!cloudflareNetwork(env) && cloudflareRestConfigured(env)) return 'realtimekit-rest'
+  return 'realtimekit'
 }
 
 export const DEFAULT_WORKERS_MODEL = '@cf/moonshotai/kimi-k2.7-code'

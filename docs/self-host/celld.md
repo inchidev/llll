@@ -22,7 +22,7 @@ celld does not implement Workers AI, Browser Rendering, or Email Workers. It als
 | Browser Rendering | No `BROWSER` binding. The same token uses Browser Run at `/accounts/{account_id}/browser-run/{markdown\|links\|screenshot}` and health reports `capabilities.browser: "cloudflare-rest"`. Otherwise set `BROWSER_CDP_URL`, or leave page reading off |
 | Outbound email | No Email Workers binding. The same token uses Email Sending (`emailProvider: "cloudflare-rest"`) when the sender domain is onboarded. Otherwise `MAIL_GATEWAY_URL` or `SMTP_GATEWAY_URL` |
 | Inbound email | No Email Routing handler in this process. `INBOUND_EMAIL_SECRET` reports `capabilities.emailInbound: "bridge"`. Postmark, Mailgun, and Amazon SES report `postmark`, `mailgun`, and `ses`. With none of those set, the value is `null` |
-| Calls and Live (RealtimeKit) | Unavailable until the same token is set. The first call creates a RealtimeKit app. Health reports `callsProvider: "realtimekit-rest"` |
+| Calls and Live (RealtimeKit) | With the same token, the first call creates a RealtimeKit app and health reports `callsProvider: "realtimekit-rest"`. Without it, the owner connects RealtimeKit in Settings → Live with a Realtime Admin token or the Server's kept Cloudflare access, and health reports `callsProvider: "realtimekit"` |
 | Agent containers, computers, and shells | Unavailable on every runtime, including Cloudflare. The agent settings say so |
 | `routes`, custom domains, smart placement | Rejected by celld. Put a reverse proxy in front for TLS and hostnames |
 
@@ -333,6 +333,6 @@ A `BROWSER` binding is used first. Without one, the Cloudflare API token calls B
 
 Without a binding, the Cloudflare token, and `BROWSER_CDP_URL`, page reading is off and the agent settings explain that.
 
-Calls and live sessions use Cloudflare RealtimeKit. On Cloudflare's network the existing connection flow stays. With `LLLL_RUNTIME=celld` and the Cloudflare API token, the first call creates a RealtimeKit app named `L4` with the host and participant presets. Live settings explain that. A pasted Realtime token is optional. Without the API token the call button stays disabled and the server refuses to start a room. Text chat keeps working.
+Calls and live sessions use Cloudflare RealtimeKit. On Cloudflare's network the existing connection flow stays. With `LLLL_RUNTIME=celld` and the Cloudflare API token, the first call creates a RealtimeKit app named `L4` with the host and participant presets. Live settings explain that. A pasted Realtime token is optional. Without the API token, the owner connects RealtimeKit in Settings → Live the same way as on Cloudflare: paste a token with **Realtime Admin**, or use the Server's kept Cloudflare access. Until one of these is set, rooms do not start. Text chat keeps working.
 
 Agents do not get a container, computer, or shell on celld or on Cloudflare. That row in agent settings is the capability flag `containers: false`.
