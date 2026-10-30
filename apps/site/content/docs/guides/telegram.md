@@ -12,6 +12,24 @@ When the Shell opens as a Telegram Mini App, it fits itself to Telegram's window
 
 A Server's own Client can also be opened as a Mini App. A start parameter of `invite_<code>` then opens that invitation.
 
+Open the official Shell in Telegram from [@L4_agent](https://t.me/L4_agent). It is the same Shell as on the web: connect a Server by its address, open the Servers saved on this device, or create a new one.
+
+## Create a Server from Telegram
+
+Cloudflare sign-in does not work reliably inside Telegram, so **Create → Cloudflare** offers **Continue in browser** and opens the installer in your phone's browser. Create the Server there as usual. When it is ready, **Open in Telegram** next to it opens that Server in the Telegram Shell, which saves it on this device.
+
+## Telegram notifications
+
+Browsers inside Telegram cannot receive push notifications, so the L4 bot can send them instead:
+
+1. Open the Server in the Telegram Shell and sign in the usual way, with any login method.
+2. Open **User Settings → Notifications** and turn on **Telegram notifications**.
+3. Allow the bot to message you when Telegram asks.
+
+The bot then tells you about the same events as [push notifications](notifications.md#what-notifies-you): mentions, Direct Messages, new Live sessions and email. Each message names only the kind of event and the Server, with an **Open** button. It never contains what was said, who said it or where.
+
+The Server stores only an opaque delivery token, not your Telegram ID, and the official site keeps no list of who receives what. Turn the switch off to stop, or block the bot to stop Telegram notifications from every Server at once. Each Server must run a release with this feature.
+
 ## Sign in with Telegram
 
 When you open a Server through the Shell in Telegram and that Server supports Telegram Mini App sign-in, the Shell passes your Telegram launch data to the Server and you are signed in automatically:

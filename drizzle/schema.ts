@@ -637,8 +637,13 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
   userAgent: text('user_agent'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  /** `telegram` targets go through the Shell's relay; endpoint is then `telegram:` plus a token digest. */
+  transport: text('transport', { enum: ['webpush', 'telegram'] }).notNull().default('webpush'),
+  relayOrigin: text('relay_origin'),
+  relayToken: text('relay_token'),
 }, table => [
   index('push_subscriptions_user_id_idx').on(table.userId),
+  check('push_subscriptions_transport_check', sql`${table.transport} in ('webpush', 'telegram')`),
 ])
 
 export const notificationOutbox = sqliteTable('notification_outbox', {

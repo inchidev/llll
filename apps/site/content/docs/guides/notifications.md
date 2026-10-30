@@ -49,6 +49,8 @@ When you install a Server as an app from its own address, each push also updates
 
 Each Server sends its own notifications. Adding a Server to the [llll.gg Shell](../concepts/server-and-shell.md) does not change who is notified, and the Shell receives no message content.
 
+In the Telegram Shell, push notifications are not available; turn on **Telegram notifications** in the same settings to get them from the L4 bot instead. See [Telegram notifications](telegram.md#telegram-notifications).
+
 ## For operators
 
 A Server's Web Push identity must stay stable: if it changes, existing subscriptions stop working and people need to select **Enable** again. You can configure the identity for the deployment yourself (`VAPID_SUBJECT`, `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, all three). Recent Servers without that configuration create their own identity when notification settings are first opened, provided the Server has an HTTPS address or an administrator email, and store it encrypted with `AUTH_SECRET`. Keep that secret with your [Backups](../cloudflare/backups.md).
