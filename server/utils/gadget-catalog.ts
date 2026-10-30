@@ -1,25 +1,26 @@
-import { authorize, AuthorizationError, ServerAction } from '../../shared/authorization'
+import { authorize, AuthorizationError, ServerAction, type AuthorizationContext } from '../../shared/authorization'
 import { emptyGadgetSpec, type GadgetDetailDTO, type GadgetListDTO, type GadgetSpec, type GadgetSummaryDTO } from '../../shared/gadgets'
 import { newId, nowIso } from '../../shared/ids'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
-import type { Membership } from './guards'
 import { parseGadgetSpec, validateGadgetSpec } from './gadget-spec'
 import { writeAudit } from './messages'
 
 export type GadgetRow = GadgetSummaryDTO & { draftSpecJson: string }
+/** Who manages or opens Apps: a signed-in Member, or an Agent within its Run's authority. */
+export type GadgetActor = { user: { id: string }; serverId: string; roleId: string; authorization: AuthorizationContext }
 
-export function canManageGadgets(actor: Membership): boolean {
+export function canManageGadgets(actor: GadgetActor): boolean {
   return allowed(actor, ServerAction.manageGadgets) && allowed(actor, ServerAction.manageData)
 }
 
-function allowed(actor: Membership, action: ServerAction): boolean {
+function allowed(actor: GadgetActor, action: ServerAction): boolean {
   try { authorize(actor.authorization, action); return true }
   catch (error) { if (error instanceof AuthorizationError) return false; throw error }
 }
 
-export function canUseGadgets(actor: Membership): boolean {
+export function canUseGadgets(actor: GadgetActor): boolean {
   return canManageGadgets(actor)
     || allowed(actor, ServerAction.useGadgets)
     || allowed(actor, ServerAction.manageGadgets)
@@ -43,7 +44,7 @@ export async function requireGadget(env: L4Env, id: string): Promise<GadgetRow> 
   return row
 }
 
-export async function listGadgets(env: L4Env, actor: Membership): Promise<GadgetListDTO> {
+export async function listGadgets(env: L4Env, actor: GadgetActor): Promise<GadgetListDTO> {
   const canManage = canManageGadgets(actor)
   if (!canManage && !canUseGadgets(actor)) fail(403, 'forbidden', 'Missing permission')
   if (canManage) {
@@ -64,7 +65,7 @@ export async function listGadgets(env: L4Env, actor: Membership): Promise<Gadget
   return { gadgets: result.results ?? [], canManage }
 }
 
-export async function getGadgetDetail(env: L4Env, actor: Membership, id: string): Promise<GadgetDetailDTO> {
+export async function getGadgetDetail(env: L4Env, actor: GadgetActor, id: string): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Missing permission')
   const row = await requireGadget(env, id)
   const access = await env.DB.prepare('SELECT role_id as roleId FROM grants WHERE gadget_id = ? ORDER BY role_id').bind(id).all<{ roleId: string }>()
@@ -96,7 +97,7 @@ async function replaceRoleAccess(env: L4Env, gadgetId: string, roleIds: string[]
 
 export async function createGadget(
   env: L4Env,
-  actor: Membership,
+  actor: GadgetActor,
   input: { name: string; description?: string; spec?: GadgetSpec; roleIds?: string[] },
 ): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
@@ -118,7 +119,7 @@ export async function createGadget(
 
 export async function updateGadget(
   env: L4Env,
-  actor: Membership,
+  actor: GadgetActor,
   id: string,
   input: { revision: number; name?: string; description?: string; spec?: GadgetSpec; roleIds?: string[] },
 ): Promise<GadgetDetailDTO> {
@@ -140,7 +141,7 @@ export async function updateGadget(
   return getGadgetDetail(env, actor, id)
 }
 
-export async function publishGadget(env: L4Env, actor: Membership, id: string, revision: number): Promise<GadgetDetailDTO> {
+export async function publishGadget(env: L4Env, actor: GadgetActor, id: string, revision: number): Promise<GadgetDetailDTO> {
   if (!canManageGadgets(actor)) fail(403, 'forbidden', 'Managing Apps also requires Manage data')
   const current = await requireGadget(env, id)
   if (current.draftRevision !== revision) fail(409, 'stale_gadget', 'This App changed elsewhere. Reload and try again.')

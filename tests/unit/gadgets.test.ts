@@ -8,6 +8,7 @@ import { composeGadgetSpec } from '../../server/utils/gadget-composer'
 import { inferAiFunction } from '../../server/utils/ai-functions'
 import { invokeGadget, openGadget } from '../../server/utils/gadget-runtime'
 import { parseGadgetSpec, validateGadgetSpec } from '../../server/utils/gadget-spec'
+import { agentTools } from '../../server/utils/agent-tools'
 import type { Membership } from '../../server/utils/guards'
 
 vi.mock('../../server/utils/ai-functions', () => ({ inferAiFunction: vi.fn() }))
@@ -354,4 +355,51 @@ it('denies model composition before inference when the delegated Apps action is 
     await expect(composeGadgetSpec({ DB: d1(sqlite) } as never, delegated, 'Compose an app')).rejects.toMatchObject({ statusCode: 403 })
     expect(vi.mocked(inferAiFunction).mock.calls).toHaveLength(calls)
   } finally { sqlite.close() }
+})
+
+describe('Agent App drafts', () => {
+  const serverId = '00000000-0000-4000-8000-000000000001'
+  const appPermissions = Permission.manageGadgets | Permission.manageDatabases | Permission.readData | Permission.writeData
+  function agentFixture(initiatorPermissions = ALL_PERMISSIONS, resourceAccess?: { databases: string[] }) {
+    const sqlite = fixture()
+    sqlite.exec(`INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'custom:agent', 'Agent', ${appPermissions});
+      INSERT INTO users (id, kind, display_name, status, role_id, joined_at) VALUES ('app-agent', 'agent', 'Builder', 'active', 'agent-role', CURRENT_TIMESTAMP);`)
+    const authorization = {
+      serverId,
+      principal: { id: 'app-agent', kind: 'agent' as const, roleId: 'agent-role', roleName: 'Agent', permissions: appPermissions & initiatorPermissions, isOwner: false, ...(resourceAccess ? { resourceAccess } : {}) },
+      credential: { kind: 'agent_runtime' as const, id: 'run-1' },
+      delegation: { by: 'owner', permissions: initiatorPermissions, isOwner: initiatorPermissions === ALL_PERMISSIONS },
+    }
+    return { sqlite, env: { DB: d1(sqlite) } as never, tools: agentTools({ DB: d1(sqlite) } as never, authorization as never, () => {}) }
+  }
+
+  it('lets an Agent create and change a draft that nobody else can open until a person publishes it', async () => {
+    const { sqlite, env, tools } = agentFixture()
+    try {
+      const created = await tools.call('create_app_draft', { name: 'Pipeline', spec }) as { appId: string; revision: number; publishedVersion: number | null }
+      expect(created).toMatchObject({ publishedVersion: null })
+      expect(await tools.call('list_app_drafts', {})).toMatchObject({ apps: [{ appId: created.appId, name: 'Pipeline' }] })
+      const changed = await tools.call('update_app_draft', { appId: created.appId, revision: created.revision, name: 'Pipeline board' }) as { revision: number }
+      await expect(tools.call('update_app_draft', { appId: created.appId, revision: created.revision, name: 'Stale' })).rejects.toMatchObject({ statusCode: 409 })
+      expect(changed.revision).toBe(created.revision + 1)
+      // No access was given and nothing was published: a Member sees no App.
+      expect((await listGadgets(env, actor({ user: { id: 'member', kind: 'human', displayName: 'Member', avatarR2Key: null }, roleId: 'member-role', isOwner: false, perms: Permission.useGadgets }))).gadgets).toEqual([])
+      expect(sqlite.prepare('SELECT count(*) AS n FROM grants WHERE gadget_id IS NOT NULL OR gadget_version_id IS NOT NULL').get()!.n).toBe(0)
+      await expect(tools.call('publish_app', {})).rejects.toMatchObject({ statusCode: 403 })
+      expect(sqlite.prepare("SELECT action FROM audit_log WHERE actor_id='app-agent' ORDER BY rowid").all().map(row => row.action)).toEqual(['gadget.create', 'gadget.update'])
+    } finally { sqlite.close() }
+  })
+
+  it('keeps Agent drafts within the person who asks and the Agent’s Database scope', async () => {
+    const member = agentFixture(Permission.useAgents | Permission.readData)
+    try {
+      await expect(member.tools.call('create_app_draft', { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
+      expect(await member.tools.call('search_tools', { query: 'app draft' })).toMatchObject({ tools: [] })
+    } finally { member.sqlite.close() }
+    const scoped = agentFixture(ALL_PERMISSIONS, { databases: ['leads'] })
+    try {
+      await expect(scoped.tools.call('create_app_draft', { name: 'Companies too', spec })).rejects.toMatchObject({ statusCode: 403 })
+      await expect(scoped.tools.call('create_app_draft', { name: 'Leads', spec: { ...spec, bindings: [spec.bindings[0]], sections: [spec.sections[0]] } })).resolves.toMatchObject({ name: 'Leads' })
+    } finally { scoped.sqlite.close() }
+  })
 })

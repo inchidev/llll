@@ -24,7 +24,7 @@ const sectionSchema = z.object({
   title: z.string().trim().min(1).max(100),
   presentation: z.enum(GadgetPresentationKinds),
 })
-const specSchema = z.object({
+export const gadgetSpecSchema = z.object({
   schemaVersion: z.literal(1),
   bindings: z.array(bindingSchema).max(8),
   sections: z.array(sectionSchema).max(12),
@@ -35,7 +35,7 @@ function unique(values: string[]): boolean {
 }
 
 export function parseGadgetSpec(value: unknown): GadgetSpec {
-  const parsed = specSchema.safeParse(value)
+  const parsed = gadgetSpecSchema.safeParse(value)
   if (!parsed.success) fail(400, 'invalid_gadget_spec', parsed.error.issues[0]?.message ?? 'Invalid Gadget spec')
   const spec = parsed.data
   if (!unique(spec.bindings.map(binding => binding.id)) || !unique(spec.sections.map(section => section.id))) {
