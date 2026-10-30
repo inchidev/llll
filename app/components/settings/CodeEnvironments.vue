@@ -92,10 +92,10 @@ async function disable(item: CodeEnvironment) {
         <UFormField label="Working repository" help="Choose the source repository for ordinary branch-based work, or an optional fork. Changes use a dedicated working branch."><USelect v-model="workId" :items="options" placeholder="Choose repository" class="w-full" /></UFormField>
         <UFormField label="Compute Node" help="Choose where this repository's task runs execute."><USelect v-model="computeNodeId" :items="[{ label: 'No compute backend', value: null }, ...(nodes.data.value?.nodes ?? []).filter(node => node.enabled).map(node => ({ label: node.capabilities?.provider === 'lizard' ? 'Lizard' : node.name, value: node.id }))]" class="w-full" /></UFormField>
         <UFormField label="Base branch"><UInput v-model="baseBranch" class="w-full" /></UFormField>
-        <UFormField label="Required CI checks" help="One exact check or commit-status name per line. Missing checks keep the proposal unverified."><UTextarea v-model="requiredChecks" class="w-full" :rows="3" /></UFormField>
+        <UFormField label="Required CI checks" help="One exact check or commit-status name per line. Missing checks keep the proposal unverified. Leave empty to require every check CI reports."><UTextarea v-model="requiredChecks" class="w-full" :rows="3" /></UFormField>
         <UFormField label="Allowed Preview domains" help="One domain per line, for example dev.example.com. Preview links must use HTTPS."><UTextarea v-model="previewHosts" class="w-full" :rows="2" /></UFormField>
       </div></template>
-      <template #footer><div class="flex w-full justify-between gap-2"><UButton v-if="selectedEnvironment?.enabled" label="Disable" color="error" variant="ghost" :loading="saving" @click="disable(selectedEnvironment)" /><span v-else /><UButton label="Save environment" color="neutral" :loading="saving" :disabled="!name.trim() || !sourceId || !workId || !requiredChecks.trim()" @click="save" /></div></template>
+      <template #footer><div class="flex w-full justify-between gap-2"><UButton v-if="selectedEnvironment?.enabled" label="Disable" color="error" variant="ghost" :loading="saving" @click="disable(selectedEnvironment)" /><span v-else /><UButton label="Save environment" color="neutral" :loading="saving" :disabled="!name.trim() || !sourceId || !workId" @click="save" /></div></template>
     </SettingsEditor>
   </div>
 </template>

@@ -10,7 +10,8 @@ export const codeEnvironmentSchema = z.object({
   sourceRepo: repository, sourceRepoId: z.number().int().positive(), sourceInstallationId: z.number().int().nonnegative(),
   workRepo: repository, workRepoId: z.number().int().positive(), workInstallationId: z.number().int().nonnegative(),
   baseBranch: z.string().min(1).max(200).default('main'),
-  requiredChecks: z.array(z.string().trim().min(1).max(200)).min(1).max(30),
+  // Empty: every check CI reports must pass, and a commit without any stays unverified.
+  requiredChecks: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
   previewHosts: z.array(z.string().regex(/^[a-z0-9.-]+$/u)).max(20).default([]),
 }).superRefine((value, context) => {
   // Gitea has no App grants: its repositories carry grant 0 and always need an explicit connection.

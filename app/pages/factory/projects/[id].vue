@@ -5,7 +5,7 @@ import type { Project, ProjectRepository } from '~~/shared/projects'
 definePageMeta({ layout: 'server', middleware: ['auth'] })
 const route = useRoute(), cache = useQueryClient()
 const { api } = useApi(), { serverId } = useServer(), { can } = useRoleGrants()
-const toast = useToast(), busy = ref(false), repositoryOpen = ref(false)
+const toast = useToast(), busy = ref(false), repositoryOpen = ref(false), connectOpen = ref(false)
 const selected = computed(() => String(route.params.id))
 const detail = useQuery({ queryKey: computed(() => ['project', selected.value]), queryFn: () => api<{ project: Project; repositories: ProjectRepository[]; permissions: number }>(`/api/projects/${selected.value}`) })
 const environments = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ environments: { id: string; name: string; sourceRepo: string; sourceRepoId: number; baseBranch: string }[] }>('/api/code-environments'), enabled: computed(() => can(Permission.manageProjects)) })
@@ -40,8 +40,9 @@ async function remove(id: string) {
     <p class="whitespace-pre-wrap text-sm text-muted">{{ detail.data.value.project.description }}</p>
     <UButton v-if="hasPermission(detail.data.value.permissions, Permission.readTasks)" :to="`/tasks?project=${selected}`" label="Open project tasks" icon="i-ph-kanban" color="neutral" variant="outline" />
     <ProjectsAccess :key="selected" :project-id="selected" />
-    <div class="flex items-center justify-between gap-3"><h3 class="font-medium">Repositories</h3><UButton v-if="can(Permission.manageProjects) && !detail.data.value.project.archivedAt" label="Attach repository" icon="i-ph-plus" color="neutral" variant="outline" @click="repositoryOpen = true" /></div>
-    <p class="text-sm text-muted">These references identify external repositories. Attaching a reference does not connect credentials or enable execution. Git operations still require a configured provider connection.</p>
+    <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-medium">Repositories</h3><div v-if="can(Permission.manageProjects) && !detail.data.value.project.archivedAt" class="flex flex-wrap gap-2"><UButton label="Add reference only" color="neutral" variant="ghost" @click="repositoryOpen = true" /><UButton v-if="can(Permission.manageServer)" label="Connect repository" icon="i-ph-git-branch" @click="connectOpen = true" /></div></div>
+    <ProjectsConnectRepository v-model:open="connectOpen" :project-id="selected" @connected="detail.refetch()" />
+    <p class="text-sm text-muted">A connected repository is one agents can work on: they open pull requests against it for review. A reference only names a repository and enables nothing.</p>
     <div v-for="r in detail.data.value.repositories" :key="r.id" class="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded border border-default p-3">
      <div class="min-w-0"><p class="break-all font-medium">{{ r.slug }}</p><p class="break-all text-xs text-muted">{{ r.provider }} · {{ r.host }} · {{ r.defaultBranch }}</p><p class="text-xs text-muted">{{ r.environmentId ? 'Linked to Git execution configuration' : 'Reference only; execution not connected' }}</p></div>
      <UButton v-if="can(Permission.manageProjects)" label="Detach reference" color="neutral" variant="ghost" :loading="busy" @click="remove(r.id)" />
