@@ -65,7 +65,11 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
   ready?: (steer: (messageId: string, content: string) => Promise<void>, resume: () => void) => Promise<void>
   /** A host with alarms drives sleeping tasks through resume instead of process timers. */
   alarmDriven?: boolean
+  /** Reaches the model and tool gateway; the host may serve it without a network round trip. */
+  fetch?: typeof fetch
 } = {}): Promise<EmbeddedPiOutcome> {
+  const gatewayFetch = host.fetch ?? fetch
+  const completions = openAICompletionsApi()
   const models = createModels()
   models.setProvider(createProvider({
     id: 'l4',
@@ -89,7 +93,11 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       contextWindow: 24000,
       maxTokens: 4096,
     }],
-    api: openAICompletionsApi(),
+    api: {
+      ...completions,
+      stream: (model, context, options) => completions.stream(model, context, { ...options, fetch: gatewayFetch }),
+      streamSimple: (model, context, options) => completions.streamSimple(model, context, { ...options, fetch: gatewayFetch }),
+    },
   }))
 
   const events: RuntimeEvent[] = []
@@ -103,7 +111,7 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       if (!input.toolEndpoint) throw new Error('Tool gateway unavailable')
       let output: string
       for (;;) {
-        const response = await fetch(input.toolEndpoint, { method: 'POST',
+        const response = await gatewayFetch(input.toolEndpoint, { method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.modelGateway.token}` },
         body: JSON.stringify({ callId: api.callId, name: definition.name, arguments: args }),
         signal: AbortSignal.any([...(context.abortSignal ? [context.abortSignal] : []), ...(host.signal ? [host.signal] : []), AbortSignal.timeout(60000)]),

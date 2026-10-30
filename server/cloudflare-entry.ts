@@ -9,7 +9,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import { isPublicAssetURL } from '#nitro-internal-virtual/public-assets'
 import type { L4Env } from '../workers/env'
 import { routeServerEmail } from '../workers/server-mail-router'
-import { agentGateway } from './utils/agent-gateway'
+import { AGENT_GATEWAY_PATH, agentGateway } from './utils/agent-gateway'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 import { renewCloudflareAccess } from './utils/cloudflare-account-access'
 import { requestTiming } from './utils/request-timing'
@@ -29,7 +29,7 @@ const nitroApp = useNitroApp()
 export default {
   async fetch(request: Request, env: L4Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
-    const gateway = url.pathname.match(/^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files)$/u)
+    const gateway = url.pathname.match(AGENT_GATEWAY_PATH)
     if (gateway) return agentGateway(request, env, gateway[1]!, gateway[2]!, promise => context.waitUntil(promise))
     if (url.pathname === '/.llll/mail/inbound') return receiveMailGatewayRequest(request, env)
     if (request.headers.get('Upgrade') === 'websocket') {

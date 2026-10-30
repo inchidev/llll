@@ -12,6 +12,7 @@ import { asRpc } from './env'
 import { RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RuntimeEvent } from '../shared/agent-execution'
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { toolsForRun } from '../server/utils/agent-tools'
+import { AGENT_GATEWAY_PATH, agentGateway } from '../server/utils/agent-gateway'
 import { runEmbeddedPi, type EmbeddedPiSubmission } from './agent-pi-durable'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
 import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook, type AgentWebhook } from '../server/utils/agent-webhooks'
@@ -37,8 +38,20 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     if (this.embeddedTask) { this.embeddedResume?.(); return }
     const controller = new AbortController()
     this.embeddedAbort = controller
+    // Embedded Pi runs in this Worker, so its gateway calls are served here directly. A
+    // request to the Server's own public address can be routed elsewhere, such as a
+    // Preview's parent Worker, and would never reach the gateway.
+    const gatewayOrigin = new URL(input.modelGateway.url).origin
+    const gatewayFetch: typeof fetch = async (target, init) => {
+      const request = new Request(target, init)
+      const url = new URL(request.url)
+      const match = url.origin === gatewayOrigin ? url.pathname.match(AGENT_GATEWAY_PATH) : null
+      if (!match) return fetch(request)
+      return agentGateway(request, this.env, match[1]!, match[2]!, promise => this.ctx.waitUntil(promise))
+    }
     const generation = runEmbeddedPi(input, this.ctx.storage, {
       signal: controller.signal,
+      fetch: gatewayFetch,
       alarmDriven: true,
       ready: async (steer, resume) => { this.embeddedSteer = steer; this.embeddedResume = resume },
       event: async event => {
