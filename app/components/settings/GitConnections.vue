@@ -5,14 +5,15 @@ import type { GitConnection } from '~~/shared/git-connections'
 type Repository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
 const {api}=useApi(),qc=useQueryClient(),toast=useToast()
 const connections=useQuery({queryKey:['git-connections'],queryFn:({signal})=>api<{connections:GitConnection[];canConfigure:boolean}>('/api/git-connections',{signal,timeout:15000})})
-const enabled=computed(()=>(connections.data.value?.connections??[]).filter(c=>c.enabled))
+const github=computed(()=>(connections.data.value?.connections??[]).filter(c=>c.provider==='github'))
+const enabled=computed(()=>github.value.filter(c=>c.enabled))
 // Same key as the environment editor, so both views share one GitHub discovery.
 const repositories=useQueries({queries:computed(()=>enabled.value.map(c=>({queryKey:['agent-repositories',c.id],queryFn:({signal}:{signal:AbortSignal})=>api<{configured:boolean;repositories:Repository[]}>('/api/code-environments/repositories',{signal,timeout:30000,query:{connectionId:c.id}}),retry:false})))})
 const reposFor=(id:string)=>repositories.value[enabled.value.findIndex(c=>c.id===id)]
 const prepared=ref<{actionUrl:string;manifest:Record<string,unknown>}|null>(null)
 const submitted=ref(false)
 const orgOpen=ref(false),detailOpen=ref(false),selectedId=ref<string|null>(null)
-const selected=computed(()=>connections.data.value?.connections.find(c=>c.id===selectedId.value))
+const selected=computed(()=>github.value.find(c=>c.id===selectedId.value))
 const selectedRepos=computed(()=>selectedId.value?reposFor(selectedId.value):undefined)
 let preparedConnections:string[]=[]
 const organization=ref(''),busy=ref(false)
@@ -79,8 +80,8 @@ const countLabel=(id:string)=>{
  <section class="space-y-4">
   <LayoutLoadError v-if="connections.error.value" message="Git connections did not load." :retry="connections.refetch" />
   <UAlert v-if="submitted" title="Finish in the GitHub tab" description="Create the App, then choose which repositories L4 may use. This list updates when you return." color="neutral" variant="subtle" />
-  <SettingsList :items="connections.data.value?.connections ?? []" :item-key="c => c.id" :search-text="c => `${c.name} ${c.account}`" :loading="connections.isPending.value" placeholder="Search connections" :noun="['connection', 'connections']" @select="c => { selectedId = c.id; detailOpen = true }"><template #row="{ item: c }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-github-logo" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ c.account }}</span><span class="block text-xs text-muted">{{ c.enabled ? countLabel(c.id) : 'Disabled' }}</span></span><UBadge v-if="!c.enabled" label="Disabled" color="neutral" variant="subtle" /></template></SettingsList>
-  <p v-if="connections.data.value && !connections.data.value.connections.length" class="text-sm text-muted">Connect GitHub to choose the repositories L4 may work with.</p>
+  <SettingsList :items="github" :item-key="c => c.id" :search-text="c => `${c.name} ${c.account}`" :loading="connections.isPending.value" placeholder="Search connections" :noun="['connection', 'connections']" @select="c => { selectedId = c.id; detailOpen = true }"><template #row="{ item: c }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-github-logo" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium text-highlighted">{{ c.account }}</span><span class="block text-xs text-muted">{{ c.enabled ? countLabel(c.id) : 'Disabled' }}</span></span><UBadge v-if="!c.enabled" label="Disabled" color="neutral" variant="subtle" /></template></SettingsList>
+  <p v-if="connections.data.value && !github.length" class="text-sm text-muted">Connect GitHub to choose the repositories L4 may work with.</p>
   <UButton v-if="connections.data.value?.canConfigure" label="Connect a GitHub organization" color="neutral" variant="link" class="px-0" @click="orgOpen = true" />
   <SettingsEditor v-model:open="detailOpen" back="Git" :title="selected?.account ?? 'Git connection'" :description="selected ? `GitHub App ${selected.name}` : undefined"><template #body><div v-if="selected" class="space-y-4">
    <div v-if="selected.enabled" class="space-y-2">

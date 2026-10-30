@@ -7,8 +7,16 @@ import { getServerId } from '../../shared/server-id'
 import { factoryHash } from './factory-authority'
 import { actionColumns, authorizeFactoryAction, expireFactoryActions, type ActionRow } from './factory-actions'
 import { githubSourceGrant } from './github-agent-client'
+import { giteaCredentials } from './gitea'
 import { fail } from './cf'
 
+/** A Gitea token never reaches a Node. The Node fetches through this Server with a capability bound to
+ * one executing bootstrap and its lease, so it ends with the lease. */
+export async function computeSourceCapability(env: L4Env, actionId: string, lease: string) {
+  if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'compute_source', 'Server credential encryption is unavailable')
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`compute-source:${actionId}:${lease}`)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
 const secret = () => [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('')
 export function requireComputeOwner(auth: AuthorizationContext) {
   if (auth.principal.kind !== 'human' || !auth.principal.isOwner || auth.credential.kind !== 'session' || auth.delegation) fail(403, 'compute_denied', 'Compute administration needs a human Owner session')
@@ -94,11 +102,19 @@ export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typ
     const started = await env.DB.prepare("UPDATE factory_actions SET status='executing' WHERE id=? AND status='claimed' RETURNING id").bind(row.id).first()
     if (!started) fail(409, 'compute_job_uncertain', 'Job was already started')
     await env.DB.prepare("UPDATE tasks SET factory_state='executing' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId).run()
-    const sourceToken = context.request.operation === 'bootstrap' ? await githubSourceGrant(env, { connectionId: context.environment.gitConnectionId, installationId: context.environment.sourceInstallationId, repositoryId: context.environment.sourceRepoId }, async () => { await authorizeFactoryAction(env, row) }) : undefined
+    const bootstrap = context.request.operation === 'bootstrap', gitea = context.environment.provider === 'gitea'
+    const sourceToken = bootstrap && !gitea ? await githubSourceGrant(env, { connectionId: context.environment.gitConnectionId, installationId: context.environment.sourceInstallationId, repositoryId: context.environment.sourceRepoId }, async () => { await authorizeFactoryAction(env, row) }) : undefined
+    let source: { remote: string; authorization: string } | undefined
+    if (bootstrap && gitea) {
+      await giteaCredentials(env, context.environment.gitConnectionId)
+      let origin: string
+      try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_source', 'Configure this Server’s public origin before fetching Gitea source') }
+      source = { remote: `${origin}/api/compute-agent/source/${row.id}.git`, authorization: `Bearer ${await computeSourceCapability(env, row.id, input.lease)}` }
+    }
     return { id: row.id, workspaceId: context.workspace.id, serverId: context.auth.serverId, taskId: context.run.taskId, agentId: context.run.agentId, diskBytes: context.capabilities.diskBytes,
       request: context.request, executionBudgetMs: Math.max(1, Math.min(context.request.operation === 'exec' ? context.request.timeoutMs + ('provider' in context.capabilities ? 240000 : 0) : 120000, (JSON.parse(context.run.mandateJson).execution?.workspaceRuntimeMs ?? 3600000) - context.workspace.runtimeMs, Date.parse(row.expiresAt) - Date.now())), image: context.capabilities.image, baseSha: context.environment.baseSha, repository: context.environment.sourceRepo,
       // Only the trusted fetch broker consumes this single-repository READ token, then revokes it. Never mount it in a workspace.
-      ...(sourceToken ? { sourceToken } : {}) }
+      ...(sourceToken ? { sourceToken } : {}), ...(source ? { source } : {}) }
   }
   if (input.operation !== 'result') fail(400, 'compute_operation_invalid', 'Invalid result operation')
   if (row.status !== 'executing') fail(409, 'compute_job_not_started', 'The job must be started once before delivering a receipt')

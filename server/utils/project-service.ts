@@ -1,7 +1,7 @@
 import { hasPermission, Permission } from '../../shared/permissions'
 import { anyProjectPermission, projectPermissionAllowed } from '../../shared/project-access'
 import { authorizeResource, type AuthorizationContext } from '../../shared/authorization'
-import { codeEnvironmentSchema } from '../../shared/code-environments'
+import { codeEnvironmentSchema, repositoryResourceId } from '../../shared/code-environments'
 import { projectSchema, projectPatchSchema, projectRepositorySchema, type Project, type ProjectRepository } from '../../shared/projects'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -53,8 +53,10 @@ export async function addProjectRepository(env: L4Env, auth: AuthorizationContex
     const environment = await env.DB.prepare('SELECT config_json AS config FROM agent_environments WHERE id=? AND enabled=1').bind(input.environmentId).first<{ config: string }>()
     if (!environment) fail(404, 'not_found', 'Git execution configuration unavailable')
     const config = codeEnvironmentSchema.parse(JSON.parse(environment.config))
-    authorizeResource(auth, 'repositories', String(config.sourceRepoId))
-    if (input.provider !== 'github' || new URL(input.host).origin !== 'https://github.com' || input.externalId !== String(config.sourceRepoId) || input.slug.toLowerCase() !== config.sourceRepo.toLowerCase() || input.defaultBranch !== config.baseBranch) fail(400, 'repository_mismatch', 'Repository reference must match the Git execution configuration')
+    authorizeResource(auth, 'repositories', repositoryResourceId(config))
+    // The reference names the same provider and server as the configuration's connection.
+    const host = config.provider === 'gitea' ? (await env.DB.prepare("SELECT host FROM git_connections WHERE id=? AND provider='gitea'").bind(config.gitConnectionId).first<{ host: string }>())?.host : 'https://github.com'
+    if (input.provider !== config.provider || new URL(input.host).origin !== host || input.externalId !== String(config.sourceRepoId) || input.slug.toLowerCase() !== config.sourceRepo.toLowerCase() || input.defaultBranch !== config.baseBranch) fail(400, 'repository_mismatch', 'Repository reference must match the Git execution configuration')
   }
   const inserted = await env.DB.prepare('INSERT INTO project_repositories(id,project_id,provider,host,external_id,slug,default_branch,environment_id,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id')
     .bind(id, projectId, input.provider, new URL(input.host).origin, input.externalId ?? input.slug, input.slug, input.defaultBranch, input.environmentId ?? null, auth.principal.id, nowIso()).first()

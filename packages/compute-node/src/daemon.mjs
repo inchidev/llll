@@ -55,7 +55,9 @@ async function revokeSource(job) {
   try { await fetch('https://api.github.com/installation/token',{method:'DELETE',redirect:'manual',headers:{Authorization:`Bearer ${token}`,'User-Agent':'L4-source-broker'},signal:AbortSignal.timeout(10000)}) } catch { /* Expiring single-repository read grant is never reused. */ }
 }
 async function sourceBundle(job,signal) {
-  if (!/^[\w.-]+\/[\w.-]+$/u.test(job.repository) || !/^[a-f0-9]{40}$/u.test(job.baseSha) || typeof job.sourceToken!=='string') throw new Error('Invalid pinned source grant')
+  // A Gitea source is fetched through the Server with a lease-bound capability; nothing is revoked at GitHub.
+  const brokered=job.source&&typeof job.source.remote==='string'&&new URL(job.source.remote).origin===new URL(server).origin
+  if (!/^[\w.-]+\/[\w.-]+$/u.test(job.repository) || !/^[a-f0-9]{40}$/u.test(job.baseSha) || (!brokered && typeof job.sourceToken!=='string')) throw new Error('Invalid pinned source grant')
   const name=`l4-fetch-${job.id}`
   let directory
   try {
@@ -65,7 +67,7 @@ async function sourceBundle(job,signal) {
       '--network','bridge','--read-only','--user','1000:1000','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','32','--memory','512m','--cpus','1',
       '--tmpfs','/tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000','--mount',`type=bind,src=${directory},dst=/source`,
       ...(ca?['--mount',`type=bind,src=${resolve(ca)},dst=/run/source-ca.pem,readonly`,'--env','GIT_SSL_CAINFO=/run/source-ca.pem']:[]),image,'node','/opt/l4/fetch-source.mjs'],
-      {input:JSON.stringify({repository:job.repository,baseSha:job.baseSha,token:job.sourceToken}),signal,timeoutMs:120000,limit:10000})
+      {input:JSON.stringify(brokered?{baseSha:job.baseSha,remote:job.source.remote,authorization:job.source.authorization}:{repository:job.repository,baseSha:job.baseSha,token:job.sourceToken}),signal,timeoutMs:120000,limit:10000})
     if(!JSON.parse(output).ok)throw new Error('Pinned source broker failed')
     return {diskId:job.id,directory,bundle:join(directory,'source.bundle')}
   } catch(error) {
@@ -74,6 +76,7 @@ async function sourceBundle(job,signal) {
     throw new Error('Source broker fetch or capacity check failed',{cause:error})
   } finally {
     await revokeSource(job)
+    delete job.source
   }
 }
 async function execute(job,controller) {

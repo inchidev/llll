@@ -4,6 +4,7 @@ import type { L4Env } from './env'
 import { cloudflareCapabilities, factoryImageAccepted, factoryRepositoryName } from '../shared/software-factory'
 import { actionColumns, authorizeFactoryAction, type ActionRow } from '../server/utils/factory-actions'
 import { computePoll, computePollSchema } from '../server/utils/compute-nodes'
+import { giteaRemote } from '../server/utils/gitea'
 import { readLimitedStream } from './inbound-email-signature'
 import { getServerId } from '../shared/server-id'
 import { nowIso } from '../shared/ids'
@@ -178,8 +179,10 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
         if (context.request.operation === 'bootstrap') {
           stage = 'source_bootstrap'
           if (checkpoint) throw new Error('Workspace already has acknowledged code')
-          const source = `https://github.com/${context.environment.sourceRepo}.git`
-          await phase('source', source, sourceToken)
+          // Gitea credentials stay in the outbound Worker; the container receives only the clone address.
+          const gitea = context.environment.provider === 'gitea'
+          const source = gitea ? await giteaRemote(this.env, context.environment.gitConnectionId, context.environment.sourceRepo) : `https://github.com/${context.environment.sourceRepo}.git`
+          await phase('source', source, gitea ? 'gitea-broker' : sourceToken)
           const restored = await this.command('cloud-io.mjs', { operation: 'bootstrap', remote: source, baseSha: job.baseSha }, 400000, capabilities.processLimit)
           if (!restored.ok) throw new Error('Source bootstrap failed')
           stage = 'code_repository_create'

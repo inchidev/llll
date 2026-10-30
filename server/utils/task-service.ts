@@ -1,3 +1,4 @@
+import { repositoryResourceId } from '../../shared/code-environments'
 import { requireEnvironmentProject, requireProject } from './project-service'
 import { Permission } from '../../shared/permissions'
 import { anyProjectPermission } from '../../shared/project-access'
@@ -22,7 +23,7 @@ async function validateEnvironment(env: L4Env, auth: AuthorizationContext, id: s
   const item = await findCodeEnvironment(env, id)
   if (!item?.enabled) fail(403, 'code_revoked', 'Repository environment is unavailable')
   await requireEnvironmentProject(env, auth, item.id)
-  requireResource(auth, 'repositories', String(item.sourceRepoId))
+  requireResource(auth, 'repositories', repositoryResourceId(item))
 }
 
 async function taskProject(env: L4Env, auth: AuthorizationContext, requested: string | null | undefined, environmentId: string | null | undefined) {

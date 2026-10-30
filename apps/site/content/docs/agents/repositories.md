@@ -1,6 +1,6 @@
 ---
 title: Repositories and code work
-description: Connect GitHub, add a repository environment and let L4 Agents take a Task to a draft pull request on a working branch.
+description: Connect GitHub or Gitea, add a repository environment and let L4 Agents take a Task to a draft pull request on a working branch.
 order: 5
 ---
 
@@ -9,14 +9,14 @@ An Agent can work on code: it takes a Task, edits a copy of your repository in a
 Code work needs five things. **Server settings → Agents** shows them as a checklist, **Set up agents that work on code**, until each is done:
 
 1. **Connect a model.** See [Models and Providers](models-and-providers.md).
-2. **Connect GitHub.** A dedicated GitHub App for the repositories Agents may work on.
+2. **Connect GitHub or Gitea.** A dedicated GitHub App, or a Gitea bot account, for the repositories Agents may work on.
 3. **Choose a repository for Tasks.** An environment in **Git → Environments**.
 4. **Add compute.** A Compute Node where the workspace runs.
 5. **Create an agent** with a Role that has **Use a computer** and **Propose code changes**.
 
 ![The Set up agents that work on code checklist in Server settings → Agents with five steps and their buttons](screenshot:agents-code-checklist "The code work checklist")
 
-GitHub is the only Git provider that works today. GitLab and Gitea show **connections are not available yet**; Projects can record GitLab, Gitea and Cursor repositories as references only.
+GitHub and Gitea work today, and Gitea connections also work with Forgejo. GitLab shows **connections are not available yet**; Projects can record GitLab and Cursor repositories as references only.
 
 ## 1. Connect GitHub
 
@@ -37,13 +37,35 @@ To manage a connection, open it:
 - **Change repositories on GitHub** changes which repositories the App can access.
 - **Disable in L4** stops L4 from using the connection at once. It does not uninstall the App; uninstall it on GitHub if you also want to remove its access there.
 
+## Or connect Gitea
+
+Gitea has no Apps, so L4 uses one account's access token. Use a separate bot account: Gitea cannot limit a token to chosen repositories, so the account's own access is the limit. Only the Owner can connect Gitea, and Gitea must be served over HTTPS at its own address, not under a path.
+
+1. In Gitea, create an account for L4, for example `l4-bot`.
+2. Add it as a collaborator with **Write** access to each repository Agents may work on.
+3. Signed in as that account, open **Settings → Applications**, generate a token with **read and write** access to **repository** and **issue**, and copy it.
+4. In L4, open **Server settings → Git**, select the **Gitea** tab, then **Connect Gitea**. Enter your Gitea address, for example `https://git.example.com`, paste the token and select **Connect Gitea**.
+
+L4 checks the token with Gitea before saving it. The connection lists the repositories the account can push to. To change them, change the account's collaborator access in Gitea and refresh.
+
+The token stays encrypted on your Server. Agents never get it, and neither do Compute Nodes: a Node downloads the repository through your Server, with a permission that ends with its job. **Disable in L4** stops L4 from using the token at once; delete the token in Gitea to revoke it there too.
+
+A personal token works too, but then L4 can reach every repository that person can.
+
+Gitea differs from GitHub in a few ways:
+
+- A draft pull request is a pull request whose title starts with `WIP:`. Gitea does not merge it until the prefix is removed.
+- **Required CI checks** match commit statuses. Gitea Actions reports each job as one.
+- Gitea's API cannot mark a new file executable, so Agents cannot add executable files. Existing files keep their mode.
+- CI job logs stay in Gitea; open the pull request there to read them.
+
 ## 2. Add a repository environment
 
 An environment tells Tasks which repository, branch and compute to use.
 
 1. In **Server settings → Git**, open the **Environments** tab and select **Add environment**.
 2. Enter a **Name**, for example `Website fixes`.
-3. Choose the **Git connection**, then the **Source repository**. Select **Refresh repositories** if the list is empty.
+3. Choose the **Git connection**, GitHub or Gitea, then the **Source repository**. Select **Refresh repositories** if the list is empty.
 4. Choose the **Working repository**: the same repository for ordinary branch-based work, or an optional fork.
 5. Choose the **Compute Node** where its Task Runs execute.
 6. Enter the **Base branch**.
