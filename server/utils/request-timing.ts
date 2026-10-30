@@ -72,7 +72,8 @@ export function requestTiming(env: L4Env) {
       get(object, key) {
         const value = Reflect.get(object, key)
         if (typeof value !== 'function' || key === 'then') return value
-        return (...args: unknown[]) => observe(objects, value.apply(object, args))
+        // An RPC stub turns every property into a remote method, `apply` included: call it directly.
+        return (...args: unknown[]) => observe(objects, Reflect.apply(value, object, args))
       },
     })
   }
@@ -82,7 +83,7 @@ export function requestTiming(env: L4Env) {
       get(object, key) {
         const value = Reflect.get(object, key)
         if (typeof value !== 'function') return value
-        if (key === 'get' || key === 'getByName') return (...args: unknown[]) => stub(value.apply(object, args))
+        if (key === 'get' || key === 'getByName') return (...args: unknown[]) => stub(Reflect.apply(value, object, args))
         return value.bind(object)
       },
     })

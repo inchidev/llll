@@ -28,6 +28,19 @@ it('counts D1 statements and Durable Object calls without changing their results
   expect(timing.header()).toMatch(/^d1;dur=[\d.]+;desc="4 statements", d1-sql;dur=[\d.]+;desc="time inside D1", do;dur=[\d.]+;desc="1 Durable Object calls", app;dur=[\d.]+;desc="whole request"/u)
 })
 
+it('calls Durable Object RPC methods directly, never through a remote `apply`', async () => {
+  const calls: string[] = []
+  // Like a Workers RPC stub: every property, `apply` and `call` included, is a remote method.
+  const remote = (name: string): unknown => new Proxy(async (...args: unknown[]) => { calls.push(`${name}(${args.join(',')})`); return true }, {
+    get: (_target, key) => typeof key === 'string' ? remote(`${name}.${key}`) : undefined,
+  })
+  const stub = new Proxy({}, { get: (_target, key) => typeof key === 'string' && key !== 'then' ? remote(key) : undefined })
+  const env = { RATE_LIMIT_DO: { idFromName: (name: string) => name, getByName: () => stub } } as unknown as L4Env
+  const timing = requestTiming(env)
+  expect(await (timing.env.RATE_LIMIT_DO.getByName('ip:x') as unknown as { take: (limit: number, windowMs: number) => Promise<boolean> }).take(5, 1000)).toBe(true)
+  expect(calls).toEqual(['take(5,1000)'])
+})
+
 it('leaves the shared env untouched and marks only the first request as cold', async () => {
   const { env } = fixture()
   const first = requestTiming(env)
