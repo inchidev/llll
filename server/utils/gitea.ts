@@ -38,12 +38,12 @@ export async function connectGitea(env: L4Env, actor: AuthorizationContext, inpu
   let account: z.infer<typeof user>
   try { account = user.parse(await decode(await request({ host, token }, '/user', { timeout: 15000 }, transport), 64000)) }
   catch (error) {
-    if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403) fail(400, 'gitea_token', 'Gitea did not accept this token')
+    if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 403) fail(400, 'gitea_token', 'Gitea did not accept this token. Check that it is current and has Read access for user.')
     fail(502, 'gitea_unreachable', 'Gitea did not answer at this address. Check the address and that this Server can reach it.')
   }
   // Repository read is the minimum useful scope; write scopes are checked when an agent first proposes code.
   try { z.array(z.unknown()).parse(await decode(await request({ host, token }, '/user/repos?limit=1', { timeout: 15000 }, transport), 200000)) }
-  catch { fail(400, 'gitea_scope', 'This token cannot list repositories. Give it read and write access to repositories and issues.') }
+  catch { fail(400, 'gitea_scope', 'This token cannot list repositories. Give it Read for user and Read and Write for repository and issue, for All repositories.') }
   const duplicate = await env.DB.prepare("SELECT 1 FROM git_connections WHERE provider='gitea' AND host=? AND app_id=? AND enabled=1").bind(host, String(account.id)).first()
   if (duplicate) fail(409, 'gitea_duplicate', `${account.login} on ${new URL(host).hostname} is already connected`)
   const id = newId(), now = nowIso(), server = await getServerId(env.DB)
