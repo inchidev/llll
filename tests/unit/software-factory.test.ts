@@ -373,3 +373,72 @@ it('executes an admitted role-authorized workspace without a per-operation appro
   f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS & ~Permission.useComputer,ids.agentRole)
   await expect(computePoll(f.env,nodeId,{operation:'begin',...claim.job!})).rejects.toMatchObject({statusCode:403})
 })
+
+function planMode(mode='plan'){
+  const mandate=JSON.parse(run.mandateJson);mandate.execution={...mandate.execution,mode}
+  f.db.prepare('UPDATE agent_runs SET mandate_json=? WHERE id=?').run(JSON.stringify(mandate),run.id);run={...run,mandateJson:JSON.stringify(mandate)}
+}
+async function finishApproved(){
+  const claim=await computePoll(f.env,nodeId,{operation:'claim'}),job=claim.job!
+  await computePoll(f.env,nodeId,{operation:'begin',...job})
+  await computePoll(f.env,nodeId,{operation:'result',...job,result:{ok:true,exitCode:0,output:'done',runtimeMs:10}})
+}
+const plan={operation:'plan',summary:'Fix the failing test and check it',steps:['Read the test','Fix the code','Run npm test'],networkHosts:['registry.npmjs.org'],operations:4}
+
+it('in plan mode, one approved plan lets the operations it covers run without separate review',async()=>{
+  planMode()
+  expect(await factoryStatus(f.env,run.id)).toMatchObject({approvalMode:'plan',plan:null,instruction:expect.stringContaining('Propose a plan first')})
+  expect(await factoryToolCall(f.env,run.id,'plan',plan)).toMatchObject({factoryPending:true,status:'pending'})
+  const proposed=await action()
+  expect(proposed).toMatchObject({request:{operation:'plan',operations:4},status:'pending'})
+  // A pending plan is a decision for the person, never a job for a computer.
+  expect((await computePoll(f.env,nodeId,{operation:'claim'})).job).toBeFalsy()
+  await expect(decideFactoryAction(f.env,run.id,ids.member,{id:proposed.id,digest:proposed.digest,decision:'approve'})).rejects.toMatchObject({statusCode:403})
+  expect(await decideFactoryAction(f.env,run.id,ids.owner,{id:proposed.id,digest:proposed.digest,decision:'approve'})).toMatchObject({status:'completed',result:{approved:true,operations:4}})
+  expect(await factoryToolCall(f.env,run.id,'plan',plan)).toMatchObject({approved:true})
+  expect((await computePoll(f.env,nodeId,{operation:'claim'})).job).toBeFalsy()
+
+  expect(await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'})).toMatchObject({status:'approved'})
+  expect(await action()).toMatchObject({approvalMode:'plan'})
+  await finishApproved()
+  expect(await factoryToolCall(f.env,run.id,'install',{operation:'exec',command:'npm ci',networkHosts:['registry.npmjs.org']})).toMatchObject({status:'approved'})
+  await finishApproved()
+  // Egress the plan did not name goes back to review.
+  expect(await factoryToolCall(f.env,run.id,'egress',{operation:'exec',command:'curl https://other.example',networkHosts:['other.example']})).toMatchObject({status:'pending'})
+  const egress=await action();await decideFactoryAction(f.env,run.id,ids.owner,{id:egress.id,digest:egress.digest,decision:'reject'})
+  expect(await factoryStatus(f.env,run.id)).toMatchObject({plan:{remaining:1}})
+  expect(await factoryToolCall(f.env,run.id,'test',{operation:'exec',command:'npm test'})).toMatchObject({status:'approved'})
+  await finishApproved()
+  // The plan's operation count is spent: the next one waits.
+  expect(await factoryToolCall(f.env,run.id,'again',{operation:'exec',command:'npm test'})).toMatchObject({status:'pending'})
+})
+
+it('pauses automatic approval while a new plan waits, and a rejected plan approves nothing',async()=>{
+  planMode()
+  await factoryToolCall(f.env,run.id,'plan',plan);await approve()
+  expect(await factoryToolCall(f.env,run.id,'replan',{...plan,summary:'Also refactor the module'})).toMatchObject({status:'pending'})
+  const second=await action();await decideFactoryAction(f.env,run.id,ids.owner,{id:second.id,digest:second.digest,decision:'reject'})
+  expect(await factoryToolCall(f.env,run.id,'replan',{...plan,summary:'Also refactor the module'})).toMatchObject({status:'rejected',message:expect.stringContaining('revised plan')})
+  expect(await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'})).toMatchObject({status:'pending'})
+})
+
+it('keeps publication under review in plan mode and records a plan without a gate in role mode',async()=>{
+  planMode()
+  await factoryToolCall(f.env,run.id,'plan',{...plan,operations:1000});await approve()
+  expect(await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'})).toMatchObject({status:'approved'})
+  const {planCovers}=await import('../../server/utils/factory-actions')
+  expect(planCovers({plan:{...plan,operation:'plan'} as never,remaining:10},{operation:'publish',snapshotDigest:'a'.repeat(64),title:'Fix',body:''})).toBe(false)
+  planMode('role')
+  expect(await factoryStatus(f.env,run.id)).toMatchObject({approvalMode:'role',plan:null})
+})
+
+it('records a plan as accepted at once in role mode',async()=>{
+  planMode('role')
+  expect(await factoryToolCall(f.env,run.id,'plan',plan)).toMatchObject({approved:true,message:'Plan recorded.'})
+  expect(await action()).toMatchObject({status:'completed',decidedBy:null})
+})
+
+it('accepts the plan operation through the object-root tool schema',()=>{
+  expect(parseFactoryToolInput({...plan,command:'ignored'})).toEqual(plan)
+  expect(()=>parseFactoryToolInput({operation:'plan',summary:'x',steps:[],operations:1})).toThrow()
+})
