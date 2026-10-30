@@ -132,7 +132,7 @@ const config = {
   // Previews do not inherit vars from production; declare every required one.
   vars: {
     PUBLIC_ORIGIN: previewOrigin,
-    ADMIN_EMAIL: 'owner@example.com',
+    ADMIN_EMAIL: process.env.LLLL_PREVIEW_ADMIN_EMAIL || 'owner@example.com',
     AUTH_REGISTRATION_MODE: 'invite_only',
     EMBED_ORIGINS: mainPreview ? 'https://main.dev.llll.gg' : process.env.LLLL_PREVIEW_SHELL_ORIGIN || 'https://llll.gg',
     ACCOUNT_ID: account,
@@ -156,9 +156,13 @@ if (process.env.LLLL_PREVIEW_UPDATE_FIXTURE === '1') {
 }
 config.previews = isolatedPreviewBindings(config)
 const auth = process.env.LLLL_PREVIEW_AUTH_SECRET,
-  claim = process.env.LLLL_PREVIEW_SETUP_TOKEN
+  claim = process.env.LLLL_PREVIEW_SETUP_TOKEN,
+  // Optional, as in Docker and Coolify: a new Preview database starts with this Owner, so no claim is needed.
+  adminPassword = process.env.LLLL_PREVIEW_ADMIN_PASSWORD
 if (!auth || !claim)
   throw new Error('Configure private Preview auth and owner claims')
+if (adminPassword && adminPassword.length < 12)
+  throw new Error('LLLL_PREVIEW_ADMIN_PASSWORD must be at least 12 characters')
 const dir = resolve(root, '.deployment/builds')
 await mkdir(dir, { recursive: true })
 const file = resolve(dir, 'server-preview.json'),
@@ -166,7 +170,7 @@ const file = resolve(dir, 'server-preview.json'),
 await writeFile(file, JSON.stringify(config))
 await writeFile(
   secrets,
-  JSON.stringify({ AUTH_SECRET: auth, SETUP_TOKEN: claim }),
+  JSON.stringify({ AUTH_SECRET: auth, SETUP_TOKEN: claim, ...(adminPassword ? { ADMIN_PASSWORD: adminPassword } : {}) }),
   { mode: 0o600 },
 )
 function wrangler(args) {
