@@ -67,6 +67,9 @@ const taskLinksQ = useQuery({
   queryKey: computed(() => ['task-links', props.channelId]),
   queryFn: () => api<{ links: TaskSourceLinkDTO[] }>(`/api/channels/${props.channelId}/task-links`),
   staleTime: 60_000,
+  // Follow a Task while it can still change: an agent working, a PR in review.
+  refetchInterval: query => query.state.data?.links.some(link => link.working || link.status === 'review') ? 15_000 : false,
+  refetchOnWindowFocus: true,
 })
 const taskLinksByMessage = computed(() => {
   const map = new Map<string, TaskSourceLinkDTO[]>()
