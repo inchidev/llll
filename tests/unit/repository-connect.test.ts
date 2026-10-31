@@ -4,7 +4,7 @@ import { Permission } from '../../shared/permissions'
 import { codeEnvironmentSchema } from '../../shared/code-environments'
 import { connectGitea } from '../../server/utils/gitea'
 import { createProject, listProjectRepositories } from '../../server/utils/project-service'
-import { connectRepository, inspectRepository, repositoryConnectOptions } from '../../server/utils/repository-connect'
+import { connectRepository, inspectRepository, previewHostSuggestion, repositoryConnectOptions } from '../../server/utils/repository-connect'
 import { findCodeEnvironment } from '../../server/utils/code-environment-service'
 
 const host = 'https://git.example.test', token = 'a'.repeat(40), sha = 'b'.repeat(40)
@@ -22,7 +22,7 @@ beforeEach(async () => {
     if (path.startsWith('/user/repos')) return Response.json([{ id: 11, full_name: 'team/app', fork: false, archived: false, default_branch: 'trunk', permissions: { push: true } }])
     if (path === '/repos/team/app') return Response.json({ id: 11, full_name: 'team/app', archived: false, fork: false, parent: null })
     if (path === '/repos/team/app/git/commits/trunk') return Response.json({ sha, commit: { tree: { sha } } })
-    if (path.startsWith('/repos/team/app/commits/trunk/status')) return Response.json({ statuses: [{ context: 'ci / test (push)' }, { context: 'ci / lint (push)' }] })
+    if (path.startsWith('/repos/team/app/commits/trunk/status')) return Response.json({ statuses: [{ context: 'ci / test (push)', target_url: 'https://git.example.test/team/app/actions/1' }, { context: 'ci / lint (push)' }, { context: 'deploy', target_url: 'https://app-trunk.pages.dev/' }] })
     return new Response(`unexpected ${path}`, { status: 500 })
   }))
 })
@@ -35,15 +35,15 @@ it('lists what the flow needs and suggests the checks CI already reports', async
   const options = await repositoryConnectOptions(f.env, await f.actor(), project)
   expect(options.connections).toEqual([expect.objectContaining({ id: connection, provider: 'gitea', host })])
   expect(options.compute.map(node => node.name)).toEqual(['Computer 1111'])
-  expect(await inspectRepository(f.env, await f.actor(), project, connection, 11)).toEqual({ name: 'team/app', defaultBranch: 'trunk', checks: ['ci / lint (push)', 'ci / test (push)'] })
+  expect(await inspectRepository(f.env, await f.actor(), project, connection, 11)).toEqual({ name: 'team/app', defaultBranch: 'trunk', checks: ['ci / lint (push)', 'ci / test (push)', 'deploy'], previewHosts: ['pages.dev'] })
 })
 
 it('creates the configuration, picks the only computer and attaches it to the project in one step', async () => {
   const computer = '11111111-1111-4111-8111-111111111111'
   addComputer(computer)
   addComputer('22222222-2222-4222-8222-222222222222', 0)
-  const result = await connectRepository(f.env, await f.actor(), project, { gitConnectionId: connection, repositoryId: 11 })
-  expect(result.environment).toMatchObject({ provider: 'gitea', name: 'app', sourceRepo: 'team/app', workRepo: 'team/app', baseBranch: 'trunk', computeNodeId: computer, requiredChecks: [] })
+  const result = await connectRepository(f.env, await f.actor(), project, { gitConnectionId: connection, repositoryId: 11, previewHosts: ['Pages.dev'] })
+  expect(result.environment).toMatchObject({ provider: 'gitea', name: 'app', sourceRepo: 'team/app', workRepo: 'team/app', baseBranch: 'trunk', computeNodeId: computer, requiredChecks: [], previewHosts: ['pages.dev'] })
   expect(await findCodeEnvironment(f.env, result.environment.id)).toMatchObject({ enabled: true })
   expect(await listProjectRepositories(f.env, await f.actor(), project)).toEqual([expect.objectContaining({ provider: 'gitea', host, slug: 'team/app', externalId: '11', defaultBranch: 'trunk', environmentId: result.environment.id })])
   expect(calls).toContain('/repos/team/app/git/commits/trunk')
@@ -70,4 +70,19 @@ it('needs Server administration and project management, and an unreachable repos
 it('accepts a configuration without required checks', () => {
   const base = { name: 'App', provider: 'gitea', gitConnectionId: ids.server, sourceRepo: 'team/app', sourceRepoId: 11, sourceInstallationId: 0, workRepo: 'team/app', workRepoId: 11, workInstallationId: 0 }
   expect(codeEnvironmentSchema.parse(base).requiredChecks).toEqual([])
+})
+
+it('suggests a preview domain from a deployment link, never a code host, CI service or plain HTTP', () => {
+  expect(previewHostSuggestion('https://my-app-git-feature-team.vercel.app/')).toBe('vercel.app')
+  expect(previewHostSuggestion('https://github.com/team/app/actions/runs/1')).toBeNull()
+  expect(previewHostSuggestion('https://app.circleci.com/pipelines/1')).toBeNull()
+  expect(previewHostSuggestion('http://preview.example.com')).toBeNull()
+  expect(previewHostSuggestion(null)).toBeNull()
+})
+
+it('gives a Server its first task board with its first project, and no more', async () => {
+  // The fixture's project already created the first board.
+  expect(f.db.prepare("SELECT name FROM task_boards WHERE archived_at IS NULL").all()).toEqual([{ name: 'Tasks' }])
+  await createProject(f.env, await f.actor(), { name: 'Second' })
+  expect(f.db.prepare('SELECT count(*) AS n FROM task_boards').get()).toEqual({ n: 1 })
 })

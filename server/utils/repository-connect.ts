@@ -22,6 +22,7 @@ export const repositoryConnectSchema = z.object({
   baseBranch: z.string().trim().min(1).max(200).optional(),
   requiredChecks: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
   computeNodeId: z.string().uuid().nullable().default(null),
+  previewHosts: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+$/u)).max(20).default([]),
 }).strict()
 
 async function requireConnectAuthority(env: L4Env, auth: AuthorizationContext, projectId: string) {
@@ -65,8 +66,17 @@ function environmentFor(repository: ProviderRepository, provider: 'github' | 'gi
     workRepo: repository.name, workRepoId: repository.id, workInstallationId: repository.installationId }
 }
 
-const statusSchema = z.object({ statuses: z.array(z.object({ context: z.string() })).nullable().transform(value => value ?? []) })
+const statusSchema = z.object({ statuses: z.array(z.object({ context: z.string(), target_url: z.string().nullable().optional() })).nullable().transform(value => value ?? []) })
 const checkRunsSchema = z.object({ check_runs: z.array(z.object({ name: z.string() })) })
+
+/** The registrable part of an HTTPS status link, such as vercel.app; never a code host or CI service. */
+export function previewHostSuggestion(value?: string | null) {
+  let url: URL
+  try { url = new URL(value ?? '') } catch { return null }
+  if (url.protocol !== 'https:') return null
+  const host = url.hostname.toLowerCase().split('.').slice(-2).join('.')
+  return /^[a-z0-9-]+\.[a-z]{2,}$/u.test(host) && !['github.com', 'githubusercontent.com', 'gitea.com', 'codeberg.org', 'circleci.com', 'travis-ci.com', 'buildkite.com'].includes(host) ? host : null
+}
 
 /** The checks CI reported on the base branch's latest commit: the names to require, if any. */
 export async function inspectRepository(env: L4Env, auth: AuthorizationContext, projectId: string, connectionId: string | null, repositoryId: number) {
@@ -75,14 +85,23 @@ export async function inspectRepository(env: L4Env, auth: AuthorizationContext, 
   const repository = await findRepository(env, connectionId, repositoryId)
   const client = await repositoryClient(env, environmentFor(repository, provider, connectionId), 'source', 'read')
   const ref = encodeURIComponent(repository.defaultBranch)
-  const names = new Set<string>()
+  const names = new Set<string>(), previewHosts = new Set<string>()
+  // Links back to the Git host itself (CI runs on a Gitea, for example) are not previews.
+  const gitHost = provider === 'gitea'
+    ? previewHostSuggestion((await env.DB.prepare("SELECT host FROM git_connections WHERE id=? AND provider='gitea'").bind(connectionId).first<{ host: string }>())?.host)
+    : null
   try {
     if (provider === 'github') for (const run of checkRunsSchema.parse(await client.json(`/repos/${repository.name}/commits/${ref}/check-runs?per_page=100`)).check_runs) names.add(run.name)
-    for (const status of statusSchema.parse(await client.json(`/repos/${repository.name}/commits/${ref}/status?${provider === 'gitea' ? 'limit=50' : 'per_page=100'}`)).statuses) names.add(status.context)
+    for (const status of statusSchema.parse(await client.json(`/repos/${repository.name}/commits/${ref}/status?${provider === 'gitea' ? 'limit=50' : 'per_page=100'}`)).statuses) {
+      names.add(status.context)
+      // A deployment status links to where the commit was deployed: suggest that domain for previews.
+      const host = previewHostSuggestion(status.target_url)
+      if (host && host !== gitHost) previewHosts.add(host)
+    }
   } catch {
     // A repository without CI or a provider without check history still connects; checks stay optional.
   }
-  return { name: repository.name, defaultBranch: repository.defaultBranch, checks: [...names].sort() }
+  return { name: repository.name, defaultBranch: repository.defaultBranch, checks: [...names].sort(), previewHosts: [...previewHosts].sort() }
 }
 
 export async function connectRepository(env: L4Env, auth: AuthorizationContext, projectId: string, request: unknown) {
@@ -96,7 +115,7 @@ export async function connectRepository(env: L4Env, auth: AuthorizationContext, 
   if (computeNodeId && !compute.some(node => node.id === computeNodeId)) fail(400, 'compute_unavailable', 'Choose an enabled computer')
   const baseBranch = input.baseBranch ?? repository.defaultBranch
   const environment = await saveCodeEnvironment(env, auth, codeEnvironmentSchema.parse({
-    ...environmentFor(repository, provider, input.gitConnectionId), name: repository.name.split('/').pop()!, computeNodeId, baseBranch, requiredChecks: input.requiredChecks,
+    ...environmentFor(repository, provider, input.gitConnectionId), name: repository.name.split('/').pop()!, computeNodeId, baseBranch, requiredChecks: input.requiredChecks, previewHosts: input.previewHosts,
   }))
   const host = provider === 'gitea'
     ? (await env.DB.prepare("SELECT host FROM git_connections WHERE id=? AND provider='gitea'").bind(input.gitConnectionId).first<{ host: string }>())!.host
