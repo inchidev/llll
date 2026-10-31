@@ -8,7 +8,7 @@ type Options = { connections: { id: string; provider: 'github' | 'gitea'; name: 
 type Repository = { id: number; name: string; defaultBranch: string }
 // The deployment-configured GitHub App has no connection row; it is the empty choice.
 const DEPLOYMENT = 'deployment'
-const connectionId = ref(''), repositoryId = ref<number | undefined>(), baseBranch = ref(''), checks = ref<string[]>([]), computeNodeId = ref('')
+const connectionId = ref(''), repositoryId = ref<number | undefined>(), baseBranch = ref(''), checks = ref<string[]>([]), computeNodeId = ref(''), previewHosts = ref('')
 const busy = ref(false), connected = ref<string | null>(null)
 const options = useQuery({ queryKey: computed(() => ['connect-repository', props.projectId]), queryFn: () => api<Options>(`/api/projects/${props.projectId}/connect-repository`), enabled: open })
 const connectionItems = computed(() => [
@@ -24,13 +24,13 @@ const repositories = useQuery({
 })
 const inspected = useQuery({
   queryKey: computed(() => ['connect-repository-inspect', props.projectId, connection.value ?? null, repositoryId.value]),
-  queryFn: () => api<{ defaultBranch: string; checks: string[] }>(`/api/projects/${props.projectId}/connect-repository/inspect`, { query: { connectionId: connection.value, repositoryId: repositoryId.value } }),
+  queryFn: () => api<{ defaultBranch: string; checks: string[]; previewHosts?: string[] }>(`/api/projects/${props.projectId}/connect-repository/inspect`, { query: { connectionId: connection.value, repositoryId: repositoryId.value } }),
   enabled: computed(() => open.value && repositoryId.value !== undefined),
 })
 const compute = computed(() => options.data.value?.compute ?? [])
 watch(() => options.data.value, data => { if (data && !connectionId.value && connectionItems.value.length === 1) connectionId.value = connectionItems.value[0]!.value })
 watch(connectionId, () => { repositoryId.value = undefined })
-watch(() => inspected.data.value, data => { baseBranch.value = data?.defaultBranch ?? ''; checks.value = [] })
+watch(() => inspected.data.value, data => { baseBranch.value = data?.defaultBranch ?? ''; checks.value = []; previewHosts.value = (data?.previewHosts ?? []).join(', ') })
 watch(open, value => { if (value) { connected.value = null; repositoryId.value = undefined; computeNodeId.value = '' } })
 
 function openSettings(section: string) { open.value = false; nav.openServerSettings(section) }
@@ -40,6 +40,7 @@ async function connect() {
     const result = await api<{ repository: { slug: string } }>(`/api/projects/${props.projectId}/connect-repository`, { method: 'POST', body: {
       gitConnectionId: connection.value ?? null, repositoryId: repositoryId.value, baseBranch: baseBranch.value.trim() || undefined,
       requiredChecks: checks.value, computeNodeId: computeNodeId.value || null,
+      previewHosts: previewHosts.value.split(/[\s,]+/u).map(host => host.trim().toLowerCase()).filter(Boolean),
     } })
     connected.value = result.repository.slug
     emit('connected')
@@ -79,6 +80,9 @@ async function connect() {
               <UFormField label="Base branch" description="Agents start from it and open pull requests against it."><UInput v-model="baseBranch" class="w-full" /></UFormField>
               <UFormField label="Checks that must pass" :description="inspected.data.value?.checks.length ? 'Found on the latest commit. With none selected, every check CI reports must pass.' : 'No CI checks found on the latest commit. Pull requests stay unverified until CI reports one.'">
                 <UCheckboxGroup v-if="inspected.data.value?.checks.length" v-model="checks" :items="inspected.data.value.checks" />
+              </UFormField>
+              <UFormField label="Preview domains" :description="inspected.data.value?.previewHosts?.length ? 'Found in the latest commit\'s deployment links. Agents report preview links on these domains for review.' : 'Where pull request previews are deployed, such as vercel.app. Agents report preview links on these domains for review. Leave empty if there are none.'">
+                <UInput v-model="previewHosts" placeholder="vercel.app" class="w-full" />
               </UFormField>
               <UFormField label="Computer" :description="compute.length ? 'Where agents edit, build and test the code.' : 'None yet. Agents can read the repository but cannot run code until one is added.'">
                 <USelect v-if="compute.length > 1" v-model="computeNodeId" :items="compute.map(c => ({ value: c.id, label: c.name }))" placeholder="Choose a computer" class="w-full" />

@@ -61,7 +61,8 @@ async function runSelectedTask() {
  * What keeps an agent from working on a task, with where to fix it. In a project, work is granted
  * by a project policy (Developer, for example), not by the agent's Server role.
  */
-function agentRunProblem(task: { assigneeId?: string | null; projectId?: string | null }): { message: string; fix?: { label: string; to: string } } | null {
+type RunFix = { label: string; to: string; grant?: { projectId: string; memberId: string; permissions: number } }
+function agentRunProblem(task: { assigneeId?: string | null; projectId?: string | null }): { message: string; fix?: RunFix } | null {
   const agent = agents.value.find(item => item.id === task.assigneeId)
   if (agent?.status === 'paused') return { message: 'Resume the assigned agent in Agents before starting this task.' }
   if (!agent || agent.status !== 'active') return { message: 'Assign an active agent to this task.' }
@@ -69,17 +70,34 @@ function agentRunProblem(task: { assigneeId?: string | null; projectId?: string 
   if (!member || member.user.kind !== 'agent') return { message: 'Assign an active agent to this task.' }
   const allowed = (permission: number) => !member.role.permissions || hasPermission(member.role.permissions, permission)
     || Boolean(task.projectId && member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, permission)))
-  const missing = ([[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages'], ...(task.projectId ? [[Permission.readProjects, 'Read projects']] as const : [])] as const)
-    .filter(([permission]) => !allowed(permission)).map(([, label]) => label)
+  const lacking = ([[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages'], ...(task.projectId ? [[Permission.readProjects, 'Read projects']] as const : [])] as const)
+    .filter(([permission]) => !allowed(permission))
+  const missing = lacking.map(([, label]) => label)
   if (!missing.length) return null
   const name = member.user.displayName
   if (task.projectId) {
     const project = projectsQ.data.value?.projects.find(item => item.id === task.projectId)?.name ?? 'this project'
-    return { message: `${name} cannot work on tasks in ${project} yet. Give ${name} the Developer policy in the project's access.`, fix: { label: 'Open project access', to: `/factory/projects/${task.projectId}` } }
+    return { message: `${name} cannot work on tasks in ${project} yet. Give ${name} the Developer policy in the project's access.`,
+      fix: { label: 'Open project access', to: `/factory/projects/${task.projectId}`, grant: { projectId: task.projectId, memberId: member.user.id, permissions: lacking.reduce((all, [permission]) => all | permission, 0) } } }
   }
   return { message: `${name}’s role needs ${missing.join(', ')}. Put this task in a project and give ${name} the Developer policy there, or choose a role that allows it in Server settings → Agents.` }
 }
 
+const granting = ref(false)
+/** Assign the project's Developer policy, or the narrowest policy that covers what is missing. */
+async function grantProjectWork(grant: NonNullable<RunFix['grant']>) {
+  granting.value = true
+  try {
+    const access = await api<{ policies: { id: string; name: string; permissions: number }[]; canManage: boolean }>(`/api/projects/${grant.projectId}/access`)
+    const covering = access.policies.filter(policy => hasPermission(policy.permissions, grant.permissions))
+    const policy = covering.find(item => item.name === 'Developer') ?? covering.sort((a, b) => a.permissions.toString(2).replaceAll('0', '').length - b.permissions.toString(2).replaceAll('0', '').length)[0]
+    if (!access.canManage || !policy) { await navigateTo(`/factory/projects/${grant.projectId}`); return }
+    await api(`/api/projects/${grant.projectId}/access`, { method: 'POST', body: { policyId: policy.id, memberId: grant.memberId } })
+    await membersQ.refetch()
+    toast.add({ title: `${policy.name} access given in this project`, color: 'success' })
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { granting.value = false }
+}
 const taskRunFix = computed(() => selectedTask.value ? agentRunProblem(selectedTask.value)?.fix : undefined)
 const taskRunProblem = computed(() => {
   const task = selectedTask.value
@@ -725,7 +743,7 @@ const boardMenu = computed(() => [[
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
           <UFormField v-if="canAnyProject(Permission.readProjects)" label="Project"><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
           <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
-          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><UButton v-if="newTaskRunProblem.fix" :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div>
+          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><div v-if="newTaskRunProblem.fix" class="flex flex-wrap gap-2"><UButton v-if="newTaskRunProblem.fix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(newTaskRunProblem.fix.grant)" /><UButton :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div></div>
           <p v-else-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
           <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
@@ -775,7 +793,7 @@ const boardMenu = computed(() => [[
         <section v-if="selectedTask && can(Permission.executeTasks, selectedTask.projectId) && can(Permission.useAgents, selectedTask.projectId)" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
           <span :title="taskRunProblem || undefined"><UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem)" :aria-describedby="taskRunProblem ? 'task-run-problem' : undefined" @click="runSelectedTask" /></span>
           <p v-if="taskRunProblem" id="task-run-problem" class="text-sm text-muted" role="status">{{ taskRunProblem }}</p>
-          <UButton v-if="taskRunFix" :to="taskRunFix.to" :label="taskRunFix.label" color="neutral" variant="outline" size="sm" />
+          <div v-if="taskRunFix" class="flex flex-wrap gap-2"><UButton v-if="taskRunFix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(taskRunFix.grant)" /><UButton :to="taskRunFix.to" :label="taskRunFix.label" color="neutral" variant="outline" size="sm" /></div>
           <p v-else class="text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
           <p v-if="!selectedTask.channelId" class="text-xs text-muted">The agent posts its report in this task’s discussion. A separate report channel is optional.</p>
         </section>

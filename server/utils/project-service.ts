@@ -31,6 +31,13 @@ export async function createProject(env: L4Env, auth: AuthorizationContext, requ
   const input = projectSchema.parse(request), id = newId(), now = nowIso()
   await env.DB.prepare('INSERT INTO projects(id,name,description,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?)').bind(id, input.name, input.description, auth.principal.id, now, now).run()
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'project.create', targetType: 'project', targetId: id, authorization: auth })
+  // The first project's tasks need somewhere to live: a Server without boards gets one.
+  if (auth.principal.kind === 'human' && (auth.principal.isOwner || hasPermission(auth.principal.permissions, Permission.manageTasks))) {
+    const board = newId()
+    const created = await env.DB.prepare(`INSERT INTO task_boards(id,name,position,created_by,created_at,updated_at)
+      SELECT ?,'Tasks',COALESCE((SELECT max(position) FROM task_boards),0)+1024,?,?,? WHERE NOT EXISTS(SELECT 1 FROM task_boards WHERE archived_at IS NULL) RETURNING id`).bind(board, auth.principal.id, now, now).first()
+    if (created) await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'board.create', targetType: 'task_board', targetId: board, meta: { name: 'Tasks' }, authorization: auth })
+  }
   return requireProject(env, auth, id)
 }
 export async function updateProject(env: L4Env, auth: AuthorizationContext, id: string, request: unknown) {
