@@ -160,3 +160,22 @@ it('blocks restart while retained storage is being discarded',async()=>{
  release({deleted:true});await deleting
  expect(await object.status()).toMatchObject({phase:'stopped',retainedStorage:false,nodeId:null})
 })
+it('serves every queued Node request in one alarm, so heartbeats keep a long operation alive',async()=>{
+ const {object}=instance()
+ await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
+ expect(await object.status()).toMatchObject({phase:'ready'})
+ vi.mocked(bridge.serviceLizardBridge).mockClear()
+ vi.mocked(bridge.serviceLizardBridge).mockResolvedValueOnce({processed:true,accepted:true}).mockResolvedValueOnce({processed:true,accepted:true}).mockResolvedValueOnce({processed:true,accepted:true}).mockResolvedValue({processed:false})
+ await object.alarm()
+ expect(bridge.serviceLizardBridge).toHaveBeenCalledTimes(4)
+})
+it('retries the bridge within seconds after a failure while a Node is connected',async()=>{
+ const {object,storage}=instance(),clock=vi.spyOn(Date,'now')
+ clock.mockReturnValue(1000000)
+ await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
+ vi.mocked(bridge.serviceLizardBridge).mockRejectedValueOnce(new Error('relay timeout'))
+ storage.setAlarm.mockClear()
+ await object.alarm()
+ expect(await object.status()).toMatchObject({phase:'ready'})
+ expect(storage.setAlarm).toHaveBeenLastCalledWith(1002000)
+})

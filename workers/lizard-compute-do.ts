@@ -14,7 +14,7 @@ const uuid = z.string().uuid(), token = z.string().regex(/^[a-f0-9]{64}$/u)
 type Phase = 'volume' | 'volume_creating' | 'volume_uncertain' | 'vm' | 'vm_creating' | 'vm_uncertain' | 'bootstrap' | 'booting' | 'pairing' | 'ready' | 'stopping' | 'stopped' | 'discarding' | 'failed'
 type State = { workspaceId: string; phase: Phase; createdAt: number; vmAttemptedAt?: number; pairingAt?: number; expiresAt?: number; volumeId?: string; sandboxId?: string; nodeId?: string; image?: string; secret?: EncryptedSecret; idleSince?: number; error?: string; retainedStorage?: boolean; stopRequested?: boolean; paused?: boolean }
 type Secrets = { pairing?: string; relayKey?: string; accessToken?: string; hostname?: string }
-const delay = 1000, setupExpiry = 10 * 60_000, idleExpiry = 120_000
+const delay = 1000, setupExpiry = 10 * 60_000, idleExpiry = 120_000, bridgeBudget = 8000
 const storageUncertain = 'Storage removal outcome is uncertain; check it again before starting.'
 const randomSecret = () => [...crypto.getRandomValues(new Uint8Array(32))].map(x => x.toString(16).padStart(2,'0')).join('')
 
@@ -209,8 +209,16 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
       } else if (state.phase === 'pairing' || state.phase === 'ready') {
         const secret = await this.secrets(state)
         if (!secret.hostname || !secret.accessToken || !secret.relayKey) throw Error('Missing bridge')
-        const pairingState = state
-        const result = await serviceLizardBridge(this.env, { hostname: secret.hostname, accessToken: secret.accessToken, relayKey: secret.relayKey }, state.nodeId, async nodeId => { pairingState.nodeId = nodeId; await this.save(pairingState) })
+        const pairingState = state, connection = { hostname: secret.hostname, accessToken: secret.accessToken, relayKey: secret.relayKey }
+        // Drain the relay queue: a Node's heartbeats, begin and result calls arrive together, and its
+        // relay answers 504 after 14 seconds, which stops the running operation.
+        const persist = async (nodeId: string) => { pairingState.nodeId = nodeId; await this.save(pairingState) }
+        let result = await serviceLizardBridge(this.env, connection, state.nodeId, persist)
+        for (const until = Date.now() + bridgeBudget; result.processed && !result.nodeId && Date.now() < until;) {
+          const next = await serviceLizardBridge(this.env, connection, state.nodeId, persist)
+          if (!next.processed) break
+          result = { ...next, accepted: result.accepted || next.accepted }
+        }
         state.stopRequested ||= (await this.current())?.stopRequested
         const paired = result.processed && result.nodeId ? result.nodeId : state.phase === 'pairing' && state.nodeId && result.processed && result.accepted ? state.nodeId : null
         // A resumed Node may have been turned off by an Owner's stop.
@@ -230,9 +238,10 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
       }
       state = (await this.current())!
       if (!['stopped','failed'].includes(state.phase)) await this.ctx.storage.setAlarm(Date.now() + (state.phase === 'ready' || state.phase === 'pairing' ? delay : state.phase === 'volume_uncertain' || state.phase === 'vm_uncertain' ? 30000 : 1))
-    } catch {
+    } catch (error) {
       // Creation calls have unknown outcomes; reconcile rather than create again.
       state = (await this.current())!
+      console.warn('lizard.compute.alarm_failed', { phase: state.phase, code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? (error instanceof Error ? error.message.slice(0, 120) : 'unknown') })
       if (state.phase === 'volume_creating') state.phase = 'volume_uncertain'
       else if (state.phase === 'vm_creating') state.phase = 'vm_uncertain'
       else if (state.phase === 'booting') { state.phase = 'stopping'; state.error = 'Compute setup failed; the VM is being cleaned up.' }
@@ -240,7 +249,8 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
         if ((state.phase === 'pairing' && Date.now() > (state.pairingAt ?? state.createdAt) + 90000) || Date.now() > (state.expiresAt ?? state.createdAt + setupExpiry)) { state.phase = 'stopping'; state.error = 'Compute connection expired; the VM is being cleaned up.' }
       }
       await this.save(state)
-      await this.ctx.storage.setAlarm(Date.now() + 30000)
+      // A connected Node's heartbeats keep its operation alive; a long pause would expire that lease.
+      await this.ctx.storage.setAlarm(Date.now() + (state.phase === 'pairing' || state.phase === 'ready' ? delay * 2 : 30000))
     }
     } finally { this.working = false }
   }
