@@ -75,7 +75,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
     else {
       if (result.user) await session.signedIn(result.user, api)
       else await session.refresh(api)
-      await navigateTo(inviteCode.value ? `/invite/${encodeURIComponent(inviteCode.value)}` : '/')
+      await navigateTo(inviteCode.value ? `/invite/${encodeURIComponent(inviteCode.value)}?join=1` : '/')
     }
   }
   catch (err) {
@@ -97,7 +97,7 @@ async function signUpWith(provider: Exclude<AuthLoginMethod, 'email'>) {
   socialBusy.value = provider
   error.value = null
   try {
-    const next = inviteCode.value ? `/invite/${encodeURIComponent(inviteCode.value)}` : '/'
+    const next = inviteCode.value ? `/invite/${encodeURIComponent(inviteCode.value)}?join=1` : '/'
     const callbackURL = new URL(next, window.location.origin).toString()
     const errorPath = inviteCode.value ? `/signup?invite=${encodeURIComponent(inviteCode.value)}` : '/signup'
     const response = await plainFetch<{ url?: string | null }>('/api/auth/social', {
@@ -193,7 +193,7 @@ async function signUpWith(provider: Exclude<AuthLoginMethod, 'email'>) {
 
     <p class="mt-8 border-t border-default pt-5 text-sm text-muted">
       Already have an account?
-      <ULink :to="inviteCode ? `/login?next=/invite/${encodeURIComponent(inviteCode)}` : '/login'" class="text-default font-medium">Sign in</ULink>
+      <ULink :to="inviteCode ? `/login?next=${encodeURIComponent(`/invite/${inviteCode}?join=1`)}` : '/login'" class="text-default font-medium">Sign in</ULink>
     </p>
   </div>
 </template>

@@ -18,6 +18,9 @@ onMounted(async () => {
   try {
     const res = await plainFetch<{ invite: InvitePreviewDTO }>(`/api/invites/${code.value}`)
     invite.value = res.invite
+    // Back from creating an account or signing in that started here: join without a second click.
+    // Only this tab's own trip counts, so a link with ?join=1 alone never joins anyone.
+    if (route.query.join === '1' && session.user && takeJoinIntent()) await accept()
   }
   catch (err) {
     error.value = errorMessage(err)
@@ -28,9 +31,22 @@ onMounted(async () => {
   }
 })
 
+const joinIntentKey = 'llll.invite-join'
+function rememberJoinIntent() {
+  try { sessionStorage.setItem(joinIntentKey, code.value) } catch { /* The person then presses Join once more. */ }
+}
+function takeJoinIntent() {
+  try {
+    const intended = sessionStorage.getItem(joinIntentKey) === code.value
+    sessionStorage.removeItem(joinIntentKey)
+    return intended
+  } catch { return false }
+}
+
 async function accept() {
   if (!session.user) {
-    await navigateTo({ path: '/login', query: { next: route.fullPath } })
+    rememberJoinIntent()
+    await navigateTo({ path: '/signup', query: { invite: code.value } })
     return
   }
   if (session.user.onboardingRequired) {
@@ -65,11 +81,15 @@ async function accept() {
         class="mt-8"
         size="lg"
         block
-        :label="session.user ? 'Join' : 'Sign in to join'"
+        :label="session.user ? 'Join' : 'Create account to join'"
         :disabled="!invite"
         :loading="busy"
         @click="accept"
       />
+      <p v-if="invite && !session.user" class="mt-4 text-center text-sm text-muted">
+        Already have an account here?
+        <ULink :to="{ path: '/login', query: { next: `/invite/${code}?join=1` } }" class="text-default font-medium" @click="rememberJoinIntent">Sign in</ULink>
+      </p>
     </template>
   </div>
 </template>
