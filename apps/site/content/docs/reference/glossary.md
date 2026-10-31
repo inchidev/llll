@@ -87,7 +87,7 @@ See [Agents, Tasks and Runs](../concepts/agents-tasks-runs.md).
 - **Data:** user-managed Databases, Views, Records, Documents and Canvases.
 - **App:** a published internal interface over explicitly authorized Data.
 
-These belong to one Server. Since 0.3.0, Data and Apps are paused and shown as coming soon; their stored data is unchanged.
+These belong to one Server. Apps are paused and shown as coming soon; their stored data is unchanged.
 
 ## Project
 

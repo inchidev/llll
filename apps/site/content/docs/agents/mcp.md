@@ -51,8 +51,13 @@ Access tokens last 15 minutes and refresh automatically for up to 30 days while 
 | `messages:write` | Send messages and mention members in accessible chats |
 | `mail:read` | Read and search email in Mailboxes shared with you |
 | `mail:write` | Mark email read and move conversations between folders (does not send email) |
+| `data:read` | Read tables and records |
+| `data:write` | Create and update records |
+| `data:manage` | Create and configure tables |
+| `documents:read` | Read documents |
+| `documents:write` | Create and update documents |
 
-Mail scopes are offered only when the acting Member's Role has **Read email** or **Send email**. Scopes can only narrow what the Member's Role allows; they never add to it. Data and Document scopes exist but are paused in this release, like Data itself.
+Mail scopes are offered only when the acting Member's Role has **Read email** or **Send email**. Scopes can only narrow what the Member's Role allows; they never add to it.
 
 A connection keeps the scopes it was approved with. To add a scope later, connect again and approve it.
 
