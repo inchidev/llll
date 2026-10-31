@@ -7,6 +7,7 @@ import { requireMemberForUser } from '../../server/utils/channel-access'
 import { createTask } from '../../server/utils/task-service'
 import { requireTaskSourceMessage, taskDraftFromMessage, taskLinksForChannel, taskSourceFor } from '../../server/utils/task-sources'
 import type { L4Env } from '../../workers/env'
+import { previewLink } from '../../server/utils/factory-github'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const tasksPerms = Permission.sendMessages | Permission.readTasks | Permission.writeTasks
@@ -59,7 +60,7 @@ it('records the source, audits it, and links both ways for readers of the conver
   const audit = db.prepare("SELECT meta_json FROM audit_log WHERE action='task.create' AND target_id=?").get(task.id) as { meta_json: string }
   expect(JSON.parse(audit.meta_json)).toMatchObject({ sourceChannelId: 'general', sourceMessageId: 'public-message' })
   expect(await taskSourceFor(env, await member('bob'), task.id)).toMatchObject({ state: 'available', channelName: '#general', path: '/channels/general?message=public-message', authorName: 'Bob' })
-  expect(await taskLinksForChannel(env, await member('bob'), 'general')).toEqual([{ taskId: task.id, number: task.number, title: 'From chat', messageId: 'public-message' }])
+  expect(await taskLinksForChannel(env, await member('bob'), 'general')).toEqual([{ taskId: task.id, number: task.number, title: 'From chat', messageId: 'public-message', status: 'backlog', working: false, pullUrl: null, previewUrl: null }])
 })
 
 it('shows a member without access that a source exists but nothing about it', async () => {
@@ -77,6 +78,15 @@ it('keeps the task when its source message is deleted and says so', async () => 
   expect(await taskSourceFor(env, await member('ada'), task.id)).toMatchObject({ state: 'deleted' })
 })
 
+it('shows where a task from chat stands, with its pull request and preview', async () => {
+  const task = await taskFrom('public-message')
+  db.prepare("UPDATE tasks SET status='review', pull_url=?, preview_url=? WHERE id=?").run('https://github.com/team/app/pull/7', 'javascript:alert(1)', task.id)
+  // Only the Run's state matters here, not the agent behind it.
+  db.exec('PRAGMA foreign_keys=OFF')
+  db.prepare("INSERT INTO agent_runs(id,session_id,agent_id,channel_id,initiated_by,task_id,idempotency_key,status,prompt,model,instructions,mandate_json,deadline,created_at,updated_at) VALUES('run','s','agent','general','bob',?,'k','running','p','m','','{}','2026-10-26','2026-10-25','2026-10-25')").run(task.id)
+  expect(await taskLinksForChannel(env, await member('bob'), 'general')).toEqual([expect.objectContaining({ status: 'review', working: true, pullUrl: 'https://github.com/team/app/pull/7', previewUrl: null })])
+})
+
 it('hides message backlinks to tasks the viewer cannot read', async () => {
   await taskFrom('public-message')
   expect(await taskLinksForChannel(env, await member('chat'), 'general')).toEqual([])
@@ -86,4 +96,10 @@ it('creates no source for an ordinary task', async () => {
   const actor = await member('ada')
   const task = await createTask(env, actor.authorization, 'board', { title: 'Plain', description: '', priority: 'normal', dueAt: null, assigneeId: null, channelId: null, labelIds: [], dependencyIds: [] }, () => {})
   expect(await taskSourceFor(env, actor, task.id)).toBeNull()
+})
+
+it('links the finished preview first, and only over HTTPS', () => {
+  expect(previewLink([{ state: 'running', url: 'https://a.pages.dev' }, { state: 'success', url: 'https://b.pages.dev' }])).toBe('https://b.pages.dev')
+  expect(previewLink([{ state: 'running', url: 'https://a.pages.dev' }])).toBe('https://a.pages.dev')
+  expect(previewLink([{ state: 'success', url: 'http://a.test' }, { state: 'success', url: null }])).toBeNull()
 })

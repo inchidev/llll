@@ -83,12 +83,19 @@ export async function taskSourceFor(env: L4Env, member: ServerMembership, taskId
 }
 
 /** Tasks created from messages in one conversation, limited to those the viewer can read. */
+function httpsUrl(value: string | null) {
+  try { return value && new URL(value).protocol === 'https:' ? value : null } catch { return null }
+}
+
 export async function taskLinksForChannel(env: L4Env, member: ServerMembership, channelId: string): Promise<TaskSourceLinkDTO[]> {
   await requireChannelAccessForMember(env, member, channelId)
-  const rows = await env.DB.prepare(`SELECT t.id AS taskId, n.number, t.title, t.board_id AS boardId, t.project_id AS projectId, t.source_message_id AS messageId
+  const rows = await env.DB.prepare(`SELECT t.id AS taskId, n.number, t.title, t.board_id AS boardId, t.project_id AS projectId, t.source_message_id AS messageId,
+      t.status, t.pull_url AS pullUrl, t.preview_url AS previewUrl,
+      EXISTS(SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.status IN ('queued', 'running')) AS working
     FROM tasks t JOIN task_numbers n ON n.task_id = t.id
     WHERE t.source_channel_id = ? AND t.source_message_id IS NOT NULL AND t.archived_at IS NULL ORDER BY n.number LIMIT 500`)
-    .bind(channelId).all<TaskSourceLinkDTO & { boardId: string; projectId: string | null }>()
+    .bind(channelId).all<Omit<TaskSourceLinkDTO, 'working'> & { boardId: string; projectId: string | null; working: number }>()
   return (rows.results ?? []).filter(row => taskPermissionAllowed(member.authorization, row, Permission.readTasks))
-    .map(({ taskId, number, title, messageId }) => ({ taskId, number, title, messageId }))
+    .map(({ taskId, number, title, messageId, status, working, pullUrl, previewUrl }) => ({ taskId, number, title, messageId, status, working: Boolean(working),
+      pullUrl: httpsUrl(pullUrl), previewUrl: httpsUrl(previewUrl) }))
 }

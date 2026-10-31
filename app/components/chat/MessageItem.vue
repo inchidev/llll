@@ -116,6 +116,18 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
   const who = me ? (count > 1 ? `You and ${count - 1} other${count > 2 ? 's' : ''}` : 'You') : `${count} ${count === 1 ? 'person' : 'people'}`
   return `${who} reacted with ${name ? `:${name}:` : emoji}`
 }
+
+/** Where a Task made from this message stands, in the words of the board. */
+function taskLinkState(link: TaskSourceLinkDTO) {
+  if (link.working) return { label: 'Agent working', class: 'text-default' }
+  return ({
+    backlog: { label: 'Backlog', class: '' },
+    ready: { label: 'Ready', class: '' },
+    review: { label: 'In review', class: 'text-default' },
+    done: { label: 'Done', class: 'text-success' },
+    failed: { label: 'Failed', class: 'text-error' },
+  } satisfies Record<TaskSourceLinkDTO['status'], { label: string; class: string }>)[link.status]
+}
 </script>
 
 <template>
@@ -243,10 +255,15 @@ function reactionLabel(emoji: string, count: number, me: boolean) {
         </UPopover>
       </div>
       <div v-if="taskLinks?.length && !contextOnly" class="mt-1 flex flex-wrap gap-1.5">
-        <NuxtLink v-for="link in taskLinks" :key="link.taskId" :to="`/tasks?task=${link.number}`" class="inline-flex max-w-full items-center gap-1 rounded-md border border-default bg-elevated px-2 py-0.5 text-xs text-muted hover:border-accented hover:text-default">
-          <UIcon name="i-ph-kanban" class="size-3.5 shrink-0" />
-          <span class="truncate">Task #{{ link.number }} · {{ link.title }}</span>
-        </NuxtLink>
+        <span v-for="link in taskLinks" :key="link.taskId" class="inline-flex max-w-full items-center divide-x divide-default rounded-md border border-default bg-elevated text-xs text-muted">
+          <NuxtLink :to="`/tasks?task=${link.number}`" class="inline-flex min-w-0 items-center gap-1 px-2 py-0.5 hover:text-default">
+            <UIcon :name="link.working ? 'i-ph-circle-notch' : 'i-ph-kanban'" class="size-3.5 shrink-0" :class="link.working ? 'animate-spin' : ''" />
+            <span class="truncate">Task #{{ link.number }} · {{ link.title }}</span>
+            <span class="shrink-0" :class="taskLinkState(link).class">· {{ taskLinkState(link).label }}</span>
+          </NuxtLink>
+          <a v-if="link.pullUrl" :href="link.pullUrl" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 hover:text-default"><UIcon name="i-ph-git-pull-request" class="size-3.5" />PR</a>
+          <a v-if="link.previewUrl" :href="link.previewUrl" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 hover:text-default"><UIcon name="i-ph-globe" class="size-3.5" />Preview</a>
+        </span>
       </div>
       <div v-if="message.threadId && !contextOnly" class="relative mt-1 max-w-xl ps-6">
         <!-- Connector: drops from under the message and curves into the card's middle. -->

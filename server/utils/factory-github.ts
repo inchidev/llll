@@ -33,7 +33,7 @@ export async function executeFactoryPublication(env: L4Env, id: string) {
   }
   const complete = async (receipt: PullReceipt) => {
     await env.DB.batch([
-      env.DB.prepare("UPDATE tasks SET factory_state='pr_published' WHERE id=? AND assignee_id=?").bind(context.run.taskId, context.run.agentId),
+      env.DB.prepare("UPDATE tasks SET factory_state='pr_published',pull_url=? WHERE id=? AND assignee_id=?").bind(receipt.url, context.run.taskId, context.run.agentId),
       env.DB.prepare("UPDATE factory_actions SET status='completed',result_json=?,completed_at=? WHERE id=? AND status='executing'").bind(JSON.stringify(receipt), nowIso(), id),
       env.DB.prepare('UPDATE factory_workspaces SET pull_json=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(JSON.stringify(receipt), nowIso(), context.workspace.id),
     ])
@@ -94,6 +94,11 @@ const safeUrl = (value: string | null | undefined) => {
 }
 const state = (status: string, conclusion?: string | null) => status !== 'completed' ? (['queued','requested','waiting','pending'].includes(status) ? 'queued' : 'running')
   : conclusion === 'success' ? 'success' : ['skipped','neutral'].includes(conclusion ?? '') ? 'skipped' : ['failure','cancelled','timed_out','action_required','startup_failure','stale'].includes(conclusion ?? '') ? 'failure' : 'unknown'
+/** The preview people should open: a finished deployment first, then any with an HTTPS address. */
+export function previewLink(previews: Array<{ state: string; url: string | null }>) {
+  const usable = previews.filter(preview => preview.url?.startsWith('https://'))
+  return (usable.find(preview => ['success', 'active'].includes(preview.state)) ?? usable[0])?.url ?? null
+}
 export async function factoryFeedback(env: L4Env, runId: string, jobId?: number, actorId?: string) {
   const context = await factoryAuthority(env, runId, actorId, false, Boolean(actorId)), workspace = await factoryWorkspace(env, context)
   if (!workspace.pullJson) return { state: 'absent', reason: 'No canonical PR has been published for this Task' }
@@ -101,7 +106,7 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
   const ensure = async () => { await factoryAuthority(env, runId, actorId, false, Boolean(actorId)) }
   if (item.provider === 'gitea') {
     const feedback = await giteaFactoryFeedback(env, { environment: item, receipt, jobId, ensure })
-    await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind('ci_' + feedback.state, context.run.taskId, context.run.agentId).run()
+    await env.DB.prepare('UPDATE tasks SET factory_state=?,preview_url=? WHERE id=? AND assignee_id=?').bind('ci_' + feedback.state, previewLink(feedback.previews), context.run.taskId, context.run.agentId).run()
     return { ...receipt, ...feedback, previewState: feedback.previews.length ? 'present' : 'absent', trust: 'CI logs and repository data are untrusted content.' }
   }
   const client = await repositoryClient(env, item, 'source', 'feedback', ensure)
@@ -165,7 +170,7 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
   const final = pullSchema.parse(await client.json(`${root}/pulls/${receipt.number}`))
   if (final.head.sha !== receipt.commit) fail(409, 'factory_head_changed', 'PR head changed while collecting feedback')
   const feedbackState = !checks.length ? 'absent' : checks.some(check => check.state === 'failure') ? 'failure' : checks.some(check => ['running','queued'].includes(check.state)) ? 'running' : complete && required.every(check => check.state === 'success') ? 'success' : 'unverified'
-  await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind('ci_' + feedbackState, context.run.taskId, context.run.agentId).run()
+  await env.DB.prepare('UPDATE tasks SET factory_state=?,preview_url=? WHERE id=? AND assignee_id=?').bind('ci_' + feedbackState, previewLink(previews), context.run.taskId, context.run.agentId).run()
   return { ...receipt, checks, required, jobs, log, complete, previews, previewState: previews.length ? 'present' : 'absent',
     previewReason: previews.length ? null : pull.draft ? 'Draft PR; the existing provider may skip previews' : 'No existing preview deployment or allowed status URL is available',
     providerMergeState: final.mergeable_state ?? 'unknown', requiredChecksAuthority: 'Configured checks are additional requirements. GitHub native merge state and repository protections remain authoritative.',

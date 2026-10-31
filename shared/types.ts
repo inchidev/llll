@@ -137,7 +137,14 @@ export type TaskSourceDTO =
   | { state: 'restricted' }
 
 /** A task created from a message in the conversation being viewed. */
-export type TaskSourceLinkDTO = { taskId: string; number: number; title: string; messageId: string }
+export type TaskSourceLinkDTO = {
+  taskId: string; number: number; title: string; messageId: string
+  status: TaskStatus
+  /** An agent Run for this Task is queued or running. */
+  working: boolean
+  pullUrl: string | null
+  previewUrl: string | null
+}
 
 /** A Task form prefilled from a chat message. */
 export type TaskMessageDraftDTO = { messageId: string; channelName: string; authorName: string | null; title: string; description: string }
