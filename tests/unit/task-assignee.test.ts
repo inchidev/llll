@@ -66,7 +66,7 @@ describe('task assignees', () => {
   it('rejects removed members and paused agents', async () => {
     const env = { DB: d1(sqlite) } as never
     await expect(validateTaskAssignee(env, 'removed')).rejects.toThrow('Active member not found')
-    await expect(validateTaskAssignee(env, 'paused')).rejects.toThrow('Active agent not found')
+    await expect(validateTaskAssignee(env, 'paused')).rejects.toThrow('This agent is paused')
     await expect(validateTaskAssignee(env, 'missing')).rejects.toThrow('Active member not found')
   })
 })

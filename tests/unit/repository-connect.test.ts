@@ -4,6 +4,7 @@ import { Permission } from '../../shared/permissions'
 import { codeEnvironmentSchema } from '../../shared/code-environments'
 import { connectGitea } from '../../server/utils/gitea'
 import { createProject, listProjectRepositories } from '../../server/utils/project-service'
+import { createTask } from '../../server/utils/task-service'
 import { connectRepository, inspectRepository, previewHostSuggestion, repositoryConnectOptions } from '../../server/utils/repository-connect'
 import { findCodeEnvironment } from '../../server/utils/code-environment-service'
 import { factoryChecklist } from '../../server/utils/factory-checklist'
@@ -100,4 +101,13 @@ it('ticks off Factory setup as the Server gets each piece', async () => {
   expect((await factoryChecklist(f.env)).steps).toMatchObject({ computer: true, repository: true, access: true, run: false })
   f.db.prepare('UPDATE agents SET status=? WHERE user_id=?').run('paused', ids.agent)
   expect((await factoryChecklist(f.env)).steps).toMatchObject({ agent: false, access: false })
+})
+
+it('puts a project task on the only connected repository unless it names another', async () => {
+  addComputer('44444444-4444-4444-8444-444444444444')
+  const { environment } = await connectRepository(f.env, await f.actor(), project, { gitConnectionId: connection, repositoryId: 11 })
+  const board = (f.db.prepare('SELECT id FROM task_boards LIMIT 1').get() as { id: string }).id
+  const create = async (extra: object) => createTask(f.env, await f.actor(), board, { title: 'Work', description: '', priority: 'normal', dueAt: null, assigneeId: null, channelId: null, labelIds: [], dependencyIds: [], projectId: project, ...extra }, promise => { void promise.catch(() => {}) })
+  expect((await create({})).environmentId).toBe(environment.id)
+  expect((await create({ environmentId: null })).environmentId).toBeNull()
 })
