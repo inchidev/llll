@@ -9,6 +9,8 @@ export const agentAudioTypes = ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/w
 export const agentAttachmentTypes = [...agentImageTypes, ...agentAudioTypes] as const
 export const agentImageLimit = 4
 export const agentImageMaxBytes = 5_000_000
+/** Five minutes of 16 kHz mono WAV, the format voice messages are recorded in. */
+export const agentAudioMaxBytes = 10_000_000
 const marker = /\[l4-image:([A-Za-z0-9_-]{8,64})\]/gu
 
 export const agentImageMarker = (id: string) => `[l4-image:${id}]`

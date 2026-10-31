@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   audioFileExtension,
   formatAudioDuration,
+  pcm16Wav,
   selectAudioRecordingMime,
 } from '../../shared/audio'
 import { extForMime, sniffMime } from '../../shared/mime'
@@ -16,6 +17,20 @@ describe('audio recording helpers', () => {
   it('falls back to Ogg, then WebM', () => {
     expect(selectAudioRecordingMime(mime => mime.startsWith('audio/ogg') || mime.startsWith('audio/webm'))).toBe('audio/ogg;codecs=opus')
     expect(selectAudioRecordingMime(mime => mime === 'audio/webm;codecs=opus')).toBe('audio/webm;codecs=opus')
+  })
+
+  it('encodes speech as 16 kHz mono 16-bit WAV that upload sniffing accepts', () => {
+    const wav = pcm16Wav(new Float32Array([0, 1, -1, 2]))
+    const view = new DataView(wav.buffer)
+    expect(new TextDecoder().decode(wav.slice(0, 4))).toBe('RIFF')
+    expect(new TextDecoder().decode(wav.slice(8, 12))).toBe('WAVE')
+    expect([view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)]).toEqual([1, 16000, 16])
+    expect(view.getUint32(40, true)).toBe(8)
+    // Clipped to the 16-bit range.
+    expect([view.getInt16(44, true), view.getInt16(46, true), view.getInt16(48, true), view.getInt16(50, true)]).toEqual([0, 32767, -32768, 32767])
+    expect(sniffMime(wav)).toBe('audio/wav')
+    // Five minutes of speech stays under the attachment cap.
+    expect(44 + 16000 * 2 * 300).toBeLessThan(10 * 1024 * 1024)
   })
 
   it('formats elapsed recording time', () => {

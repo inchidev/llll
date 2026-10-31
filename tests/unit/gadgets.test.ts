@@ -12,6 +12,8 @@ import { agentTools } from '../../server/utils/agent-tools'
 import type { Membership } from '../../server/utils/guards'
 
 vi.mock('../../server/utils/ai-functions', () => ({ inferAiFunction: vi.fn() }))
+// App draft tools are paused with the Apps area; these tests cover them for when it returns.
+vi.mock('../../shared/features', async importOriginal => ({ ...await importOriginal<typeof import('../../shared/features')>(), toolPaused: () => false }))
 
 beforeAll(() => vi.stubGlobal('createError', (input: { statusCode: number; statusMessage: string; data: unknown }) => Object.assign(new Error(input.statusMessage), input)))
 afterAll(() => vi.unstubAllGlobals())
@@ -394,7 +396,8 @@ describe('Agent App drafts', () => {
     const member = agentFixture(Permission.useAgents | Permission.readData)
     try {
       await expect(member.tools.call('create_app_draft', { name: 'Denied', spec })).rejects.toMatchObject({ statusCode: 403 })
-      expect(await member.tools.call('search_tools', { query: 'app draft' })).toMatchObject({ tools: [] })
+      const found = await member.tools.call('search_tools', { query: 'app draft' }) as { tools: { name: string }[] }
+      expect(found.tools.filter(tool => tool.name.includes('app_draft'))).toEqual([])
     } finally { member.sqlite.close() }
     const scoped = agentFixture(ALL_PERMISSIONS, { databases: ['leads'] })
     try {
