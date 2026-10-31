@@ -23,7 +23,7 @@ function edit(agent: AgentDTO | null = null) { editing.value = agent; editorOpen
   <SettingsAgentExecutionSettings v-if="tab === 'execution' && isOwner" :server-id="serverId" />
   <SettingsAgentAudit v-else-if="tab === 'audit'" :server-id="serverId" @navigate="emit('navigate')" />
   <template v-else>
-  <SettingsAgentSetup v-if="isOwner && canManageServer && !query && agentsQ.data.value" :server-id="serverId" :agent-count="agentsQ.data.value.total" @models="emit('section', 'models')" @section="emit('section', $event)" @create-agent="edit()" />
+  <ProjectsFactorySetupGuide v-if="isOwner && canManageServer && !query" class="mb-8" />
   <UInput v-model="query" icon="i-ph-magnifying-glass" placeholder="Search agents" aria-label="Search agents" class="w-full" />
   <LayoutSkeleton v-if="agentsQ.isPending.value" variant="nav" class="mt-6" :rows="3" />
   <LayoutLoadError v-else-if="agentsQ.error.value" message="Agents did not load." :retry="agentsQ.refetch" />

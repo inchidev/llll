@@ -6,6 +6,8 @@ import { connectGitea } from '../../server/utils/gitea'
 import { createProject, listProjectRepositories } from '../../server/utils/project-service'
 import { connectRepository, inspectRepository, previewHostSuggestion, repositoryConnectOptions } from '../../server/utils/repository-connect'
 import { findCodeEnvironment } from '../../server/utils/code-environment-service'
+import { factoryChecklist } from '../../server/utils/factory-checklist'
+import { assignProjectPolicy } from '../../server/utils/project-policies'
 
 const host = 'https://git.example.test', token = 'a'.repeat(40), sha = 'b'.repeat(40)
 let f: ReturnType<typeof mcpFixture>, project: string, connection: string
@@ -85,4 +87,17 @@ it('gives a Server its first task board with its first project, and no more', as
   expect(f.db.prepare("SELECT name FROM task_boards WHERE archived_at IS NULL").all()).toEqual([{ name: 'Tasks' }])
   await createProject(f.env, await f.actor(), { name: 'Second' })
   expect(f.db.prepare('SELECT count(*) AS n FROM task_boards').get()).toEqual({ n: 1 })
+})
+
+it('ticks off Factory setup as the Server gets each piece', async () => {
+  // The agent's role alone cannot run tasks; only a project policy can let it.
+  f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(Permission.sendMessages, ids.agentRole)
+  expect(await factoryChecklist(f.env)).toEqual({ projectId: project, done: false,
+    steps: { models: true, agent: true, git: true, computer: false, project: true, repository: false, access: false, run: false } })
+  addComputer('33333333-3333-4333-8333-333333333333')
+  await connectRepository(f.env, await f.actor(), project, { gitConnectionId: connection, repositoryId: 11 })
+  await assignProjectPolicy(f.env, await f.actor(), project, { policyId: 'project-policy-developer', memberId: ids.agent })
+  expect((await factoryChecklist(f.env)).steps).toMatchObject({ computer: true, repository: true, access: true, run: false })
+  f.db.prepare('UPDATE agents SET status=? WHERE user_id=?').run('paused', ids.agent)
+  expect((await factoryChecklist(f.env)).steps).toMatchObject({ agent: false, access: false })
 })

@@ -28,6 +28,7 @@ const recent = computed(() => (runs.data.value?.runs ?? []).slice(0, 5))
     </LayoutPageHeader>
     <main class="mx-auto w-full max-w-5xl flex-1 space-y-8 overflow-auto p-4 sm:p-8">
       <p class="text-sm text-muted">Projects turn into work here: people and agents take their tasks, run them on connected repositories and computers, and report back.</p>
+      <ProjectsFactorySetupGuide v-if="can(Permission.manageServer)" />
 
       <section class="space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-3">
