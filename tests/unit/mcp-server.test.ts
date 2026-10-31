@@ -119,15 +119,24 @@ describe('L4 MCP server', () => {
     expect(payload.result.serverInfo).toEqual({ name: 'L4', version: packageVersion })
   })
 
-  it('publishes focused Tasks, messaging and Mail tools over Streamable HTTP, without paused Data tools', async () => {
+  it('publishes Data, Tasks, messaging and Mail tools over Streamable HTTP', async () => {
     const { response, payload } = await call(createHandler(), { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
 
     expect(response.status).toBe(200)
     expect(payload.result.tools?.map(tool => tool.name)).toEqual([
+      'list_tables',
+      'create_table',
+      'read_records',
+      'create_record',
+      'update_record',
       'list_task_boards',
       'get_task',
       'create_task',
       'update_task',
+      'list_documents',
+      'get_document',
+      'create_document',
+      'update_document',
       'list_channels',
       'list_members',
       'list_roles',
