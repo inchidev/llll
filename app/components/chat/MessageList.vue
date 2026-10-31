@@ -63,12 +63,20 @@ type MessageResponse = MessagePage & {
 const messagesKey = computed(() => ['messages', props.channelId] as const)
 
 /** Tasks created from messages here, shown under their message. Only Tasks the viewer can read are returned. */
+// A Run ends a moment before its Task moves to Review or Failed: keep following for a few polls after.
+let taskLinksGrace = 0
 const taskLinksQ = useQuery({
   queryKey: computed(() => ['task-links', props.channelId]),
   queryFn: () => api<{ links: TaskSourceLinkDTO[] }>(`/api/channels/${props.channelId}/task-links`),
   staleTime: 60_000,
   // Follow a Task while it can still change: an agent working, a PR in review.
-  refetchInterval: query => query.state.data?.links.some(link => link.working || link.status === 'review') ? 15_000 : false,
+  refetchInterval: (query) => {
+    const links = query.state.data?.links ?? []
+    if (links.some(link => link.working)) taskLinksGrace = 3
+    else if (taskLinksGrace > 0) taskLinksGrace--
+    else if (!links.some(link => link.status === 'review')) return false
+    return links.some(link => link.working) ? 5_000 : 15_000
+  },
   refetchOnWindowFocus: true,
 })
 const taskLinksByMessage = computed(() => {
