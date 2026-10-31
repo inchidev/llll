@@ -130,6 +130,9 @@ async function addNode(kind: 'note' | 'text' = 'note') {
     })
     if (selectedId.value === canvas.id) nodes.value.push(editorFor(result.node).state.node)
     await refresh(canvas.id)
+    // A new note is for writing: put the cursor in it.
+    await nextTick()
+    document.querySelector<HTMLTextAreaElement>(`[data-canvas-node="${result.node.id}"] textarea`)?.focus()
   }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { saving.value = false }
@@ -369,6 +372,7 @@ function retryLoad() {
         <article
           v-for="node in nodes"
           :key="node.id"
+          :data-canvas-node="node.id"
           class="absolute flex select-none flex-col rounded-lg border shadow-sm transition-shadow"
           :class="[colorClasses[node.color], connectFrom === node.id ? 'ring-2 ring-primary' : '', connecting ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing']"
           :style="{ left: `${node.x}px`, top: `${node.y}px`, width: `${node.width}px`, height: `${node.height}px` }"
