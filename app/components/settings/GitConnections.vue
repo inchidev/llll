@@ -98,7 +98,8 @@ const countLabel=(id:string)=>{
   </div></template></SettingsEditor>
   <SettingsEditor v-model:open="orgOpen" back="Git" title="Connect GitHub" description="L4 creates a private GitHub App and you choose its repositories on GitHub."><template #body><div class="space-y-5">
   <form v-if="connections.data.value?.canConfigure && !prepared" class="space-y-3" @submit.prevent="connect(organization.trim())">
-   <UFormField label="GitHub organization" help="Personal repositories need no name: use Connect GitHub instead."><UInput v-model="organization" placeholder="my-organization" class="w-full" /></UFormField>
+   <UFormField label="GitHub organization" help="The name in the organization's address, as in github.com/my-organization. Personal repositories need no name: use Connect GitHub instead."><UInput v-model="organization" placeholder="my-organization" class="w-full" /></UFormField>
+   <p class="text-sm text-muted">You need to be an owner of this organization on GitHub. GitHub creates the App inside the organization, and only that organization can install it: an App created on your personal account cannot be added to an organization later.</p>
    <p class="text-xs text-muted">The App requests code and pull request write access for working branches and draft PRs, plus read access to issues and checks. L4 does not request branch-protection administration or configure bypass rights.</p>
    <UButton type="submit" label="Continue on GitHub" :disabled="!organization.trim()" :loading="busy" />
   </form>

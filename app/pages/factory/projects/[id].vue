@@ -45,7 +45,7 @@ async function remove(id: string) {
     <p class="text-sm text-muted">A connected repository is one agents can work on: they open pull requests against it for review. A reference only names a repository and enables nothing.</p>
     <div v-for="r in detail.data.value.repositories" :key="r.id" class="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded border border-default p-3">
      <div class="min-w-0"><p class="break-all font-medium">{{ r.slug }}</p><p class="break-all text-xs text-muted">{{ r.provider }} · {{ r.host }} · {{ r.defaultBranch }}</p><p class="text-xs text-muted">{{ r.environmentId ? 'Linked to Git execution configuration' : 'Reference only; execution not connected' }}</p></div>
-     <UButton v-if="can(Permission.manageProjects)" label="Detach reference" color="neutral" variant="ghost" :loading="busy" @click="remove(r.id)" />
+     <UButton v-if="can(Permission.manageProjects)" :label="r.environmentId ? 'Detach repository' : 'Detach reference'" color="neutral" variant="ghost" :loading="busy" @click="remove(r.id)" />
     </div>
     <UModal v-model:open="repositoryOpen" title="Attach repository" description="Connect a repository reference to this project."><template #body><form class="space-y-4" @submit.prevent="attach">
      <h3 class="font-medium">Attach repository reference</h3>
