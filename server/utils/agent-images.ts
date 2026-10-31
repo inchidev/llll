@@ -1,6 +1,6 @@
 import type { ImagePart, TextPart } from 'ai'
 import { z } from 'zod'
-import { agentAttachmentTypes, agentImageMaxBytes, splitAgentImageMarkers } from '../../shared/agent-images'
+import { agentAttachmentTypes, agentAudioMaxBytes, agentImageMaxBytes, splitAgentImageMarkers } from '../../shared/agent-images'
 import { parseAgentModelRef } from '../../shared/agent-providers'
 import { fileStorage } from '../../shared/file-storage'
 import type { AgentRun } from '../../shared/agent-execution'
@@ -40,12 +40,12 @@ export function agentImageResolver(env: L4Env, run: Pick<AgentRun, 'channelId' |
   const load = async (id: string): Promise<TextPart | ImagePart> => {
     // Only the initiator's own image in this conversation, still within limits, is readable.
     const row = await env.DB.prepare(`SELECT a.r2_key AS key,a.filename,a.content_type AS type FROM attachments a
-      WHERE a.id=? AND a.uploader_id=? AND a.message_id IS NOT NULL AND a.size_bytes<=? AND a.content_type IN (${agentAttachmentTypes.map(() => '?').join(',')})
+      WHERE a.id=? AND a.uploader_id=? AND a.message_id IS NOT NULL AND a.size_bytes<=CASE WHEN a.content_type LIKE 'audio/%' THEN ? ELSE ? END AND a.content_type IN (${agentAttachmentTypes.map(() => '?').join(',')})
       AND a.channel_id IN (?, (SELECT parent_id FROM channels WHERE id=?))`)
-      .bind(id, run.initiatedBy, agentImageMaxBytes, ...agentAttachmentTypes, run.channelId, run.channelId).first<{ key: string; filename: string; type: string }>()
+      .bind(id, run.initiatedBy, agentAudioMaxBytes, agentImageMaxBytes, ...agentAttachmentTypes, run.channelId, run.channelId).first<{ key: string; filename: string; type: string }>()
     if (!row) return { type: 'text', text: '[An attached image is no longer available.]' }
     const object = await fileStorage(env).get(row.key)
-    if (!object || object.size > agentImageMaxBytes) return { type: 'text', text: '[An attached image is no longer available.]' }
+    if (!object || object.size > (row.type.startsWith('audio/') ? agentAudioMaxBytes : agentImageMaxBytes)) return { type: 'text', text: '[An attached image is no longer available.]' }
     const bytes = new Uint8Array(await object.arrayBuffer())
     if (row.type.startsWith('audio/')) {
       const transcript = await mediaAsText(env, 'audio.transcribe', run.initiatedBy, { bytes, mediaType: row.type, name: row.filename })
