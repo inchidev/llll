@@ -2,6 +2,7 @@ import { LoopDiskStore } from './disk-store.mjs'
 import { join, resolve } from 'node:path'
 import { runProcess } from './process.mjs'
 import { openNodeState, serverOrigin } from './state-store.mjs'
+import { readdir } from 'node:fs/promises'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
@@ -79,6 +80,23 @@ async function sourceBundle(job,signal) {
     delete job.source
   }
 }
+/**
+ * Before a new Task disk is made, remove this Node's disks the Server no longer keeps: Done or
+ * archived Tasks, whose work is in their pull requests. Only disks and volumes this Node labelled
+ * are touched. Older Servers do not know the operation; then nothing is removed.
+ */
+async function releaseFinishedWorkspaces(taskDisks,current) {
+  let keep
+  try { keep=new Set((await poll({operation:'workspaces'})).keep) } catch { return }
+  if (!keep.has(current)) return
+  const volumes=(await docker(['volume','ls','-q','--filter',`label=l4.node=${connection.nodeId}`,'--filter',`label=l4.server=${connection.serverId}`])).trim().split('\n').filter(Boolean)
+  const disks=(await readdir(taskDisks.root).catch(()=>[])).filter(name=>/^[a-f0-9-]{36}\.img$/u.test(name)).map(name=>name.slice(0,-4))
+  for (const id of new Set([...volumes.map(name=>name.replace(/^l4-ws-/u,'')),...disks])) {
+    if (keep.has(id) || !/^[a-f0-9-]{36}$/u.test(id)) continue
+    await docker(['volume','rm',`l4-ws-${id}`]).catch(()=>{})
+    await taskDisks.remove(id)
+  }
+}
 async function execute(job,controller) {
   if (job.serverId!==connection.serverId || job.image!==image || !/^[a-f0-9-]{36}$/u.test(job.workspaceId)) throw new Error('Workspace identity or pinned image mismatch')
   // Older Servers omit the disk policy and only support 1 GiB. An updated
@@ -104,6 +122,7 @@ async function execute(job,controller) {
     if (existing && (existing.Labels?.['l4.server']!==connection.serverId || existing.Labels?.['l4.node']!==connection.nodeId || existing.Labels?.['l4.workspace']!==job.workspaceId || existing.Labels?.['l4.task']!==job.taskId)) throw new Error('Foreign workspace volume')
     if (!existing && job.request.operation!=='bootstrap') throw new Error('Workspace disk is unavailable on this Node')
     if (job.request.operation==='release') { if(existing)await docker(['volume','rm',volume]); await taskDisks.remove(job.workspaceId); return {ok:true,exitCode:0,output:'Workspace disk explicitly released',runtimeMs:Date.now()-started} }
+    if (!existing && job.request.operation==='bootstrap') await releaseFinishedWorkspaces(taskDisks,job.workspaceId)
     const mountPath=await taskDisks.ensure(job.workspaceId,job.request.operation==='bootstrap')
     if(existing && (existing.Driver!=='local'||existing.Options?.device!==mountPath))throw new Error('Workspace volume is not bound to its hard-quota disk')
     if (!existing)await docker(['volume','create',...labels,'--driver','local','--opt','type=none','--opt','o=bind','--opt',`device=${mountPath}`,volume])
@@ -138,6 +157,8 @@ for (const saved of store.receipts()) {
   try { await poll(saved); store.acknowledge(saved.id,saved.lease) }
   catch { console.warn('compute.retained_receipt_requires_review') }
 }
+// Capacity failures tell the person what to do; other failures stay generic.
+const capacityMessages=new Set(['Compute Node disk is full; mark finished Tasks Done to release their workspaces, or move Task storage to a larger disk','Node disk capacity is occupied; mark finished Tasks Done to release their workspaces'])
 let stopping=false,active
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;active?.abort()})
 while(!stopping){
@@ -150,7 +171,7 @@ while(!stopping){
     const start=Date.now()
     let result
     try { const job=await poll({operation:'begin',...claim});job.id=claim.id;const limit=setTimeout(()=>controller.abort(),job.executionBudgetMs);try{result=await execute(job,controller)}finally{clearTimeout(limit);await revokeSource(job)} }
-    catch(error) { result={ok:false,exitCode:-1,output:controller.signal.aborted?'Operation stopped after revocation, disconnect or expired lease':error instanceof Error && error.message==='Compute Node disk is full; free space or move Task storage to a larger disk'?error.message:'Compute operation failed; inspect limits, source access and Node availability',runtimeMs:Math.min(180000,Date.now()-start)} }
+    catch(error) { result={ok:false,exitCode:-1,output:controller.signal.aborted?'Operation stopped after revocation, disconnect or expired lease':error instanceof Error && capacityMessages.has(error.message)?error.message:'Compute operation failed; inspect limits, source access and Node availability',runtimeMs:Math.min(180000,Date.now()-start)} }
     finally {clearInterval(heartbeat);active=undefined}
     const receipt={operation:'result',...claim,result}
     // FULL-synchronous transaction commits before the network callback. If the

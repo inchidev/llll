@@ -62,6 +62,18 @@ it('keeps each Node call to a short chain of database round trips',async()=>{
   expect(await sequentialRoundTrips(f.env,env=>computePoll(env,nodeId,{operation:'heartbeat',...job}))).toBeLessThanOrEqual(22)
   expect(await sequentialRoundTrips(f.env,env=>runAuthorization(env,run))).toBeLessThanOrEqual(10)
 })
+it('lets a Node release the workspace disks of Done or archived Tasks, never one with queued work',async()=>{
+  await finishBootstrap()
+  const workspace=(f.db.prepare('SELECT id FROM factory_workspaces').get() as {id:string}).id
+  expect(await computePoll(f.env,nodeId,{operation:'workspaces'})).toEqual({keep:[workspace]})
+  // Queued work keeps the disk even when the Task is already Done.
+  await factoryToolCall(f.env,run.id,'after-done',{operation:'read',path:'README.md'})
+  f.db.prepare("UPDATE tasks SET status='done' WHERE id='factory-task'").run()
+  expect(await computePoll(f.env,nodeId,{operation:'workspaces'})).toEqual({keep:[workspace]})
+  f.db.prepare("UPDATE factory_actions SET status='cancelled' WHERE status IN ('pending','approved')").run()
+  expect(await computePoll(f.env,nodeId,{operation:'workspaces'})).toEqual({keep:[]})
+  expect(f.db.prepare('SELECT status FROM factory_workspaces WHERE id=?').get(workspace)).toEqual({status:'released'})
+})
 it('waits for an exact human decision, delivers one scoped job and deduplicates completed tool calls',async()=>{
   await runAuthorization(f.env,run)
   const call=()=>executeRunTool(f.env, run.id, {callId:'bootstrap',name:'factory_workspace',arguments:{operation:'bootstrap'}},()=>{})

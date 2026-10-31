@@ -57,22 +57,38 @@ async function runSelectedTask() {
   if (selectedTask.value && !taskRunProblem.value) await runTask(selectedTask.value)
 }
 
+/**
+ * What keeps an agent from working on a task, with where to fix it. In a project, work is granted
+ * by a project policy (Developer, for example), not by the agent's Server role.
+ */
+function agentRunProblem(task: { assigneeId?: string | null; projectId?: string | null }): { message: string; fix?: { label: string; to: string } } | null {
+  const agent = agents.value.find(item => item.id === task.assigneeId)
+  if (agent?.status === 'paused') return { message: 'Resume the assigned agent in Agents before starting this task.' }
+  if (!agent || agent.status !== 'active') return { message: 'Assign an active agent to this task.' }
+  const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
+  if (!member || member.user.kind !== 'agent') return { message: 'Assign an active agent to this task.' }
+  const allowed = (permission: number) => !member.role.permissions || hasPermission(member.role.permissions, permission)
+    || Boolean(task.projectId && member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, permission)))
+  const missing = ([[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages'], ...(task.projectId ? [[Permission.readProjects, 'Read projects']] as const : [])] as const)
+    .filter(([permission]) => !allowed(permission)).map(([, label]) => label)
+  if (!missing.length) return null
+  const name = member.user.displayName
+  if (task.projectId) {
+    const project = projectsQ.data.value?.projects.find(item => item.id === task.projectId)?.name ?? 'this project'
+    return { message: `${name} cannot work on tasks in ${project} yet. Give ${name} the Developer policy in the project's access.`, fix: { label: 'Open project access', to: `/factory/projects/${task.projectId}` } }
+  }
+  return { message: `${name}’s role needs ${missing.join(', ')}. Put this task in a project and give ${name} the Developer policy there, or choose a role that allows it in Server settings → Agents.` }
+}
+
+const taskRunFix = computed(() => selectedTask.value ? agentRunProblem(selectedTask.value)?.fix : undefined)
 const taskRunProblem = computed(() => {
   const task = selectedTask.value
   if (!task) return 'Choose a task to run.'
   if (task.archivedAt) return 'Restore this task before starting its agent.'
   if (taskDirty.value) return 'Save your task changes before starting the agent.'
-  const agent = agents.value.find(item => item.id === task.assigneeId)
-  if (agent?.status === 'paused') return 'Resume the assigned agent in Agents before starting this task.'
-  if (!agent || agent.status !== 'active') return 'Assign an active agent to this task.'
-  const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
-  if (!member || member.user.kind !== 'agent') return 'Assign an active agent to this task.'
-  for (const [permission, label] of [[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages']] as const) {
-    if (member.role.permissions && !hasPermission(member.role.permissions, permission) && !(task.projectId && member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, permission)))) return `${member.user.displayName}’s role needs ${label}. Change the role in Server settings.`
-  }
-  if (task.projectId && member.role.permissions && !hasPermission(member.role.permissions, Permission.readProjects) && !member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, Permission.readProjects))) return `${member.user.displayName}’s role needs Read projects. Change the role in Server settings.`
-  return ''
+  return agentRunProblem(task)?.message ?? ''
 })
+const newTaskRunProblem = computed(() => agents.value.some(agent => agent.id === newTask.assigneeId) ? agentRunProblem(newTask) : null)
 /** Board and the archived view live in the URL so the sidebar can link to them. */
 const route = useRoute()
 const nav = useNavActions()
@@ -709,7 +725,8 @@ const boardMenu = computed(() => [[
           <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
           <UFormField v-if="canAnyProject(Permission.readProjects)" label="Project"><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
           <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
-          <p v-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
+          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><UButton v-if="newTaskRunProblem.fix" :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div>
+          <p v-else-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
           <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
           <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
           <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
@@ -729,7 +746,7 @@ const boardMenu = computed(() => [[
       </template>
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
-        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active')" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active') && !newTaskRunProblem" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
         <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
       </template>
     </UModal>
@@ -758,6 +775,7 @@ const boardMenu = computed(() => [[
         <section v-if="selectedTask && can(Permission.executeTasks, selectedTask.projectId) && can(Permission.useAgents, selectedTask.projectId)" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
           <span :title="taskRunProblem || undefined"><UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem)" :aria-describedby="taskRunProblem ? 'task-run-problem' : undefined" @click="runSelectedTask" /></span>
           <p v-if="taskRunProblem" id="task-run-problem" class="text-sm text-muted" role="status">{{ taskRunProblem }}</p>
+          <UButton v-if="taskRunFix" :to="taskRunFix.to" :label="taskRunFix.label" color="neutral" variant="outline" size="sm" />
           <p v-else class="text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
           <p v-if="!selectedTask.channelId" class="text-xs text-muted">The agent posts its report in this task’s discussion. A separate report channel is optional.</p>
         </section>

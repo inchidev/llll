@@ -191,3 +191,16 @@ it('keeps listening to the relay between alarms while a Run uses the Node',async
  expect(vi.mocked(bridge.serviceLizardBridge).mock.calls.length).toBeGreaterThanOrEqual(4)
  expect(await object.status()).toMatchObject({phase:'ready'})
 })
+it('moves repository environments from a retired Lizard Node to the newly paired one',async()=>{
+ const old='b5949476-1a4e-4141-bfc6-a72a7751fd97',other='b5949476-1a4e-4141-bfc6-a72a7751fd98'
+ const now=new Date().toISOString()
+ f.db.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,enabled,created_by,created_at) VALUES(?,?,?,?,0,?,?)').run(old,'Lizard old','y',JSON.stringify({provider:'lizard'}),ids.owner,now)
+ f.db.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,enabled,created_by,created_at) VALUES(?,?,?,?,1,?,?)').run(other,'Own machine','z',JSON.stringify({docker:true}),ids.owner,now)
+ f.db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)').run('env-lizard',JSON.stringify({name:'site',computeNodeId:old}),ids.owner,now,now)
+ f.db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)').run('env-own',JSON.stringify({name:'tools',computeNodeId:other}),ids.owner,now,now)
+ const {object}=instance()
+ await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
+ expect(await object.status()).toMatchObject({phase:'ready',nodeId:node})
+ const environments=f.db.prepare('SELECT id,json_extract(config_json,\'$.computeNodeId\') AS nodeId,version FROM agent_environments ORDER BY id').all()
+ expect(environments).toEqual([{id:'env-lizard',nodeId:node,version:2},{id:'env-own',nodeId:other,version:1}])
+})
