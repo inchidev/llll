@@ -167,7 +167,9 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   let projectId: string | null = null
   let environmentId = input.environmentId ?? null
   if (input.taskId) {
-    if (requestedProjectId ? !projectSubjectPermissionAllowed(agent.principal, requestedProjectId, Permission.executeTasks) : !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', 'The assigned agent needs Execute assigned tasks in this project or its Server role.')
+    if (requestedProjectId ? !projectSubjectPermissionAllowed(agent.principal, requestedProjectId, Permission.executeTasks) : !hasPermission(agent.principal.permissions, Permission.executeTasks)) fail(403, 'agent_task_permission', requestedProjectId
+      ? 'The assigned agent needs Execute assigned tasks in this project or its Server role. Give it the Developer policy in the project.'
+      : 'The assigned agent’s Server role does not allow Execute assigned tasks. Put the task in a project and give the agent the Developer policy there.')
     if (!invoker.principal.isOwner && (requestedProjectId ? !projectPermissionAllowed(invoker, requestedProjectId, Permission.executeTasks) : !hasPermission(invoker.principal.permissions, Permission.executeTasks))) fail(403, 'actor_task_permission', 'You need Execute assigned tasks in this project or your Server role.')
     const admissionTask = await getTask(env, agent, input.taskId)
     if (!admissionTask || admissionTask.assigneeId !== input.agentId) fail(403, 'forbidden', 'Task must be assigned to this agent')

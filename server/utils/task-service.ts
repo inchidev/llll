@@ -26,6 +26,14 @@ async function validateEnvironment(env: L4Env, auth: AuthorizationContext, id: s
   requireResource(auth, 'repositories', repositoryResourceId(item))
 }
 
+/** A task in a project with one connected repository works on it unless it names none or another. */
+async function soleProjectEnvironment(env: L4Env, auth: AuthorizationContext, projectId: string) {
+  const rows = await env.DB.prepare('SELECT environment_id AS id FROM project_repositories WHERE project_id=? AND environment_id IS NOT NULL LIMIT 2').bind(projectId).all<{ id: string }>()
+  const id = rows.results.length === 1 ? rows.results[0]!.id : null
+  if (!id) return null
+  try { await validateEnvironment(env, auth, id); return id } catch { return null }
+}
+
 async function taskProject(env: L4Env, auth: AuthorizationContext, requested: string | null | undefined, environmentId: string | null | undefined) {
   const link = environmentId ? await env.DB.prepare('SELECT project_id AS projectId FROM project_repositories WHERE environment_id=?').bind(environmentId).first<{ projectId: string }>() : null
   const id = requested === undefined ? link?.projectId ?? null : requested
@@ -118,6 +126,7 @@ export async function createTask(
   const db = getDb(env.DB)
   const projectId = await taskProject(env, authorization, input.projectId, input.environmentId)
   requireTaskPermission(authorization, { projectId, boardId }, Permission.writeTasks)
+  const environmentId = input.environmentId !== undefined ? input.environmentId : projectId ? await soleProjectEnvironment(env, authorization, projectId) : null
   for (const dependency of input.dependencyIds) await requireTask(env, dependency, authorization)
   await Promise.all([
     requireBoard(env, boardId),
@@ -142,7 +151,7 @@ export async function createTask(
     position: await nextTaskPosition(env, boardId, status),
     assigneeId: input.assigneeId,
     channelId: input.channelId,
-    environmentId: input.environmentId ?? null,
+    environmentId,
     createdBy: actorId,
     resultSummary: null,
     resultDetails: null,

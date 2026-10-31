@@ -55,9 +55,9 @@ export async function validateTaskAssignee(env: L4Env, assigneeId: string | null
     .where(and(eq(users.id, assigneeId), eq(users.status, 'active'))).limit(1))[0]
   if (!user) fail(400, 'bad_request', 'Active member not found')
   if (user.kind === 'agent') {
-    const agent = (await db.select({ id: agents.userId }).from(agents)
-      .where(and(eq(agents.userId, assigneeId), eq(agents.status, 'active'))).limit(1))[0]
+    const agent = (await db.select({ status: agents.status }).from(agents).where(eq(agents.userId, assigneeId)).limit(1))[0]
     if (!agent) fail(400, 'bad_request', 'Active agent not found')
+    if (agent.status !== 'active') fail(400, 'bad_request', 'This agent is paused. Resume it in Agents before assigning it tasks.')
   }
 }
 
