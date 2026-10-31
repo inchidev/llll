@@ -1,6 +1,7 @@
 import { streamText } from 'ai'
 import { aiFunctions, aiFunctionConfigSchema, modelMeetsRequirement, type AiFunctionId, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
 import { parseAgentModelRef } from '../../shared/agent-providers'
+import { pausedAiFunctions } from '../../shared/features'
 import { readServerSetting } from '../../shared/server-settings'
 import { modelForRun } from '../../workers/ai-runtime'
 import type { L4Env } from '../../workers/env'
@@ -22,7 +23,7 @@ export async function aiFunctionConfig(env: L4Env, id: AiFunctionId): Promise<Ai
 /** Function choices are independent of Agent profiles and the Server default. */
 export async function aiFunctionCatalog(env: L4Env, actorId: string) {
   const catalog = await agentProviderCatalog(env, { actorId, requireTools: false })
-  const functions: AiFunctionDTO[] = await Promise.all(aiFunctions.map(async definition => {
+  const functions: AiFunctionDTO[] = await Promise.all(aiFunctions.filter(definition => !pausedAiFunctions.has(definition.id)).map(async definition => {
     let config: AiFunctionConfig
     try { config = await aiFunctionConfig(env, definition.id) }
     catch { return { ...definition, model: null, available: false, invalid: true } }
