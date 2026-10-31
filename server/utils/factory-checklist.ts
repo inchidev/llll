@@ -27,7 +27,7 @@ export async function factoryChecklist(env: L4Env): Promise<FactoryChecklist> {
         OR EXISTS(SELECT 1 FROM grants g JOIN project_policies pp ON pp.id=g.policy_id
           JOIN project_repositories r ON r.project_id=g.project_id JOIN projects p ON p.id=g.project_id
           WHERE g.agent_id IS NULL AND p.archived_at IS NULL AND (pp.permissions_bitmask & ?1)=?1 AND (g.member_id=u.id OR g.role_id=u.role_id)))) AS access,
-    EXISTS(SELECT 1 FROM factory_workspaces) AS runs`)
+    EXISTS(SELECT 1 FROM agent_runs WHERE task_id IS NOT NULL) AS runs`)
     .bind(work).first<{ providers: number; agents: number; git: number; computers: number; projects: number; repositoryProject: string | null; firstProject: string | null; access: number; runs: number }>()
   const steps: FactoryChecklist['steps'] = {
     // Workers AI or a configured OpenAI-compatible endpoint works without a provider.
