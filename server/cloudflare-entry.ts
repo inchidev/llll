@@ -13,6 +13,7 @@ import { AGENT_GATEWAY_PATH, agentGateway } from './utils/agent-gateway'
 import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 import { renewCloudflareAccess } from './utils/cloudflare-account-access'
 import { requestTiming, timingRequested } from './utils/request-timing'
+import { serverStartupSettled, STARTUP_WAIT_MS } from './utils/server-startup'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
@@ -56,6 +57,8 @@ export default {
 
     // Opt-in measurement, per request on Previews: counts can reveal which branch a request took.
     const timing = timingRequested(env, request) ? requestTiming(env) : null
+    // A request still unanswered after this long says where it waits, for the Worker logs.
+    const stall = setTimeout(() => console.warn('request.stalled', { method: request.method, path: url.pathname, startupSettled: serverStartupSettled(env.DB) }), STARTUP_WAIT_MS)
     const response = await nitroApp.localFetch(url.pathname + url.search, {
       context: {
         waitUntil: (p: Promise<unknown>) => context.waitUntil(p),
@@ -69,7 +72,7 @@ export default {
       method: request.method,
       headers: request.headers,
       body,
-    } as Parameters<typeof nitroApp.localFetch>[1])
+    } as Parameters<typeof nitroApp.localFetch>[1]).finally(() => clearTimeout(stall))
     // A WebSocket upgrade keeps its own Response.
     if (!timing || response.status === 101) return response
     const timed = new Response(response.body, response)

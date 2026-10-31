@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref, toValue } from 'vue'
 import type { useChannelSocket as ChannelSocketFactory } from '../../app/composables/useChannelSocket'
 
-type Listener = (event: { data?: string }) => void
+type Listener = (event: { data?: string; code?: number }) => void
 
 class FakeWebSocket {
   static readonly OPEN = 1
@@ -40,7 +40,13 @@ class FakeWebSocket {
     this.emit('message', { data: JSON.stringify(message) })
   }
 
-  private emit(type: string, event: { data?: string } = {}) {
+  /** The Server closes the socket with a WebSocket close code. */
+  closeWith(code: number) {
+    this.readyState = 3
+    this.emit('close', { code })
+  }
+
+  private emit(type: string, event: { data?: string; code?: number } = {}) {
     for (const listener of this.listeners.get(type) ?? []) listener(event)
   }
 }
@@ -322,6 +328,39 @@ describe('channel read reconnect delivery', () => {
       browser.dispatchEvent(delivered)
       expect(delivered.defaultPrevented).toBe(false)
     } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
+  it('stops reconnecting to a conversation the Server says is gone, and lets the page close', async () => {
+    const browser = new EventTarget()
+    vi.stubGlobal('window', browser)
+    const channel = useChannelSocket(ref('deleted-channel'))
+    try {
+      await flush()
+      channel.send({ t: 'message.create', content: 'lost', clientId: 'pending-1' })
+      FakeWebSocket.instances[0]!.open()
+      FakeWebSocket.instances[0]!.closeWith(4404)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      expect(channel.connection.value).toBe('unavailable')
+      const reload = new Event('beforeunload', { cancelable: true })
+      browser.dispatchEvent(reload)
+      expect(reload.defaultPrevented).toBe(false)
+    } finally { channel.disconnect(); vi.stubGlobal('window', undefined) }
+  })
+
+  it('backs off when the Server keeps closing a socket right after it opens', async () => {
+    const channel = useChannelSocket(ref('channel-1'))
+    try {
+      await flush()
+      for (const wait of [1500, 3000, 6000]) {
+        const socket = FakeWebSocket.instances.at(-1)!
+        socket.open(); socket.closeWith(4001)
+        await vi.advanceTimersByTimeAsync(wait - 1)
+        const before = FakeWebSocket.instances.length
+        await vi.advanceTimersByTimeAsync(1); await flush()
+        expect(FakeWebSocket.instances.length).toBe(before + 1)
+      }
+    } finally { channel.disconnect() }
   })
 
   it('keeps the reload guard until every message is acknowledged and removes it on teardown', async () => {
