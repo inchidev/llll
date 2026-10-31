@@ -170,26 +170,58 @@ export async function generateAvatar(env: L4Env, authorization: AuthorizationCon
   }
 }
 
+/** OpenRouter's input_audio format for a recorded or uploaded voice message. */
+export function openRouterAudioFormat(mediaType: string): string | null {
+  const type = mediaType.split(';')[0]!.trim().toLowerCase()
+  return ({ 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/aiff': 'aiff', 'audio/webm': 'webm' } as Record<string, string>)[type] ?? null
+}
+
+function base64(bytes: Uint8Array) {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
+export type MediaText = { text: string } | { status: 'unset' | 'failed' }
 /**
  * Turn an attachment a chat model cannot take into text with a capable AI
- * function: an image description or a voice transcript. Returns null when the
- * function is not set up or fails, so the caller falls back to a plain notice.
+ * function: an image description or a voice transcript. `unset` means the
+ * function has no model; `failed` means the model could not read this file.
  */
-export async function mediaAsText(env: L4Env, id: 'image.describe' | 'audio.transcribe', actorId: string, file: { bytes: Uint8Array; mediaType: string; name: string }): Promise<string | null> {
+export async function mediaAsText(env: L4Env, id: 'image.describe' | 'audio.transcribe', actorId: string, file: { bytes: Uint8Array; mediaType: string; name: string }, transport: typeof fetch = fetch): Promise<MediaText> {
   let reference: string
   try { reference = await resolveAiFunction(env, id, actorId) }
-  catch { return null }
+  catch { return { status: 'unset' } }
+  const definition = aiFunctions.find(item => item.id === id)!
+  const instruction = id === 'image.describe'
+    ? 'Describe this image for someone who cannot see it: what it shows, any visible text verbatim, and details that matter. Plain text, no preamble.'
+    : 'Transcribe this voice message verbatim in its original language. Plain text only.'
   try {
-    const model = await modelForRun(env, reference, '', actorId)
-    if (typeof model === 'string') return null
-    const definition = aiFunctions.find(item => item.id === id)!
-    const instruction = id === 'image.describe'
-      ? 'Describe this image for someone who cannot see it: what it shows, any visible text verbatim, and details that matter. Plain text, no preamble.'
-      : 'Transcribe this voice message verbatim in its original language. Plain text only.'
-    const result = streamText({ model, maxOutputTokens: definition.maxOutputTokens, abortSignal: AbortSignal.timeout(60_000), maxRetries: 0,
-      messages: [{ role: 'user', content: [{ type: 'text', text: instruction }, id === 'image.describe' ? { type: 'image', image: file.bytes, mediaType: file.mediaType } : { type: 'file', data: file.bytes, mediaType: file.mediaType, filename: file.name }] }] })
-    const text = (await result.text).trim()
-    return text ? text.slice(0, 8000) : null
+    let text: string
+    const saved = id === 'audio.transcribe' ? await resolveSavedAgentModel(env, reference, actorId) : null
+    if (saved?.id === 'openrouter') {
+      // The AI SDK sends only WAV and MP3 audio; OpenRouter chat takes the provider's formats, such as m4a and ogg.
+      const format = openRouterAudioFormat(file.mediaType)
+      if (!format) return { status: 'failed' }
+      const response = await transport('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(60_000),
+        headers: { Authorization: `Bearer ${saved.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: saved.model.id, max_tokens: definition.maxOutputTokens, messages: [{ role: 'user', content: [{ type: 'text', text: instruction }, { type: 'input_audio', input_audio: { data: base64(file.bytes), format } }] }] }),
+      })
+      const body = await readLimitedStream(response.body, 1_000_000)
+      if (!response.ok || !body.ok) return { status: 'failed' }
+      const data = JSON.parse(new TextDecoder().decode(body.bytes)) as { choices?: Array<{ message?: { content?: string | null } }> }
+      text = String(data.choices?.[0]?.message?.content ?? '')
+    }
+    else {
+      const model = await modelForRun(env, reference, '', actorId)
+      if (typeof model === 'string') return { status: 'unset' }
+      const result = streamText({ model, maxOutputTokens: definition.maxOutputTokens, abortSignal: AbortSignal.timeout(60_000), maxRetries: 0,
+        messages: [{ role: 'user', content: [{ type: 'text', text: instruction }, id === 'image.describe' ? { type: 'image', image: file.bytes, mediaType: file.mediaType } : { type: 'file', data: file.bytes, mediaType: file.mediaType, filename: file.name }] }] })
+      text = await result.text
+    }
+    text = text.trim()
+    return text ? { text: text.slice(0, 8000) } : { status: 'failed' }
   }
-  catch { return null }
+  catch { return { status: 'failed' } }
 }

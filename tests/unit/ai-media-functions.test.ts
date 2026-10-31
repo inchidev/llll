@@ -33,11 +33,24 @@ it('draws an avatar with the OpenRouter image model and returns only an inline p
   await expect(generateAvatar(env, authorization, { name: 'Mike' }, remote)).rejects.toMatchObject({ statusCode: 502 })
 })
 
-it('describes or transcribes media for text-only agents, and stays quiet when unset', async () => {
+it('describes or transcribes media for text-only agents, and says when the function is unset', async () => {
   const file = { bytes: new Uint8Array([1, 2, 3]), mediaType: 'image/png', name: 'a.png' }
-  expect(await mediaAsText(env, 'image.describe', 'member', file)).toBe('A red cactus with sunglasses.')
+  expect(await mediaAsText(env, 'image.describe', 'member', file)).toEqual({ text: 'A red cactus with sunglasses.' })
   state.reference = null
-  expect(await mediaAsText(env, 'audio.transcribe', 'member', { ...file, mediaType: 'audio/webm' })).toBeNull()
+  expect(await mediaAsText(env, 'audio.transcribe', 'member', { ...file, mediaType: 'audio/webm' })).toEqual({ status: 'unset' })
+})
+
+it('sends a recorded voice message to OpenRouter in its own format and reports a failed read', async () => {
+  const voice = { bytes: new Uint8Array([1, 2, 3]), mediaType: 'audio/mp4', name: 'voice.m4a' }
+  const transport = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    expect(String(url)).toBe('https://openrouter.ai/api/v1/chat/completions')
+    expect(JSON.parse(String(init?.body))).toMatchObject({ model: 'google/nano-banana', messages: [{ content: [{ type: 'text' }, { type: 'input_audio', input_audio: { data: 'AQID', format: 'm4a' } }] }] })
+    return Response.json({ choices: [{ message: { content: ' pineapple ' } }] })
+  })
+  expect(await mediaAsText(env, 'audio.transcribe', 'member', voice, transport)).toEqual({ text: 'pineapple' })
+  const rejected = vi.fn(async () => new Response('{"error":{"message":"unsupported format"}}', { status: 400 }))
+  expect(await mediaAsText(env, 'audio.transcribe', 'member', { ...voice, mediaType: 'audio/webm' }, rejected)).toEqual({ status: 'failed' })
+  expect(await mediaAsText(env, 'audio.transcribe', 'member', { ...voice, mediaType: 'audio/x-unknown' }, transport)).toEqual({ status: 'failed' })
 })
 
 it('sends the L4 logo and up to three references with a house-style brief', async () => {

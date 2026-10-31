@@ -1,9 +1,11 @@
 export const MAX_AUDIO_RECORDING_MS = 5 * 60 * 1000
 
+// Voice transcription models take MP4/AAC and Ogg, rarely WebM: prefer what they read.
 export const AUDIO_RECORDING_MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
   'audio/mp4;codecs=mp4a.40.2',
   'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/webm;codecs=opus',
   'audio/webm',
 ] as const
 
