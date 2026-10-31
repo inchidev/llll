@@ -23,9 +23,11 @@ export async function expireFactoryActions(env: L4Env) {
 }
 export async function authorizeFactoryAction(env: L4Env, row: ActionRow, actorId?: string) {
   const request = factoryRequest.parse(JSON.parse(row.requestJson))
-  const context = await factoryAuthority(env, row.runId, actorId, request.operation === 'publish')
+  const [context, workspace] = await Promise.all([
+    factoryAuthority(env, row.runId, actorId, request.operation === 'publish'),
+    env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE id=?`).bind(row.workspaceId).first<FactoryWorkspace>(),
+  ])
   if (request.operation === 'exec' && request.networkHosts.length) authorize(context.auth, ServerAction.browseWeb)
-  const workspace = await env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE id=?`).bind(row.workspaceId).first<FactoryWorkspace>()
   const savedPolicy = JSON.parse(row.policyJson)
   if (!workspace || workspace.channelId !== context.run.channelId || workspace.taskId !== context.run.taskId || workspace.agentId !== context.run.agentId || workspace.initiatedBy !== context.run.initiatedBy
     || workspace.environmentJson !== JSON.stringify(context.environment) || workspace.nodeId !== context.environment.computeNodeId

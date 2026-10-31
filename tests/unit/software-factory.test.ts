@@ -13,6 +13,7 @@ import { factoryHash } from '../../server/utils/factory-authority'
 import { findAgentRun, runAuthorization, runCapability } from '../../server/utils/agent-run-service'
 import { executeRunTool, toolsForRun } from '../../server/utils/agent-tools'
 import type { AgentRun } from '../../shared/agent-execution'
+import { sequentialRoundTrips } from '../helpers/round-trips'
 
 const nodeId='00000000-0000-4000-8000-000000000099', image='registry.example/l4@sha256:'+'a'.repeat(64)
 const capabilities={diskBytes:1073741824 as const,docker:true as const,durableDisk:true as const,isolation:'shared-kernel' as const,image,maxParallel:1 as const,protocol:1 as const}
@@ -50,6 +51,17 @@ async function finishBootstrap(){
   expect(started).toMatchObject({repository:'inchidev/afterprompt',baseSha:'a'.repeat(40),sourceToken:'single-repository-read-capability',diskBytes:1073741824})
   await computePoll(f.env,nodeId,{operation:'result',...job,result:{ok:true,exitCode:0,output:'Pinned checkout',runtimeMs:123}})
 }
+it('keeps each Node call to a short chain of database round trips',async()=>{
+  // Every Node request re-authorizes its action and Run. On a remote D1 each round trip in a row costs
+  // tens of milliseconds, and a heartbeat repeats every three seconds; independent reads run together.
+  await factoryToolCall(f.env,run.id,'bootstrap',{operation:'bootstrap'});await approve()
+  let claimed:{job:{id:string,lease:string}|null}|undefined
+  expect(await sequentialRoundTrips(f.env,async env=>{claimed=await computePoll(env,nodeId,{operation:'claim'}) as typeof claimed})).toBeLessThanOrEqual(22)
+  const job=claimed!.job!
+  await computePoll(f.env,nodeId,{operation:'begin',...job})
+  expect(await sequentialRoundTrips(f.env,env=>computePoll(env,nodeId,{operation:'heartbeat',...job}))).toBeLessThanOrEqual(22)
+  expect(await sequentialRoundTrips(f.env,env=>runAuthorization(env,run))).toBeLessThanOrEqual(10)
+})
 it('waits for an exact human decision, delivers one scoped job and deduplicates completed tool calls',async()=>{
   await runAuthorization(f.env,run)
   const call=()=>executeRunTool(f.env, run.id, {callId:'bootstrap',name:'factory_workspace',arguments:{operation:'bootstrap'}},()=>{})

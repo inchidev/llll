@@ -16,45 +16,53 @@ export async function loadAuthorizationContext(
     delegatedActions?: ServerAction[]
   },
 ): Promise<AuthorizationContext | null> {
-  const row = await env.DB.prepare(
-    `SELECT u.id, u.kind, r.id as roleId, r.name as roleName,
-     r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
-     FROM users u
-     JOIN roles r ON r.id = u.role_id
-     JOIN server w ON w.id = ?
-     WHERE u.id = ? AND u.status = 'active'`,
-  ).bind((await getServerId(env.DB)), input.principalId).first<{
-    id: string
-    kind: 'human' | 'agent'
-    roleId: string
-    roleName: string
-    permissions: number
-    resourceAccessJson: string
-    ownerId: string
-  }>()
+  const serverId = await getServerId(env.DB)
+  // The principal and the delegating person are independent reads; their policies come next, together.
+  const [row, delegated] = await Promise.all([
+    env.DB.prepare(
+      `SELECT u.id, u.kind, r.id as roleId, r.name as roleName,
+       r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+       JOIN server w ON w.id = ?
+       WHERE u.id = ? AND u.status = 'active'`,
+    ).bind(serverId, input.principalId).first<{
+      id: string
+      kind: 'human' | 'agent'
+      roleId: string
+      roleName: string
+      permissions: number
+      resourceAccessJson: string
+      ownerId: string
+    }>(),
+    input.delegatedBy
+      ? env.DB.prepare(
+          `SELECT r.id as roleId, r.name as roleName, r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
+           FROM users u
+           JOIN roles r ON r.id = u.role_id
+           JOIN server w ON w.id = ?
+           WHERE u.id = ? AND u.kind = 'human' AND u.status = 'active'`,
+        ).bind(serverId, input.delegatedBy).first<{
+          roleId: string
+          roleName: string
+          permissions: number
+          resourceAccessJson: string
+          ownerId: string
+        }>()
+      : null,
+  ])
   if (!row) return null
   const isOwner = row.ownerId === row.id
-  const delegated = input.delegatedBy
-    ? await env.DB.prepare(
-        `SELECT r.id as roleId, r.name as roleName, r.permissions_bitmask as permissions, r.resource_access_json as resourceAccessJson, w.owner_id as ownerId
-         FROM users u
-         JOIN roles r ON r.id = u.role_id
-         JOIN server w ON w.id = ?
-         WHERE u.id = ? AND u.kind = 'human' AND u.status = 'active'`,
-      ).bind((await getServerId(env.DB)), input.delegatedBy).first<{
-        roleId: string
-        roleName: string
-        permissions: number
-        resourceAccessJson: string
-        ownerId: string
-      }>()
-    : null
   if (input.delegatedBy && !delegated) return null
   const delegatedOwner = Boolean(delegated && delegated.ownerId === input.delegatedBy)
   // Agent access widens what this person may do through this Agent only. The Owner needs none.
-  const agentAccess = delegated && row.kind === 'agent' && !delegatedOwner ? await loadAgentAccess(env, row.id, input.delegatedBy!, delegated.roleId) : undefined
+  const [agentAccess, principalPolicies, delegatedPolicies] = await Promise.all([
+    delegated && row.kind === 'agent' && !delegatedOwner ? loadAgentAccess(env, row.id, input.delegatedBy!, delegated.roleId) : undefined,
+    loadProjectPolicies(env, row.id, row.roleId),
+    input.delegatedBy && delegated ? loadProjectPolicies(env, input.delegatedBy, delegated.roleId) : [],
+  ])
   return {
-    serverId: (await getServerId(env.DB)),
+    serverId,
     principal: {
       id: row.id,
       kind: row.kind,
@@ -63,7 +71,7 @@ export async function loadAuthorizationContext(
       permissions: isOwner ? ALL_PERMISSIONS : row.permissions,
       isOwner,
       resourceAccess: parseResourceAccess(row.resourceAccessJson),
-      projectPolicies: await loadProjectPolicies(env, row.id, row.roleId),
+      projectPolicies: principalPolicies,
     },
     credential: input.credential,
     ...(input.delegatedBy && delegated
@@ -74,7 +82,7 @@ export async function loadAuthorizationContext(
             resourceAccess: parseResourceAccess(delegated.resourceAccessJson),
             isOwner: delegatedOwner,
             roleName: delegated.roleName,
-            projectPolicies: [...await loadProjectPolicies(env, input.delegatedBy, delegated.roleId), ...agentAccess?.projectPolicies ?? []],
+            projectPolicies: [...delegatedPolicies, ...agentAccess?.projectPolicies ?? []],
             ...(agentAccess ? { agentAccess } : {}),
             ...(input.delegatedActions ? { actions: input.delegatedActions } : {}),
           },

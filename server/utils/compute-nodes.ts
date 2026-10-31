@@ -51,11 +51,11 @@ export async function disableComputeNode(env: L4Env, auth: AuthorizationContext,
   ])
 }
 export async function requireComputeNode(env: L4Env, credential: string, transport: 'direct' | 'lizard' = 'direct') {
-  const node = await env.DB.prepare('SELECT id,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE token_hash=? AND enabled=1').bind(await factoryHash(credential)).first<{ id: string; capabilitiesJson: string }>()
+  // One round trip finds the Node and records that it was seen; a refused transport still counts as seen.
+  const node = await env.DB.prepare('UPDATE compute_nodes SET last_seen=? WHERE token_hash=? AND enabled=1 RETURNING id,capabilities_json AS capabilitiesJson').bind(nowIso(), await factoryHash(credential)).first<{ id: string; capabilitiesJson: string }>()
   if (!node) fail(403, 'compute_revoked', 'Compute Node authorization unavailable')
   const provider = JSON.parse(node.capabilitiesJson).provider
   if ((provider === 'lizard') !== (transport === 'lizard')) fail(403, 'compute_transport_denied', 'Compute Node transport does not match its provider')
-  await env.DB.prepare('UPDATE compute_nodes SET last_seen=? WHERE id=?').bind(nowIso(), node.id).run()
   return node
 }
 export const computePollSchema = z.discriminatedUnion('operation', [
