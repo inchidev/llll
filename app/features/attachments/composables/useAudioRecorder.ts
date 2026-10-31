@@ -1,4 +1,4 @@
-import { audioFileExtension, MAX_AUDIO_RECORDING_MS, selectAudioRecordingMime } from '~~/shared/audio'
+import { audioFileExtension, MAX_AUDIO_RECORDING_MS, pcm16Wav, selectAudioRecordingMime, SPEECH_SAMPLE_RATE } from '~~/shared/audio'
 
 type AudioRecorderOptions = {
   onRecorded: (file: File) => void
@@ -10,6 +10,25 @@ function microphoneErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') return 'Microphone access was denied'
   if (error instanceof DOMException && error.name === 'NotFoundError') return 'No microphone was found'
   return 'Could not start audio recording'
+}
+
+/**
+ * Transcription models differ in the compressed formats they take (one rejects m4a, another WebM),
+ * but all read WAV. A recording becomes 16 kHz mono WAV; if the browser cannot decode it, it stays as recorded.
+ */
+async function speechWav(blob: Blob): Promise<Blob | null> {
+  if (typeof OfflineAudioContext === 'undefined') return null
+  try {
+    const decoded = await new AudioContext().decodeAudioData(await blob.arrayBuffer())
+    const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * SPEECH_SAMPLE_RATE)), SPEECH_SAMPLE_RATE)
+    const source = offline.createBufferSource()
+    source.buffer = decoded
+    source.connect(offline.destination)
+    source.start()
+    const rendered = await offline.startRendering()
+    return new Blob([pcm16Wav(rendered.getChannelData(0))], { type: 'audio/wav' })
+  }
+  catch { return null }
 }
 
 export function useAudioRecorder(options: AudioRecorderOptions) {
@@ -86,14 +105,17 @@ export function useAudioRecorder(options: AudioRecorderOptions) {
         if (next.state === 'recording') next.stop()
         else reset()
       })
-      next.addEventListener('stop', () => {
-        const type = next.mimeType || chunks[0]?.type || 'audio/webm'
-        const blob = new Blob(chunks, { type })
+      next.addEventListener('stop', async () => {
+        const recorded = next.mimeType || chunks[0]?.type || 'audio/webm'
+        const blob = new Blob(chunks, { type: recorded })
         const shouldKeep = !cancelled && blob.size > 0 && !disposed
         reset()
         if (!shouldKeep) return
+        const wav = await speechWav(blob)
+        if (disposed) return
+        const type = wav ? 'audio/wav' : recorded
         const stamp = new Date().toISOString().replaceAll(':', '-').replace(/\.\d{3}Z$/, 'Z')
-        options.onRecorded(new File([blob], `audio-${stamp}.${audioFileExtension(type)}`, { type }))
+        options.onRecorded(new File([wav ?? blob], `audio-${stamp}.${audioFileExtension(type)}`, { type }))
       })
 
       next.start(1000)
