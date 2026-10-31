@@ -51,8 +51,8 @@ async function finishBootstrap(){
   await computePoll(f.env,nodeId,{operation:'result',...job,result:{ok:true,exitCode:0,output:'Pinned checkout',runtimeMs:123}})
 }
 it('waits for an exact human decision, delivers one scoped job and deduplicates completed tool calls',async()=>{
-  const authorization=await runAuthorization(f.env,run)
-  const call=()=>executeRunTool(f.env,run.id,authorization,{callId:'bootstrap',name:'factory_workspace',arguments:{operation:'bootstrap'}},()=>{})
+  await runAuthorization(f.env,run)
+  const call=()=>executeRunTool(f.env, run.id, {callId:'bootstrap',name:'factory_workspace',arguments:{operation:'bootstrap'}},()=>{})
   expect(await call()).toMatchObject({factoryPending:true,status:'pending'})
   expect(await computePoll(f.env,nodeId,{operation:'claim'})).toEqual({job:null})
   const row=await action()
@@ -297,8 +297,8 @@ it('persists a rejected invocation in the private Run audit and returns a correc
   expect((await findAgentRun(f.env, run.id))?.status).toBe('running')
 })
 it('keeps one audit row while polling an approval and settles it with the exact provider receipt', async () => {
-  const authorization = await runAuthorization(f.env, run)
-  const call = () => executeRunTool(f.env, run.id, authorization, { callId: 'bootstrap', name: 'factory_workspace', arguments: { operation: 'bootstrap', body: 'ignored' } }, () => {})
+  await runAuthorization(f.env, run)
+  const call = () => executeRunTool(f.env, run.id, { callId: 'bootstrap', name: 'factory_workspace', arguments: { operation: 'bootstrap', body: 'ignored' } }, () => {})
   expect(await call()).toMatchObject({ factoryPending: true })
   expect(await call()).toMatchObject({ factoryPending: true })
   expect(f.db.prepare('SELECT status FROM agent_run_tools WHERE run_id=? AND call_id=?').get(run.id, 'bootstrap')).toMatchObject({ status: 'pending' })

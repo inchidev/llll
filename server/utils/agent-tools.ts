@@ -263,10 +263,24 @@ export async function toolsForRun(env: L4Env, authorization: AuthorizationContex
   return { ...tools, descriptors: tools.descriptors.filter(tool => ['search_tools', 'get_tool_details'].includes(tool.name) || visible.has(tool.name)) }
 }
 
-export async function executeRunTool(env: L4Env, runId: string, authorization: AuthorizationContext, input: { callId: string; name: string; arguments: unknown }, schedule: (promise: Promise<unknown>) => void, signal?: AbortSignal) {
+/**
+ * A running Factory action is polled with the same call. Wait here, with one cheap read every half
+ * second, until the Node finishes it, instead of returning to the agent for another full tool call.
+ * An action awaiting a person's approval returns at once.
+ */
+export async function factoryActionSettled(env: L4Env, runId: string, callId: string, signal?: AbortSignal, waitMs = 20000) {
+  for (const until = Date.now() + waitMs; Date.now() < until && !signal?.aborted;) {
+    const row = await env.DB.prepare('SELECT status FROM factory_actions WHERE run_id=? AND call_id=?').bind(runId, callId).first<{ status: string }>()
+    if (!row || !['approved', 'claimed', 'executing'].includes(row.status)) return
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+}
+
+/** Authorizes the Run once, against current roles and grants, then runs or resumes one tool call. */
+export async function executeRunTool(env: L4Env, runId: string, input: { callId: string; name: string; arguments: unknown }, schedule: (promise: Promise<unknown>) => void, signal?: AbortSignal) {
   const currentRun = await findAgentRun(env, runId)
   if (!currentRun || currentRun.status !== 'running') fail(403, 'run_revoked', 'Run is no longer active')
-  await runAuthorization(env, currentRun)
+  const authorization = await runAuthorization(env, currentRun)
   const encoded = JSON.stringify(input.arguments)
   const policy = JSON.stringify({ principal: authorization.principal, delegation: authorization.delegation })
   const existing = await env.DB.prepare('SELECT name,arguments_json as argumentsJson,policy_json as policyJson,status,result_json as resultJson FROM agent_run_tools WHERE run_id=? AND call_id=?')
@@ -276,6 +290,7 @@ export async function executeRunTool(env: L4Env, runId: string, authorization: A
     // Factory polling observes the same immutable request; it never replays an effect.
     if (input.name === 'factory_workspace') {
       if (existing.policyJson !== policy) fail(403, 'call_revoked', 'The call authorization changed')
+      await factoryActionSettled(env, runId, input.callId, signal)
       await guardRunTool(env, currentRun, input.name, input.callId)
       const value = await factoryToolCall(env, runId, input.callId, input.arguments)
       await env.DB.prepare('UPDATE agent_run_tools SET status=?,result_json=? WHERE run_id=? AND call_id=?')

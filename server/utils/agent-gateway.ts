@@ -140,12 +140,15 @@ export async function agentGateway(request: Request, env: L4Env, runId: string, 
   const body = await readLimitedStream(request.body, 256000)
   if (!body.ok) return new Response('Invalid request size', { status: 413 })
   try {
-    const authorization = await runAuthorization(env, run)
     const input: unknown = JSON.parse(new TextDecoder().decode(body.bytes))
-    if (operation === 'v1/chat/completions') return await modelResponse(env, run, modelRequest.parse(input), request.signal)
+    if (operation === 'v1/chat/completions') {
+      await runAuthorization(env, run)
+      return await modelResponse(env, run, modelRequest.parse(input), request.signal)
+    }
     if (operation === 'tools') {
+      // executeRunTool authorizes the Run itself, once per call.
       const call = z.object({ callId: z.string().min(1).max(200), name: z.string().min(1).max(64), arguments: z.unknown() }).parse(input)
-      return Response.json(await executeRunTool(env, run.id, authorization, call, schedule, request.signal))
+      return Response.json(await executeRunTool(env, run.id, call, schedule, request.signal))
     }
     return new Response('Unknown operation', { status: 404 })
   } catch (error) {

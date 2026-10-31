@@ -62,14 +62,14 @@ it('shares the model budget across the original run and delegated work', async (
   expect(f.db.prepare('SELECT SUM(model_calls) AS calls FROM agent_runs').get()!.calls).toBe(2)
 })
 it('waits on the same delegated run and returns its result without creating duplicates', async () => {
-  const auth = await runAuthorization(f.env, parent)
+  await runAuthorization(f.env, parent)
   const call = { callId: 'delegate-once', name: 'delegate_task', arguments: { taskId: childTaskId } }
-  const first = await executeRunTool(f.env, parent.id, auth, call, () => {}) as { runId: string; delegationPending: boolean }
+  const first = await executeRunTool(f.env, parent.id, call, () => {}) as { runId: string; delegationPending: boolean }
   expect(first.delegationPending).toBe(true)
-  const waiting = await executeRunTool(f.env, parent.id, auth, call, () => {})
+  const waiting = await executeRunTool(f.env, parent.id, call, () => {})
   expect(waiting).toMatchObject({ runId: first.runId, delegationPending: true })
   f.db.prepare("UPDATE agent_runs SET status='completed',result_text='Implementation verified' WHERE id=?").run(first.runId)
-  expect(await executeRunTool(f.env, parent.id, auth, call, () => {})).toMatchObject({ runId: first.runId, delegationPending: false, result: 'Implementation verified' })
+  expect(await executeRunTool(f.env, parent.id, call, () => {})).toMatchObject({ runId: first.runId, delegationPending: false, result: 'Implementation verified' })
   expect(f.db.prepare('SELECT count(*) AS n FROM agent_runs WHERE agent_id=?').get(developer)!.n).toBe(1)
 })
 it('admits a distinct reviewed attempt while deduplicating each attempt', async () => {
