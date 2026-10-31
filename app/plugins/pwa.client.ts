@@ -26,12 +26,14 @@ export default defineNuxtPlugin((nuxtApp) => {
       if (registration?.active && registration.active === activating && navigator.serviceWorker.controller === activating) { finishUpdate(); return }
       // A newer version is still downloading; it takes over the request once installed.
       if (registration?.installing) { activationTimer = setTimeout(expire, 15_000); return }
-      // skipWaiting was accepted, but the open page still holds work on the old worker, so
-      // Chrome defers the switch. Leaving the page releases that work and the new worker takes it.
-      if (activating?.state === 'installed' || activating?.state === 'activating') { finishUpdate(); return }
       updating.value = false
       reloadRequested = false
-      error.value = 'The update is taking longer than expected. Please try again.'
+      // skipWaiting was accepted, but Chrome defers the switch while the old worker still has work,
+      // which another open L4 tab or window holds. Reloading here waits on that switch and leaves
+      // the tab unresponsive, so the person closes the other tabs instead.
+      error.value = activating?.state === 'installed' || activating?.state === 'activating'
+        ? 'Close other L4 tabs and windows to finish the update. If this is the only one, close it and open L4 again.'
+        : 'The update is taking longer than expected. Please try again.'
     }
     activationTimer = setTimeout(expire, 15_000)
     try { worker.postMessage({ type: 'ACTIVATE_UPDATE' }) }
