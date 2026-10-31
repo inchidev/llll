@@ -134,7 +134,8 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
           const signal = context.abortSignal ?? host.signal
           if (signal?.aborted) { reject(new Error('Run cancelled')); return }
           const stop = () => { clearTimeout(timer); reject(new Error('Run cancelled')) }
-          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, 2000)
+          // The Server holds a Factory poll until the Node answers; delegated Runs are checked less often.
+          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, definition.name === 'factory_workspace' ? 250 : 2000)
           signal?.addEventListener('abort', stop, { once: true })
         })
       }

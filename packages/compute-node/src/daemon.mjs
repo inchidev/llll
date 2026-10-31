@@ -143,7 +143,7 @@ for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;ac
 while(!stopping){
   try {
     const {job:claim}=await poll({operation:'claim'})
-    if(!claim){await delay(2000);continue}
+    if(!claim){await delay(1000);continue}
     if(!/^[a-f0-9-]{36}$/u.test(claim.id)||!/^[a-f0-9]{64}$/u.test(claim.lease))throw new Error('Invalid Node job lease')
     const controller=new AbortController();active=controller
     const heartbeat=setInterval(()=>{void poll({operation:'heartbeat',...claim}).catch(()=>controller.abort())},3000)

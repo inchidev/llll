@@ -10,6 +10,7 @@ import { saveAgentProvider } from '../../server/utils/agent-providers'
 import { writeServerSetting } from '../../shared/server-settings'
 import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
+import { requestTiming } from '../../server/utils/request-timing'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
 const agentId = '00000000-0000-4000-8000-000000000002'
@@ -138,14 +139,14 @@ describe('Pi run authorization', () => {
     await saveAgentProvider(env, 'research', connection)
     await writeServerSetting(env.DB, 'ai.function.web.search', '{"model":"l4:research:model"}')
     db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
-    const authorization = await runAuthorization(env, run)
+    await runAuthorization(env, run)
     const replayCall = { callId: 'discovery-replay', name: 'search_tools', arguments: { query: 'research' } }
-    await executeRunTool(env, run.id, authorization, replayCall, () => {})
+    await executeRunTool(env, run.id, replayCall, () => {})
     const available = await discover()
     expect(available).toMatchObject({ tools: [] })
     expect(JSON.stringify(available)).not.toContain(connection.apiKey)
     await saveAgentProvider(env, 'research', { ...connection, enabled: false })
-    await expect(executeRunTool(env, run.id, authorization, replayCall, () => {})).resolves.toMatchObject({ tools: [] })
+    await expect(executeRunTool(env, run.id, replayCall, () => {})).resolves.toMatchObject({ tools: [] })
     expect(await discover()).toMatchObject({ tools: [] })
     const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
     await expect(tools.call('get_tool_details', { name: 'search_web', purpose: 'Research' })).rejects.toMatchObject({ statusCode: 403 })
@@ -188,6 +189,16 @@ describe('Pi run authorization', () => {
       expect(names).not.toContain(name)
       await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
     }
+  })
+
+  it('authorizes a gateway tool call once', async () => {
+    const run = await createAgentRun(env, (await start())!, input())
+    db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    const timing = requestTiming(env)
+    const response = await agentGateway(new Request('http://server/tools', { method: 'POST', headers: { Authorization: `Bearer ${await runCapability(env, run.id)}` }, body: JSON.stringify({ callId: 'c1', name: 'list_tasks', arguments: {} }) }), timing.env, run.id, 'tools', () => {})
+    expect(response.status).toBe(200)
+    // One Run authorization is 24 statements here; computing it twice took 67 in all.
+    expect(timing.summary().d1).toBeLessThan(50)
   })
 
   it('does not replay a tool whose outcome is uncertain', async () => {

@@ -179,3 +179,15 @@ it('retries the bridge within seconds after a failure while a Node is connected'
  expect(await object.status()).toMatchObject({phase:'ready'})
  expect(storage.setAlarm).toHaveBeenLastCalledWith(1002000)
 })
+it('keeps listening to the relay between alarms while a Run uses the Node',async()=>{
+ const {object}=instance()
+ await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
+ const {run}=await f.run()
+ f.db.prepare('UPDATE agent_runs SET status=?,environment_json=?,deadline=? WHERE id=?').run('running',JSON.stringify({computeNodeId:node}),'2099-01-01T00:00:00.000Z',run.id)
+ vi.mocked(bridge.serviceLizardBridge).mockClear()
+ // Nothing queued at first; a Node request arrives shortly after.
+ vi.mocked(bridge.serviceLizardBridge).mockResolvedValueOnce({processed:false}).mockResolvedValueOnce({processed:false}).mockResolvedValueOnce({processed:true,accepted:true}).mockResolvedValue({processed:false})
+ await object.alarm()
+ expect(vi.mocked(bridge.serviceLizardBridge).mock.calls.length).toBeGreaterThanOrEqual(4)
+ expect(await object.status()).toMatchObject({phase:'ready'})
+})

@@ -65,16 +65,19 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.principal.projectPolicies = retainPolicies(auth.principal.projectPolicies, mandate.agentProjectPolicies)
   auth.delegation.projectPolicies = retainPolicies(auth.delegation.projectPolicies, mandate.initiatorProjectPolicies)
   if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: repositoryResourceId(JSON.parse(run.environmentJson) as RunEnvironment) } : {}) }
-  const actor = await env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>()
-  const profile = await env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>()
+  // Independent checks run together: each is a database round trip on every model and tool call.
+  const [actor, profile] = await Promise.all([
+    env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>(),
+    env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>(),
+  ])
   if (!actor || actor.kind !== 'human' || !profile || !agentInvocationAllowed(profile.access, auth.delegation, mandate.projectId)) fail(403, 'run_revoked', 'Agent access was revoked')
   if (profile.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
-  for (const id of [run.agentId, run.initiatedBy]) {
+  await Promise.all([run.agentId, run.initiatedBy].map(async id => {
     const row = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'")
       .bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
     if (!row) fail(403, 'run_revoked', 'Member unavailable')
     await requireChannelAccessForMember(env, requireMemberForUser(env, row, auth.serverId), run.channelId, Permission.sendMessages)
-  }
+  }))
   if ((auth.principal.permissions & mandate.agentPermissions) !== mandate.agentPermissions
     || (!auth.delegation.isOwner && ((auth.delegation.permissions! & mandate.permissions) !== mandate.permissions))
     || !resourceAccessWithin(mandate.agentResourceAccess ?? {}, auth.principal.resourceAccess)

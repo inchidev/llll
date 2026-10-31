@@ -36,7 +36,7 @@ it('executes an explicitly granted read tool within the Run', async () => {
   const c = await toolCall(connection.id)
   expect(c.tool.provenance?.connectionId).toBe(connection.id)
   const call = { callId: 'read-once', name: c.tool.name, arguments: { query: 'Workers' } }
-  await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).resolves.toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation' })
+  await expect(executeRunTool(f.env, c.run.id, call, () => {})).resolves.toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation' })
   expect(remote.calls.filter(call => call.method === 'tools/call')).toHaveLength(1)
   const result = await c.tools.call(c.tool.name, call.arguments)
   expect(result).toMatchObject({ connection: { id: connection.id }, tool: 'search_cloudflare_documentation', content: [{ type: 'text', text: expect.stringContaining('Verified source') }] })
@@ -83,7 +83,7 @@ it('blocks disabled connections, cached result replay and later re-enabling with
   const result = await c.tools.call(c.tool.name, call.arguments)
   f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,policy_json,status,result_json,created_at) VALUES(?,?,?,?,?,'completed',?,?)").run(c.run.id, call.callId, call.name, JSON.stringify(call.arguments), JSON.stringify({ principal: c.authorization.principal, delegation: c.authorization.delegation }), JSON.stringify(result), new Date().toISOString())
   await saveMcpConnection(f.env, await f.actor(), f.input({ enabled: false }), connection.id)
-  await expect(executeRunTool(f.env, c.run.id, c.authorization, call, () => {})).rejects.toMatchObject({ statusCode: 403 })
+  await expect(executeRunTool(f.env, c.run.id, call, () => {})).rejects.toMatchObject({ statusCode: 403 })
   await saveMcpConnection(f.env, await f.actor(), f.input({ enabled: true }), connection.id)
   expect((await toolsForRun(f.env, c.authorization, () => {}, c.run)).descriptors.some(tool => tool.name.startsWith('mcp_'))).toBe(false)
 })

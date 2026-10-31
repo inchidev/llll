@@ -14,7 +14,7 @@ const uuid = z.string().uuid(), token = z.string().regex(/^[a-f0-9]{64}$/u)
 type Phase = 'volume' | 'volume_creating' | 'volume_uncertain' | 'vm' | 'vm_creating' | 'vm_uncertain' | 'bootstrap' | 'booting' | 'pairing' | 'ready' | 'stopping' | 'stopped' | 'discarding' | 'failed'
 type State = { workspaceId: string; phase: Phase; createdAt: number; vmAttemptedAt?: number; pairingAt?: number; expiresAt?: number; volumeId?: string; sandboxId?: string; nodeId?: string; image?: string; secret?: EncryptedSecret; idleSince?: number; error?: string; retainedStorage?: boolean; stopRequested?: boolean; paused?: boolean }
 type Secrets = { pairing?: string; relayKey?: string; accessToken?: string; hostname?: string }
-const delay = 1000, setupExpiry = 10 * 60_000, idleExpiry = 120_000, bridgeBudget = 8000
+const delay = 1000, setupExpiry = 10 * 60_000, idleExpiry = 120_000, bridgeBudget = 8000, bridgeIdle = 2000, bridgePause = 250
 const storageUncertain = 'Storage removal outcome is uncertain; check it again before starting.'
 const randomSecret = () => [...crypto.getRandomValues(new Uint8Array(32))].map(x => x.toString(16).padStart(2,'0')).join('')
 
@@ -31,6 +31,9 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
       }
       await storage.put('state', state)
     })
+  }
+  private async activeRun(nodeId: string) {
+    return Boolean(await this.env.DB.prepare("SELECT 1 FROM agent_runs WHERE status='running' AND deadline>? AND json_extract(environment_json,'$.computeNodeId')=? LIMIT 1").bind(nowIso(), nodeId).first())
   }
   private async secrets(state: State): Promise<Secrets> {
     if (!this.env.AUTH_SECRET || !state.secret) return {}
@@ -213,11 +216,15 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
         // Drain the relay queue: a Node's heartbeats, begin and result calls arrive together, and its
         // relay answers 504 after 14 seconds, which stops the running operation.
         const persist = async (nodeId: string) => { pairingState.nodeId = nodeId; await this.save(pairingState) }
-        let result = await serviceLizardBridge(this.env, connection, state.nodeId, persist)
-        for (const until = Date.now() + bridgeBudget; result.processed && !result.nodeId && Date.now() < until;) {
+        let result: { processed: boolean; accepted?: boolean; nodeId?: string } = await serviceLizardBridge(this.env, connection, state.nodeId, persist)
+        // While a Run uses this Node, keep listening between alarms: each Factory operation needs
+        // several relayed calls (claim, begin, heartbeats, result), and an alarm comes only every second.
+        const busy = state.phase === 'ready' && state.nodeId ? await this.activeRun(state.nodeId) : false
+        for (const until = performance.now() + bridgeBudget, idleUntil = performance.now() + bridgeIdle; !result.nodeId && (result.processed || busy) && performance.now() < until;) {
           const next = await serviceLizardBridge(this.env, connection, state.nodeId, persist)
-          if (!next.processed) break
-          result = { ...next, accepted: result.accepted || next.accepted }
+          if (next.processed) { result = { ...next, accepted: result.accepted || next.accepted }; continue }
+          if (!busy || performance.now() >= idleUntil) break
+          await new Promise(resolve => setTimeout(resolve, bridgePause))
         }
         state.stopRequested ||= (await this.current())?.stopRequested
         const paired = result.processed && result.nodeId ? result.nodeId : state.phase === 'pairing' && state.nodeId && result.processed && result.accepted ? state.nodeId : null
@@ -228,7 +235,7 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
         if (state.stopRequested) state.phase = 'stopping'
         if (state.phase === 'pairing' && Date.now() > (state.pairingAt ?? state.createdAt) + 90000) { state.phase = 'stopping'; state.error = 'Compute did not connect; the VM is being cleaned up.'; await this.save(state) }
         if (state.phase === 'ready' && state.nodeId) {
-          const active = await this.env.DB.prepare("SELECT 1 FROM agent_runs WHERE status='running' AND deadline>? AND json_extract(environment_json,'$.computeNodeId')=? LIMIT 1").bind(nowIso(), state.nodeId).first()
+          const active = await this.activeRun(state.nodeId)
           if (active) state.idleSince = undefined
           else state.idleSince ??= Date.now()
           if (active && state.sandboxId && Date.now() > (state.expiresAt ?? 0) - 60000) state.expiresAt = (await extendLizardSandbox(this.env, state.sandboxId, state.workspaceId)).expiresAt
