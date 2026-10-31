@@ -96,7 +96,7 @@ function retryLoad() {
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
-    <LayoutPageHeader icon="i-ph-file-text" :title="activeDocument ? (title || 'Untitled') : 'Documents'">
+    <LayoutPageHeader icon="i-ph-file-text" :title="activeDocument ? (title || activeDocument.title) : 'Documents'">
       <template #actions>
         <span v-if="activeDocument" class="text-xs text-dimmed">{{ saving ? 'Saving…' : saveError ? 'Not saved' : dirty ? 'Unsaved' : 'Saved' }}</span>
         <DataBookmarkButton v-if="activeDocument" :server-id="serverId" target-type="document" :target-id="activeDocument.id" />
