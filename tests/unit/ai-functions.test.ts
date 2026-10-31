@@ -52,9 +52,12 @@ it('requires explicit web-search enablement and respects later revocation', asyn
 })
 it('never borrows another Member’s personal subscription', async () => {
   await writeServerSetting(env.DB, 'agents.provider.personal', JSON.stringify({ kind: 'chatgpt', name: 'Private', enabled: true, connectedBy: 'owner', secret: {}, models: [{ id: 'model', api: 'responses' }] }))
-  await saveAiFunction(env, authorization, 'apps.assist', { model: 'l4:personal:model' })
-  expect((await aiFunctionCatalog(env, 'member')).functions.find(entry => entry.id === 'apps.assist')?.available).toBe(false)
-  await expect(resolveAiFunction(env, 'apps.assist', 'member')).rejects.toMatchObject({ statusCode: 409 })
+  await saveAiFunction(env, authorization, 'thread.title', { model: 'l4:personal:model' })
+  expect((await aiFunctionCatalog(env, 'member')).functions.find(entry => entry.id === 'thread.title')?.available).toBe(false)
+  await expect(resolveAiFunction(env, 'thread.title', 'member')).rejects.toMatchObject({ statusCode: 409 })
+})
+it('leaves the paused Apps function out of Settings', async () => {
+  expect((await aiFunctionCatalog(env, 'owner')).functions.map(entry => entry.id)).not.toContain('apps.assist')
 })
 it('keeps invalid stored assignments closed instead of guessing a fallback', async () => {
   await writeServerSetting(env.DB, aiFunctionKey('apps.assist'), 'not json')
