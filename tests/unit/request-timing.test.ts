@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { expect, it } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
-import { requestTiming } from '../../server/utils/request-timing'
+import { requestTiming, timingRequested } from '../../server/utils/request-timing'
 import { getServerId } from '../../shared/server-id'
 import type { L4Env } from '../../workers/env'
 
@@ -58,4 +58,26 @@ it('keeps per-isolate caches keyed on the real database', async () => {
   const timing = requestTiming(env)
   expect(await getServerId(timing.env.DB)).toBe('00000000-0000-4000-8000-000000000001')
   expect(timing.summary().d1).toBe(0)
+})
+
+it('measures only requests that ask for it, and only where SERVER_TIMING allows it', () => {
+  const on = { SERVER_TIMING: '1' }, ask = (headers: Record<string, string>) => new Request('https://team.example/api/me', { headers })
+  expect(timingRequested(on, ask({}))).toBe(false)
+  expect(timingRequested(on, ask({ 'L4-Timing': '1' }))).toBe(true)
+  expect(timingRequested(on, ask({ Cookie: 'session=x; l4_timing=1' }))).toBe(true)
+  expect(timingRequested(on, ask({ Cookie: 'l4_timing=10' }))).toBe(false)
+  expect(timingRequested({}, ask({ 'L4-Timing': '1', Cookie: 'l4_timing=1' }))).toBe(false)
+})
+
+it('keeps the header ASCII when D1 reports its region', async () => {
+  const { env } = fixture()
+  const real = env.DB
+  env.DB = { prepare: (sql: string) => {
+    const statement = real.prepare(sql)
+    return { ...statement, bind: () => statement, first: async () => ({ ...(await statement.first()), meta: { duration: 0.3, served_by_region: 'APAC', served_by_primary: true } }) }
+  } } as unknown as L4Env['DB']
+  const timing = requestTiming(env)
+  await timing.env.DB.prepare('SELECT id FROM t').first()
+  expect(timing.header()).toContain('desc="1 statements in APAC"')
+  expect(timing.header()).toMatch(/^[\x20-\x7e]*$/u)
 })

@@ -15,7 +15,7 @@ Native Preview behavior for the Server Worker:
 - If unpublished D1 migrations change during a PR, `LLLL_PREVIEW_DATABASE` can select a fresh database under that PR's prefix. Workers Builds creates and migrates it. The old D1 and backup objects stay available for inspection; customer databases never use this override. The main Preview Build removes them once the PR is closed.
 - **Migrations** run in the Build with `wrangler d1 migrations apply DB --remote` against the Preview's bound database before `wrangler preview` uploads.
 - **Owner without a claim.** With the optional build secret `LLLL_PREVIEW_ADMIN_PASSWORD` (at least 12 characters), every Preview Server whose database has no Owner yet creates one at first request: sign in as `LLLL_PREVIEW_ADMIN_EMAIL` (default `owner@example.com`) with that password, the same way `ADMIN_PASSWORD` works for Docker and Coolify. Without it, claim the Owner with the setup token. An existing Owner is never changed.
-- **Vars and secrets are not inherited from production.** The Preview declares `PUBLIC_ORIGIN`, `ADMIN_EMAIL`, `AUTH_REGISTRATION_MODE`, `EMBED_ORIGINS`, `ACCOUNT_ID` and `SERVER_TIMING`; `AUTH_SECRET` and the owner claim come from private Preview secrets. The Build reads Cloudflare’s assigned custom Preview URL and declares it as `PUBLIC_ORIGIN`, so discovery and sessions use the actual address. It repairs only the placeholder left by older staging scripts.
+- **Vars and secrets are not inherited from production.** The Preview declares `PUBLIC_ORIGIN`, `ADMIN_EMAIL`, `AUTH_REGISTRATION_MODE`, `EMBED_ORIGINS`, `ACCOUNT_ID` and `SERVER_TIMING` ([request timing](#request-timing)); `AUTH_SECRET` and the owner claim come from private Preview secrets. The Build reads Cloudflare’s assigned custom Preview URL and declares it as `PUBLIC_ORIGIN`, so discovery and sessions use the actual address. It repairs only the placeholder left by older staging scripts.
 - Server Previews use `<preview-slug>.server-preview.llll.gg`. The Git Build first deploys a 404-only staging parent with no data bindings, then creates the native Preview; Cloudflare requires a parent deployment before attaching a custom domain. Base routing at `server-preview.llll.gg` and all workers.dev URLs remain disabled. One shared Preview domain serves every PR; no per-PR custom domain is created. The script verifies discovery at the returned URL. Previews are public by default; put Cloudflare Access in front of `llll-server` if review traffic must be restricted, and allow the identity provider on the Preview addresses.
 - Cron triggers, routes and queue consumers target only the production instance. Service bindings inside a Preview call the production service.
 - Limits: 500 Previews per Worker (Paid) and 100 deployments per Preview; PR churn stays low-retention because DO state and bindings die with each Preview.
@@ -43,13 +43,13 @@ For `llll` the production step stays first and remains a no-op without a newer p
 
 ## Request timing
 
-Server Previews set `SERVER_TIMING=1`. Every app response then carries a `Server-Timing` header, shown in the browser's Network → Timing panel, and Workers Logs get one `request.timing` line per request:
+Server Previews set `SERVER_TIMING=1`, which allows measurement but does not turn it on. A request asks for it with an `L4-Timing: 1` header; in a browser, run `document.cookie = 'l4_timing=1; path=/'` on the Preview and reload, and remove the cookie when done. Measured responses carry a `Server-Timing` header, shown in the browser's Network → Timing panel, and Workers Logs get one `request.timing` line per measured request:
 
 - `d1`: time spent waiting on D1 and the number of statements, with the region that served them. `d1-sql` is the part D1 spent executing SQL; the difference is network and queueing.
 - `do`: time and number of Durable Object calls.
 - `app`: the whole request inside the Worker. `cold` marks the first request an isolate served.
 
-Waits are summed, so parallel calls overlap. Many short `d1` statements with a small `d1-sql` mean round trips dominate. A `cf-placement` response header shows whether Smart Placement moved the Worker. Production and customer Servers leave this off: the header shows how much work a request did, which can reveal which path it took.
+Other requests run on the unwrapped D1 and Durable Object bindings, and WebSocket upgrades are never wrapped. Waits are summed, so parallel calls overlap. Many short `d1` statements with a small `d1-sql` mean round trips dominate. A `cf-placement` response header shows whether Smart Placement moved the Worker. Production and customer Servers leave this off: the header shows how much work a request did, which can reveal which path it took.
 
 ## Local fixture
 

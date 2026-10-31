@@ -8,6 +8,17 @@ type D1Meta = { duration?: number; served_by_region?: string; served_by_primary?
 let warm = false
 
 /**
+ * SERVER_TIMING=1 only allows measurement. A request asks for it with an
+ * `L4-Timing: 1` header, or a browser with an `l4_timing=1` cookie, so normal
+ * traffic runs on the unwrapped bindings.
+ */
+export function timingRequested(env: Pick<L4Env, 'SERVER_TIMING'>, request: Request): boolean {
+  if (env.SERVER_TIMING !== '1') return false
+  if (request.headers.get('L4-Timing') === '1') return true
+  return (request.headers.get('Cookie') ?? '').split(';').some(part => part.trim() === 'l4_timing=1')
+}
+
+/**
  * Per-request measurement of what a request waits on: each D1 statement and
  * Durable Object call is timed around its own promise. Callers get the original
  * statements, stubs and promises back, so RPC pipelining and D1 sessions behave as before.
@@ -98,11 +109,14 @@ export function requestTiming(env: L4Env) {
   const ms = (value: number) => Math.round(value * 10) / 10
   return {
     env: timed as L4Env,
-    /** A Server-Timing header value; D1 and Durable Object times are summed, so parallel calls overlap. */
+    /**
+     * A Server-Timing header value; D1 and Durable Object times are summed, so parallel calls overlap.
+     * ASCII only: Chrome over HTTP/3 never completes a response whose header holds other bytes.
+     */
     header() {
-      const regions = [...d1.regions].join(', ')
+      const regions = [...d1.regions].join(', ').replace(/[^\x20-\x7e]|"/gu, '')
       return [
-        `d1;dur=${ms(d1.ms)};desc="${d1.count} statements${regions ? ` · ${regions}` : ''}"`,
+        `d1;dur=${ms(d1.ms)};desc="${d1.count} statements${regions ? ` in ${regions}` : ''}"`,
         `d1-sql;dur=${ms(d1.sql)};desc="time inside D1"`,
         `do;dur=${ms(objects.ms)};desc="${objects.count} Durable Object calls"`,
         `app;dur=${ms(performance.now() - started)};desc="whole request"`,
