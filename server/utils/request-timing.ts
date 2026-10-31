@@ -109,11 +109,14 @@ export function requestTiming(env: L4Env) {
   const ms = (value: number) => Math.round(value * 10) / 10
   return {
     env: timed as L4Env,
-    /** A Server-Timing header value; D1 and Durable Object times are summed, so parallel calls overlap. */
+    /**
+     * A Server-Timing header value; D1 and Durable Object times are summed, so parallel calls overlap.
+     * ASCII only: Chrome over HTTP/3 never completes a response whose header holds other bytes.
+     */
     header() {
-      const regions = [...d1.regions].join(', ')
+      const regions = [...d1.regions].join(', ').replace(/[^\x20-\x7e]|"/gu, '')
       return [
-        `d1;dur=${ms(d1.ms)};desc="${d1.count} statements${regions ? ` · ${regions}` : ''}"`,
+        `d1;dur=${ms(d1.ms)};desc="${d1.count} statements${regions ? ` in ${regions}` : ''}"`,
         `d1-sql;dur=${ms(d1.sql)};desc="time inside D1"`,
         `do;dur=${ms(objects.ms)};desc="${objects.count} Durable Object calls"`,
         `app;dur=${ms(performance.now() - started)};desc="whole request"`,

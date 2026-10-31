@@ -68,3 +68,16 @@ it('measures only requests that ask for it, and only where SERVER_TIMING allows 
   expect(timingRequested(on, ask({ Cookie: 'l4_timing=10' }))).toBe(false)
   expect(timingRequested({}, ask({ 'L4-Timing': '1', Cookie: 'l4_timing=1' }))).toBe(false)
 })
+
+it('keeps the header ASCII when D1 reports its region', async () => {
+  const { env } = fixture()
+  const real = env.DB
+  env.DB = { prepare: (sql: string) => {
+    const statement = real.prepare(sql)
+    return { ...statement, bind: () => statement, first: async () => ({ ...(await statement.first()), meta: { duration: 0.3, served_by_region: 'APAC', served_by_primary: true } }) }
+  } } as unknown as L4Env['DB']
+  const timing = requestTiming(env)
+  await timing.env.DB.prepare('SELECT id FROM t').first()
+  expect(timing.header()).toContain('desc="1 statements in APAC"')
+  expect(timing.header()).toMatch(/^[\x20-\x7e]*$/u)
+})
