@@ -31,7 +31,7 @@ export function formatAudioDuration(ms: number): string {
 export const SPEECH_SAMPLE_RATE = 16_000
 
 /** A 16-bit PCM WAV file from mono samples in [-1, 1]. */
-export function pcm16Wav(samples: Float32Array, sampleRate = SPEECH_SAMPLE_RATE): Uint8Array {
+export function pcm16Wav(samples: Float32Array, sampleRate = SPEECH_SAMPLE_RATE): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(44 + samples.length * 2)
   const view = new DataView(bytes.buffer)
   const text = (offset: number, value: string) => { for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index)) }
