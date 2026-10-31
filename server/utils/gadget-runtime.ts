@@ -101,6 +101,7 @@ async function createRecord(
   for (const [fieldId, value] of Object.entries(input.values ?? {})) {
     const field = fieldMap.get(fieldId)
     if (!field) fail(400, 'gadget_field_denied', 'The App cannot write one of the supplied Fields')
+    if (field.type === 'relation') fail(400, 'gadget_field_denied', 'Apps cannot write relation Fields yet')
     columns.push(field.slot)
     values.push(databaseSqlValue(field, value))
   }
@@ -146,6 +147,7 @@ async function updateRecord(
   for (const [fieldId, value] of Object.entries(input.values ?? {})) {
     const field = fieldMap.get(fieldId)
     if (!field) fail(400, 'gadget_field_denied', 'The App cannot write one of the supplied Fields')
+    if (field.type === 'relation') fail(400, 'gadget_field_denied', 'Apps cannot write relation Fields yet')
     assignments.push(`${field.slot} = ?`)
     values.push(databaseSqlValue(field, value))
   }
