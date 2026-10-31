@@ -163,3 +163,25 @@ it('moves Update now to a newer version that replaces the waiting one, and waits
   handlers.get('controllerchange')!()
   expect(reload).toHaveBeenCalledOnce()
 })
+
+it('reloads when the new version accepted Update now but the open page keeps the old one busy', async () => {
+  vi.useFakeTimers()
+  const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
+  const worker = { state: 'installed', postMessage: vi.fn(), addEventListener: vi.fn() }
+  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => ({ waiting: worker, addEventListener: vi.fn() })), addEventListener: vi.fn() } })
+  const plugin = (await import('../../app/plugins/pwa.client')).default
+  const pwa = scope.run(() => plugin({ hook: vi.fn() } as never))!.provide.pwa
+  await flushPromises()
+  const blocker = document.createElement('div')
+  blocker.dataset.updateBlocked = 'true'
+  pwa.update()
+  // Work started after the click still keeps the page.
+  document.body.append(blocker)
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(reload).not.toHaveBeenCalled()
+  expect(pwa.waiting.value).toBe(true)
+  blocker.remove()
+  pwa.update()
+  expect(reload).toHaveBeenCalledOnce()
+  expect(pwa.error.value).toBe('')
+})
