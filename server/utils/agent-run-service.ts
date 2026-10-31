@@ -65,19 +65,8 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.principal.projectPolicies = retainPolicies(auth.principal.projectPolicies, mandate.agentProjectPolicies)
   auth.delegation.projectPolicies = retainPolicies(auth.delegation.projectPolicies, mandate.initiatorProjectPolicies)
   if (mandate.projectId) auth.projectScope = { id: mandate.projectId, ...(run.environmentJson ? { repositoryId: repositoryResourceId(JSON.parse(run.environmentJson) as RunEnvironment) } : {}) }
-  // Independent checks run together: each is a database round trip on every model and tool call.
-  const [actor, profile] = await Promise.all([
-    env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>(),
-    env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>(),
-  ])
-  if (!actor || actor.kind !== 'human' || !profile || !agentInvocationAllowed(profile.access, auth.delegation, mandate.projectId)) fail(403, 'run_revoked', 'Agent access was revoked')
-  if (profile.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
-  await Promise.all([run.agentId, run.initiatedBy].map(async id => {
-    const row = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'")
-      .bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
-    if (!row) fail(403, 'run_revoked', 'Member unavailable')
-    await requireChannelAccessForMember(env, requireMemberForUser(env, row, auth.serverId), run.channelId, Permission.sendMessages)
-  }))
+  // Agent access is judged on the person's grants as loaded, before the mandate narrows them below.
+  const delegation = { ...auth.delegation }
   if ((auth.principal.permissions & mandate.agentPermissions) !== mandate.agentPermissions
     || (!auth.delegation.isOwner && ((auth.delegation.permissions! & mandate.permissions) !== mandate.permissions))
     || !resourceAccessWithin(mandate.agentResourceAccess ?? {}, auth.principal.resourceAccess)
@@ -91,14 +80,34 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   auth.delegation.permissions = (auth.delegation.isOwner ? mandate.permissions : auth.delegation.permissions! & mandate.permissions)
   auth.delegation.isOwner = false
   auth.delegation.resourceAccess = intersect(auth.delegation.resourceAccess, mandate.resourceAccess)
-  const taskProject = await env.DB.prepare('SELECT project_id AS projectId FROM tasks WHERE id=(SELECT task_id FROM agent_runs WHERE id=?)').bind(run.id).first<{ projectId: string | null }>()
-  if (taskProject && mandate.projectId !== undefined && mandate.projectId !== taskProject.projectId) fail(403, 'project_mandate', 'Task project changed; start a new attempt')
-  const projectId = taskProject?.projectId ?? mandate.projectId
-  if (projectId) {
-    const project = await requireProject(env, auth, projectId)
-    if (project.archivedAt) fail(403, 'project_archived', 'Project execution is unavailable while archived')
-  }
-  if (run.environmentJson) await requireRunEnvironment(env, auth, JSON.parse(run.environmentJson) as RunEnvironment)
+  // Every remaining check reads the database independently: run them as one round of requests,
+  // since each Run is re-authorized on every model call, tool call and Node request.
+  await Promise.all([
+    (async () => {
+      const [actor, profile] = await Promise.all([
+        env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>(),
+        env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>(),
+      ])
+      if (!actor || actor.kind !== 'human' || !profile || !agentInvocationAllowed(profile.access, delegation, mandate.projectId)) fail(403, 'run_revoked', 'Agent access was revoked')
+      if (profile.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')
+    })(),
+    ...[run.agentId, run.initiatedBy].map(async id => {
+      const row = await env.DB.prepare("SELECT id,kind,display_name as displayName,avatar_r2_key as avatarR2Key FROM users WHERE id=? AND status='active'")
+        .bind(id).first<{ id: string; kind: 'human' | 'agent'; displayName: string; avatarR2Key: string | null }>()
+      if (!row) fail(403, 'run_revoked', 'Member unavailable')
+      await requireChannelAccessForMember(env, requireMemberForUser(env, row, auth.serverId), run.channelId, Permission.sendMessages)
+    }),
+    (async () => {
+      const taskProject = await env.DB.prepare('SELECT project_id AS projectId FROM tasks WHERE id=(SELECT task_id FROM agent_runs WHERE id=?)').bind(run.id).first<{ projectId: string | null }>()
+      if (taskProject && mandate.projectId !== undefined && mandate.projectId !== taskProject.projectId) fail(403, 'project_mandate', 'Task project changed; start a new attempt')
+      const projectId = taskProject?.projectId ?? mandate.projectId
+      if (projectId) {
+        const project = await requireProject(env, auth, projectId)
+        if (project.archivedAt) fail(403, 'project_archived', 'Project execution is unavailable while archived')
+      }
+    })(),
+    run.environmentJson ? requireRunEnvironment(env, auth, JSON.parse(run.environmentJson) as RunEnvironment) : undefined,
+  ])
   return auth
 }
 
