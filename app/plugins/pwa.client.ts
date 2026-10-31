@@ -26,6 +26,9 @@ export default defineNuxtPlugin((nuxtApp) => {
       if (registration?.active && registration.active === activating && navigator.serviceWorker.controller === activating) { finishUpdate(); return }
       // A newer version is still downloading; it takes over the request once installed.
       if (registration?.installing) { activationTimer = setTimeout(expire, 15_000); return }
+      // skipWaiting was accepted, but the open page still holds work on the old worker, so
+      // Chrome defers the switch. Leaving the page releases that work and the new worker takes it.
+      if (activating?.state === 'installed' || activating?.state === 'activating') { finishUpdate(); return }
       updating.value = false
       reloadRequested = false
       error.value = 'The update is taking longer than expected. Please try again.'
