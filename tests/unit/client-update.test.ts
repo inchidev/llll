@@ -164,24 +164,23 @@ it('moves Update now to a newer version that replaces the waiting one, and waits
   expect(reload).toHaveBeenCalledOnce()
 })
 
-it('reloads when the new version accepted Update now but the open page keeps the old one busy', async () => {
+it('asks to close other tabs instead of reloading when the new version cannot take over', async () => {
   vi.useFakeTimers()
   const reload = vi.spyOn(location, 'reload').mockImplementation(() => {})
+  const listeners: Record<string, () => void> = {}
   const worker = { state: 'installed', postMessage: vi.fn(), addEventListener: vi.fn() }
-  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => ({ waiting: worker, addEventListener: vi.fn() })), addEventListener: vi.fn() } })
+  vi.stubGlobal('navigator', { serviceWorker: { controller: {}, register: vi.fn(async () => ({ waiting: worker, addEventListener: vi.fn() })), addEventListener: vi.fn((name: string, listener: () => void) => { listeners[name] = listener }) } })
   const plugin = (await import('../../app/plugins/pwa.client')).default
   const pwa = scope.run(() => plugin({ hook: vi.fn() } as never))!.provide.pwa
   await flushPromises()
-  const blocker = document.createElement('div')
-  blocker.dataset.updateBlocked = 'true'
   pwa.update()
-  // Work started after the click still keeps the page.
-  document.body.append(blocker)
   await vi.advanceTimersByTimeAsync(15_000)
+  // A reload would wait on the switch and leave the tab unresponsive.
   expect(reload).not.toHaveBeenCalled()
+  expect(pwa.error.value).toContain('Close other L4 tabs')
   expect(pwa.waiting.value).toBe(true)
-  blocker.remove()
+  // Once the other tabs close, the new version takes over and Update now reloads.
+  listeners.controllerchange!()
   pwa.update()
   expect(reload).toHaveBeenCalledOnce()
-  expect(pwa.error.value).toBe('')
 })
