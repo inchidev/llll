@@ -51,6 +51,21 @@ describe('Server startup', () => {
     warn.mockRestore()
   })
 
+  it('stops waiting for a start that never finishes, and tries again on the next request', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      ensureMigrated.mockImplementationOnce(() => new Promise<boolean>(() => {}))
+      const db = database()
+      const waiting = ensureServerStarted(event({ DB: db }))
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(await waiting).toBe(false)
+      expect(warn).toHaveBeenCalledWith('server.startup.stalled', { waitedMs: 30_000 })
+      expect(await ensureServerStarted(event({ DB: db }))).toBe(true)
+      expect(ensureMigrated).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers(); warn.mockRestore() }
+  })
+
   it('does nothing without runtime bindings', async () => {
     expect(await ensureServerStarted({ context: {} } as never)).toBe(false)
   })
