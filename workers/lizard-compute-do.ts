@@ -127,7 +127,14 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
     if (state.sandboxId && !ids.includes(state.sandboxId)) ids.push(state.sandboxId)
     for (const id of ids) await deleteLizardSandbox(this.env, id, state.workspaceId)
     state.sandboxId = undefined; state.expiresAt = undefined
-    try {
+    // The disk holds the paired Node's identity, which repository environments and Factory
+    // workspaces pin. Keep it so the next Run or Start resumes the same Node; only an explicit
+    // "Delete unused storage" removes it. An Owner's stop turns the Node off until Start.
+    if (state.nodeId && state.volumeId) {
+      state.retainedStorage = true
+      if (state.paused) await this.env.DB.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').bind(state.nodeId).run()
+    }
+    else try {
       await deleteUnusedLizardVolume(this.env, state.workspaceId, state.nodeId ?? null)
       state.volumeId = undefined; state.retainedStorage = false
       if (state.nodeId) await this.env.DB.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').bind(state.nodeId).run()
@@ -205,8 +212,11 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
         const pairingState = state
         const result = await serviceLizardBridge(this.env, { hostname: secret.hostname, accessToken: secret.accessToken, relayKey: secret.relayKey }, state.nodeId, async nodeId => { pairingState.nodeId = nodeId; await this.save(pairingState) })
         state.stopRequested ||= (await this.current())?.stopRequested
+        const paired = result.processed && result.nodeId ? result.nodeId : state.phase === 'pairing' && state.nodeId && result.processed && result.accepted ? state.nodeId : null
+        // A resumed Node may have been turned off by an Owner's stop.
+        if (paired && state.phase === 'pairing') await this.env.DB.prepare('UPDATE compute_nodes SET enabled=1 WHERE id=?').bind(paired).run()
         if (result.processed && result.nodeId) { state.nodeId = result.nodeId; state.phase = 'ready'; state.idleSince = Date.now(); await this.setSecrets(state, { ...secret, pairing: undefined }) }
-        else if (state.phase === 'pairing' && state.nodeId && result.processed && result.accepted) { state.phase = 'ready'; state.idleSince = Date.now(); await this.save(state) }
+        else if (paired) { state.phase = 'ready'; state.idleSince = Date.now(); await this.save(state) }
         if (state.stopRequested) state.phase = 'stopping'
         if (state.phase === 'pairing' && Date.now() > (state.pairingAt ?? state.createdAt) + 90000) { state.phase = 'stopping'; state.error = 'Compute did not connect; the VM is being cleaned up.'; await this.save(state) }
         if (state.phase === 'ready' && state.nodeId) {

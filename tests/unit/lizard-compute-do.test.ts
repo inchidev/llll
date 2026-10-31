@@ -41,9 +41,28 @@ it('creates one VM, pairs the Node, and deletes its VM when stopped',async()=>{
  expect(await object.status()).toMatchObject({phase:'ready',nodeId:node})
  expect(sandboxes.createLizardSandbox).toHaveBeenCalledTimes(1)
  await object.stop();await object.alarm()
- expect(await object.status()).toMatchObject({phase:'stopped',nodeId:null,retainedStorage:false})
+ // The disk keeps the paired Node; the Owner's stop turns it off until the next Start.
+ expect(await object.status()).toMatchObject({phase:'stopped',nodeId:node,retainedStorage:true,paused:true})
  expect(sandboxes.deleteLizardSandbox).toHaveBeenCalledWith(f.env,'vm-1',workspace)
- expect(volumes.deleteUnusedLizardVolume).toHaveBeenCalledWith(f.env,workspace,node)
+ expect(volumes.deleteUnusedLizardVolume).not.toHaveBeenCalled()
+ expect(f.db.prepare('SELECT enabled FROM compute_nodes WHERE id=?').get(node)).toEqual({enabled:0})
+ expect(await object.start(workspace)).toMatchObject({phase:'vm',nodeId:node})
+ await object.alarm();await object.alarm();await object.alarm()
+ expect(await object.status()).toMatchObject({phase:'ready',nodeId:node})
+ expect(f.db.prepare('SELECT enabled FROM compute_nodes WHERE id=?').get(node)).toEqual({enabled:1})
+ expect(sandboxes.createLizardSandbox).toHaveBeenCalledTimes(2)
+ expect(volumes.createLizardVolume).toHaveBeenCalledTimes(1)
+})
+it('keeps the same Node enabled across an idle stop so a Run can wake it',async()=>{
+ const {object}=instance(),clock=vi.spyOn(Date,'now')
+ clock.mockReturnValue(1000000)
+ await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
+ vi.mocked(bridge.serviceLizardBridge).mockResolvedValue({processed:false})
+ clock.mockReturnValue(1120001);await object.alarm();await object.alarm()
+ expect(await object.status()).toMatchObject({phase:'stopped',nodeId:node,retainedStorage:true,paused:false})
+ expect(volumes.deleteUnusedLizardVolume).not.toHaveBeenCalled()
+ expect(f.db.prepare('SELECT enabled,last_seen FROM compute_nodes WHERE id=?').get(node)).toEqual({enabled:1,last_seen:null})
+ expect(await object.ensure(node)).toMatchObject({phase:'vm',nodeId:node})
 })
 it('reconciles an uncertain VM create instead of starting a second VM',async()=>{
  const {object}=instance()
@@ -131,7 +150,6 @@ it('lets the Owner pause automatic restart after an idle stop',async()=>{
 })
 it('blocks restart while retained storage is being discarded',async()=>{
  const {object}=instance(),clock=vi.spyOn(Date,'now');let release!:(value:{deleted:boolean})=>void
- vi.mocked(volumes.deleteUnusedLizardVolume).mockRejectedValueOnce({statusCode:409,data:{error:{code:'lizard_volume_in_use'}}})
  clock.mockReturnValue(1000000)
  await object.start(workspace,'a'.repeat(64));await object.alarm();await object.alarm();await object.alarm();await object.alarm()
  vi.mocked(bridge.serviceLizardBridge).mockResolvedValue({processed:false})
