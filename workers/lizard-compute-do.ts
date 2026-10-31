@@ -230,7 +230,12 @@ export class LizardComputeDurableObject extends DurableObject<L4Env> {
         const paired = result.processed && result.nodeId ? result.nodeId : state.phase === 'pairing' && state.nodeId && result.processed && result.accepted ? state.nodeId : null
         // A resumed Node may have been turned off by an Owner's stop.
         if (paired && state.phase === 'pairing') await this.env.DB.prepare('UPDATE compute_nodes SET enabled=1 WHERE id=?').bind(paired).run()
-        if (result.processed && result.nodeId) { state.nodeId = result.nodeId; state.phase = 'ready'; state.idleSince = Date.now(); await this.setSecrets(state, { ...secret, pairing: undefined }) }
+        if (result.processed && result.nodeId) {
+          // A newly paired Node replaces this provider's earlier one: environments that named it follow.
+          await this.env.DB.prepare(`UPDATE agent_environments SET config_json=json_set(config_json,'$.computeNodeId',?1),version=version+1,updated_at=?2
+            WHERE json_extract(config_json,'$.computeNodeId') IN (SELECT id FROM compute_nodes WHERE id<>?1 AND enabled=0 AND json_extract(capabilities_json,'$.provider')='lizard')`).bind(result.nodeId, nowIso()).run()
+          state.nodeId = result.nodeId; state.phase = 'ready'; state.idleSince = Date.now(); await this.setSecrets(state, { ...secret, pairing: undefined })
+        }
         else if (paired) { state.phase = 'ready'; state.idleSince = Date.now(); await this.save(state) }
         if (state.stopRequested) state.phase = 'stopping'
         if (state.phase === 'pairing' && Date.now() > (state.pairingAt ?? state.createdAt) + 90000) { state.phase = 'stopping'; state.error = 'Compute did not connect; the VM is being cleaned up.'; await this.save(state) }

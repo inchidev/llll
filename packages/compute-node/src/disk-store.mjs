@@ -14,7 +14,7 @@ export class LoopDiskStore {
   async command(name,args) {
     const result=await this.runner(name,args,{timeoutMs:30000,limit:4000})
     if(result.code!==0) {
-      if (/no space left on device|disk quota exceeded/iu.test(result.stderr.toString())) throw new Error('Compute Node disk is full; free space or move Task storage to a larger disk')
+      if (/no space left on device|disk quota exceeded/iu.test(result.stderr.toString())) throw new Error('Compute Node disk is full; mark finished Tasks Done to release their workspaces, or move Task storage to a larger disk')
       throw new Error('Linux disk operation failed; configure loop devices, mount permissions and free capacity')
     }
     return result.stdout.toString().trim()
@@ -39,7 +39,7 @@ export class LoopDiskStore {
     try{const stat=await lstat(paths.image);if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==this.bytes)throw new Error('Invalid workspace disk');exists=true}catch(error){if(error.code!=='ENOENT')throw error}
     if(!exists){
       if(!create)throw new Error('Persistent workspace disk is unavailable')
-      if((await readdir(this.root)).filter(name=>name.endsWith('.img')).length>=this.maxDisks)throw new Error('Node disk capacity is occupied; release an existing Task disk')
+      if((await readdir(this.root)).filter(name=>name.endsWith('.img')).length>=this.maxDisks)throw new Error('Node disk capacity is occupied; mark finished Tasks Done to release their workspaces')
       try{
         await this.command('fallocate',['--length',String(this.bytes),paths.image]);await chmod(paths.image,0o600)
         await this.command('mkfs.ext4',['-q','-F','-E','nodiscard',paths.image])

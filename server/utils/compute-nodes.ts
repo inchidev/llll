@@ -60,12 +60,24 @@ export async function requireComputeNode(env: L4Env, credential: string, transpo
 }
 export const computePollSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('claim') }).strict(),
+  z.object({ operation: z.literal('workspaces') }).strict(),
   z.object({ operation: z.enum(['begin', 'heartbeat']), id: z.string().uuid(), lease: z.string().min(32).max(100) }).strict(),
   z.object({ operation: z.literal('result'), id: z.string().uuid(), lease: z.string().min(32).max(100),
     result: z.object({ ok: z.boolean(), exitCode: z.number().int().min(-1).max(255), output: z.string().max(64000), runtimeMs: z.number().int().min(0).max(900000), snapshot: factorySnapshot.optional() }).strict() }).strict(),
 ])
 export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typeof computePollSchema>, scopedActionId: string | null = null) {
   await expireFactoryActions(env)
+  if (input.operation === 'workspaces') {
+    // A Node keeps one disk per Task workspace and has room for only a few. A Done or archived Task's
+    // work is in its pull request; with nothing of it queued or running, its workspace is released.
+    // The Node then removes every disk of its own that is not in the returned list.
+    const now = nowIso()
+    await env.DB.prepare(`UPDATE factory_workspaces SET status='released',updated_at=? WHERE node_id=? AND status<>'released'
+      AND task_id IN (SELECT id FROM tasks WHERE status='done' OR archived_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM factory_actions a WHERE a.workspace_id=factory_workspaces.id AND a.status IN ('pending','approved','claimed','executing'))`).bind(now, nodeId).run()
+    const keep = await env.DB.prepare("SELECT id FROM factory_workspaces WHERE node_id=? AND status<>'released'").bind(nodeId).all<{ id: string }>()
+    return { keep: keep.results.map(row => row.id) }
+  }
   if (input.operation === 'claim') {
     const row = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE status='approved' AND (? IS NULL OR id=?)
       AND workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND json_extract(request_json,'$.operation')<>'publish'
