@@ -16,7 +16,7 @@ export async function readRecords(env: L4Env, authorization: AuthorizationContex
   authorize(authorization, ServerAction.readRecords)
   authorizeResource(authorization, 'databases', databaseId)
   const input = readRecordsSchema.parse({ databaseId, page, ...options })
-  const data = await loadDatabasePage(env, databaseId, { ...input, viewId: input.viewId ?? null })
+  const data = await loadDatabasePage(env, databaseId, { ...input, viewId: input.viewId ?? null, authorization })
   return { ...data, view: input.viewId ? data.view : null, nextPage: input.page * input.pageSize < data.total ? input.page + 1 : null }
 }
 
@@ -34,7 +34,7 @@ export async function createRecord(env: L4Env, authorization: AuthorizationConte
   const id = newId()
   const now = nowIso()
   const values: Array<string | number | null> = [id, databaseId, body.title, (positionRow?.position ?? 0) + 1024, 1, authorization.principal.id, now, now]
-  const prepared = await prepareRecordValues(env, fieldMap, body.values, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'))
+  const prepared = await prepareRecordValues(env, fieldMap, body.values, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId))
   for (const column of prepared.columns) { columns.push(column.slot); values.push(column.value) }
   const placeholders = columns.map(() => '?').join(', ')
   await env.DB.batch([
@@ -57,7 +57,7 @@ export async function updateRecord(env: L4Env, authorization: AuthorizationConte
   const assignments = ['updated_at = ?', 'version = version + 1']
   const values: Array<string | number | null> = [now]
   if (body.title !== undefined) { assignments.push('title = ?'); values.push(body.title) }
-  const prepared = await prepareRecordValues(env, fieldMap, body.values ?? {}, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'))
+  const prepared = await prepareRecordValues(env, fieldMap, body.values ?? {}, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId))
   for (const column of prepared.columns) { assignments.push(`${column.slot} = ?`); values.push(column.value) }
   const updated = await env.DB.prepare(
     `UPDATE database_items SET ${assignments.join(', ')} WHERE id = ? AND version = ?

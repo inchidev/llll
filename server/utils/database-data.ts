@@ -78,8 +78,12 @@ export async function loadItemLinks(env: L4Env, itemIds: string[]): Promise<Item
   return links
 }
 
-/** Titles of the records that relation values point at, so a list can show them without another load. */
-export async function loadLinkedRecords(env: L4Env, links: ItemLinks): Promise<Record<string, LinkedRecordDTO>> {
+/**
+ * Titles of the records that relation values point at, so a list can show them without
+ * another load. A title belongs to its database: records of a database the reader may not
+ * open are left out, and their chips show no name.
+ */
+export async function loadLinkedRecords(env: L4Env, links: ItemLinks, canRead: (databaseId: string) => boolean = () => true): Promise<Record<string, LinkedRecordDTO>> {
   const targetIds = new Set<string>()
   for (const fields of links.values()) for (const ids of fields.values()) for (const id of ids) targetIds.add(id)
   const linked: Record<string, LinkedRecordDTO> = {}
@@ -87,7 +91,7 @@ export async function loadLinkedRecords(env: L4Env, links: ItemLinks): Promise<R
     const result = await env.DB.prepare(
       `SELECT id, database_id as databaseId, title FROM database_items WHERE id IN (${chunk.map(() => '?').join(', ')})`,
     ).bind(...chunk).all<LinkedRecordDTO>()
-    for (const row of result.results ?? []) linked[row.id] = row
+    for (const row of result.results ?? []) if (canRead(row.databaseId)) linked[row.id] = row
   }
   return linked
 }
@@ -259,12 +263,15 @@ export type PreparedRecordValues = {
 /**
  * Splits submitted values into column writes and relation links, checking that
  * people are members here and that linked records belong to the field's database.
+ * `authorizeTarget` runs for each database that gains links, so nobody links records
+ * they may not open.
  */
 export async function prepareRecordValues(
   env: L4Env,
   fields: Map<string, StoredDatabaseField>,
   values: Record<string, unknown>,
   unknownField: () => never,
+  authorizeTarget: (databaseId: string) => void = () => {},
 ): Promise<PreparedRecordValues> {
   const prepared: PreparedRecordValues = { columns: [], links: [] }
   const people = new Set<string>()
@@ -287,6 +294,7 @@ export async function prepareRecordValues(
   for (const link of prepared.links) {
     const databaseId = link.field.relation?.databaseId
     if (!databaseId) fail(500, 'invalid_relation', `${link.field.name} has no target database`)
+    if (link.targetIds.length) authorizeTarget(databaseId)
     for (const chunk of chunks(link.targetIds)) {
       const known = await env.DB.prepare(
         `SELECT id FROM database_items WHERE database_id = ? AND id IN (${chunk.map(() => '?').join(', ')})`,

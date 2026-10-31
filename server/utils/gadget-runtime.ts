@@ -53,6 +53,7 @@ export async function openGadget(env: L4Env, actor: Membership, gadgetId: string
       viewId: binding.source.viewId,
       page: 1,
       pageSize: 50,
+      authorization,
     })
     const visible = new Set(binding.fieldIds)
     return {

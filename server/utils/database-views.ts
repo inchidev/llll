@@ -1,5 +1,6 @@
 import { DatabaseColumnWidth, DatabaseViewFilterOperators, DatabaseViewLayouts, defaultDatabaseViewConfig, filterOperatorsFor, isListFieldType, type DatabaseFieldType, type DatabaseScalarValue, type DatabaseViewConfig, type DatabaseViewFilter, type DatabaseViewFilterOperator, type DatabaseViewLayout } from '../../shared/database'
 import type { DatabasePageDTO, DatabaseViewDTO } from '../../shared/types'
+import { resourceAllowed, type AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { databaseFieldDto, databaseFieldsFor, databaseItemDto, loadItemLinks, loadLinkedRecords, requireDatabase, type StoredDatabaseField } from './database-data'
@@ -239,7 +240,7 @@ export async function databaseItemMatchesView(
 export async function loadDatabasePage(
   env: L4Env,
   databaseId: string,
-  options: { viewId?: string | null, page: number, pageSize: number, search?: string, dateFrom?: string, dateTo?: string },
+  options: { viewId?: string | null, page: number, pageSize: number, search?: string, dateFrom?: string, dateTo?: string, authorization?: AuthorizationContext },
 ): Promise<DatabasePageDTO> {
   const definition = await requireDatabase(env, databaseId)
   const fields = await databaseFieldsFor(env, databaseId)
@@ -280,7 +281,7 @@ export async function loadDatabasePage(
     views,
     view,
     items: items.map(item => databaseItemDto(item, fields, links.get(item.id))),
-    linked: await loadLinkedRecords(env, links),
+    linked: await loadLinkedRecords(env, links, databaseId => !options.authorization || resourceAllowed(options.authorization, 'databases', databaseId)),
     total: Number(count),
     page: options.page,
     pageSize: options.pageSize,

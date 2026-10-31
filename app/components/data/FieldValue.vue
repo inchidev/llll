@@ -36,13 +36,16 @@ const text = computed(() => typeof props.value === 'string' || typeof props.valu
     </span>
   </span>
   <span v-else-if="field.type === 'relation'" class="flex min-w-0 flex-wrap gap-1">
-    <NuxtLink
-      v-for="id in list"
-      :key="id"
-      :to="databasePath(linked[id]?.databaseId ?? field.relation?.databaseId, false, null, id)"
-      class="max-w-full truncate rounded-md bg-elevated px-1.5 py-0.5 text-xs text-highlighted underline decoration-dotted underline-offset-2 hover:bg-accented"
-      @click.stop
-    >{{ linked[id]?.title ?? 'Record' }}</NuxtLink>
+    <!-- A record of a database the reader may not open keeps its name to itself. -->
+    <template v-for="id in list" :key="id">
+      <NuxtLink
+        v-if="linked[id]"
+        :to="databasePath(linked[id]!.databaseId, false, null, id)"
+        class="max-w-full truncate rounded-md bg-elevated px-1.5 py-0.5 text-xs text-highlighted underline decoration-dotted underline-offset-2 hover:bg-accented"
+        @click.stop
+      >{{ linked[id]!.title }}</NuxtLink>
+      <span v-else class="max-w-full truncate rounded-md bg-elevated px-1.5 py-0.5 text-xs text-dimmed" title="A record of a database you cannot open">No access</span>
+    </template>
   </span>
   <a v-else-if="field.type === 'url'" :href="text" target="_blank" rel="noopener noreferrer" class="block max-w-full truncate text-sm text-highlighted underline decoration-dotted underline-offset-2 hover:text-primary" @click.stop>{{ shortUrl(text) }}</a>
   <a v-else-if="field.type === 'email'" :href="`mailto:${text}`" class="block max-w-full truncate text-sm text-highlighted underline decoration-dotted underline-offset-2 hover:text-primary" @click.stop>{{ text }}</a>

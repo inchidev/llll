@@ -1,5 +1,5 @@
 import { getServerId } from '../../../shared/server-id'
-import { authorizeResource } from '../../../shared/authorization'
+import { authorizeResource, resourceAllowed } from '../../../shared/authorization'
 import { Permission } from '../../../shared/permissions'
 import type { DatabaseItemDTO, LinkedRecordDTO } from '../../../shared/types'
 import { cf, fail } from '../../utils/cf'
@@ -14,5 +14,5 @@ export default defineEventHandler(async (event): Promise<{ item: DatabaseItemDTO
   const item = await loadDatabaseItem(env, id)
   if (!item) fail(404, 'not_found', 'Database item not found')
   authorizeResource(actor.authorization, 'databases', item.databaseId)
-  return { item, linked: await loadLinkedRecords(env, await loadItemLinks(env, [id])) }
+  return { item, linked: await loadLinkedRecords(env, await loadItemLinks(env, [id]), databaseId => resourceAllowed(actor.authorization, 'databases', databaseId)) }
 })

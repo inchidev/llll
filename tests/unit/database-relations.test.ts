@@ -86,6 +86,18 @@ describe('relation, list and address fields', () => {
     expect((await loadDatabasePage(env, 'tasks', { viewId: 'g', page: 1, pageSize: 10 })).view.layout).toBe('gallery')
   })
 
+  it('keeps the titles of a database the reader may not open to itself, and refuses links into it', async () => {
+    const item = await createRecord(env, auth, 'tasks', { title: 'Launch', values: { project: ['p1'] } })
+    const limited: AuthorizationContext = { ...auth, principal: { ...auth.principal, isOwner: false, resourceAccess: { databases: ['tasks'] } } }
+    const page = await loadDatabasePage(env, 'tasks', { page: 1, pageSize: 50, authorization: limited })
+    expect(page.items[0]?.values.project).toEqual(['p1'])
+    expect(page.linked).toEqual({})
+    expect((await loadDatabasePage(env, 'tasks', { page: 1, pageSize: 50, authorization: auth })).linked.p1?.title).toBe('Website')
+    await expect(updateRecord(env, limited, item.id, { values: { project: ['p2'] }, version: 1 })).rejects.toThrow(/not granted/u)
+    // Clearing a relation needs no access to where it pointed.
+    expect((await updateRecord(env, limited, item.id, { values: { project: [] }, version: 1 })).values.project).toEqual([])
+  })
+
   it('shares one column pool between the types stored in it', async () => {
     // text_1 and text_2 hold Owner and Site, so the next text-like field takes text_3.
     expect(await allocateDatabaseSlot(env, 'tasks', 'email')).toBe('text_3')

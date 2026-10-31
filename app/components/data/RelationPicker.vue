@@ -36,7 +36,7 @@ watch(() => resultsQ.data.value?.items, (items) => {
   for (const item of items) next[item.id] = { id: item.id, databaseId: item.databaseId, title: item.title }
   seen.value = next
 })
-const titleOf = (id: string) => props.linked[id]?.title ?? seen.value[id]?.title ?? 'Record'
+const titleOf = (id: string) => props.linked[id]?.title ?? seen.value[id]?.title ?? 'No access'
 const selected = computed(() => new Set(props.modelValue))
 
 function toggle(id: string) {
