@@ -7,12 +7,15 @@ import {
 import { extForMime, sniffMime } from '../../shared/mime'
 
 describe('audio recording helpers', () => {
-  it('prefers Opus in WebM when the browser supports it', () => {
-    expect(selectAudioRecordingMime(mime => mime === 'audio/webm;codecs=opus')).toBe('audio/webm;codecs=opus')
+  it('prefers MP4/AAC, which transcription models read, over WebM', () => {
+    // Chrome and Safari record both; Chrome's default is WebM.
+    expect(selectAudioRecordingMime(() => true)).toBe('audio/mp4;codecs=mp4a.40.2')
+    expect(selectAudioRecordingMime(mime => mime === 'audio/mp4')).toBe('audio/mp4')
   })
 
-  it('falls back to a supported MP4 recording format', () => {
-    expect(selectAudioRecordingMime(mime => mime === 'audio/mp4')).toBe('audio/mp4')
+  it('falls back to Ogg, then WebM', () => {
+    expect(selectAudioRecordingMime(mime => mime.startsWith('audio/ogg') || mime.startsWith('audio/webm'))).toBe('audio/ogg;codecs=opus')
+    expect(selectAudioRecordingMime(mime => mime === 'audio/webm;codecs=opus')).toBe('audio/webm;codecs=opus')
   })
 
   it('formats elapsed recording time', () => {
