@@ -131,6 +131,8 @@ const composerPlaceholder = computed(() => {
 const { send, retry, connection: channelConnection } = useChannelSocket(channelId)
 const serverConnection = inject(serverConnectionKey, ref<RealtimeConnection>('connected'))
 const connection = computed(() => {
+  // The conversation itself says it is gone over HTTP; a closed live connection adds nothing.
+  if (channelConnection.value === 'unavailable') return 'unavailable'
   if (channelConnection.value === 'offline' || serverConnection.value === 'offline') return 'offline'
   if (channelConnection.value === 'connected' && serverConnection.value === 'connected') return 'connected'
   if (channelConnection.value === 'reconnecting' || serverConnection.value === 'reconnecting') return 'reconnecting'
@@ -143,7 +145,7 @@ const showConnection = ref(false)
 let connectionTimer: ReturnType<typeof setTimeout> | undefined
 watch(connection, (state) => {
   clearTimeout(connectionTimer)
-  if (state === 'connected') showConnection.value = false
+  if (state === 'connected' || state === 'unavailable') showConnection.value = false
   else if (state === 'offline') showConnection.value = true
   else connectionTimer = setTimeout(() => { showConnection.value = true }, state === 'connecting' ? 8000 : 3000)
 }, { immediate: true })

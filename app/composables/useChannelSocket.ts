@@ -6,7 +6,11 @@ import { applyReactionChange } from '../utils/message-reactions'
 import { mergeLatestPage } from '../utils/message-cache'
 
 type Page = { messages: MessageDTO[]; nextCursor: string | null; rootMessage?: MessageDTO | null }
-export type RealtimeConnection = 'connecting' | 'connected' | 'reconnecting' | 'offline'
+/** `unavailable`: the Server closed this conversation for good (deleted, or access removed); nothing reconnects. */
+export type RealtimeConnection = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'unavailable'
+
+/** Close codes after which reconnecting cannot help: access was revoked or the conversation is gone. */
+const PERMANENT_CLOSE_CODES = new Set([4403, 4404])
 
 const DELIVERY_TIMEOUT_MS = 15_000
 const CATCH_UP_LIMIT = 20
@@ -34,6 +38,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   let connecting = false
   let generation = 0
   let authenticated = false
+  let gone = false
   const pending: ClientMsg[] = []
   const outstanding = new Map<string, Extract<ClientMsg, { t: 'message.create' }>>()
   let pendingRead: Extract<ClientMsg, { t: 'read' }> | null = null
@@ -182,7 +187,6 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
       ws = socket
       socket.addEventListener('open', () => {
         if (gen !== generation) return socket.close()
-        attempt = 0
         socket.send(JSON.stringify({ t: 'auth', token } satisfies ClientMsg))
       })
       socket.addEventListener('message', (ev) => {
@@ -193,6 +197,8 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
         switch (parsed.t) {
           case 'hello':
             authenticated = true
+            // Only an accepted connection counts as recovered; a socket closed right after it opens keeps backing off.
+            attempt = 0
             connection.value = 'connected'
             for (const message of outstanding.values()) socket.send(JSON.stringify(message))
             for (const queued of pending.splice(0)) socket.send(JSON.stringify(queued))
@@ -331,9 +337,13 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             break
         }
       })
-      socket.addEventListener('close', () => {
+      socket.addEventListener('close', (event) => {
         authenticated = false
         if (ws === socket) ws = null
+        if (!closed && gen === generation && PERMANENT_CLOSE_CODES.has(event.code)) {
+          giveUp()
+          return
+        }
         if (!closed && gen === generation) {
           connection.value = typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting'
           const delay = Math.min(12_000, 1500 * 2 ** attempt)
@@ -384,8 +394,22 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
     else reconnectNow()
   }
 
+  /** The conversation is gone or no longer readable: unsent messages fail, and the page may close without a prompt. */
+  function giveUp() {
+    gone = true
+    connection.value = 'unavailable'
+    for (const clientId of outstanding.keys()) {
+      clearDeliveryTimer(clientId)
+      updateOptimisticMessage(clientId, message => ({ ...message, deliveryState: 'failed' }))
+    }
+    outstanding.clear()
+    pending.splice(0)
+    pendingRead = null
+    updateUnloadGuard()
+  }
+
   function reconnectNow() {
-    if (closed || authenticated || connecting || ws?.readyState === WebSocket.CONNECTING || ws?.readyState === WebSocket.OPEN) return
+    if (closed || gone || authenticated || connecting || ws?.readyState === WebSocket.CONNECTING || ws?.readyState === WebSocket.OPEN) return
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = null
     attempt = 0
@@ -413,6 +437,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   watch(() => toValue(channelId), () => {
     generation += 1
     closed = false
+    gone = false
     authenticated = false
     attempt = 0
     pending.splice(0)
