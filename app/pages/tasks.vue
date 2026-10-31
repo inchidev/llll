@@ -223,6 +223,15 @@ type TaskForm = {
 }
 
 const newTask = reactive<TaskForm>({ title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
+// A project with one connected repository fills it in for a new task; the person can still change it.
+watch(() => newTask.projectId, async (projectId) => {
+  if (!projectId || newTask.environmentId) return
+  try {
+    const { repositories } = await api<{ repositories: { environmentId: string | null }[] }>(`/api/projects/${projectId}`)
+    const linked = [...new Set(repositories.map(repository => repository.environmentId).filter(Boolean))]
+    if (linked.length === 1 && newTask.projectId === projectId && !newTask.environmentId && environmentOptions.value.some(option => option.value === linked[0])) newTask.environmentId = linked[0]!
+  } catch { /* The field stays as chosen. */ }
+})
 const editTask = reactive<TaskForm & { boardId: string; status: TaskStatus }>({
   title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [], boardId: '', status: 'backlog',
 })

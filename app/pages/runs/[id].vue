@@ -8,6 +8,7 @@ import { Permission } from '~~/shared/permissions'
 import type { AgentRun } from '~~/shared/agent-execution'
 import { runStatusColor } from '~~/shared/agent-run-status'
 import { channelPath } from '~~/shared/paths'
+import { parseAgentModelRef } from '~~/shared/agent-providers'
 const nav = useNavActions()
 
 definePageMeta({ layout: 'server', middleware: ['auth'] })
@@ -110,7 +111,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
         <template v-else-if="run.channelId"><dt class="text-muted">Conversation</dt><dd><ULink :to="run.sourceMessageId ? `${channelPath(run.channelId)}?message=${run.sourceMessageId}` : channelPath(run.channelId)" class="text-primary">Open conversation</ULink></dd></template>
         <dt class="text-muted">Requested</dt><dd>{{ new Date(run.createdAt).toLocaleString() }}</dd>
         <template v-if="!['queued', 'running'].includes(run.status)"><dt class="text-muted">Finished</dt><dd>{{ new Date(run.updatedAt).toLocaleString() }}</dd></template>
-        <dt class="text-muted">Model</dt><dd class="break-all">{{ run.model }}</dd>
+        <dt class="text-muted">Model</dt><dd class="break-all" :title="run.model">{{ parseAgentModelRef(run.model)?.model ?? run.model }}</dd>
         <dt class="text-muted">Model calls</dt><dd>{{ run.modelCalls }}</dd>
         <dt class="text-muted">Tokens used or reserved</dt><dd>{{ run.totalTokens }}</dd>
       </dl>
