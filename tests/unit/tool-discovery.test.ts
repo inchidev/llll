@@ -13,6 +13,10 @@ it.each([
 ])('ranks an appropriate tool for %s', (query, name) => {
   expect(searchToolCatalog(catalog, query)[0]?.name).toBe(name)
 })
+it('finds Items when asked about data', () => {
+  const items = [make('list_items', 'List everything'), make('open_page', 'Open something'), make('other', 'Unrelated')]
+  expect(searchToolCatalog(items, 'data').map(tool => tool.name).sort()).toEqual(['list_items', 'open_page'])
+})
 it('prefers an equally relevant local read over a remote or mutating operation', () => {
   const tools = [make('remote', 'Read facts', 'read', 'network'), make('write', 'Read facts', 'write'), make('local', 'Read facts')]
   expect(searchToolCatalog(tools, 'facts').map(tool => tool.name)).toEqual(['local', 'remote', 'write'])
