@@ -9,7 +9,7 @@ while sleep 1; do
   build_directory=$(printf '%s' "$current" | jq -r '.directory')
   case "$build_directory" in build-[0-9]*) ;; *) continue ;; esac
   tmp=$(mktemp)
-  jq --arg dir ".output/$build_directory" \
+  jq --arg dir "/opt/llll/.output/$build_directory" \
     '.main=($dir+"/server/index.mjs") | .assets.directory=($dir+"/public")' "$CELLD_CONFIG" > "$tmp"
   mv "$tmp" "$CELLD_CONFIG"
   echo 'llll: applying local migrations and reloading backend'

@@ -6,7 +6,7 @@
 set -eu
 
 TEMPLATE="${CELLD_TEMPLATE:-/opt/llll/wrangler.celld.json}"
-CONFIG="${CELLD_CONFIG:-$(dirname "$TEMPLATE")/wrangler.celld.local.json}"
+CONFIG="${CELLD_CONFIG:-/tmp/llll/wrangler.celld.local.json}"
 CELLD_BUCKET="${CELLD_BUCKET:-s3://cells}"
 S3_ENDPOINT="${S3_ENDPOINT:-http://rustfs:9000}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -103,7 +103,15 @@ if [ ! -f "$TEMPLATE" ]; then
 fi
 
 umask 077
-cp "$TEMPLATE" "$CONFIG"
+mkdir -p "$(dirname "$CONFIG")"
+# Keep secrets and generated configuration off the read-only application image.
+# celld resolves paths relative to this file, so preserve the template's base.
+template_dir=$(cd "$(dirname "$TEMPLATE")" && pwd)
+jq --arg root "$template_dir" '
+  def absolute: if startswith("/") then . else $root + "/" + . end;
+  .main |= absolute | .assets.directory |= absolute |
+  .d1_databases |= map(.migrations_dir |= absolute)
+' "$TEMPLATE" > "$CONFIG"
 
 put_var() {
   key=$1
@@ -172,7 +180,7 @@ if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
   build_directory=$(printf '%s' "$LLLL_DEV_DEPLOYED_BUILD" | jq -r '.directory')
   case "$build_directory" in build-[0-9]*) ;; *) fail "missing completed backend build" ;; esac
   tmp=$(mktemp)
-  jq --arg dir ".output/$build_directory" \
+  jq --arg dir "/opt/llll/.output/$build_directory" \
     '.main=($dir+"/server/index.mjs") | .assets.directory=($dir+"/public")' "$CONFIG" > "$tmp"
   mv "$tmp" "$CONFIG"
   export LLLL_DEV_DEPLOYED_BUILD

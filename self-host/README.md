@@ -125,3 +125,9 @@ Empty values in `.env` are omitted from the generated Wrangler file.
 - `BROWSER_CDP_URL` is a private Chromium DevTools URL.
 
 Inbound routes, mailbox vars, and the feature matrix are in [Self-host on celld](../docs/self-host/celld.md).
+
+## Runtime checks and permissions
+
+The Server runs as UID/GID 10001 with all capabilities dropped, no privilege escalation and a read-only root filesystem. The celld volume and a 256 MiB temporary filesystem remain writable. `celld-perms` prepares new, restored and older root-owned volumes before the Server starts. Retain this service when adapting Compose; on an existing manual installation update Compose along with the image, keeping the same volumes and secrets. Standalone `docker run` users must prepare their mounted data directory for UID/GID 10001 themselves.
+
+The container probe requires completed migrations and `ok: true` / `migrated: true` from `/api/setup/health`; the first Owner need not exist yet. Installer-managed VPS hosts can run `sudo llll doctor` for configuration, service, readiness and public discovery checks without changing the installation. See [VPS operations](../docs/vps-installer.md#operations).

@@ -3,6 +3,21 @@
 name: ${LLLL_PROJECT:-llll}
 
 services:
+  # Existing installations used a root-owned volume. Prepare it before the
+  # unprivileged node starts, including after a cold restore.
+  celld-perms:
+    image: alpine:3.24
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - celld-data:/data
+    command: ["chown", "-R", "10001:10001", "/data"]
+
   rustfs-perms:
     image: alpine:3.24
     user: "0:0"
@@ -75,8 +90,16 @@ services:
     image: ${LLLL_IMAGE:-llll:local}
     pull_policy: never
     restart: always
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=256m,mode=1777
     stop_grace_period: 50s
     depends_on:
+      celld-perms:
+        condition: service_completed_successfully
       bucket-init:
         condition: service_completed_successfully
       rustfs:

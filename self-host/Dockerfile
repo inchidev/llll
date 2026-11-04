@@ -39,7 +39,10 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl jq tini \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /opt/llll /var/lib/llll/celld
+    && groupadd --gid 10001 llll \
+    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin llll \
+    && mkdir -p /opt/llll /var/lib/llll/celld \
+    && chown 10001:10001 /var/lib/llll/celld
 
 COPY --from=celld /usr/local/bin/celld /usr/local/bin/celld
 COPY --from=tools /tools/node_modules/@esbuild /tmp/esbuild
@@ -54,6 +57,8 @@ WORKDIR /opt/llll
 
 ENV CELLD_WATCH=/var/lib/llll/celld \
     CELLD_ESBUILD=/usr/local/bin/esbuild
+
+USER 10001:10001
 
 EXPOSE 8080
 

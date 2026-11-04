@@ -46,11 +46,12 @@ if (tool === 'curl') {
     const [, version, name] = /\/v([^/]+)\/([^/]+)$/.exec(url);
     try { bytes = read(join(fixture, 'releases', version, name)); } catch { die('fixture asset missing'); }
   } else if (url.endsWith('/.well-known/llll')) {
+    if (get('doctor-curl-code')) process.exit(Number(get('doctor-curl-code')));
     if (!get('running')) die('Server is stopped');
     const env = envFile(get('envpath'));
     const data = JSON.parse(read(join(state, env.LLLL_PROJECT + '_celld-data', 'server.json')));
     const aliases = (env.LLLL_ORIGINS || '').split(',').map(value => value.trim()).filter(value => value && value !== env.PUBLIC_ORIGIN);
-    bytes = Buffer.from(JSON.stringify({ product: 'llll', kind: 'server', id: data.id, origin: env.PUBLIC_ORIGIN, aliases, version: env.LLLL_VERSION, ready: data.claimed }));
+    bytes = Buffer.from(JSON.stringify({ product: 'llll', kind: 'server', id: get('doctor-wrong-id') || data.id, origin: env.PUBLIC_ORIGIN, aliases, version: env.LLLL_VERSION, ready: data.claimed }));
   } else die('Unexpected network request: ' + url);
   write(out, bytes); process.exit();
 }
@@ -59,7 +60,7 @@ if (tool !== 'docker') die('Unexpected tool');
 if (args.shift() !== '--host' || args.shift() !== 'unix:///var/run/docker.sock') die('Docker must be local');
 append(join(state, 'calls'), JSON.stringify(args) + '\n');
 const cmd = args.shift();
-if (cmd === 'version') { console.log('28.0.0'); process.exit(); }
+if (cmd === 'version') { if (get('doctor-daemon-fail')) die('private Docker error'); console.log('28.0.0'); process.exit(); }
 if (cmd === 'load' || cmd === 'pull') { save('mutated', 'yes'); process.exit(); }
 if (cmd === 'image') { if (args.includes('--format')) console.log('linux/amd64'); process.exit(); }
 if (cmd === 'volume') {
@@ -84,14 +85,18 @@ if (cmd === 'compose') {
       mkdir(join(state, project + '_' + key), { recursive: true }); save(project + '_' + key + '.owner', project);
     }
     const file = join(state, project + '_celld-data', 'server.json');
-    if (!exists(file)) write(file, JSON.stringify({ id: randomUUID(), claimed: false, messages: [] }));
+    if (!exists(file)) write(file, JSON.stringify({ id: env.SERVER_ID, claimed: false, messages: [] }));
     if (env.LLLL_VERSION === '9.0.0-alpha.3') {
       write(file, JSON.stringify({ id: randomUUID(), claimed: false, messages: ['FAILED MIGRATION'] }));
       die('Forced failure after persistent data mutation');
     }
     save('envpath', envpath); save('running', 'yes');
   } else if (action === 'stop' || action === 'down') save('running', '');
-  else if (action !== 'ps') die('Unexpected Compose action ' + action);
+  else if (action === 'config') { if (get('doctor-config-fail')) die('PRIVATE_CONFIG_SECRET'); }
+  else if (action === 'exec') { if (get('doctor-health-fail') || !get('running')) die('PRIVATE_HEALTH_SECRET'); }
+  else if (action === 'ps') {
+    if (args.includes('--format')) for (const Service of ['rustfs', 'llll', 'gateway']) console.log(JSON.stringify({ Service, State: get('running') ? 'running' : 'exited', Health: Service === 'gateway' ? '' : (get('doctor-health-fail') ? 'unhealthy' : 'healthy') }));
+  } else die('Unexpected Compose action ' + action);
   process.exit();
 }
 if (cmd === 'run') {
@@ -145,6 +150,35 @@ try {
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), secrets)
   assert.ok(!rerun.stdout.includes('claim='), 'claimed Servers never print a setup token')
   const cli = join(target, 'llll')
+  // Doctor observes the managed installation, never changes it or leaks secrets.
+  const callsBeforeDoctor = readFileSync(join(state, 'calls'), 'utf8').length
+  const healthyDoctor = run(cli, ['doctor'])
+  assert.match(healthyDoctor.stdout, /Doctor passed/)
+  assert.match(healthyDoctor.stdout, /database and migrations/)
+  assert.equal(readFileSync(join(target, '.env'), 'utf8'), secrets)
+  const doctorCalls = readFileSync(join(state, 'calls'), 'utf8').slice(callsBeforeDoctor).trim().split('\n').map(line => JSON.parse(line))
+  assert.ok(doctorCalls.every(args => args[0] === 'version' || (args[0] === 'compose' && ['config', 'ps', 'exec'].includes(args[args.lastIndexOf('-f') + 2]))), 'doctor must only inspect or run the readiness probe')
+  for (const [flag, value, expected] of [
+    ['doctor-config-fail', 'yes', /Compose configuration is invalid/],
+    ['doctor-daemon-fail', 'yes', /Local Docker daemon is unavailable/],
+    ['doctor-health-fail', 'yes', /Server readiness failed/],
+    ['doctor-wrong-id', '00000000-0000-4000-8000-000000000099', /discovery does not match/],
+    ['doctor-curl-code', '6', /DNS lookup failed/],
+    ['doctor-curl-code', '60', /TLS verification failed/],
+  ]) {
+    writeFileSync(join(state, flag), value)
+    const result = run(cli, ['doctor'], {}, false)
+    assert.match(result.stdout, expected)
+    for (const key of ['AUTH_SECRET', 'SETUP_TOKEN', 'RUSTFS_SECRET_KEY']) {
+      const secret = new RegExp(`^${key}='([^']+)'`, 'm').exec(secrets)[1]
+      assert.ok(!(result.stdout + result.stderr).includes(secret))
+    }
+    assert.ok(!(result.stdout + result.stderr).includes('PRIVATE_'))
+    rmSync(join(state, flag))
+  }
+  run(cli, ['doctor', '--repair'], {}, false)
+  run(cli, ['doctor'], { LLLL_DIR: join(fixture, 'missing') }, false)
+  assert.equal(existsSync(join(fixture, 'missing')), false)
   writeFileSync(join(state, 'fail-next-backup'), 'yes')
   run(cli, ['backup'], {}, false)
   assert.equal(readFileSync(join(state, 'running'), 'utf8'), 'yes', 'an interrupted backup must restart the Server')
@@ -185,6 +219,7 @@ try {
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), domainEnv, 'the primary cannot be removed')
   run(cli, ['uninstall', '--yes', '--no-backup'])
   assert.ok(existsSync(live), 'default uninstall keeps live volumes')
+  assert.match(run(cli, ['doctor'], {}, false).stdout, /missing, stopped or unhealthy/)
   // Foreign project protection must fail before purge/backup.
   writeFileSync(join(state, project + '_celld-data.owner'), 'foreign-project')
   run(cli, ['uninstall', '--yes', '--purge', '--no-backup'], {}, false)

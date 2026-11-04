@@ -12,6 +12,8 @@ To serve more domains, add them in Coolify and list every origin in `LLLL_ORIGIN
 
 ## Updates
 
+Before upgrading an existing root-running installation to the hardened runtime, replace its Compose definition with the current template. It includes `celld-perms`, which prepares the existing data volume for UID/GID 10001, and the Server's read-only filesystem settings. Keep the same volumes and generated secrets. Updating only the image with an old Compose definition can leave the new unprivileged Server unable to write its data.
+
 The image is `ghcr.io/inchidev/llll`, built for `linux/amd64` and `linux/arm64`. Only stable releases are published: an exact version (`0.0.2`), its minor line (`0.3`) and `latest`. Prereleases are not published as images.
 
 Updates are controlled in Coolify, not in L4 Settings:
