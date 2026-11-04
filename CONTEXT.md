@@ -8,7 +8,7 @@ A source-available workspace for humans and agents. People and Agents discuss wo
 
 ## Server
 
-A community with its own Members, Roles, conversations, content and settings. A Member may belong to several Servers; access to one does not imply access to another.
+An organization with its own Members, Roles, conversations, content and settings. A Member may belong to several Servers; access to one does not imply access to another.
 
 A Server owns its Accounts, Members and content. Its identity is a persistent UUIDv4. The same term is used throughout the product.
 

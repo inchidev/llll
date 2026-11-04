@@ -4,7 +4,7 @@ description: Which Cloudflare products an L4 Server uses, who pays for them, and
 order: 3
 ---
 
-L4 itself is free, source-available software and has no hosted plan or billing. A Cloudflare Server runs in your own account, and Cloudflare bills that account directly for what the Server uses. L4 does not quote prices; check Cloudflare's current pricing for each product below.
+L4 is free, source-available software when you run it on your own infrastructure. A Cloudflare Server runs in your own account, and Cloudflare bills that account directly for what the Server uses. L4 does not quote prices; check Cloudflare's current pricing for each product below.
 
 ## Products a Server uses
 
