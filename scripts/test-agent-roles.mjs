@@ -54,7 +54,7 @@ export async function testAgentRoles({ api, runtimes, ids, memberId }) {
     console.log('PASS: agent role editor HTTP roundtrip, directory role IDs, scoped grants, protected Admin/current roles, atomic rejection and unchanged built-in autonomy policy')
   } finally {
     await api('alpha', root + '/members/' + memberId, { method: 'PATCH', body: { roleId: original.role_id } })
-    if (agent) await api('alpha', root + '/members/' + agent.id, { method: 'DELETE' })
+    if (agent) await api('alpha', root + '/agents/' + agent.id, { method: 'DELETE' })
     for (const role of [profileManager, roleManager, limited, peer, task, wide]) await api('alpha', root + '/roles/' + role.id, { method: 'DELETE' })
   }
 }
