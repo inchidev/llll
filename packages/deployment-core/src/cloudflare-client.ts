@@ -1,8 +1,10 @@
-import Cloudflare from 'cloudflare'
+import type Cloudflare from 'cloudflare'
 import { InstallerError } from './errors.js'
 
-export function cloudflareClient(accessToken: string) {
-  return new Cloudflare({ apiToken: accessToken })
+/** The SDK is large and only updates, domains and deployment need it, so it loads on first use. */
+export async function cloudflareClient(accessToken: string): Promise<Cloudflare> {
+  const { default: Client } = await import('cloudflare')
+  return new Client({ apiToken: accessToken })
 }
 
 type ApiEnvelope<T> = {

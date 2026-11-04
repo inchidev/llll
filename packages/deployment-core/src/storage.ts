@@ -9,7 +9,7 @@ export async function enableL4Files(accessToken: string, accountId: string, work
   const server = await readL4Server(accessToken, accountId, workerName)
   if (!server) throw createError({ statusCode: 404, statusMessage: 'Server not found in this Cloudflare account' })
   if (server.resources.bucketName) return { bucketName: server.resources.bucketName }
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const bucketName = await ensureR2(client, accountId, `${workerName}-files`)
   const settings = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
   // Re-read after provisioning, preserving bindings configured in the meantime.

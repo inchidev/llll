@@ -1,6 +1,6 @@
 import { fileStorage } from '../shared/file-storage'
 import { getServerId } from '../shared/server-id'
-import PostalMime, { type Address } from 'postal-mime'
+import type { Address, Email } from 'postal-mime'
 import { newId, nowIso } from '../shared/ids'
 import { MAIL_EXTERNAL_USER_ID, MAIL_LIMITS, mailAddressList, mergeMailAddresses } from '../shared/mail'
 import { mailAttachmentFilename, mailAttachmentType, mailFilesAvailable } from '../shared/mail-attachments'
@@ -111,7 +111,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   if ((message.rawSize ?? 0) > MAIL_LIMITS.rawBytes) return { accepted: false, reason: 'Message is too large' }
   const raw = await readRaw(message.raw, MAIL_LIMITS.rawBytes)
   if (!raw) return { accepted: false, reason: 'Message is too large' }
-  let parsed: Awaited<ReturnType<typeof PostalMime.parse>>
+  // Only inbound mail needs the parser, so a Worker starting for anything else does not load it.
+  const { default: PostalMime } = await import('postal-mime')
+  let parsed: Email
   try { parsed = await PostalMime.parse(raw) }
   catch {
     // Parser limits and malformed MIME are permanent input failures, not retryable delivery errors.

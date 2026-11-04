@@ -65,7 +65,7 @@ it('imports Markdown safely and searches body content only within current access
   const doc = await createItem(env, auth, { title: 'Brief', format: 'markdown', content: '# Research\n\nA **rare finding**.\n<script>evil()</script>' })
   expect(doc.content).toContain('<h1>Research</h1>')
   expect(doc.content).not.toContain('evil')
-  expect(documentMarkdown(doc.content)).toContain('**rare finding**')
+  expect(await documentMarkdown(doc.content)).toContain('**rare finding**')
   expect(await searchData(env, auth, 'rare finding')).toMatchObject([{ id: doc.id, type: 'item' }])
   const hidden = { ...auth, principal: { ...auth.principal, isOwner: false, resourceAccess: { documents: [] } } }
   expect(await searchData(env, hidden, 'rare finding')).toEqual([])

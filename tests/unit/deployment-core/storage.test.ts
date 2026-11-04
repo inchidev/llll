@@ -52,3 +52,11 @@ describe('optional server R2', () => {
     expect(updateWorkerBindings([{ name: 'DB', type: 'd1' }], manifest).some(binding => binding.name === 'FILES')).toBe(false)
   })
 })
+
+it('keeps the Cloudflare SDK out of the module graph until a client is made', async () => {
+  const { readFileSync } = await import('node:fs')
+  const eager = /^import (?!type\b).*from 'cloudflare'/mu
+  for (const file of ['cloudflare-client', 'storage', 'installer', 'factory', 'servers', 'domains', 'deploy', 'access']) {
+    expect(readFileSync(`packages/deployment-core/src/${file}.ts`, 'utf8')).not.toMatch(eager)
+  }
+})

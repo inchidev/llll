@@ -11,5 +11,5 @@ export default defineEventHandler(async event => {
   const document = await getItem(env, actor.authorization, getRouterParam(event, 'id')!)
   setHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
   setHeader(event, 'Content-Disposition', `attachment; filename="document.md"; filename*=UTF-8''${encodeURIComponent(document.title + '.md')}`)
-  return documentMarkdown(document.content) + '\n'
+  return (await documentMarkdown(document.content)) + '\n'
 })
