@@ -175,7 +175,7 @@ describe('Pi run authorization', () => {
     authorization.delegation!.resourceAccess = { boards: ['other-board'], databases: [], documents: [], canvases: [] }
     const tools = agentTools(env, authorization, () => {}, run)
     expect(await tools.call('search_tools', { query: 'tasks records data documents' })).toMatchObject({ tools: [] })
-    for (const name of ['list_tasks', 'list_tables', 'list_data', 'get_document', 'create_document']) {
+    for (const name of ['list_tasks', 'list_tables', 'list_data', 'get_item', 'create_item']) {
       await expect(tools.call('get_tool_details', { name, purpose: 'Read resources' })).rejects.toMatchObject({ statusCode: 403 })
       await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })
     }
@@ -186,7 +186,7 @@ describe('Pi run authorization', () => {
     const run = await createAgentRun(env, (await start())!, input())
     const tools = agentTools(env, await runAuthorization(env, run), () => {}, run)
     const names = (await tools.catalog()).map(tool => tool.name)
-    expect(names).toEqual(expect.arrayContaining(['list_tasks', 'list_tables', 'list_data', 'read_records', 'get_document']))
+    expect(names).toEqual(expect.arrayContaining(['list_tasks', 'list_tables', 'list_data', 'read_records', 'get_item']))
     for (const name of ['list_app_drafts', 'create_app_draft']) {
       expect(names).not.toContain(name)
       await expect(tools.call(name, {})).rejects.toMatchObject({ statusCode: 403 })

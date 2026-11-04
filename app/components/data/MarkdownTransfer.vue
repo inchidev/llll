@@ -19,11 +19,11 @@ async function importFile(event: Event) {
   try {
     if (props.saveDraft && !await props.saveDraft()) throw new Error('Save or resolve the current draft first')
     if (file.size > DOCUMENT_CONTENT_MAX) throw new Error('Choose a Markdown file no larger than 1 MB')
-    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title: file.name.replace(/\.(md|markdown)$/iu, '').slice(0, 160) || undefined, content: await file.text(), format: 'markdown' } })
-    qc.setQueryData(['document', result.document.id], result)
+    const result = await api<{ item: DocumentDTO }>(`/api/servers/${serverId.value}/items`, { method: 'POST', body: { title: file.name.replace(/\.(md|markdown)$/iu, '').slice(0, 160) || undefined, content: await file.text(), format: 'markdown' } })
+    qc.setQueryData(['item', result.item.id], result)
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     open.value = false
-    await navigateTo(documentPath(result.document.id))
+    await navigateTo(documentPath(result.item.id))
   }
   catch (cause) { error.value = errorMessage(cause) }
   finally { busy.value = false }
@@ -33,7 +33,7 @@ async function download() {
   busy.value = true; error.value = ''
   try {
     if (props.saveDraft && !await props.saveDraft()) throw new Error('Save or resolve the current draft first')
-    const contents = await api<string>(`/api/documents/${props.documentId}/export`)
+    const contents = await api<string>(`/api/items/${props.documentId}/export`)
     downloadDataFile(contents, 'document.md', 'text/markdown;charset=utf-8')
   }
   catch (cause) { error.value = errorMessage(cause) }

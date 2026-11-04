@@ -92,13 +92,14 @@ async function createRecord(
   const fields = await databaseFieldsFor(env, binding.source.databaseId)
   const allowed = new Set(binding.fieldIds)
   const fieldMap = new Map(fields.filter(field => allowed.has(field.id)).map(field => [field.id, field]))
-  const columns = ['id', 'database_id', 'title', 'position', 'version', 'created_by', 'created_at', 'updated_at']
-  const position = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) + 1024 as value FROM database_items WHERE database_id = ?')
+  const space = await env.DB.prepare('SELECT space_id AS id FROM database_definitions WHERE id=?').bind(binding.source.databaseId).first<{id:string}>()
+  const columns = ['id', 'space_id', 'database_id', 'title', 'position', 'version', 'created_by', 'created_at', 'updated_at']
+  const position = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) + 1024 as value FROM data_items WHERE database_id = ?')
     .bind(binding.source.databaseId).first<{ value: number }>()
   const id = newId()
   const now = nowIso()
   const title = input.title?.trim() || 'Untitled'
-  const values: Array<string | number | null> = [id, binding.source.databaseId, title, position?.value ?? 1024, 1, actor.user.id, now, now]
+  const values: Array<string | number | null> = [id, space!.id, binding.source.databaseId, title, position?.value ?? 1024, 1, actor.user.id, now, now]
   for (const [fieldId, value] of Object.entries(input.values ?? {})) {
     const field = fieldMap.get(fieldId)
     if (!field) fail(400, 'gadget_field_denied', 'The App cannot write one of the supplied Fields')
@@ -106,7 +107,7 @@ async function createRecord(
     columns.push(field.slot)
     values.push(databaseSqlValue(field, value))
   }
-  await env.DB.prepare(`INSERT INTO database_items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).bind(...values).run()
+  await env.DB.prepare(`INSERT INTO data_items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).bind(...values).run()
   await writeAudit(env, {
     serverId: actor.serverId,
     actorId: actor.user.id,
@@ -154,7 +155,7 @@ async function updateRecord(
   }
   if (assignments.length === 2) fail(400, 'bad_request', 'No Record changes were supplied')
   const updated = await env.DB.prepare(
-    `UPDATE database_items SET ${assignments.join(', ')} WHERE id = ? AND version = ?
+    `UPDATE data_items SET ${assignments.join(', ')} WHERE id = ? AND version = ?
      RETURNING *, database_id as databaseId, created_by as createdBy, created_at as createdAt, updated_at as updatedAt`,
   ).bind(...values, input.recordId, input.version).first<Parameters<typeof databaseItemDto>[0]>()
   if (!updated) fail(409, 'stale_record', 'This Record changed elsewhere. Reload and try again.')

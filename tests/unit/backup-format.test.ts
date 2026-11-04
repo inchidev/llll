@@ -162,8 +162,8 @@ describe('backup format', () => {
         INSERT INTO channels (id, name, type, visibility, parent_id, parent_message_id)
           VALUES ('thread', 'Thread', 'thread', 'server', 'channel', 'message');
         INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES ('reply', 'thread', 'owner', 'Reply', CURRENT_TIMESTAMP);
-        INSERT INTO documents (id, title, content, created_by) VALUES ('doc', 'Plan', '<p>Hello</p>', 'owner');
-        INSERT INTO canvases (id, title, created_by) VALUES ('canvas', 'Launch', 'owner');
+        INSERT INTO data_items (id, title, content, created_by) VALUES ('doc', 'Plan', '<p>Hello</p>', 'owner');
+        INSERT INTO data_items (kind, id, title, created_by) VALUES ('canvas', 'canvas', 'Launch', 'owner');
         INSERT INTO canvas_nodes (id, canvas_id, content, created_by) VALUES ('node', 'canvas', 'Start', 'owner');
         INSERT INTO auth_oauth_client (id,client_id,redirect_uris) VALUES ('oauth-client-row','oauth-client','["https://client.example/callback"]');
         INSERT INTO auth_oauth_resource (id,identifier,name) VALUES ('oauth-resource','https://server.example/mcp','MCP');
@@ -173,7 +173,7 @@ describe('backup format', () => {
       const updateState = { ...emptyUpdateRecord(), hook: { ciphertext: 'encrypted-hook', iv: 'iv', version: 1 }, job: { stage: 'backing_up' }, backupToken: 'single-job-capability', backupBusy: true }
       source.prepare('INSERT INTO server_update_control VALUES (1, 9, ?)').run(JSON.stringify(updateState))
       const richDocument = '<p>日本語🙂 long document</p>'.repeat(6000)
-      source.prepare('UPDATE documents SET content = ? WHERE id = ?').run(richDocument, 'doc')
+      source.prepare('UPDATE data_items SET content = ? WHERE id = ?').run(richDocument, 'doc')
       const database = {
         async batch(statements: Array<{ all: () => Promise<{ results: unknown[] }> }>) {
           return Promise.all(statements.map(statement => statement.all()))
@@ -211,7 +211,7 @@ describe('backup format', () => {
       expect(JSON.parse(String(source.prepare('SELECT payload FROM server_update_control').get()!.payload))).toEqual(updateState)
       expect(restored.prepare('SELECT parent_message_id FROM channels WHERE id = ?').get('thread')).toEqual({ parent_message_id: 'message' })
       expect(restored.prepare('SELECT channel_id FROM messages WHERE id = ?').get('reply')).toEqual({ channel_id: 'thread' })
-      expect(restored.prepare('SELECT content FROM documents WHERE id = ?').get('doc')).toEqual({ content: richDocument })
+      expect(restored.prepare('SELECT content FROM data_items WHERE id = ?').get('doc')).toEqual({ content: richDocument })
       expect(restored.prepare("SELECT message_id FROM message_search WHERE message_search MATCH 'searchable'").all()).toEqual([{ message_id: 'message' }])
       restored.exec("UPDATE messages SET content = 'Changed' WHERE id = 'message'")
       expect(restored.prepare("SELECT message_id FROM message_search WHERE message_search MATCH 'Changed'").all()).toEqual([{ message_id: 'message' }])

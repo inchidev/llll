@@ -2,39 +2,27 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { canvasPath } from '~~/shared/paths'
 import { Permission } from '~~/shared/permissions'
-import type { CanvasDTO, CanvasEdgeDTO, CanvasNodeColor, CanvasNodeDTO, DataResourcesDTO } from '~~/shared/types'
+import type { CanvasDTO, CanvasEdgeDTO, CanvasNodeColor, CanvasNodeDTO } from '~~/shared/types'
 import { createCanvasNodeEditor, type CanvasNodePatch } from '~/utils/canvas-node-editor'
 
-definePageMeta({ layout: 'server', middleware: ['auth', 'manage-databases'] })
+const props = defineProps<{ itemId: string }>()
 
-const { serverId } = useServer()
 const { api } = useApi()
-const route = useRoute()
-const nav = useNavActions()
 const { can } = useRoleGrants()
+const writable = computed(()=>can(Permission.manageDatabases) && can(Permission.writeData))
 const qc = useQueryClient()
 const toast = useToast()
 const viewport = useTemplateRef<HTMLDivElement>('viewport')
-const resourcesQ = useQuery({
-  queryKey: computed(() => ['data-resources', serverId.value]),
-  queryFn: () => api<DataResourcesDTO>(`/api/servers/${serverId.value}/data-resources`),
-  enabled: computed(() => Boolean(serverId.value)),
-  refetchInterval: 10_000,
-})
-const canvases = computed(() => resourcesQ.data.value?.canvases ?? [])
-const selectedId = computed(() => String(route.query.canvas || '') || canvases.value[0]?.id || '')
+const selectedId = computed(() => props.itemId)
 const canvasQ = useQuery({
   queryKey: computed(() => ['canvas', selectedId.value]),
-  queryFn: () => api<{ canvas: CanvasDTO }>(`/api/canvases/${selectedId.value}`),
-  enabled: computed(() => Boolean(selectedId.value && canvases.value.some(canvas => canvas.id === selectedId.value))),
+  queryFn: () => api<{ canvas: CanvasDTO }>(`/api/items/${selectedId.value}/canvas`),
+  enabled: computed(() => Boolean(selectedId.value)),
 })
 const activeCanvas = computed(() => canvasQ.data.value?.canvas.id === selectedId.value ? canvasQ.data.value.canvas : null)
 const nodes = ref<CanvasNodeDTO[]>([])
 const edges = ref<CanvasEdgeDTO[]>([])
-const canvasTitle = ref('')
-const canvasVersion = ref(1)
 const saving = ref(false)
-const showDelete = ref(false)
 const connecting = ref(false)
 const connectFrom = ref<string | null>(null)
 const drag = shallowRef<{ id: string; clientX: number; clientY: number; x: number; y: number } | null>(null)
@@ -82,14 +70,9 @@ watch(activeCanvas, (canvas, previous) => {
   }
   else nodes.value = []
   edges.value = canvas?.edges.map(edge => ({ ...edge })) ?? []
-  if (canvas?.id !== previous?.id || canvasTitle.value === previous?.title) canvasTitle.value = canvas?.title ?? ''
-  canvasVersion.value = canvas?.version ?? 1
 }, { immediate: true })
 
-watch([canvases, selectedId], ([list, id]) => {
-  if (!list.length || !id || list.some(canvas => canvas.id === id)) return
-  void navigateTo(canvasPath(list[0]?.id), { replace: true })
-})
+
 
 const colorClasses: Record<CanvasNodeColor, string> = {
   neutral: 'border-default bg-elevated',
@@ -118,6 +101,7 @@ async function refresh(canvasId = selectedId.value) {
 }
 
 async function addNode(kind: 'note' | 'text' = 'note') {
+  if (!writable.value) return
   const canvas = activeCanvas.value
   if (!canvas || saving.value) return
   const el = viewport.value
@@ -127,7 +111,7 @@ async function addNode(kind: 'note' | 'text' = 'note') {
   const y = Math.max(40, Math.min(1456, (el?.scrollTop ?? 0) + (el?.clientHeight ?? 600) / 2 - 72 + offsetY))
   saving.value = true
   try {
-    const result = await api<{ node: CanvasNodeDTO }>(`/api/canvases/${canvas.id}/nodes`, {
+    const result = await api<{ node: CanvasNodeDTO }>(`/api/items/${canvas.id}/nodes`, {
       method: 'POST', body: { kind, content: '', x, y, color: kind === 'note' ? 'orange' : 'neutral' },
     })
     if (selectedId.value === canvas.id) nodes.value.push(editorFor(result.node).state.node)
@@ -141,6 +125,7 @@ async function addNode(kind: 'note' | 'text' = 'note') {
 }
 
 async function patchNode(node: CanvasNodeDTO, patch: CanvasNodePatch) {
+  if (!writable.value) return
   const editor = editorFor(node)
   Object.assign(editor.state.node, patch)
   await editor.save()
@@ -149,8 +134,9 @@ async function patchNode(node: CanvasNodeDTO, patch: CanvasNodePatch) {
 }
 
 async function retryNode(node: CanvasNodeDTO) {
+  if (!writable.value) return
   try {
-    const result = await api<{ canvas: CanvasDTO }>(`/api/canvases/${node.canvasId}`)
+    const result = await api<{ canvas: CanvasDTO }>(`/api/items/${node.canvasId}/canvas`)
     const latest = result.canvas.nodes.find(item => item.id === node.id)
     if (!latest) return
     const editor = editorFor(node)
@@ -168,7 +154,7 @@ async function discardNodeChanges(node: CanvasNodeDTO) {
     if (selectedId.value === node.canvasId) nodes.value = nodes.value.filter(item => item.id !== node.id)
   }
   try {
-    const result = await api<{ canvas: CanvasDTO }>(`/api/canvases/${node.canvasId}`)
+    const result = await api<{ canvas: CanvasDTO }>(`/api/items/${node.canvasId}/canvas`)
     const latest = result.canvas.nodes.find(item => item.id === node.id)
     if (latest) editorFor(node).discard(latest)
     else forgetDraft()
@@ -217,7 +203,7 @@ async function handleNodeClick(node: CanvasNodeDTO) {
   const canvas = activeCanvas.value
   if (!canvas) return
   try {
-    const result = await api<{ edge: CanvasEdgeDTO }>(`/api/canvases/${canvas.id}/edges`, {
+    const result = await api<{ edge: CanvasEdgeDTO }>(`/api/items/${canvas.id}/edges`, {
       method: 'POST', body: { fromNodeId: connectFrom.value, toNodeId: node.id },
     })
     if (selectedId.value === canvas.id) {
@@ -231,11 +217,13 @@ async function handleNodeClick(node: CanvasNodeDTO) {
 }
 
 function toggleConnecting() {
+  if (!writable.value) return
   connecting.value = !connecting.value
   connectFrom.value = null
 }
 
 async function removeNode(node: CanvasNodeDTO) {
+  if (!writable.value) return
   try {
     await editorFor(node).save()
     await api(`/api/canvas-nodes/${node.id}`, { method: 'DELETE' })
@@ -256,39 +244,6 @@ function colorMenu(node: CanvasNodeDTO) {
     { label: 'Blue', value: 'blue' }, { label: 'Green', value: 'green' }, { label: 'Red', value: 'red' },
   ]
   return [colors.map(color => ({ label: color.label, onSelect: () => void patchNode(node, { color: color.value }) }))]
-}
-
-async function renameCanvas() {
-  const canvas = activeCanvas.value
-  const title = canvasTitle.value.trim()
-  if (!canvas || saving.value || !title || title === canvas.title) return
-  saving.value = true
-  try {
-    const result = await api<{ canvas: Omit<CanvasDTO, 'nodes' | 'edges'> }>(`/api/canvases/${canvas.id}`, { method: 'PATCH', body: { title, version: canvasVersion.value } })
-    if (selectedId.value === canvas.id) canvasVersion.value = result.canvas.version
-    await refresh(canvas.id)
-  }
-  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }); await refresh(canvas.id) }
-  finally { saving.value = false }
-}
-
-async function removeCanvas() {
-  const canvas = activeCanvas.value
-  if (!canvas) return
-  saving.value = true
-  try {
-    await Promise.all([...nodeEditors.values()].filter(editor => editor.state.node.canvasId === canvas.id).map(editor => editor.save()))
-    await api(`/api/canvases/${canvas.id}`, { method: 'DELETE' })
-    for (const [id, editor] of nodeEditors) if (editor.state.node.canvasId === canvas.id) nodeEditors.delete(id)
-    drafts.delete(canvas.id)
-    showDelete.value = false
-    qc.removeQueries({ queryKey: ['canvas', canvas.id] })
-    await qc.invalidateQueries({ queryKey: ['data-resources'] })
-    const next = canvases.value.find(item => item.id !== canvas.id)
-    await navigateTo(canvasPath(next?.id), { replace: true })
-  }
-  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
-  finally { saving.value = false }
 }
 
 onBeforeUnmount(() => {
@@ -317,25 +272,21 @@ onBeforeRouteLeave(async () => {
 })
 
 function retryLoad() {
-  return Promise.all([resourcesQ.refetch(), canvasQ.refetch()])
+  return canvasQ.refetch()
 }
 </script>
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
     <header class="df-top-row-min flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2 shadow-[0_1px_0_var(--ui-border)]">
-      <LayoutMobileMenuButton />
+      
       <UIcon name="i-ph-selection-background" class="size-5 text-muted" />
-      <LayoutBreadcrumbs :items="[{ label: 'Data', to: '/data' }]" leads-in />
-      <UInput v-if="activeCanvas" v-model="canvasTitle" variant="none" aria-label="Canvas title" class="min-w-0 flex-1 sm:flex-none" :disabled="saving" :ui="{ base: 'px-1 font-semibold' }" @change="renameCanvas" />
-      <span v-else class="font-semibold">Canvases</span>
+      
+      <span class="font-semibold">Canvas</span>
       <div class="ml-auto flex max-w-full flex-wrap items-center gap-1">
-        <DataBookmarkButton v-if="activeCanvas" :server-id="serverId" target-type="canvas" :target-id="activeCanvas.id" />
-        <UButton color="neutral" variant="soft" icon="i-ph-note" label="Note" :disabled="!activeCanvas" @click="addNode('note')" />
-        <UButton color="neutral" variant="soft" icon="i-ph-text-t" label="Text" :disabled="!activeCanvas" @click="addNode('text')" />
-        <UButton :color="connecting ? 'primary' : 'neutral'" :variant="connecting ? 'soft' : 'ghost'" icon="i-ph-path" label="Connect" :disabled="!activeCanvas || nodes.length < 2" @click="toggleConnecting" />
-        <UButton color="neutral" variant="ghost" icon="i-ph-trash" aria-label="Delete canvas" :disabled="!activeCanvas" @click="showDelete = true" />
-        <UButton icon="i-ph-plus" label="Canvas" @click="nav.createCanvasOpen.value = true" />
+        <UButton color="neutral" variant="soft" icon="i-ph-note" label="Note" :disabled="!activeCanvas || !writable" @click="addNode('note')" />
+        <UButton color="neutral" variant="soft" icon="i-ph-text-t" label="Text" :disabled="!activeCanvas || !writable" @click="addNode('text')" />
+        <UButton :color="connecting ? 'primary' : 'neutral'" :variant="connecting ? 'soft' : 'ghost'" icon="i-ph-path" label="Connect" :disabled="!activeCanvas || !writable || nodes.length < 2" @click="toggleConnecting" />
       </div>
     </header>
 
@@ -351,11 +302,9 @@ function retryLoad() {
     <div v-if="connecting" class="shrink-0 border-b border-default bg-primary/10 px-4 py-2 text-sm text-default">
       {{ connectFrom ? 'Choose the second item.' : 'Choose the first item to connect.' }}
     </div>
-    <div v-if="resourcesQ.isPending.value || (selectedId && canvases.some(canvas => canvas.id === selectedId) && canvasQ.isPending.value)" class="p-6"><LayoutSkeleton variant="cards" /></div>
-    <LayoutLoadError v-else-if="resourcesQ.error.value || canvasQ.error.value" message="Canvases did not load." :retry="retryLoad" />
-    <LayoutEmptyState v-else-if="!activeCanvas" icon="i-ph-selection-background" title="No canvases yet" description="A free surface for notes and the connections between them: lay ideas out, then link what belongs together.">
-      <UButton v-if="can(Permission.manageDatabases)" icon="i-ph-plus" label="Create first canvas" @click="nav.createCanvasOpen.value = true" />
-    </LayoutEmptyState>
+    <div v-if="canvasQ.isPending.value" class="p-6"><LayoutSkeleton variant="cards" /></div>
+    <LayoutLoadError v-else-if="canvasQ.error.value" message="Canvases did not load." :retry="retryLoad" />
+    <LayoutEmptyState v-else-if="!activeCanvas" icon="i-ph-selection-background" title="Canvas not found" description="It may have been removed or is outside your access." />
     <div v-else ref="viewport" class="min-h-0 flex-1 overflow-auto bg-muted/30">
       <div
         class="relative h-[1600px] w-[2400px]"
@@ -398,6 +347,7 @@ function retryLoad() {
           </div>
           <textarea
             v-model="node.content"
+            :readonly="!writable"
             :aria-label="node.kind === 'note' ? 'Note content' : 'Text content'"
             class="min-h-0 flex-1 resize-none bg-transparent p-3 text-sm text-default outline-none placeholder:text-dimmed"
             :placeholder="node.kind === 'note' ? 'Write a note…' : 'Add text…'"
@@ -412,14 +362,5 @@ function retryLoad() {
       </div>
     </div>
 
-    <div v-if="activeCanvas" class="max-h-64 shrink-0 overflow-y-auto border-t border-default px-4 pb-4"><DataReferences :id="activeCanvas.id" type="canvas" :writable="can(Permission.writeData)" /></div>
-
-    <UModal v-model:open="showDelete" title="Move canvas to Trash?">
-      <template #body><p class="text-sm text-muted">The canvas and its items stay in Trash until you restore or permanently delete it.</p></template>
-      <template #footer>
-        <UButton color="neutral" variant="ghost" label="Cancel" @click="showDelete = false" />
-        <UButton color="error" label="Move to Trash" :loading="saving" @click="removeCanvas" />
-      </template>
-    </UModal>
   </div>
 </template>

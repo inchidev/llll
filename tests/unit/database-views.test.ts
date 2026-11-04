@@ -36,7 +36,7 @@ function fixture() {
       ('status', 'leads', 'Status', 'select', 'select_1', '{"options":["Open","Won"]}', 'owner'),
       ('score', 'leads', 'Score', 'number', 'number_1', '{}', 'owner'),
       ('due', 'leads', 'Due', 'date', 'date_1', '{}', 'owner');
-    INSERT INTO database_items (id, database_id, title, select_1, number_1, date_1, created_by) VALUES
+    INSERT INTO data_items (id, database_id, title, select_1, number_1, date_1, created_by) VALUES
       ('one', 'leads', 'Acme', 'Open', 3, '2026-09-10', 'owner'),
       ('two', 'leads', 'Beta', 'Won', 9, '2026-09-11', 'owner'),
       ('three', 'leads', 'Atlas', 'Open', 7, '2026-09-12', 'owner');
@@ -58,7 +58,7 @@ describe('database views', () => {
     expect(page.total).toBe(2)
     expect(page.items[0]).not.toHaveProperty('select_1')
 
-    sqlite.prepare(`INSERT INTO database_items (id, database_id, title, created_by) VALUES ('percent', 'leads', '100% ready', 'owner')`).run()
+    sqlite.prepare(`INSERT INTO data_items (id, database_id, title, created_by) VALUES ('percent', 'leads', '100% ready', 'owner')`).run()
     const searched = await loadDatabasePage({ DB: d1(sqlite) } as never, 'leads', { page: 1, pageSize: 100, search: '%' })
     expect(searched.items.map(item => item.id)).toEqual(['percent'])
     await expect(loadDatabasePage({ DB: d1(sqlite) } as never, 'leads', { viewId: 'missing', page: 1, pageSize: 100 })).rejects.toThrow()
@@ -83,9 +83,9 @@ describe('database views', () => {
     expect(() => normalizeDatabaseViewConfig({ ...board, filters: [{ fieldId: 'status', operator: 'equals', value: 'Missing' }] }, fields, 'board', true)).toThrow()
 
     sqlite.exec(`
-      INSERT INTO documents (id, title, created_by) VALUES ('doc', 'Brief', 'owner');
-      INSERT INTO data_bookmarks (user_id, target_type, target_id) VALUES ('owner', 'document', 'doc');
-      DELETE FROM documents WHERE id = 'doc';
+      INSERT INTO data_items (id, title, created_by) VALUES ('doc', 'Brief', 'owner');
+      INSERT INTO data_bookmarks (user_id, target_type, target_id) VALUES ('owner', 'item', 'doc');
+      DELETE FROM data_items WHERE id = 'doc';
     `)
     expect(sqlite.prepare('SELECT COUNT(*) as count FROM data_bookmarks').get()).toEqual({ count: 0 })
 

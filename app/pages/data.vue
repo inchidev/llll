@@ -22,7 +22,7 @@ const search = ref('')
 const debouncedSearch = refDebounced(search, 250)
 const searchQ = useQuery({ queryKey: computed(() => ['data-search', serverId.value, debouncedSearch.value]), queryFn: () => api<{ hits: DataSearchHit[] }>('/api/data-search', { query: { q: debouncedSearch.value } }), enabled: computed(() => debouncedSearch.value.trim().length >= 2) })
 const contentMatches = computed(() => new Set(debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.map(hit => hit.id) ?? [] : []))
-const recordMatches = computed(() => debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.filter(hit => hit.type === 'record') ?? [] : [])
+const recordMatches = computed(() => debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.filter(hit => hit.type === 'item') ?? [] : [])
 const matches = (title: string) => title.toLowerCase().includes(search.value.trim().toLowerCase())
 
 const count = (noun: string, n: number) => n === 1 ? `1 ${noun}` : `${n} ${noun}s`
@@ -68,13 +68,9 @@ const bookmarks = computed(() => (resources.data.value?.bookmarks ?? []).flatMap
       if (view) return [{ key: `view:${view.id}`, title: `${database.name} / ${view.name}`, icon: 'i-ph-layout', to: databasePath(database.id, false, view.id) }]
     }
   }
-  if (bookmark.targetType === 'document') {
-    const document = resources.data.value?.documents.find(candidate => candidate.id === bookmark.targetId)
-    if (document) return [{ key: `document:${document.id}`, title: document.title || 'Untitled', icon: 'i-ph-file-text', to: documentPath(document.id) }]
-  }
-  if (bookmark.targetType === 'canvas') {
-    const canvas = resources.data.value?.canvases.find(candidate => candidate.id === bookmark.targetId)
-    if (canvas) return [{ key: `canvas:${canvas.id}`, title: canvas.title, icon: 'i-ph-selection-background', to: canvasPath(canvas.id) }]
+  if (bookmark.targetType === 'item') {
+    const item = resources.data.value?.items.find(item=>item.id===bookmark.targetId)
+    if (item) return [{ key:`item:${item.id}`, title:item.title, icon:item.kind==='canvas'?'i-ph-selection-background':'i-ph-file-text', to:documentPath(item.id) }]
   }
   return []
 }))

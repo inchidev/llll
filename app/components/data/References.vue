@@ -3,7 +3,8 @@ import { errorMessage } from '#imports'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
 import type { DataReferenceType, DataSearchHit, DataReferences } from '~~/shared/data-search'
-import { canvasPath, databasePath, documentPath, boardPath } from '~~/shared/paths'
+import { itemPath } from '~~/shared/data-items'
+import { databasePath, boardPath } from '~~/shared/paths'
 const props = defineProps<{ type: DataReferenceType; id: string; writable?: boolean }>()
 const { api } = useApi()
 const { serverId } = useServer()
@@ -18,9 +19,8 @@ const search = useQuery({ queryKey: computed(() => ['data-search', serverId.valu
 const candidates = computed(() => term.value.trim().length < 2 ? [] : (search.data.value?.hits ?? []).filter(hit => !(hit.type === props.type && hit.id === props.id) && !references.data.value?.outgoing.some(link => link.type === hit.type && link.id === hit.id)))
 function path(hit: DataSearchHit) {
   if (hit.type === 'task') return `${boardPath(hit.resourceId)}&task=${encodeURIComponent(hit.id)}`
-  if (hit.type === 'record') return databasePath(hit.resourceId, false, null, hit.id)
   if (hit.type === 'database') return databasePath(hit.id)
-  return hit.type === 'document' ? documentPath(hit.id) : canvasPath(hit.id)
+  return itemPath(hit.id)
 }
 async function change(hit: DataSearchHit, remove = false) {
   busy.value = true; error.value = ''

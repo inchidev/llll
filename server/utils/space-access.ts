@@ -12,8 +12,8 @@ export type LoadedSpaceBoundary = SpaceBoundary & { adminHere: boolean }
 
 const DENIED_SOURCES: Array<[SpaceDeniedKind, string]> = [
   ['projects', 'SELECT id FROM projects'], ['boards', 'SELECT id FROM task_boards'],
-  ['databases', 'SELECT id FROM database_definitions'], ['documents', 'SELECT id FROM documents'],
-  ['canvases', 'SELECT id FROM canvases'], ['gadgets', 'SELECT id FROM gadgets'],
+  ['databases', 'SELECT id FROM database_definitions'], ['documents', "SELECT id FROM (SELECT id,space_id FROM data_items WHERE kind='page')"],
+  ['canvases', "SELECT id FROM (SELECT id,space_id FROM data_items WHERE kind='canvas')"], ['gadgets', 'SELECT id FROM gadgets'],
   ['connections', 'SELECT id FROM mcp_outbound_connections'], ['environments', 'SELECT id FROM agent_environments'],
 ]
 
@@ -63,12 +63,12 @@ const SPACE_OF = {
   taskAttachment: 'SELECT b.space_id AS spaceId FROM task_attachments a JOIN tasks t ON t.id = a.task_id JOIN task_boards b ON b.id = t.board_id WHERE a.id = ?',
   database: 'SELECT space_id AS spaceId FROM database_definitions WHERE id = ?',
   field: 'SELECT d.space_id AS spaceId FROM database_fields f JOIN database_definitions d ON d.id = f.database_id WHERE f.id = ?',
-  item: 'SELECT d.space_id AS spaceId FROM database_items i JOIN database_definitions d ON d.id = i.database_id WHERE i.id = ?',
+  item: 'SELECT space_id AS spaceId FROM data_items WHERE id = ?',
   view: 'SELECT d.space_id AS spaceId FROM database_views v JOIN database_definitions d ON d.id = v.database_id WHERE v.id = ?',
-  document: 'SELECT space_id AS spaceId FROM documents WHERE id = ?',
-  canvas: 'SELECT space_id AS spaceId FROM canvases WHERE id = ?',
-  canvasNode: 'SELECT c.space_id AS spaceId FROM canvas_nodes n JOIN canvases c ON c.id = n.canvas_id WHERE n.id = ?',
-  canvasEdge: 'SELECT c.space_id AS spaceId FROM canvas_edges e JOIN canvases c ON c.id = e.canvas_id WHERE e.id = ?',
+  document: 'SELECT space_id AS spaceId FROM data_items WHERE id = ?',
+  canvas: 'SELECT space_id AS spaceId FROM data_items WHERE id = ?',
+  canvasNode: 'SELECT c.space_id AS spaceId FROM canvas_nodes n JOIN data_items c ON c.id = n.canvas_id WHERE n.id = ?',
+  canvasEdge: 'SELECT c.space_id AS spaceId FROM canvas_edges e JOIN data_items c ON c.id = e.canvas_id WHERE e.id = ?',
   gadget: 'SELECT space_id AS spaceId FROM gadgets WHERE id = ?',
   connection: 'SELECT space_id AS spaceId FROM mcp_outbound_connections WHERE id = ?',
   environment: 'SELECT space_id AS spaceId FROM agent_environments WHERE id = ?',

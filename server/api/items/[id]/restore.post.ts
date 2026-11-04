@@ -11,5 +11,5 @@ export default defineEventHandler(async event => {
   const { env } = cf(event)
   const actor = await requireMember(event, await getServerId(env.DB), Permission.writeData)
   const input = parseBody(schema, await readBody(event))
-  return { document: await restoreDocumentRevision(env, actor.authorization, getRouterParam(event, 'id')!, input.revision, input.version) }
+  return { item: await restoreDocumentRevision(env, actor.authorization, getRouterParam(event, 'id')!, input.revision, input.version) }
 })

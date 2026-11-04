@@ -4,14 +4,14 @@ import type { DocumentRevision } from '~~/shared/documents'
 import type { DocumentDTO } from '~~/shared/types'
 
 const props = defineProps<{ documentId: string; version: number; writable: boolean; saveDraft: () => Promise<boolean> }>()
-const emit = defineEmits<{ restored: [document: DocumentDTO] }>()
+const emit = defineEmits<{ restored: [item: DocumentDTO] }>()
 const { api } = useApi()
 const open = ref(false)
 const selected = ref<number | null>(null)
 const busy = ref(false)
 const error = ref('')
-const revisions = useQuery({ queryKey: computed(() => ['document-revisions', props.documentId, props.version]), queryFn: () => api<{ revisions: Omit<DocumentRevision, 'content'>[] }>(`/api/documents/${props.documentId}/revisions`), enabled: open })
-const preview = useQuery({ queryKey: computed(() => ['document-revision', props.documentId, selected.value]), queryFn: () => api<{ revision: DocumentRevision }>(`/api/documents/${props.documentId}/revisions/${selected.value}`), enabled: computed(() => open.value && selected.value !== null) })
+const revisions = useQuery({ queryKey: computed(() => ['document-revisions', props.documentId, props.version]), queryFn: () => api<{ revisions: Omit<DocumentRevision, 'content'>[] }>(`/api/items/${props.documentId}/revisions`), enabled: open })
+const preview = useQuery({ queryKey: computed(() => ['document-revision', props.documentId, selected.value]), queryFn: () => api<{ revision: DocumentRevision }>(`/api/items/${props.documentId}/revisions/${selected.value}`), enabled: computed(() => open.value && selected.value !== null) })
 watch(() => props.documentId, () => { selected.value = null; open.value = false })
 async function restore() {
   if (!selected.value || busy.value) return
@@ -19,8 +19,8 @@ async function restore() {
   try {
     if (!await props.saveDraft()) { error.value = 'Save or resolve your current draft before restoring a revision.'; return }
     await nextTick()
-    const result = await api<{ document: DocumentDTO }>(`/api/documents/${props.documentId}/restore`, { method: 'POST', body: { revision: selected.value, version: props.version } })
-    emit('restored', result.document); open.value = false
+    const result = await api<{ item: DocumentDTO }>(`/api/items/${props.documentId}/restore`, { method: 'POST', body: { revision: selected.value, version: props.version } })
+    emit('restored', result.item); open.value = false
   }
   catch (cause) { error.value = errorMessage(cause) }
   finally { busy.value = false }

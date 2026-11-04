@@ -30,7 +30,7 @@ describe('Server rail destinations', () => {
       expect(serverNavigationSection(`/${section}`)).toBe(section)
       expect(hasServerNavigationMenu(`/${section}`)).toBe(true)
     }
-    for (const path of ['/data', '/databases/db-id', '/documents', '/canvases']) {
+    for (const path of ['/data', '/databases/db-id', '/items/page-id', '/items/canvas-id']) {
       expect(serverNavigationSection(path)).toBe('data')
       expect(hasServerNavigationMenu(path)).toBe(true)
     }

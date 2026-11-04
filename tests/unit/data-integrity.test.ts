@@ -21,7 +21,7 @@ beforeEach(() => {
     INSERT INTO server(id,name,owner_id) VALUES('${auth.serverId}','Test','owner');
     INSERT INTO database_definitions(id,name,created_by) VALUES('db','Records','owner');
     INSERT INTO database_fields(id,database_id,name,type,slot,config_json,created_by) VALUES('rel','db','Related','relation','links_1','{"relation":{"databaseId":"db"}}','owner');
-    INSERT INTO database_items(id,database_id,title,created_by) VALUES('a','db','A','owner'),('b','db','B','owner');`)
+    INSERT INTO data_items(id,database_id,title,created_by) VALUES('a','db','A','owner'),('b','db','B','owner');`)
   env = { DB: d1(db) } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
@@ -30,7 +30,7 @@ it('rolls the scalar values and version back if a relation write fails', async (
   const item = await createRecord(env, auth, 'db', { title: 'Original', values: { rel: ['a'] } })
   db.exec("CREATE TRIGGER reject_b BEFORE INSERT ON database_item_links WHEN NEW.target_item_id='b' BEGIN SELECT RAISE(ABORT, 'failed link'); END")
   await expect(updateRecord(env, auth, item.id, { version: 1, title: 'Changed', values: { rel: ['b'] } })).rejects.toThrow('failed link')
-  expect(db.prepare('SELECT title,version FROM database_items WHERE id=?').get(item.id)).toEqual({ title: 'Original', version: 1 })
+  expect(db.prepare('SELECT title,version FROM data_items WHERE id=?').get(item.id)).toEqual({ title: 'Original', version: 1 })
   expect(db.prepare('SELECT target_item_id FROM database_item_links WHERE item_id=?').all(item.id)).toEqual([{ target_item_id: 'a' }])
 })
 
@@ -38,7 +38,7 @@ it('a writer made stale immediately before its transaction cannot replace links'
   const item = await createRecord(env, auth, 'db', { values: { rel: ['a'] } })
   const original = env.DB.batch.bind(env.DB)
   env.DB.batch = async statements => {
-    db.prepare('UPDATE database_items SET version=version+1, mutation_id=? WHERE id=?').run('other-writer', item.id)
+    db.prepare('UPDATE data_items SET version=version+1, mutation_id=? WHERE id=?').run('other-writer', item.id)
     return original(statements)
   }
   await expect(updateRecord(env, auth, item.id, { version: 1, values: { rel: ['b'] } })).rejects.toMatchObject({ statusCode: 409 })
@@ -50,7 +50,7 @@ it('returns the committed relation snapshot even when another transaction writes
   const original = env.DB.batch.bind(env.DB)
   env.DB.batch = async statements => {
     const result = await original(statements)
-    db.prepare('UPDATE database_items SET version=version+1 WHERE id=?').run(item.id)
+    db.prepare('UPDATE data_items SET version=version+1 WHERE id=?').run(item.id)
     db.prepare('DELETE FROM database_item_links WHERE item_id=?').run(item.id)
     return result
   }

@@ -12,7 +12,7 @@ let navigate: ReturnType<typeof vi.fn>
 let nav: { createDatabaseOpen: ReturnType<typeof ref<boolean>>; createDocumentOpen: ReturnType<typeof ref<boolean>>; createCanvasOpen: ReturnType<typeof ref<boolean>>; documentCreating: ReturnType<typeof ref<boolean>> }
 beforeEach(() => {
   client = new QueryClient()
-  api = vi.fn(async () => ({ document: { id: 'new', title: 'Untitled' } }))
+  api = vi.fn(async () => ({ item: { id: 'new', title: 'Untitled' } }))
   navigate = vi.fn()
   nav = { createDatabaseOpen: ref(false), createDocumentOpen: ref(false), createCanvasOpen: ref(false), documentCreating: ref(false) }
   for (const [name, value] of Object.entries({ inject, ref, watch, useServer: () => ({ serverId: ref('server') }), useApi: () => ({ api }), useNavActions: () => nav, useRoute: () => ({ path: '/data' }), useToast: () => ({ add: vi.fn() }), navigateTo: navigate, errorMessage: String })) vi.stubGlobal(name, value)
@@ -45,8 +45,8 @@ it('saves the draft before one untitled creation, including repeated clicks whil
   finish(true)
   await flushPromises()
   expect(save).toHaveBeenCalledTimes(1)
-  expect(api).toHaveBeenCalledExactlyOnceWith('/api/servers/server/documents', { method: 'POST', body: {} })
-  expect(navigate).toHaveBeenCalledExactlyOnceWith('/documents?document=new')
+  expect(api).toHaveBeenCalledExactlyOnceWith('/api/servers/server/items', { method: 'POST', body: {} })
+  expect(navigate).toHaveBeenCalledExactlyOnceWith('/items/new')
   expect(nav.documentCreating.value).toBe(false)
   v.unmount()
 })

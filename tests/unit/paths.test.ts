@@ -40,11 +40,11 @@ describe('Data resource paths', () => {
   })
 
   it('keeps the selected document in the URL', () => {
-    expect(documentPath('doc 1')).toBe('/documents?document=doc%201')
+    expect(documentPath('doc 1')).toBe('/items/doc%201')
   })
 
   it('keeps the selected canvas in the URL', () => {
-    expect(canvasPath('canvas 1')).toBe('/canvases?canvas=canvas%201')
+    expect(canvasPath('canvas 1')).toBe('/items/canvas%201')
   })
 
   it('keeps a Gadget and editor mode in its shareable URL', () => {
