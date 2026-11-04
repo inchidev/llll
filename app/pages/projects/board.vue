@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useSwipeToClose } from '~/composables/useSwipeToClose'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { changedTaskFields, refreshedTaskEdit, taskEditFields, toDateInput } from '~/utils/task-edit'
+import { changedTaskFields, refreshedTaskEdit, taskEditFields } from '~/utils/task-edit'
 import type { CodeEnvironment } from '~~/shared/code-environments'
 import { hasPermission, Permission } from '~~/shared/permissions'
 import type {

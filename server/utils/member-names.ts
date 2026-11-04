@@ -18,13 +18,12 @@ const lookalike = (text: string) => text.replace(/./gsu, char => CONFUSABLES[cha
 
 /**
  * What a name looks like, for comparing names: two names with one key would read as one person.
- * Compatibility forms, case and invisible characters do not count (`\p{Cf}` holds the zero-width and
- * bidi controls; the rest are invisible marks), nor do letters from another script or digit
- * that look the same. It catches lookalikes within Latin, Cyrillic and Greek, not every script,
+ * Compatibility forms, case and invisible characters do not count (zero-width and bidi controls
+ * included), nor do letters from another script or digits that look the same. It catches lookalikes within Latin, Cyrillic and Greek, not every script,
  * and it is a comparison key: never stored and never shown.
  */
 export function memberNameKey(name: string): string {
-  const visible = name.normalize('NFKC').replace(/[\p{Cf}͏ᅟᅠ឴឵᠋-᠏ㅤ︀-️ﾠ]/gu, '')
+  const visible = name.normalize('NFKC').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
   // JavaScript has no case fold. Up then down gets the expansions (ß to ss) and merges final sigma.
   const folded = lookalike(lookalike(visible).toUpperCase().toLowerCase())
   return folded.replace(/\s+/gu, ' ').trim()
