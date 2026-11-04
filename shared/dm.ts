@@ -1,0 +1,33 @@
+import type { PublicUser } from './types'
+
+export const DM_GROUP_MAX = 25
+export const DM_GROUP_MIN = 3
+
+export function dmTitle(name: string | null | undefined, participants: PublicUser[], meId: string): string {
+  const trimmed = name?.trim()
+  if (trimmed && trimmed !== 'dm') return trimmed
+  const others = participants.filter((p) => p.id !== meId)
+  if (others.length === 0) return 'Direct Message'
+  if (others.length === 1) return others[0]!.displayName
+  const first = others.slice(0, 3).map((p) => p.displayName)
+  if (others.length <= 3) return first.join(', ')
+  return `${first.join(', ')} and ${others.length - 3} others`
+}
+
+/** Only a 1:1 ends with its other person; a group keeps talking after someone departs. */
+export function dmFrozen(participants: number, active: number): boolean {
+  return participants === 2 && active < participants
+}
+
+export function isDmType(type: string): boolean {
+  return type === 'dm'
+}
+
+/** Agent DMs require permission to use agents and ordinary conversation membership. */
+export function canAccessAgentConversation(
+  userKind: 'human' | 'agent',
+  canManageAgents: boolean,
+  hasAgentParticipant: boolean,
+): boolean {
+  return !hasAgentParticipant || canManageAgents || userKind === 'agent'
+}

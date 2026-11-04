@@ -1,0 +1,163 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "llll-server",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-10-16",
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "triggers": {
+    "crons": [
+      "17 4 * * 1"
+    ]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "llll-server",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "drizzle/server-migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "llll-server-files"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "TICKETS",
+      "id": "00000000000000000000000000000001"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHANNEL_DO",
+        "class_name": "ChannelDurableObject"
+      },
+      {
+        "name": "SERVER_DO",
+        "class_name": "ServerDurableObject"
+      },
+      {
+        "name": "RATE_LIMIT_DO",
+        "class_name": "RateLimitDurableObject"
+      },
+      {
+        "name": "NOTIFICATION_DO",
+        "class_name": "NotificationDurableObject"
+      },
+      {
+        "name": "AGENT_DO",
+        "class_name": "L4Agent"
+      },
+      {
+        "name": "AGENT_RUN_DO",
+        "class_name": "AgentRunDurableObject"
+      },
+      {
+        "name": "AGENT_SCHEDULE_DO",
+        "class_name": "AgentScheduleDurableObject"
+      },
+      {
+        "name": "LIZARD_COMPUTE_DO",
+        "class_name": "LizardComputeDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ChannelDurableObject",
+        "ServerDurableObject",
+        "RateLimitDurableObject",
+        "NotificationDurableObject",
+        "L4Agent",
+        "L4Think"
+      ]
+    },
+    {
+      "tag": "v2-agent-runs",
+      "new_sqlite_classes": [
+        "AgentRunDurableObject"
+      ]
+    },
+    {
+      "tag": "v3-agent-schedules",
+      "new_sqlite_classes": [
+        "AgentScheduleDurableObject"
+      ]
+    },
+    {
+      "tag": "v4-retire-think",
+      "deleted_classes": ["L4Think"]
+    },
+    { "tag": "v5-factory-executor", "new_sqlite_classes": ["FactoryComputeDurableObject"] },
+    { "tag": "v6-lizard-compute", "new_sqlite_classes": ["LizardComputeDurableObject"] }
+  ],
+  "vars": {
+    "PUBLIC_ORIGIN": "http://localhost:3000",
+    "AUTH_REGISTRATION_MODE": "invite_only"
+  },
+  // Native Worker Previews: one staging Server Worker, a Preview per PR.
+  // Vars and secrets are not inherited from production; each binding declared
+  // on the environment must also appear here. Durable Object state is isolated
+  // per Preview and deleted with it. Cron triggers and routes target only the
+  // production instance.
+  "previews": {
+    "vars": {
+      "PUBLIC_ORIGIN": "https://server-preview.dev.llll.gg",
+      "ADMIN_USERNAME": "owner",
+      "AUTH_REGISTRATION_MODE": "invite_only",
+      "SERVER_TIMING": "1"
+    },
+    "durable_objects": {
+      "bindings": [
+        { "name": "CHANNEL_DO", "class_name": "ChannelDurableObject" },
+        { "name": "SERVER_DO", "class_name": "ServerDurableObject" },
+        { "name": "RATE_LIMIT_DO", "class_name": "RateLimitDurableObject" },
+        { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
+        { "name": "AGENT_DO", "class_name": "L4Agent" },
+        { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
+        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" },
+        { "name": "LIZARD_COMPUTE_DO", "class_name": "LizardComputeDurableObject" }
+      ]
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "llll-server-staging",
+        "database_id": "00000000-0000-4000-8000-000000000002",
+        "migrations_dir": "drizzle/server-migrations"
+      }
+    ],
+    "r2_buckets": [
+      { "binding": "FILES", "bucket_name": "llll-server-staging-files" },
+      { "binding": "BACKUPS", "bucket_name": "llll-server-staging-backups" }
+    ],
+    "kv_namespaces": [
+      { "binding": "TICKETS", "id": "00000000000000000000000000000002" }
+    ]
+  }
+}

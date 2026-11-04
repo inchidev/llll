@@ -1,0 +1,23 @@
+.git
+.github
+.env
+.env.*
+.wrangler
+.nuxt
+.output
+node_modules
+coverage
+*.log
+.DS_Store
+._*
+
+.deployment
+.installer
+.client-output
+apps/*/.bundle
+apps/*/node_modules
+
+.playwright-cli
+
+# Private Compute Node default state
+compute-node-state/

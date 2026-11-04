@@ -1,0 +1,71 @@
+<script setup lang="ts" generic="T extends string">
+/**
+ * Shared monochrome segments; the active item matches the Shell's Nuxt UI tabs.
+ */
+const model = defineModel<T>({ required: true })
+
+const props = withDefaults(defineProps<{
+  items: ReadonlyArray<{ value: T, label: string, icon?: string, count?: number }>
+  label: string
+  size?: 'sm' | 'md'
+  block?: boolean
+}>(), {
+  size: 'sm',
+  block: false,
+})
+
+const buttons = ref<HTMLButtonElement[]>([])
+
+function revealSelected() {
+  const index = props.items.findIndex(item => item.value === model.value)
+  buttons.value[index]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+}
+watch(model, () => nextTick(revealSelected))
+onMounted(revealSelected)
+
+function focusAt(index: number) {
+  const count = props.items.length
+  const next = props.items[(index + count) % count]
+  if (!next) return
+  model.value = next.value
+  nextTick(() => buttons.value[(index + count) % count]?.focus())
+}
+
+function onKeydown(event: KeyboardEvent, index: number) {
+  if (event.key === 'ArrowRight') focusAt(index + 1)
+  else if (event.key === 'ArrowLeft') focusAt(index - 1)
+  else if (event.key === 'Home') focusAt(0)
+  else if (event.key === 'End') focusAt(props.items.length - 1)
+  else return
+  event.preventDefault()
+}
+</script>
+
+<template>
+  <div
+    role="tablist"
+    :aria-label="label"
+    class="l4-segmented-track min-w-0"
+    :class="block ? 'grid' : 'inline-flex max-w-full overflow-x-auto'"
+    :style="block ? { gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` } : undefined"
+    data-no-drawer-swipe
+  >
+    <button
+      v-for="(item, index) in items"
+      :key="item.value"
+      ref="buttons"
+      type="button"
+      role="tab"
+      :aria-selected="model === item.value"
+      :tabindex="model === item.value ? 0 : -1"
+      class="l4-segmented-item flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium"
+      :class="size === 'md' ? 'h-9 px-3 text-sm' : 'h-8 px-2.5 text-xs md:h-7'"
+      @click="model = item.value; revealSelected()"
+      @keydown="onKeydown($event, index)"
+    >
+      <UIcon v-if="item.icon" :name="item.icon" class="size-4 shrink-0" />
+      <span>{{ item.label }}</span>
+      <span v-if="item.count !== undefined" class="tabular-nums" :class="model === item.value ? 'text-inverted' : 'text-dimmed'">{{ item.count }}</span>
+    </button>
+  </div>
+</template>

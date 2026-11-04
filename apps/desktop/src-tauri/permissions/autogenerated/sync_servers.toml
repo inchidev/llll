@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sync-servers"
+description = "Enables the sync_servers command without any pre-configured scope."
+commands.allow = ["sync_servers"]
+
+[[permission]]
+identifier = "deny-sync-servers"
+description = "Denies the sync_servers command without any pre-configured scope."
+commands.deny = ["sync_servers"]

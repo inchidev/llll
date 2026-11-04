@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+@source "../../../packages/client-ui";
+
+@import "../../../packages/client-ui/theme.css";
+
+:root {
+  --df-auth-stage-width: 50%;
+  --df-safe-area-top: env(safe-area-inset-top, 0px);
+  --df-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --df-server-rail-width: 4rem;
+}
+
+/* A column's top row: every column runs to the top of the screen, and each keeps its own row clear of the system bar. */
+.df-top-row { height: calc(3rem + var(--df-safe-area-top)); padding-top: var(--df-safe-area-top); }
+.df-top-row-min { min-height: calc(3rem + var(--df-safe-area-top)); padding-top: var(--df-safe-area-top); }
+
+.df-panel {
+  background-color: color-mix(in oklab, var(--ui-bg-muted) 72%, var(--ui-bg-accented));
+}
+
+.df-composer {
+  background-color: var(--ui-bg-accented);
+}
+
+/* A sticky save bar already leaves its own bottom gap. Pane padding must not
+   push it a second time above the viewport, especially on phones. */
+.l4-settings-pane:has(.l4-save-bar) { padding-bottom: 0; }
+
+html, body, #__nuxt {
+  height: 100%;
+}
+
+/* The Client never scrolls its own page. Without this, iOS drags the whole layout
+   when a touch starts outside a scrollable area. */
+html, body {
+  overscroll-behavior: none;
+}
+
+.mention {
+  color: var(--ui-primary);
+  background: color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.md p { margin: 0.15rem 0; }
+.md a {
+  color: var(--ui-info);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--ui-info) 40%, transparent);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.md a:hover { text-decoration-color: currentColor; }
+.md code {
+  background: var(--ui-bg-elevated);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+}
+.md pre code { background: none; padding: 0; }
+.md ul, .md ol { padding-left: 1.25rem; margin: 0.25rem 0; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md blockquote {
+  border-left: 3px solid var(--ui-primary);
+  padding-left: 8px;
+  color: var(--ui-text-muted);
+}
+.md h1, .md h2, .md h3 {
+  margin: 0.5rem 0 0.25rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ui-text-highlighted);
+}
+.md h1 { font-size: 1.5rem; }
+.md h2 { font-size: 1.25rem; }
+.md h3 { font-size: 1rem; }
+.md .subtext { font-size: 0.8125rem; color: var(--ui-text-muted); }
+.md s { color: var(--ui-text-muted); }
+.md .spoiler {
+  border-radius: 4px;
+  padding: 0 2px;
+  background: var(--ui-bg-accented);
+  color: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.md .spoiler * { visibility: hidden; }
+.md .spoiler:hover { background: color-mix(in oklab, var(--ui-bg-accented) 80%, var(--ui-text)); }
+.md .spoiler.revealed {
+  background: color-mix(in oklab, var(--ui-bg-accented) 60%, transparent);
+  color: inherit;
+  cursor: text;
+}
+.md .spoiler.revealed * { visibility: visible; }
+.md pre {
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  padding: 8px;
+  overflow: auto;
+  margin: 6px 0;
+}

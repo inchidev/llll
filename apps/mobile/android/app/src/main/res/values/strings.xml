@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">L4</string>
+    <string name="title_activity_main">L4</string>
+    <string name="package_name">gg.llll.app</string>
+    <string name="custom_url_scheme">gg.llll.app</string>
+</resources>

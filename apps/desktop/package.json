@@ -1,0 +1,24 @@
+{
+  "name": "@llll/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:shell": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "tauri": "tauri",
+    "dev": "node scripts/build.mjs && tauri dev",
+    "build": "node scripts/build.mjs && tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-http": "2.6.0",
+    "@tauri-apps/plugin-notification": "2.4.0",
+    "@tauri-apps/plugin-opener": "2.5.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.2"
+  }
+}

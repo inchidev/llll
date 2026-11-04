@@ -1,0 +1,20 @@
+{
+  auto_https off
+  servers {
+    # A local HTTPS proxy in front of this gateway, such as tailscale serve, sets the scheme.
+    trusted_proxies static private_ranges
+  }
+}
+
+:80 {
+  @backend path /api/* /ws/* /.well-known/* /.llll/* /mcp
+  handle @backend {
+    reverse_proxy llll:8080 {
+      header_up -CF-Connecting-IP
+    }
+  }
+  handle {
+    header Content-Security-Policy "frame-ancestors 'self'"
+    reverse_proxy host.docker.internal:{$LLLL_FRONTEND_PORT}
+  }
+}

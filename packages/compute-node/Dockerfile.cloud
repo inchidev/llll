@@ -1,0 +1,6 @@
+# Only the fixed idle supervisor runs as root. The provider execs every Task
+# operation and code checkpoint explicitly as uid/gid 1000 without capabilities.
+ARG WORKSPACE_IMAGE
+FROM ${WORKSPACE_IMAGE}
+USER root
+CMD ["/bin/sleep", "infinity"]

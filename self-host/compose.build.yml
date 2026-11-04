@@ -1,0 +1,5 @@
+services:
+  llll:
+    build:
+      context: ..
+      dockerfile: self-host/Dockerfile

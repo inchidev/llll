@@ -1,0 +1,181 @@
+import { describe, expect, it } from 'vitest'
+import { renderMarkdown } from '../../shared/markdown'
+import { activeTrigger, extractGroupMentions, extractMentionIds, extractRoleMentionIds, applyMentionTokens, humanizeMentions, mentionRoles, plainGroupMentions } from '../../shared/mentions'
+
+describe('markdown', () => {
+  it('escapes html', () => {
+    const html = renderMarkdown('<script>alert(1)</script>')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('rejects javascript urls', () => {
+    const html = renderMarkdown('[x](javascript:alert(1))')
+    expect(html).not.toContain('javascript:')
+  })
+
+  it('renders bold and code', () => {
+    const html = renderMarkdown('**hi** and `code`')
+    expect(html).toContain('<strong>hi</strong>')
+    expect(html).toContain('<code>code</code>')
+  })
+})
+
+describe('mentions', () => {
+  it('extracts ids', () => {
+    const id = '01900000-0000-7000-8000-000000000001'
+    expect(extractMentionIds(`hello <@${id}>`)).toEqual([id])
+  })
+
+  it('tokenizes @name', () => {
+    const id = '01900000-0000-7000-8000-000000000001'
+    const out = applyMentionTokens('hey @Ada', [{ id, displayName: 'Ada' }])
+    expect(out).toBe(`hey <@${id}>`)
+  })
+
+  it('tokenizes names with spaces, preferring the longest match', () => {
+    const ada = '01900000-0000-7000-8000-000000000001'
+    const lovelace = '01900000-0000-7000-8000-000000000002'
+    const members = [{ id: ada, displayName: 'Ada' }, { id: lovelace, displayName: 'Ada Lovelace' }]
+    expect(applyMentionTokens('@Ada Lovelace, and @ada.', members)).toBe(`<@${lovelace}>, and <@${ada}>.`)
+    expect(applyMentionTokens('email@Ada', members)).toBe('email@Ada')
+  })
+
+  it('leaves a name two members share as plain text instead of guessing', () => {
+    const owner = '01900000-0000-7000-8000-000000000001'
+    const agent = '01900000-0000-7000-8000-000000000002'
+    const members = [{ id: owner, displayName: 'Owner' }, { id: agent, displayName: 'Helper', nickname: 'owner' }]
+    expect(applyMentionTokens('ping @Owner and @Helper', members)).toBe(`ping @Owner and <@${agent}>`)
+    expect(applyMentionTokens('@Ada', [{ id: owner, displayName: 'Ada', nickname: 'Ada' }])).toBe(`<@${owner}>`)
+  })
+
+  it('turns tokens back into names for editing', () => {
+    const id = '01900000-0000-7000-8000-000000000001'
+    expect(humanizeMentions(`hi <@${id}> and <@01900000-0000-7000-8000-000000000009>`, { [id]: 'Ada Lovelace' }))
+      .toBe('hi @Ada Lovelace and <@01900000-0000-7000-8000-000000000009>')
+  })
+
+  it('keeps role tokens apart from member tokens', () => {
+    const member = '01900000-0000-7000-8000-000000000001'
+    const role = '01900000-0000-7000-8000-0000000000aa'
+    expect(extractMentionIds(`<@${member}> <@&${role}>`)).toEqual([member])
+    expect(extractRoleMentionIds(`<@${member}> <@&${role}> <@&${role.toUpperCase()}>`)).toEqual([role])
+  })
+
+  it('tokenizes @Role, leaving a name a Role shares with a Member or another Role as text', () => {
+    const ada = '01900000-0000-7000-8000-000000000001'
+    const design = '01900000-0000-7000-8000-0000000000aa'
+    const ops = '01900000-0000-7000-8000-0000000000bb'
+    const twin = '01900000-0000-7000-8000-0000000000cc'
+    const members = [{ id: ada, displayName: 'Ada' }]
+    expect(applyMentionTokens('@Design and @design team, ping @Ada', members, [{ id: design, name: 'Design' }]))
+      .toBe(`<@&${design}> and <@&${design}> team, ping <@${ada}>`)
+    expect(applyMentionTokens('@Design Ops review', members, [{ id: design, name: 'Design' }, { id: ops, name: 'Design Ops' }]))
+      .toBe(`<@&${ops}> review`)
+    expect(applyMentionTokens('@Ada and @Ops', members, [{ id: ops, name: 'Ada' }, { id: twin, name: 'ops' }, { id: design, name: 'OPS' }]))
+      .toBe('@Ada and @Ops')
+  })
+
+  it('offers mentionable Roles, or every Role to someone who may mention any', () => {
+    const members = [
+      { role: { id: 'r-member', key: 'member', name: 'member' } },
+      { role: { id: 'r-design', key: 'custom:r-design', name: 'Design', mentionable: true } },
+      { role: { id: 'r-design', key: 'custom:r-design', name: 'Design', mentionable: true } },
+    ]
+    expect(mentionRoles(members, false)).toEqual([{ id: 'r-design', name: 'Design' }])
+    expect(mentionRoles(members, true)).toEqual([{ id: 'r-member', name: 'Member' }, { id: 'r-design', name: 'Design' }])
+  })
+
+  it('names and renders role mentions like member mentions', () => {
+    const member = '01900000-0000-7000-8000-000000000001'
+    const role = '01900000-0000-7000-8000-0000000000aa'
+    const names = { [member]: 'Ada', [`&${role}`]: 'Design <team>' }
+    expect(humanizeMentions(`<@&${role}> and <@${member}>`, names)).toBe('@Design <team> and @Ada')
+    expect(renderMarkdown(`hi <@&${role}>`, names)).toContain(`<span class="mention" data-role-id="${role}">@Design &lt;team&gt;</span>`)
+    expect(renderMarkdown(`hi <@&${role}>`)).toContain(`<span class="mention" data-role-id="${role}">@Role</span>`)
+  })
+
+  it('tokenizes, reads and renders @channel and @here only for someone who may use them', () => {
+    const members = [{ id: '01900000-0000-7000-8000-000000000001', displayName: 'Ada' }]
+    expect(applyMentionTokens('@channel standup, @here too', members)).toBe('@channel standup, @here too')
+    expect(applyMentionTokens('@channel standup, @here too', members, [], true)).toBe('<!channel> standup, <!here> too')
+    // A Member called "here" makes the name ambiguous, so it stays text.
+    expect(applyMentionTokens('@here', [...members, { id: '01900000-0000-7000-8000-000000000002', displayName: 'here' }], [], true)).toBe('@here')
+    expect(extractGroupMentions('<!here> and <!CHANNEL> and <!here>')).toEqual(['channel', 'here'])
+    expect(extractGroupMentions('<!everyone> @channel')).toEqual([])
+    expect(plainGroupMentions('<!channel> deploy <!here>')).toBe('@channel deploy @here')
+    expect(humanizeMentions('<!channel> and <!here>', {})).toBe('@channel and @here')
+    expect(renderMarkdown('hi <!channel> and <!here>')).toContain('<span class="mention" data-group="channel">@channel</span> and <span class="mention" data-group="here">@here</span>')
+    expect(renderMarkdown('`<!channel>`')).not.toContain('class="mention"')
+  })
+
+  it('finds the mention or emoji being typed at the caret', () => {
+    expect(activeTrigger('hi @ad', 6, '@')).toEqual({ start: 3, query: 'ad' })
+    expect(activeTrigger('hi @Ada Lo', 10, '@')).toEqual({ start: 3, query: 'Ada Lo' })
+    expect(activeTrigger('mail@ad', 7, '@')).toBeNull()
+    expect(activeTrigger('nice :th', 8, ':')).toEqual({ start: 5, query: 'th' })
+    expect(activeTrigger('time 10:3', 9, ':')).toBeNull()
+    expect(activeTrigger('nice :t', 7, ':')).toBeNull()
+  })
+})
+
+describe('lists', () => {
+  it('renders bulleted and numbered lists', () => {
+    expect(renderMarkdown('- one\n- **two**')).toBe('<ul><li>one</li><li><strong>two</strong></li></ul>')
+    expect(renderMarkdown('* a\n* b')).toBe('<ul><li>a</li><li>b</li></ul>')
+    expect(renderMarkdown('1. first\n2) second')).toBe('<ol><li>first</li><li>second</li></ol>')
+  })
+
+  it('keeps a numbered list starting point and separates mixed lists', () => {
+    expect(renderMarkdown('3. three\n4. four')).toBe('<ol start="3"><li>three</li><li>four</li></ol>')
+    expect(renderMarkdown('- bullet\n1. number')).toBe('<ul><li>bullet</li></ul><ol><li>number</li></ol>')
+  })
+
+  it('leaves emphasis and plain text alone', () => {
+    expect(renderMarkdown('*not a list*')).toBe('<p><em>not a list</em></p>')
+    expect(renderMarkdown('-no space')).toBe('<p>-no space</p>')
+    expect(renderMarkdown('- <b>x</b>')).toBe('<ul><li>&lt;b&gt;x&lt;/b&gt;</li></ul>')
+  })
+})
+
+describe('discord formatting', () => {
+  it('keeps masked links whole and escapes their urls once', () => {
+    expect(renderMarkdown('[docs](https://a.test/?a=1&b=2)')).toBe(
+      '<p><a href="https://a.test/?a=1&amp;b=2" rel="noopener noreferrer" target="_blank">docs</a></p>',
+    )
+  })
+
+  it('leaves trailing punctuation out of bare links', () => {
+    expect(renderMarkdown('see https://a.test/x).')).toBe(
+      '<p>see <a href="https://a.test/x" rel="noopener noreferrer" target="_blank">https://a.test/x</a>).</p>',
+    )
+  })
+
+  it('does not format inside code or snake_case words', () => {
+    expect(renderMarkdown('`**raw** https://a.test` snake_case_name')).toBe(
+      '<p><code>**raw** https://a.test</code> snake_case_name</p>',
+    )
+  })
+
+  it('renders strikethrough, underline, spoilers, and bold italics', () => {
+    const html = renderMarkdown('~~gone~~ __under__ ||secret|| ***both***')
+    expect(html).toContain('<s>gone</s>')
+    expect(html).toContain('<u>under</u>')
+    expect(html).toContain('<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">secret</span>')
+    expect(html).toContain('<strong><em>both</em></strong>')
+  })
+
+  it('renders headings and subtext', () => {
+    expect(renderMarkdown('# Big\n### Small\n-# fine print')).toBe('<h1>Big</h1><h3>Small</h3><p class="subtext">fine print</p>')
+    expect(renderMarkdown('#general')).toBe('<p>#general</p>')
+  })
+
+  it('labels fenced code with its language and quotes the rest after >>>', () => {
+    expect(renderMarkdown('```ts\nconst a = 1\n```')).toBe('<pre><code class="language-ts">const a = 1</code></pre>')
+    expect(renderMarkdown('intro\n>>> one\ntwo')).toBe('<p>intro</p><blockquote>one<br>two</blockquote>')
+  })
+
+  it('does not treat multiplication as emphasis', () => {
+    expect(renderMarkdown('2 * 3 * 4')).toBe('<p>2 * 3 * 4</p>')
+  })
+})

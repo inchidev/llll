@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>L4</title>
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+  <main>
+    <h1 aria-label="L4">
+      <svg viewBox="0 0 32 32" width="48" height="48" aria-hidden="true"><path d="M2 2h4v8h8v4H2V2Zm16 0h4v8h8v4H18V2ZM2 18h4v8h8v4H2V18Zm16 0h4v8h8v4H18V18Z" fill="currentColor"/></svg>
+    </h1>
+    <form id="add" novalidate>
+      <input type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="community.example.com" aria-label="Server address" required>
+      <button type="submit">Add</button>
+    </form>
+    <button id="scan" type="button" hidden>Scan a code</button>
+    <p id="error" role="alert"></p>
+    <p id="empty">Add a Server by its address, or scan its code from Connections in its settings. You sign in on the Server itself.</p>
+    <ul id="servers"></ul>
+  </main>
+  <dialog id="confirm-remove">
+    <p id="confirm-remove-text"></p>
+    <p class="note">Your account on the Server is not affected.</p>
+    <form method="dialog">
+      <button value="cancel">Cancel</button>
+      <button value="remove" class="danger">Remove</button>
+    </form>
+  </dialog>
+  <script src="shell.js"></script>
+</body>
+</html>

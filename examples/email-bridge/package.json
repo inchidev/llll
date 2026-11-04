@@ -1,0 +1,9 @@
+{
+  "name": "llll-email-bridge",
+  "private": true,
+  "description": "Cloudflare Email Routing bridge that forwards raw mail to a self-hosted L4 inbound webhook.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "secret": "wrangler secret put INBOUND_EMAIL_SECRET"
+  }
+}

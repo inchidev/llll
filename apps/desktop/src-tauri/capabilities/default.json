@@ -1,0 +1,32 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The bundled Server list: discovery documents and window dragging only",
+  "windows": ["main"],
+  "local": true,
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "allow-allow-server",
+    "allow-rail-open",
+    "allow-rail-list",
+    "allow-rail-active",
+    "allow-sync-servers",
+    "allow-pending-page",
+    "allow-pending-share",
+    "allow-shared-file-bytes",
+    "allow-cancel-share",
+    "allow-recording-limits",
+    "allow-transcribe",
+    "allow-send-marked",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*/.well-known/llll" },
+        { "url": "https://*:*/.well-known/llll" },
+        { "url": "http://localhost:*/.well-known/llll" },
+        { "url": "http://127.0.0.1:*/.well-known/llll" }
+      ]
+    }
+  ]
+}

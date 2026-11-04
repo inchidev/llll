@@ -1,0 +1,41 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; margin: 0; background: #000; color: #f4f4f4; font: 15px/1.35 -apple-system, system-ui, sans-serif; overflow: hidden; }
+body { display: flex; flex-direction: column; padding-top: var(--titlebar, env(safe-area-inset-top)); }
+header { display: flex; align-items: center; gap: 8px; height: 48px; flex: none; padding: 0 12px; }
+h1 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button { font: inherit; color: inherit; background: #1c1c1e; border: 0; border-radius: 8px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: #f4f4f4; color: #000; font-weight: 600; padding: 7px 14px; }
+button.ghost { background: none; padding: 7px 8px; }
+button.icon { width: 38px; height: 38px; flex: none; display: grid; place-items: center; font-size: 16px; }
+button.small { height: 38px; padding: 0 9px; flex: none; font: 13px ui-monospace, monospace; }
+button.active { background: #ff6933; color: #000; }
+button svg { width: 20px; height: 20px; fill: currentColor; }
+#controls { flex: none; display: grid; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #2c2c2e; }
+#server-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #a1a1a6; }
+select { flex: 1; min-width: 0; height: 34px; padding: 0 8px; font: inherit; font-size: 14px; color: #f4f4f4; background: #1c1c1e; border: 1px solid #3a3a3c; border-radius: 8px; }
+.row { display: flex; align-items: flex-end; gap: 6px; }
+textarea { flex: 1; min-width: 0; min-height: 38px; max-height: 96px; padding: 8px 10px; resize: none; font: inherit; font-size: 16px; color: #f4f4f4; background: #000; border: 1px solid #3a3a3c; border-radius: 8px; outline: none; }
+textarea:focus { border-color: #8e8e93; }
+#clips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+#clips:empty, #note:empty { display: none; }
+#clips button { display: flex; flex: none; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; }
+#clips b { color: #ff6933; font-family: ui-monospace, monospace; font-weight: 400; }
+#clips span { max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#clips i { font-style: normal; color: #8e8e93; }
+#note { margin: 0; font-size: 12px; color: #a1a1a6; }
+#note.error { color: #ff6b5e; }
+#stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+#media { position: absolute; left: 50%; top: 50%; transform-origin: center; }
+#media img, #media video { display: block; width: 100%; height: 100%; pointer-events: none; }
+#box { position: absolute; border: 3px solid #ff6933; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .35); pointer-events: none; }
+#tip { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); padding: 4px 12px; font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; background: rgba(0, 0, 0, .7); border-radius: 8px; }
+#stage-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
+#stage-actions button { padding: 4px 10px; font-size: 12px; }
+#video-controls { display: flex; flex: none; align-items: center; gap: 6px; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid #2c2c2e; }
+#video-controls[hidden], [hidden] { display: none !important; }
+#track { position: relative; flex: 1; min-width: 0; height: 38px; touch-action: none; background: #1c1c1e; border-radius: 6px; overflow: hidden; }
+#track .clip { position: absolute; top: 4px; bottom: 4px; min-width: 3px; background: rgba(255, 105, 51, .35); border-radius: 2px; }
+#selection { position: absolute; top: 0; bottom: 0; min-width: 4px; background: rgba(255, 105, 51, .2); border: 2px solid #ff6933; border-radius: 2px; }
+#head { position: absolute; top: 0; bottom: 0; width: 2px; background: #f4f4f4; }
+#time { position: absolute; left: 6px; bottom: 2px; font: 10px ui-monospace, monospace; color: #a1a1a6; pointer-events: none; }

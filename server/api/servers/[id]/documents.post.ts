@@ -1,0 +1,14 @@
+import { createDocumentSchema as bodySchema } from '../../../../shared/documents'
+import { Permission } from '../../../../shared/permissions'
+import { cf } from '../../../utils/cf'
+import { createDocument } from '../../../utils/document-service'
+import { requireMember } from '../../../utils/guards'
+import { parseBody } from '../../../utils/validate'
+
+export default defineEventHandler(async (event) => {
+  const serverId = getRouterParam(event, 'id')!
+  const actor = await requireMember(event, serverId, Permission.writeData)
+  const body = parseBody(bodySchema, await readBody(event))
+  const { env } = cf(event)
+  return { document: await createDocument(env, actor.authorization, body) }
+})

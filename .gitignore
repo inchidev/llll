@@ -1,0 +1,63 @@
+# Nuxt / Nitro
+.output
+.data
+.nuxt
+.nitro
+.installer
+.preview
+.wrangler.preview.generated.jsonc
+.wrangler.preview-migrations.generated.jsonc
+.wrangler.preview-no-files.generated.jsonc
+.cache
+dist
+
+# Node
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+.vscode
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Wrangler local state
+.wrangler
+worker-configuration.d.ts
+
+# Tests
+coverage
+
+# Bundled client output
+apps/mobile/www
+apps/desktop/www
+apps/desktop/share-extension/build
+apps/extension/www
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/target
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Local stage and celld deployment configs (secrets live in vars)
+wrangler.stage.local.jsonc
+wrangler.celld.local.json
+wrangler.celld.local.jsonc
+
+# L4 deployment bundles
+.dev.vars
+.deployment
+.client-output
+
+.playwright-cli
+
+# Private Compute Node default state
+compute-node-state/

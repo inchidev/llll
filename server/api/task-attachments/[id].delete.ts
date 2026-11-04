@@ -1,0 +1,27 @@
+import { getServerId } from '../../../shared/server-id'
+import { eq } from 'drizzle-orm'
+import { taskAttachments } from '../../../drizzle/schema'
+import { Permission } from '../../../shared/permissions'
+import { signalTasksChanged } from '../../../workers/task-events'
+import { cf, requireFiles, fail } from '../../utils/cf'
+import { getDb } from '../../utils/db'
+import { requireMember } from '../../utils/guards'
+import { writeAudit } from '../../utils/messages'
+import { requireTask } from '../../utils/task-policy'
+
+export default defineEventHandler(async (event) => {
+  const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageTasks)
+  const id = getRouterParam(event, 'id')!
+  const { env, waitUntil } = cf(event)
+  const db = getDb(env.DB)
+  const attachment = (await db.select().from(taskAttachments).where(eq(taskAttachments.id, id)).limit(1))[0]
+  if (!attachment) fail(404, 'not_found', 'Attachment not found')
+  const task = await requireTask(env, attachment.taskId, actor.authorization)
+  // A recording takes its frames with it.
+  const frames = await db.select({ r2Key: taskAttachments.r2Key }).from(taskAttachments).where(eq(taskAttachments.sourceId, id))
+  await requireFiles(env).delete([attachment.r2Key, ...frames.map(frame => frame.r2Key)])
+  await db.delete(taskAttachments).where(eq(taskAttachments.id, id))
+  await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'task_attachment.delete', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename: attachment.filename } })
+  waitUntil(signalTasksChanged(env, task.boardId, task.id))
+  return { ok: true }
+})

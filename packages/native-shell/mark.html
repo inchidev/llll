@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="color-scheme" content="dark">
+  <title>L4</title>
+  <link rel="stylesheet" href="mark.css">
+</head>
+<body>
+  <header>
+    <h1>Mark this recording</h1>
+    <button id="cancel" class="ghost" type="button">Cancel</button>
+    <button id="save" class="primary" type="button" disabled>Save</button>
+  </header>
+  <section id="controls">
+    <label id="server-row">Send to
+      <select id="server" aria-label="Server"></select>
+    </label>
+    <div class="row">
+      <textarea id="comment" rows="1" placeholder="What’s wrong here?" aria-label="Comment"></textarea>
+      <button id="mic" class="icon" type="button" aria-label="Say it" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="add" class="icon" type="button" aria-label="Add another mark" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="clips"></div>
+    <p id="note" role="status"></p>
+  </section>
+  <main id="stage">
+    <div id="media"><div id="box" hidden></div></div>
+    <span id="tip">Drag a box · pinch to zoom</span>
+    <div id="stage-actions">
+      <button id="reset-zoom" type="button" hidden>1×</button>
+      <button id="clear-box" type="button" hidden>✕ Box</button>
+    </div>
+  </main>
+  <footer id="video-controls" hidden>
+    <button id="play" class="icon" type="button" aria-label="Play">▶</button>
+    <div id="track" role="slider" aria-label="Timeline"><div id="selection" hidden></div><div id="head"></div><span id="time"></span></div>
+    <button id="in" class="small" type="button" aria-label="Clip starts here">In</button>
+    <button id="out" class="small" type="button" aria-label="Clip ends here">Out</button>
+    <button id="draw" class="icon" type="button" aria-label="Box the spot">▭</button>
+    <button id="hear" class="icon" type="button" aria-label="Turn what you said into clips" hidden>≈</button>
+  </footer>
+  <script src="mark.js"></script>
+</body>
+</html>

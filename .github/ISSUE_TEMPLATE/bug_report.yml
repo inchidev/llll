@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible problem with L4.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security vulnerabilities, use https://github.com/inchidev/llll/security/advisories/new instead.
+        Remove credentials, private setup links, personal data and private logs.
+  - type: input
+    id: version
+    attributes:
+      label: Version and environment
+      description: L4 version/commit, Cloudflare or VPS, browser/OS, and affected component.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic data and include the smallest reproducible example.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots

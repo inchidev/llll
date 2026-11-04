@@ -1,0 +1,26 @@
+import { getServerId } from '../../../../../../shared/server-id'
+import { and, eq } from 'drizzle-orm'
+import { agents, users } from '../../../../../../drizzle/schema'
+import { spaceResourceDenied } from '../../../../../../shared/spaces'
+import { cf, requireFiles, fail } from '../../../../../utils/cf'
+import { getDb } from '../../../../../utils/db'
+import { requireMember } from '../../../../../utils/guards'
+
+export default defineEventHandler(async (event) => {
+  const serverId = await getServerId(cf(event).env.DB)
+  const agentId = getRouterParam(event, 'agentId')!
+  const actor = await requireMember(event, serverId)
+  if (spaceResourceDenied(actor.authorization, 'agents', agentId)) fail(404, 'not_found', 'Agent avatar not found')
+  const { env } = cf(event)
+  const db = getDb(env.DB)
+  const row = (await db.select({ avatarR2Key: users.avatarR2Key }).from(users)
+    .innerJoin(agents, eq(agents.userId, users.id))
+    .where(and(eq(users.id, agentId), eq(users.kind, 'agent'), eq(users.status, 'active')))
+    .limit(1))[0]
+  if (!row?.avatarR2Key) fail(404, 'not_found', 'Agent avatar not found')
+  const object = await requireFiles(env).get(row.avatarR2Key)
+  if (!object) fail(404, 'not_found', 'Agent avatar blob missing')
+  setHeader(event, 'Content-Type', object.httpMetadata?.contentType || 'application/octet-stream')
+  setHeader(event, 'Cache-Control', 'private, max-age=3600')
+  return object.body
+})

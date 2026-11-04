@@ -1,0 +1,65 @@
+# Isolated verification
+
+Feature/fix PRs target protected `main`. Run lint, type checks, unit tests, immutable migration validation, builds, independent Server integration and self-host smoke. Verify the deployed PR head before merging. A merged release PR publishes immutable artifacts.
+
+Preview workers.dev addresses stay disabled. CI also builds immutable candidate artifacts; developer machines do not upload them.
+
+A Server Preview deploys the one staging Server Worker (`llll-server`) with a **native Worker Preview per PR** via `wrangler preview` (Wrangler ≥ 4.135) inside Workers Builds. The script `scripts/server-preview.mjs` requires the exact head of an open mergeable PR (or, on main, the current head of main for the main Preview) and private Preview secrets; it never creates a per-PR Worker. Developer machines do not run it. Connected Cloudflare tools configure resources and Builds; they never upload code.
+
+The staging Server has its own Workers Builds configuration for the same Git repository. Its PR build runs `pnpm build` and `node scripts/server-preview.mjs` from the repository root with private Preview secrets. Workers Builds binds each job to its Worker identity, so a web Worker build must not deploy the staging Server. The staging main-branch job deploys only the [main Preview](#the-main-preview); it has no production deployment.
+
+Native Preview behavior for the Server Worker:
+
+- **Durable Objects and Containers** are isolated per Preview automatically and deleted with it. Every DO binding declared on the environment is mirrored under `previews.durable_objects.bindings`; a Preview fails with error 1101 otherwise.
+- **D1** is isolated per PR as `llll-server-pr-N`. **R2 and KV** use the shared staging resources `llll-server-staging-files`, `llll-server-staging-backups` and `llll-server-staging-tickets`. All bindings are resolved under `previews`; the backups destination stays separate from live files.
+- If unpublished D1 migrations change during a PR, `LLLL_PREVIEW_DATABASE` can select a fresh database under that PR's prefix. Workers Builds creates and migrates it. The old D1 and backup objects stay available for inspection; customer databases never use this override. The main Preview Build removes them once the PR is closed.
+- **Migrations** run in the Build with `wrangler d1 migrations apply DB --remote` against the Preview's bound database before `wrangler preview` uploads.
+- **Owner without a claim.** With the optional build secret `LLLL_PREVIEW_ADMIN_PASSWORD` (at least 12 characters), every Preview Server whose database has no Owner yet creates one at first request: sign in as `LLLL_PREVIEW_ADMIN_USERNAME` (default `owner`) with that password, the same way `ADMIN_PASSWORD` works for Docker and Coolify. Without it, claim the Owner with the setup token. An existing Owner is never changed.
+- **Vars and secrets are not inherited from production.** The Preview declares `PUBLIC_ORIGIN`, `ADMIN_USERNAME`, `AUTH_REGISTRATION_MODE`, `ACCOUNT_ID` and `SERVER_TIMING` ([request timing](#request-timing)); `AUTH_SECRET` and the owner claim come from private Preview secrets. The Build reads Cloudflare’s assigned custom Preview URL and declares it as `PUBLIC_ORIGIN`, so discovery and sessions use the actual address. It repairs only the placeholder left by older staging scripts.
+- Server Previews use `<preview-slug>.server-preview.llll.gg`. The Git Build first deploys a 404-only staging parent with no data bindings, then creates the native Preview; Cloudflare requires a parent deployment before attaching a custom domain. Base routing at `server-preview.llll.gg` and all workers.dev URLs remain disabled. One shared Preview domain serves every PR; no per-PR custom domain is created. The script verifies discovery at the returned URL. Previews are public by default; put Cloudflare Access in front of `llll-server` if review traffic must be restricted, and allow the identity provider on the Preview addresses.
+- Cron triggers, routes and queue consumers target only the production instance. Service bindings inside a Preview call the production service.
+- Limits: 500 Previews per Worker (Paid) and 100 deployments per Preview; PR churn stays low-retention because DO state and bindings die with each Preview.
+
+Update-flow verification can opt into `LLLL_PREVIEW_UPDATE_FIXTURE=1`. Only that Preview receives the fixture version override. `LLLL_PREVIEW_INSTALLED_VERSION` may identify an older version (never newer than the candidate package) to exercise a real upgrade to a published artifact without publishing a test release. After the upgrade, redeploy the same candidate from Git to inspect the persisted completion record and leave the Preview reviewable. Backup state and fixture Accounts must never point at customer Servers.
+
+## The main Preview
+
+Each PR Preview shows one change alone. The main Preview shows everything merged into main together, before any release: `https://main.server-preview.llll.gg`. Check it before opening a release PR.
+
+- **What deploys it.** The main-branch Build of `llll-server`, from Git, after every merge. Each Build first confirms that its commit is still the head of main, so an older Build never replaces a newer one. A release does not deploy it.
+- **Data.** It keeps its own D1 database, `llll-server-main`, across deployments: migrations apply in order on existing data, as on a customer Server that updates. Files, backups and tickets use the shared staging resources.
+- **Secrets.** Nothing new. Its Server uses the same `LLLL_PREVIEW_AUTH_SECRET` and `LLLL_PREVIEW_SETUP_TOKEN` as PR Previews; its own database keeps its Accounts apart. Claim the Owner once with the setup token.
+- **Access.** It is public like other Previews. Put Cloudflare Access in front of `main.server-preview.llll.gg` if it should be restricted.
+- **Reset.** If its data is no longer useful, delete `llll-server-main` through administrative cleanup; the next main Build creates an empty one. Keep backup destinations.
+
+Workers Builds configuration for the main branch (administrative, not code):
+
+| Worker | Root | Build command | Deploy command |
+| --- | --- | --- | --- |
+| `llll-server` | `/` | `pnpm build` | `node scripts/server-preview.mjs` |
+
+## Request timing
+
+Server Previews set `SERVER_TIMING=1`, which allows measurement but does not turn it on. A request asks for it with an `L4-Timing: 1` header; in a browser, run `document.cookie = 'l4_timing=1; path=/'` on the Preview and reload, and remove the cookie when done. Measured responses carry a `Server-Timing` header, shown in the browser's Network → Timing panel, and Workers Logs get one `request.timing` line per measured request:
+
+- `d1`: time spent waiting on D1 and the number of statements, with the region that served them. `d1-sql` is the part D1 spent executing SQL; the difference is network and queueing.
+- `do`: time and number of Durable Object calls.
+- `app`: the whole request inside the Worker. `cold` marks the first request an isolate served.
+
+Other requests run on the unwrapped D1 and Durable Object bindings, and WebSocket upgrades are never wrapped. Waits are summed, so parallel calls overlap. Many short `d1` statements with a small `d1-sql` mean round trips dominate. A `cf-placement` response header shows whether Smart Placement moved the Worker. Production and customer Servers leave this off: the header shows how much work a request did, which can reveal which path it took.
+
+## Local fixture
+
+```sh
+pnpm build:deployment
+pnpm test:server
+node scripts/test-server.mjs --serve
+```
+
+The two Servers listen at `http://localhost:18984` and `http://localhost:18985`. They have independent D1, FILES, BACKUPS, TICKETS, DOs and AUTH_SECRET. The fixture verifies local owner/member accounts, stable UUID identity before/after setup, invitations, messages, HTTP denial, actual WebSocket authentication, foreign-server ticket denial, logout revocation and backup restoration with the same UUID and clean foreign keys.
+
+Generated fixture credentials stay in ignored `.deployment/integration/fixture.json`. Open each Server at its own address and test login, invitation opening, **Add a Server**, going to the other Server and accepting **Add the way back?**, reload, expired sessions and one unavailable Server. Inspect phone and desktop layouts. Local Miniflare proof does not certify Cloudflare custom domains, physical devices, or celld's network transport; verify those separately.
+
+Keep backup destinations separate from live files. Retain backup destinations and backup objects.
+
+**Cleanup after a PR closes.** A PR's Previews and databases stay while it is open, for inspection. After every merge, the main Preview Build (`scripts/preview-cleanup.mjs`) removes what closed PRs left: native Previews of `llll-server` whose branch no longer exists (deleting a Preview deletes its Durable Objects), and D1 databases named `llll-server-pr-N[-…]` whose PR is closed. It reads Git refs, not GitHub's REST API, whose shared quota Builds exhaust: a PR counts as open while it has a merge ref or its head is a live branch, and incomplete refs mean nothing is deleted. Doubt keeps a resource. Production, the main Preview, installed Servers, other projects, shared staging buckets and backups never match these names. A cleanup failure is logged and never fails the main Preview. A reopened PR's next Build recreates its Preview and an empty database.

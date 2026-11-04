@@ -1,0 +1,1041 @@
+<script setup lang="ts">
+import { useSwipeToClose } from '~/composables/useSwipeToClose'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import type { CodeEnvironment } from '~~/shared/code-environments'
+import { hasPermission, Permission } from '~~/shared/permissions'
+import type {
+  ChannelDTO,
+  MemberDTO,
+  TaskAgentDTO,
+  TaskBoardDTO,
+  TaskDetailDTO,
+  TaskLabelDTO,
+  TaskDTO,
+  TaskMessageDraftDTO,
+  TaskPriority,
+  TaskAttachmentDTO,
+  TaskStatus,
+} from '~~/shared/types'
+import { SHOTS_BOARD_NAME, type RecordingClip, type RecordingLimitsDTO } from '~~/shared/task-recordings'
+import { BOARD_ROUTE, boardPath } from '~~/shared/paths'
+import { boardOrderAfterMove } from '~~/shared/project-navigation'
+
+definePageMeta({ layout: 'server', middleware: ['auth', 'manage-tasks'] })
+
+const session = useSessionStore()
+const { serverId } = useServer()
+const { can, canAnyProject } = useRoleGrants()
+const isMobile = useIsMobile()
+const { api, serverUrl } = useApi()
+const qc = useQueryClient()
+const toast = useToast()
+const startingRun = ref(false)
+async function runTask(task: TaskDetailDTO) {
+  if (startingRun.value || !task.assigneeId) return
+  startingRun.value = true
+  // Starting from the task dialog: if it is closed (Escape) while the Run is admitted,
+  // stay on the board instead of navigating away from where the person now is.
+  const openedFrom = selectedTaskId.value
+  try {
+    let channelId = task.channelId || task.discussionChannelId
+    if (!channelId) {
+      const discussion = await api<{ channelId: string }>(`/api/tasks/${task.id}/discussion`, { method: 'POST' })
+      channelId = discussion.channelId
+      if (!channelId) throw new Error('The task discussion is not ready. Refresh the task before starting the agent.')
+      void qc.invalidateQueries({ queryKey: ['task'] })
+    }
+    const result = await api<{ run: { id: string } }>('/api/agent-runs', { method: 'POST', body: {
+      agentId: task.assigneeId, taskId: task.id, channelId,
+      prompt: `${task.title}\n\n${task.description}`, idempotencyKey: crypto.randomUUID(),
+    } })
+    if (openedFrom && selectedTaskId.value !== openedFrom) {
+      toast.add({ title: 'Agent run started', color: 'success', actions: [{ label: 'Open run', onClick: () => { void navigateTo(`/runs/${result.run.id}`) } }] })
+      return
+    }
+    await navigateTo(`/runs/${result.run.id}`)
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { startingRun.value = false }
+}
+
+async function runSelectedTask() {
+  if (selectedTask.value && !taskRunProblem.value) await runTask(selectedTask.value)
+}
+
+/**
+ * What keeps an agent from working on a task, with where to fix it. In a project, work is granted
+ * by a project policy (Developer, for example), not by the agent's Server role.
+ */
+type RunFix = { label: string; to: string; grant?: { projectId: string; memberId: string; permissions: number } }
+function agentRunProblem(task: { assigneeId?: string | null; projectId?: string | null }): { message: string; fix?: RunFix } | null {
+  const agent = agents.value.find(item => item.id === task.assigneeId)
+  if (agent?.status === 'paused') return { message: 'Resume the assigned agent in Agents before starting this task.' }
+  if (!agent || agent.status !== 'active') return { message: 'Assign an active agent to this task.' }
+  const member = membersQ.data.value?.members.find(item => item.user.id === task.assigneeId)
+  if (!member || member.user.kind !== 'agent') return { message: 'Assign an active agent to this task.' }
+  const allowed = (permission: number) => !member.role.permissions || hasPermission(member.role.permissions, permission)
+    || Boolean(task.projectId && member.projectPolicies?.some(grant => grant.projectId === task.projectId && hasPermission(grant.permissions, permission)))
+  const lacking = ([[Permission.readTasks, 'Read tasks'], [Permission.executeTasks, 'Execute assigned tasks'], [Permission.sendMessages, 'Send messages'], ...(task.projectId ? [[Permission.readProjects, 'Read projects']] as const : [])] as const)
+    .filter(([permission]) => !allowed(permission))
+  const missing = lacking.map(([, label]) => label)
+  if (!missing.length) return null
+  const name = member.user.displayName
+  if (task.projectId) {
+    const project = projectsQ.data.value?.projects?.find(item => item.id === task.projectId)?.name ?? 'this project'
+    return { message: `${name} cannot work on tasks in ${project} yet. Give ${name} the Developer policy in the project's access.`,
+      fix: { label: 'Open project access', to: `/projects/${task.projectId}`, grant: { projectId: task.projectId, memberId: member.user.id, permissions: lacking.reduce((all, [permission]) => all | permission, 0) } } }
+  }
+  return { message: `${name}’s role needs ${missing.join(', ')}. Put this task in a project and give ${name} the Developer policy there, or choose a role that allows it in Server settings → Agents.` }
+}
+
+const granting = ref(false)
+/** Assign the project's Developer policy, or the narrowest policy that covers what is missing. */
+async function grantProjectWork(grant: NonNullable<RunFix['grant']>) {
+  granting.value = true
+  try {
+    const access = await api<{ policies: { id: string; name: string; permissions: number }[]; canManage: boolean }>(`/api/projects/${grant.projectId}/access`)
+    const covering = access.policies.filter(policy => hasPermission(policy.permissions, grant.permissions))
+    const policy = covering.find(item => item.name === 'Developer') ?? covering.sort((a, b) => a.permissions.toString(2).replaceAll('0', '').length - b.permissions.toString(2).replaceAll('0', '').length)[0]
+    if (!access.canManage || !policy) { await navigateTo(`/projects/${grant.projectId}`); return }
+    await api(`/api/projects/${grant.projectId}/access`, { method: 'POST', body: { policyId: policy.id, memberId: grant.memberId } })
+    await membersQ.refetch()
+    toast.add({ title: `${policy.name} access given in this project`, color: 'success' })
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { granting.value = false }
+}
+const taskRunFix = computed(() => selectedTask.value ? agentRunProblem(selectedTask.value)?.fix : undefined)
+const taskRunProblem = computed(() => {
+  const task = selectedTask.value
+  if (!task) return 'Choose a task to run.'
+  if (task.archivedAt) return 'Restore this task before starting its agent.'
+  if (taskDirty.value) return 'Save your task changes before starting the agent.'
+  return agentRunProblem(task)?.message ?? ''
+})
+const newTaskRunProblem = computed(() => agents.value.some(agent => agent.id === newTask.assigneeId) ? agentRunProblem(newTask) : null)
+/** Board and the archived view live in the URL so the sidebar can link to them. */
+const route = useRoute()
+const nav = useNavActions()
+const showArchived = computed({
+  get: () => route.query.archived === '1',
+  set: value => void navigateTo(boardPath(null, value)),
+})
+const selectedBoardId = computed({
+  get: () => String(route.query.board || '') || null,
+  set: value => void navigateTo(boardPath(value, showArchived.value)),
+})
+/**
+ * The open task is `?task=` on the board. Closing it (including Escape on a deep link)
+ * always lands on this board with the rest of the query intact, never on another page.
+ */
+const selectedTaskId = computed({
+  get: () => String(route.query.task || '') || null,
+  set: value => void navigateTo({ path: BOARD_ROUTE, query: { ...route.query, task: value || undefined } }),
+})
+const taskSearch = ref('')
+const showBoardForm = ref(false)
+const showTaskForm = ref(false)
+const showLabels = ref(false)
+const showConfirm = ref(false)
+const saving = ref(false)
+const draggedTaskId = ref<string | null>(null)
+const confirmAction = shallowRef<null | (() => Promise<void>)>(null)
+const confirmTitle = ref('')
+
+const agentsQ = useQuery({
+  queryKey: computed(() => ['agents', serverId.value]),
+  queryFn: () => api<{ agents: TaskAgentDTO[] }>(`/api/servers/${serverId.value}/task-agents`),
+  enabled: computed(() => Boolean(serverId.value)),
+})
+const environmentsQ = useQuery({
+  queryKey: ['code-environments'], queryFn: () => api<{ environments: CodeEnvironment[] }>('/api/code-environments'), enabled: computed(() => canAnyProject(Permission.useComputer)),
+})
+const projectsQ = useQuery({ queryKey: computed(() => ['projects', serverId.value]), queryFn: () => api<{ projects: { id: string; name: string; archivedAt: string | null }[] }>(`/api/servers/${serverId.value}/projects`), enabled: computed(() => canAnyProject(Permission.readProjects)) })
+const environmentOptions = computed(() => [{ label: 'No repository', value: null }, ...(environmentsQ.data.value?.environments ?? []).filter(item => item.enabled).map(item => ({ label: item.name, value: item.id }))])
+const membersQ = useQuery({
+  queryKey: computed(() => ['members', serverId.value]),
+  queryFn: () => api<{ members: MemberDTO[] }>(`/api/servers/${serverId.value}/members`),
+  enabled: computed(() => Boolean(serverId.value)),
+})
+const boardsQ = useQuery({
+  queryKey: computed(() => ['boards', serverId.value, showArchived.value]),
+  queryFn: () => api<{ boards: TaskBoardDTO[] }>(`/api/servers/${serverId.value}/boards`, { query: { archived: showArchived.value } }),
+  enabled: computed(() => Boolean(serverId.value)),
+})
+const channelsQ = useQuery({
+  queryKey: computed(() => ['channels', serverId.value]),
+  queryFn: () => api<{ channels: ChannelDTO[] }>(`/api/servers/${serverId.value}/channels`),
+  enabled: computed(() => Boolean(serverId.value)),
+})
+const taskQ = useQuery({
+  queryKey: computed(() => ['task', selectedTaskId.value]),
+  queryFn: () => api<{ task: TaskDetailDTO }>(`/api/tasks/${selectedTaskId.value}`),
+  enabled: computed(() => Boolean(selectedTaskId.value)),
+})
+
+const allBoards = computed(() => boardsQ.data.value?.boards ?? [])
+const inProject = computed(() => {
+  const project = String(route.query.project || '')
+  return project ? allBoards.value.filter(board => board.tasks.some(task => task.projectId === project)) : allBoards.value
+})
+const { activeBoardId, lastBoardId, remember: rememberBoard } = useBoardChoice(() => serverId.value || '')
+const boards = computed(() => showArchived.value
+  ? inProject.value.filter(board => Boolean(board.archivedAt) || board.tasks.some(task => Boolean(task.archivedAt)))
+  : inProject.value)
+/** The board asked for, or the open Task's, or the one last chosen on this device. */
+const activeBoard = computed(() => boards.value.find(board => board.id === selectedBoardId.value)
+  ?? boards.value.find(board => board.id === selectedTask.value?.boardId)
+  ?? (showArchived.value ? null : boards.value.find(board => board.id === lastBoardId.value))
+  ?? boards.value[0] ?? null)
+const boardTasks = computed(() => {
+  const board = activeBoard.value
+  if (!board) return []
+  const tasks = route.query.project ? board.tasks.filter(t => t.projectId === String(route.query.project)) : board.tasks
+  if (!showArchived.value) return tasks
+  return board.archivedAt ? tasks : tasks.filter(task => Boolean(task.archivedAt))
+})
+const activeTasks = computed(() => {
+  const query = taskSearch.value.trim().toLocaleLowerCase().replace(/^#/u, '')
+  if (!query) return boardTasks.value
+  return boardTasks.value.filter(task => [String(task.number), task.title, task.description]
+    .some(value => value.toLocaleLowerCase().includes(query)))
+})
+const agents = computed(() => agentsQ.data.value?.agents ?? [])
+const channels = computed(() => (channelsQ.data.value?.channels ?? []).filter(channel => channel.type === 'text' && channel.visibility === 'server'))
+const selectedTask = computed(() => taskQ.data.value?.task ?? null)
+
+/** A board id that no longer resolves (deleted, archived away) falls back to the first one. */
+watch([boards, selectedBoardId], ([value, id]) => {
+  if (!id || !value.length) return
+  if (!value.some(board => board.id === id)) selectedBoardId.value = value[0]?.id ?? null
+}, { immediate: true })
+
+watch(showArchived, () => {
+  selectedTaskId.value = null
+})
+
+watch(() => activeBoard.value?.id, (id) => { activeBoardId.value = id ?? null }, { immediate: true })
+watch(selectedBoardId, (id) => { if (id && !showArchived.value) rememberBoard(id) }, { immediate: true })
+
+const taskPlace = computed(() => {
+  const board = activeBoard.value
+  if (!board) return []
+  return [{ label: board.name, to: boardPath(board.id, showArchived.value) }]
+})
+const boardCrumbs = computed(() => {
+  if (!activeBoard.value) return [{ label: 'Tasks' }]
+  const place = taskPlace.value
+  return selectedTask.value ? [...place, { label: taskLabel(selectedTask.value) }] : [...place.slice(0, -1), { label: place.at(-1)!.label }]
+})
+
+const columns: Array<{ status: TaskStatus; label: string }> = [
+  { status: 'backlog', label: 'Backlog' },
+  { status: 'ready', label: 'Ready' },
+  { status: 'review', label: 'Review' },
+  { status: 'done', label: 'Done' },
+  { status: 'failed', label: 'Failed' },
+]
+// On a phone one column fills the screen, and a swipe or a tab moves to the next.
+const columnsEl = ref<HTMLElement | null>(null)
+const phoneColumn = ref<TaskStatus>(columns[0]!.status)
+const phoneColumns = computed(() => columns.map(column => ({ value: column.status, label: column.label, count: tasksFor(column.status).length })))
+function showColumn(status: TaskStatus) {
+  phoneColumn.value = status
+  const element = columnsEl.value
+  element?.scrollTo({ left: columns.findIndex(column => column.status === status) * element.clientWidth, behavior: 'smooth' })
+}
+function columnScrolled() {
+  const element = columnsEl.value
+  if (!element || !isMobile.value || !element.clientWidth) return
+  phoneColumn.value = columns[Math.round(element.scrollLeft / element.clientWidth)]?.status ?? phoneColumn.value
+}
+const manualStatusOptions = columns.map(column => ({ label: column.label, value: column.status }))
+const priorityOptions: Array<{ label: string; value: TaskPriority }> = [
+  { label: 'Low', value: 'low' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'High', value: 'high' },
+  { label: 'Urgent', value: 'urgent' },
+]
+const labelColors = ['neutral', 'primary', 'info', 'success', 'warning', 'error'] as const
+const labelColorOptions = [...labelColors]
+const members = computed(() => membersQ.data.value?.members ?? [])
+// Anyone active can own a task: people first, then agents that are not paused.
+const assigneeOptions = computed(() => {
+  const people = members.value
+    .filter(member => member.user.kind !== 'agent')
+    .map(member => ({ label: member.nickname || member.user.displayName, value: member.user.id as string | null, icon: 'i-ph-user' }))
+  const activeAgents = agents.value
+    .filter(agent => agent.status === 'active')
+    .map(agent => ({ label: agent.displayName, value: agent.id as string | null, icon: 'i-ph-robot' }))
+  return [
+    { label: 'Unassigned', value: null as string | null },
+    ...(people.length ? [{ type: 'label' as const, label: 'People' }, ...people] : []),
+    ...(activeAgents.length ? [{ type: 'label' as const, label: 'Agents' }, ...activeAgents] : []),
+  ]
+})
+const channelOptions = computed(() => [
+  { label: 'Task discussion (default)', value: null },
+  ...channels.value.map(channel => ({ label: `# ${channel.name}`, value: channel.id })),
+])
+const boardOptions = computed(() => allBoards.value.filter(board => !board.archivedAt).map(board => ({ label: board.name, value: board.id })))
+/** A Project is for agent work in a repository; most Tasks have none and follow Server Role. */
+const projectOptions = computed(() => [
+  { label: 'No Project', value: null as string | null },
+  ...(projectsQ.data.value?.projects ?? []).filter(project => !project.archivedAt).map(project => ({ label: project.name, value: project.id as string | null })),
+])
+
+type TaskForm = {
+  title: string
+  description: string
+  priority: TaskPriority
+  dueAt: string
+  projectId: string | null
+  environmentId: string | null
+  assigneeId: string | null
+  channelId: string | null
+  labelIds: string[]
+  dependencyIds: string[]
+}
+
+const newTask = reactive<TaskForm>({ title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
+// A project with one connected repository fills it in for a new task; the person can still change it.
+watch(() => newTask.projectId, async (projectId) => {
+  if (!projectId || newTask.environmentId) return
+  try {
+    const { repositories } = await api<{ repositories: { environmentId: string | null }[] }>(`/api/projects/${projectId}`)
+    const linked = [...new Set(repositories.map(repository => repository.environmentId).filter(Boolean))]
+    if (linked.length === 1 && newTask.projectId === projectId && !newTask.environmentId && environmentOptions.value.some(option => option.value === linked[0])) newTask.environmentId = linked[0]!
+  } catch { /* The field stays as chosen. */ }
+})
+const editTask = reactive<TaskForm & { boardId: string; status: TaskStatus }>({
+  title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [], boardId: '', status: 'backlog',
+})
+const boardName = ref('')
+const editingBoardId = ref<string | null>(null)
+const labelName = ref('')
+const labelColor = ref<(typeof labelColors)[number]>('neutral')
+const editingLabelId = ref<string | null>(null)
+const checklistTitle = ref('')
+const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
+
+function fillEditTask(task: TaskDetailDTO | null) {
+  if (!task) return
+  Object.assign(editTask, {
+    title: task.title,
+    description: task.description,
+    priority: task.priority,
+    dueAt: toDateInput(task.dueAt),
+    assigneeId: task.assigneeId,
+    projectId: task.projectId ?? null,
+    environmentId: task.environmentId ?? null,
+    channelId: task.channelId,
+    labelIds: task.labels.map(label => label.id),
+    dependencyIds: [...task.dependencyIds],
+    boardId: task.boardId,
+    status: task.status,
+  })
+}
+watch(selectedTask, fillEditTask, { immediate: true })
+
+function sameIds(a: string[], b: string[]) {
+  return a.length === b.length && a.every(id => b.includes(id))
+}
+
+/** Field edits wait for the save bar; checklist, files, and discussion save as they happen. */
+const taskDirty = computed(() => {
+  const task = selectedTask.value
+  if (!task || task.archivedAt) return false
+  return editTask.title !== task.title
+    || editTask.description !== task.description
+    || editTask.priority !== task.priority
+    || editTask.dueAt !== toDateInput(task.dueAt)
+    || editTask.assigneeId !== task.assigneeId
+    || editTask.channelId !== task.channelId
+    || editTask.projectId !== (task.projectId ?? null)
+    || editTask.environmentId !== (task.environmentId ?? null)
+    || editTask.boardId !== task.boardId
+    || editTask.status !== task.status
+    || !sameIds(editTask.labelIds, task.labels.map(label => label.id))
+    || !sameIds(editTask.dependencyIds, task.dependencyIds)
+})
+const dependencyChoices = computed(() => allBoards.value
+  .find(board => board.id === editTask.boardId)?.tasks
+  .filter(task => task.id !== selectedTask.value?.id && !task.archivedAt) ?? [])
+
+function tasksFor(status: TaskStatus) {
+  return activeTasks.value.filter(task => task.status === status)
+}
+
+function taskLabel(task: Pick<TaskDTO, 'number' | 'title'>) {
+  return `#${task.number} ${task.title}`
+}
+
+function assignee(id: string | null) {
+  if (!id) return null
+  const member = members.value.find(item => item.user.id === id)
+  if (member) return { name: member.nickname || member.user.displayName, user: member.user }
+  const agent = agents.value.find(item => item.id === id)
+  return agent ? { name: agent.displayName, user: null } : null
+}
+
+function priorityColor(priority: TaskPriority) {
+  return priority === 'urgent' ? 'error' : priority === 'high' ? 'warning' : priority === 'low' ? 'neutral' : 'primary'
+}
+
+function toDateInput(value: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function toIso(value: string) {
+  return value ? new Date(value).toISOString() : null
+}
+
+function formatDate(value: string | null) {
+  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : ''
+}
+
+function toggleId(list: string[], id: string, selected: boolean) {
+  const index = list.indexOf(id)
+  if (selected && index === -1) list.push(id)
+  if (!selected && index !== -1) list.splice(index, 1)
+}
+
+async function refresh(taskId: string | null = selectedTaskId.value) {
+  await qc.invalidateQueries({ queryKey: ['boards'] })
+  if (taskId) await qc.invalidateQueries({ queryKey: ['task', taskId] })
+}
+
+/**
+ * Runs a change, then refreshes lists in the background: the dialog that made
+ * the change can close as soon as the server confirms it.
+ */
+async function mutate(action: () => Promise<unknown>, success?: string) {
+  saving.value = true
+  try {
+    await action()
+    if (success) toast.add({ title: success, color: 'success' })
+    void refresh()
+    return true
+  }
+  catch (error) {
+    toast.add({ title: errorMessage(error), color: 'error' })
+    return false
+  }
+  finally {
+    saving.value = false
+  }
+}
+
+function openRenameBoard() {
+  if (!activeBoard.value) return
+  editingBoardId.value = activeBoard.value.id
+  boardName.value = activeBoard.value.name
+  showBoardForm.value = true
+}
+
+async function saveBoard() {
+  if (saving.value || !boardName.value.trim()) return
+  const editing = editingBoardId.value
+  const ok = await mutate(() => api(`/api/boards/${editing}`, { method: 'PATCH', body: { name: boardName.value } }), 'Board renamed')
+  if (ok) showBoardForm.value = false
+}
+
+async function moveBoard(direction: -1 | 1) {
+  const board = activeBoard.value
+  if (!board || showArchived.value) return
+  const ids = boardOrderAfterMove(allBoards.value, board.id, direction)
+  if (!ids) return
+  await mutate(() => api(`/api/servers/${serverId.value}/boards/reorder`, { method: 'PATCH', body: { boardIds: ids } }))
+}
+
+function askConfirm(title: string, action: () => Promise<void>) {
+  confirmTitle.value = title
+  confirmAction.value = action
+  showConfirm.value = true
+}
+
+async function confirmMutation() {
+  const action = confirmAction.value
+  showConfirm.value = false
+  if (action) await action()
+  confirmAction.value = null
+}
+
+function archiveBoard() {
+  const board = activeBoard.value
+  if (!board) return
+  askConfirm(board.archivedAt ? 'Restore board?' : 'Archive board?', async () => {
+    await mutate(() => api(`/api/boards/${board.id}`, { method: 'PATCH', body: { archived: !board.archivedAt } }), board.archivedAt ? 'Board restored' : 'Board archived')
+  })
+}
+
+function deleteBoard() {
+  const board = activeBoard.value
+  if (!board) return
+  askConfirm(`Delete ${board.name} and every task?`, async () => {
+    const ok = await mutate(() => api(`/api/boards/${board.id}`, { method: 'DELETE' }), 'Board deleted')
+    if (ok) selectedBoardId.value = boards.value.find(board => board.id !== activeBoard.value?.id)?.id ?? null
+  })
+}
+
+function openCreateTask() {
+  Object.assign(newTask, { title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
+  newTask.projectId = String(route.query.project || '') || null
+  sourceDraft.value = null
+  showTaskForm.value = true
+}
+
+/** "Create task" on a chat message opens the board with `?fromMessage=<id>`: the form is prefilled from it. */
+const sourceDraft = shallowRef<TaskMessageDraftDTO | null>(null)
+watch(() => route.query.fromMessage, async (messageId) => {
+  if (typeof messageId !== 'string' || !messageId) return
+  try {
+    const { draft } = await api<{ draft: TaskMessageDraftDTO }>(`/api/messages/${messageId}/task-draft`)
+    openCreateTask()
+    Object.assign(newTask, { title: draft.title, description: draft.description })
+    sourceDraft.value = draft
+  }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+  finally { void navigateTo({ path: BOARD_ROUTE, query: { ...route.query, fromMessage: undefined } }, { replace: true }) }
+}, { immediate: true })
+
+function changeNewTaskBoard(value: string | number | undefined) {
+  if (!value || value === activeBoard.value?.id) return
+  // Labels and dependencies belong to a board.
+  newTask.labelIds = []; newTask.dependencyIds = []
+  selectedBoardId.value = String(value)
+}
+
+async function createTask(runAfter = false) {
+  if (!activeBoard.value || !newTask.title.trim()) return
+  const boardId = activeBoard.value.id
+  let created: TaskDetailDTO | undefined
+  const ok = await mutate(async () => {
+    const res = await api<{ task: TaskDetailDTO }>(`/api/boards/${boardId}/tasks`, {
+      method: 'POST',
+      body: { ...newTask, dueAt: toIso(newTask.dueAt), sourceMessageId: sourceDraft.value?.messageId },
+    })
+    created = res.task
+    if (sourceDraft.value) void qc.invalidateQueries({ queryKey: ['task-links'] })
+    const { checklist: _checklist, attachments: _attachments, ...task } = res.task
+    qc.setQueriesData<{ boards: TaskBoardDTO[] }>({ queryKey: ['boards', serverId.value, false] }, old => old
+      ? { boards: old.boards.map(board => board.id === boardId ? { ...board, tasks: [task, ...board.tasks] } : board) }
+      : old)
+  }, 'Task created')
+  if (ok) {
+    showTaskForm.value = false
+    if (runAfter && created) await runTask(created)
+  }
+}
+
+function openTask(task: TaskDTO) {
+  selectedTaskId.value = task.id
+}
+
+async function saveTask() {
+  const task = selectedTask.value
+  if (!task) return
+  const key = selectedTaskId.value
+  await mutate(async () => {
+    const res = await api<{ task: TaskDetailDTO }>(`/api/tasks/${task.id}`, {
+      method: 'PATCH',
+      body: { ...editTask, dueAt: toIso(editTask.dueAt) },
+    })
+    // The saved task comes back with the response, so the save bar clears at once.
+    qc.setQueryData(['task', key], { task: res.task })
+  }, 'Task saved')
+}
+
+function changeEditBoard(value: string | number | undefined) {
+  if (value === undefined || String(value) === editTask.boardId) return
+  editTask.boardId = String(value)
+  editTask.labelIds.splice(0)
+  editTask.dependencyIds.splice(0)
+}
+
+async function setStatus(taskId: string, status: TaskStatus, position?: number) {
+  await mutate(() => api(`/api/tasks/${taskId}`, { method: 'PATCH', body: { status, ...(position === undefined ? {} : { position }) } }))
+}
+
+async function dropTask(status: TaskStatus, beforeTaskId: string | null = null) {
+  const taskId = draggedTaskId.value
+  draggedTaskId.value = null
+  const task = allBoards.value.flatMap(board => board.tasks).find(item => item.id === taskId)
+  if (!taskId || !task || showArchived.value || !can(Permission.writeTasks, task.projectId)) return
+  await mutate(() => api(`/api/boards/${activeBoard.value!.id}/tasks/reorder`, {
+    method: 'PATCH',
+    body: { taskId, status, beforeTaskId: beforeTaskId === taskId ? null : beforeTaskId },
+  }))
+}
+
+function archiveTask() {
+  const task = selectedTask.value
+  if (!task) return
+  askConfirm(task.archivedAt ? 'Restore task?' : 'Archive task?', async () => {
+    const ok = await mutate(() => api(`/api/tasks/${task.id}`, { method: 'PATCH', body: { archived: !task.archivedAt } }), task.archivedAt ? 'Task restored' : 'Task archived')
+    if (ok) selectedTaskId.value = null
+  })
+}
+
+function deleteTask() {
+  const task = selectedTask.value
+  if (!task) return
+  askConfirm(`Delete ${task.title}?`, async () => {
+    const ok = await mutate(() => api(`/api/tasks/${task.id}`, { method: 'DELETE' }), 'Task deleted')
+    if (ok) selectedTaskId.value = null
+  })
+}
+
+function openLabels() {
+  editingLabelId.value = null
+  labelName.value = ''
+  labelColor.value = 'neutral'
+  showLabels.value = true
+}
+
+function editLabel(label: TaskLabelDTO) {
+  editingLabelId.value = label.id
+  labelName.value = label.name
+  labelColor.value = label.color as (typeof labelColors)[number]
+}
+
+async function saveLabel() {
+  if (!activeBoard.value || !labelName.value.trim()) return
+  const id = editingLabelId.value
+  const ok = await mutate(() => id
+    ? api(`/api/task-labels/${id}`, { method: 'PATCH', body: { name: labelName.value, color: labelColor.value } })
+    : api(`/api/boards/${activeBoard.value!.id}/labels`, { method: 'POST', body: { name: labelName.value, color: labelColor.value } }), id ? 'Label saved' : 'Label created')
+  if (ok) {
+    editingLabelId.value = null
+    labelName.value = ''
+    labelColor.value = 'neutral'
+  }
+}
+
+async function deleteLabel(id: string) {
+  await mutate(() => api(`/api/task-labels/${id}`, { method: 'DELETE' }), 'Label deleted')
+}
+
+async function addChecklistItem() {
+  const task = selectedTask.value
+  if (!task || !checklistTitle.value.trim()) return
+  const title = checklistTitle.value
+  checklistTitle.value = ''
+  await mutate(() => api(`/api/tasks/${task.id}/checklist`, { method: 'POST', body: { title } }))
+}
+
+async function updateChecklistItem(id: string, completed: boolean) {
+  await mutate(() => api(`/api/task-checklist/${id}`, { method: 'PATCH', body: { completed } }))
+}
+
+async function deleteChecklistItem(id: string) {
+  await mutate(() => api(`/api/task-checklist/${id}`, { method: 'DELETE' }))
+}
+
+/** Picking a file attaches it right away. */
+// A recording: marked on this device, and only Send reaches the Server.
+const limits = useQuery({ queryKey: computed(() => ['recording-limits', serverId.value]), queryFn: () => api<{ limits: RecordingLimitsDTO }>(`/api/servers/${serverId.value}/recording-limits`), enabled: computed(() => Boolean(serverId.value)) })
+const recordingFile = shallowRef<File | null>(null)
+const recordingTaskId = ref<string | null>(null)
+function chooseRecording(event: Event, taskId: string) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const max = limits.data.value?.limits.maxUploadBytes
+  if (max && file.size > max) {
+    toast.add({ title: `That file is over ${Math.floor(max / (1024 * 1024))} MB. Trim the recording and try again.`, color: 'error' })
+    return
+  }
+  recordingTaskId.value = taskId
+  recordingFile.value = file
+}
+async function recordingSent(taskId: string) {
+  recordingFile.value = null
+  await qc.invalidateQueries({ queryKey: ['boards'] })
+  await qc.invalidateQueries({ queryKey: ['task'] })
+  selectedTaskId.value = taskId
+  toast.add({ title: 'Task ready', description: 'Ask your agent to look at it, or start a Run from here.', color: 'success', actions: [{ label: 'Connect your agent', onClick: () => { void navigateTo('/settings?section=agent') } }] })
+}
+const taskFrames = computed(() => selectedTask.value?.attachments.filter(attachment => attachment.role === 'frame') ?? [])
+// On a phone a Task is three tabs under its picture: the few fields that matter, its discussion, and the rest.
+const phoneTabs = [{ label: 'Task', value: 'task' }, { label: 'Discussion', value: 'discussion' }, { label: 'More', value: 'more' }]
+const phoneTab = ref('task')
+watch(selectedTaskId, () => { phoneTab.value = 'task' })
+const onPhoneTab = (tab: string) => !isMobile.value || phoneTab.value === tab
+const taskRecording = computed(() => selectedTask.value?.attachments.find(attachment => attachment.role === 'recording') ?? null)
+const taskVideo = computed(() => taskRecording.value?.contentType.startsWith('video/') ? taskRecording.value : null)
+// The frames carry the box and the words, so the cover comes first; a screenshot not yet marked shows itself.
+const taskPictures = computed(() => {
+  const cover = taskFrames.value.find(frame => frame.id === selectedTask.value?.coverAttachmentId)
+  const frames = cover ? [cover, ...taskFrames.value.filter(frame => frame !== cover)] : taskFrames.value
+  return frames.length || taskVideo.value || !taskRecording.value ? frames : [taskRecording.value]
+})
+const taskFiles = computed(() => selectedTask.value?.attachments.filter(attachment => attachment.role !== 'frame') ?? [])
+const recordingClips = (attachment: TaskAttachmentDTO) => (attachment.marks as { clips?: RecordingClip[] } | null)?.clips ?? []
+async function setCover(attachmentId: string | null) {
+  const task = selectedTask.value
+  if (!task) return
+  await mutate(() => api(`/api/tasks/${task.id}`, { method: 'PATCH', body: { coverAttachmentId: attachmentId } }), attachmentId ? 'Cover set' : 'Cover removed')
+}
+
+async function uploadAttachment(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  const task = selectedTask.value
+  input.value = ''
+  if (!task || !file) return
+  const form = new FormData()
+  form.append('file', file)
+  await mutate(() => api(`/api/tasks/${task.id}/attachments`, { method: 'POST', body: form }), 'File attached')
+}
+
+async function deleteAttachment(id: string) {
+  await mutate(() => api(`/api/task-attachments/${id}`, { method: 'DELETE' }), 'Attachment deleted')
+}
+
+const boardMenu = computed(() => [[
+  { label: 'Rename', icon: 'i-ph-pencil-simple', onSelect: openRenameBoard },
+  { label: 'Labels', icon: 'i-ph-tag', onSelect: openLabels },
+  { label: 'Move up', icon: 'i-ph-arrow-up', disabled: showArchived.value || !activeBoard.value || !boardOrderAfterMove(allBoards.value, activeBoard.value.id, -1), onSelect: () => moveBoard(-1) },
+  { label: 'Move down', icon: 'i-ph-arrow-down', disabled: showArchived.value || !activeBoard.value || !boardOrderAfterMove(allBoards.value, activeBoard.value.id, 1), onSelect: () => moveBoard(1) },
+], [
+  { label: activeBoard.value?.archivedAt ? 'Restore' : 'Archive', icon: 'i-ph-archive', onSelect: archiveBoard },
+  { label: 'Delete', icon: 'i-ph-trash', color: 'error' as const, onSelect: deleteBoard },
+]])
+const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
+</script>
+
+<template>
+  <div class="flex h-full min-h-0 min-w-0 flex-col">
+    <main class="flex-1 min-w-0 min-h-0 flex flex-col">
+      <LayoutPageHeader icon="i-ph-kanban" :crumbs="boardCrumbs" :loading="boardsQ.isPending.value">
+        <template #meta>
+          <UBadge v-if="showArchived" label="Archived" color="neutral" variant="subtle" size="sm" />
+        </template>
+        <template #actions>
+          <UInput v-if="activeBoard" v-model="taskSearch" icon="i-ph-magnifying-glass" placeholder="Search" aria-label="Search tasks" class="w-28 sm:w-44" />
+          <UDropdownMenu v-if="activeBoard && can(Permission.manageTasks)" :items="boardMenu">
+            <UButton color="neutral" variant="ghost" icon="i-ph-dots-three" aria-label="Board actions" />
+          </UDropdownMenu>
+          <UButton v-if="!showArchived && activeBoard && (can(Permission.writeTasks) || (route.query.project && can(Permission.writeTasks, String(route.query.project))))" icon="i-ph-plus" :label="isMobile ? undefined : 'Task'" aria-label="New task" @click="openCreateTask" />
+        </template>
+      </LayoutPageHeader>
+
+      <LayoutSkeleton v-if="boardsQ.isPending.value" variant="board" />
+      <LayoutLoadError v-else-if="boardsQ.error.value" message="Task boards did not load." :retry="boardsQ.refetch" />
+      <LayoutEmptyState v-else-if="!activeBoard && showArchived" icon="i-ph-archive" title="Nothing archived" description="Boards you archive show up here." />
+      <LayoutEmptyState v-else-if="!activeBoard" icon="i-ph-kanban" title="No boards yet" description="A board collects the tasks for one team or project, in columns from to-do to done.">
+        <UButton v-if="can(Permission.manageTasks)" icon="i-ph-plus" label="Create first board" @click="nav.openCreateBoard()" />
+      </LayoutEmptyState>
+      <div v-else class="flex-1 min-h-0" :class="isMobile ? 'flex flex-col overflow-hidden' : 'overflow-auto p-4'">
+        <div v-if="activeBoard.name === SHOTS_BOARD_NAME && !activeBoard.tasks.length && !showArchived" class="mb-3 max-w-md rounded-lg border border-default p-4 text-sm" :class="isMobile && 'mx-4 mt-4'">
+          <p class="font-medium text-highlighted">Share a recording from your iPhone</p>
+          <p class="mt-1 text-muted">Add the Shortcut once. Anything you share from Photos then lands here, ready to mark.</p>
+          <UButton class="mt-3" to="/settings?section=shortcut" label="Add the iPhone Shortcut" icon="i-ph-device-mobile" size="sm" />
+        </div>
+        <LayoutSegmentedTabs v-if="isMobile" :model-value="phoneColumn" :items="phoneColumns" label="Column" class="mx-4 mt-3 mb-2 shrink-0" @update:model-value="showColumn" />
+        <div
+          ref="columnsEl"
+          :class="isMobile
+            ? 'flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden [scrollbar-width:none]'
+            : 'grid grid-flow-col auto-cols-[minmax(260px,1fr)] gap-3 min-w-max h-full items-start'"
+          @scroll.passive="columnScrolled"
+        >
+          <section
+            v-for="column in columns"
+            :key="column.status"
+            :data-column="column.status"
+            :class="isMobile ? 'h-full w-full shrink-0 snap-start overflow-y-auto px-4 pb-4' : 'w-[280px] rounded-xl bg-muted p-2'"
+            @dragover.prevent
+            @drop="dropTask(column.status)"
+          >
+            <div v-if="!isMobile" class="h-8 px-1 flex items-center gap-2 text-xs font-semibold text-muted">
+              <span>{{ column.label }}</span><span>{{ tasksFor(column.status).length }}</span>
+            </div>
+            <div class="space-y-2 min-h-10">
+              <article
+                v-for="task in tasksFor(column.status)"
+                :key="task.id"
+                class="df-panel rounded-lg p-3 space-y-2 cursor-pointer"
+                :draggable="!showArchived && can(Permission.writeTasks, task.projectId)"
+                @dragstart="draggedTaskId = task.id"
+                @dragend="draggedTaskId = null"
+                @dragover.prevent
+                @drop.stop="dropTask(column.status, task.id)"
+                @click="openTask(task)"
+              >
+                <img v-if="task.coverAttachmentId" :src="serverUrl(`/api/task-files/${task.coverAttachmentId}`)" alt="" loading="lazy" draggable="false" class="-mx-3 -mt-3 mb-2 max-h-40 w-[calc(100%+1.5rem)] max-w-none rounded-t-lg object-cover object-top">
+                <div class="flex items-start gap-2">
+                  <div class="font-medium text-sm flex-1 min-w-0">
+                    <span class="mr-1 text-muted">#{{ task.number }}</span>{{ task.title }}
+                  </div>
+                  <UBadge v-if="task.priority !== 'normal'" :color="priorityColor(task.priority)" variant="subtle" size="xs">{{ task.priority }}</UBadge>
+                </div>
+                <p v-if="task.description" class="text-xs text-muted line-clamp-3">{{ task.description }}</p>
+                <div v-if="task.labels.length" class="flex flex-wrap gap-1">
+                  <UBadge v-for="label in task.labels" :key="label.id" :color="label.color as 'neutral'" variant="subtle" size="xs">{{ label.name }}</UBadge>
+                </div>
+                <div class="flex items-center gap-2 text-[11px] text-muted">
+                  <span v-if="assignee(task.assigneeId)" class="flex min-w-0 items-center gap-1.5">
+                    <UserAvatar v-if="assignee(task.assigneeId)?.user" :user="assignee(task.assigneeId)!.user!" size="3xs" />
+                    <UIcon v-else name="i-ph-robot" class="size-3.5" />
+                    <span class="truncate">{{ assignee(task.assigneeId)?.name }}</span>
+                  </span>
+                  <span v-else class="text-dimmed">Unassigned</span>
+                  <span v-if="task.checklistTotal" class="ml-auto">{{ task.checklistCompleted }}/{{ task.checklistTotal }}</span>
+                  <UIcon v-if="task.attachmentCount" name="i-ph-paperclip" class="size-3.5" />
+                </div>
+                <div v-if="task.dueAt" class="text-[11px] text-muted">{{ formatDate(task.dueAt) }}</div>
+                <UAlert v-if="task.lastError" color="error" :description="task.lastError" />
+                <p v-if="task.factoryState" class="text-xs text-muted">Workspace: {{ task.factoryState }}</p>
+                <div v-if="task.resultSummary" class="text-xs border-t border-default pt-2 line-clamp-3">{{ task.resultSummary }}</div>
+                <div v-if="!showArchived && can(Permission.writeTasks, task.projectId)" class="flex items-center gap-1 pt-1" @click.stop>
+                  <USelect
+                    :model-value="task.status"
+                    :items="manualStatusOptions"
+                    size="xs"
+                    class="ml-auto w-24"
+                    @update:model-value="value => setStatus(task.id, value as TaskStatus)"
+                  />
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <UModal v-model:open="showBoardForm" title="Rename board">
+      <template #body>
+        <UFormField label="Name"><UInput v-model="boardName" autofocus class="w-full" @keyup.enter="saveBoard" /></UFormField>
+      </template>
+      <template #footer>
+        <UButton color="neutral" variant="ghost" label="Cancel" @click="showBoardForm = false" />
+        <UButton label="Save" :loading="saving" :disabled="!boardName.trim()" @click="saveBoard" />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="showTaskForm" title="Create task" :ui="{ content: 'sm:max-w-2xl' }">
+      <template #body>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <p v-if="sourceDraft" class="flex items-center gap-2 text-sm text-muted sm:col-span-2"><UIcon name="i-ph-chat-circle-text" class="size-4 shrink-0" />From a message{{ sourceDraft.authorName ? ` by ${sourceDraft.authorName}` : '' }} in {{ sourceDraft.channelName }}. The task links back to it.</p>
+          <UFormField v-if="sourceDraft" label="Board" class="sm:col-span-2"><USelect :model-value="activeBoard?.id" :items="boardOptions" class="w-full" @update:model-value="changeNewTaskBoard" /></UFormField>
+          <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
+          <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
+          <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
+          <UFormField v-if="projectOptions.length > 1" label="Project" help="For agent work in a repository."><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><div v-if="newTaskRunProblem.fix" class="flex flex-wrap gap-2"><UButton v-if="newTaskRunProblem.fix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(newTaskRunProblem.fix.grant)" /><UButton :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div></div>
+          <p v-else-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
+          <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
+          <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
+          <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
+          <div v-if="activeBoard?.labels.length" class="sm:col-span-2">
+            <div class="text-sm font-medium mb-2">Labels</div>
+            <div class="flex flex-wrap gap-3">
+              <UCheckbox v-for="label in activeBoard.labels" :key="label.id" :model-value="newTask.labelIds.includes(label.id)" :label="label.name" @update:model-value="value => toggleId(newTask.labelIds, label.id, Boolean(value))" />
+            </div>
+          </div>
+          <div v-if="boardTasks.length" class="sm:col-span-2">
+            <div class="text-sm font-medium mb-2">Dependencies</div>
+            <div class="max-h-32 overflow-y-auto space-y-1">
+              <UCheckbox v-for="task in boardTasks" :key="task.id" :model-value="newTask.dependencyIds.includes(task.id)" :label="taskLabel(task)" @update:model-value="value => toggleId(newTask.dependencyIds, task.id, Boolean(value))" />
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
+        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active') && !newTaskRunProblem" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="showLabels" title="Labels">
+      <template #body>
+        <div class="space-y-4">
+          <div class="flex gap-2">
+            <UInput v-model="labelName" placeholder="Label" class="flex-1" @keyup.enter="saveLabel" />
+            <USelect v-model="labelColor" :items="labelColorOptions" class="w-32" />
+            <UButton :label="editingLabelId ? 'Save' : 'Add'" :loading="saving" :disabled="!labelName.trim()" @click="saveLabel" />
+          </div>
+          <div class="divide-y divide-default">
+            <div v-for="label in activeBoard?.labels ?? []" :key="label.id" class="py-2 flex items-center gap-2">
+              <UBadge :color="label.color as 'neutral'" variant="subtle">{{ label.name }}</UBadge>
+              <UButton class="ml-auto" color="neutral" variant="ghost" icon="i-ph-pencil-simple" aria-label="Edit label" @click="editLabel(label)" />
+              <UButton color="error" variant="ghost" icon="i-ph-trash" aria-label="Delete label" @click="deleteLabel(label.id)" />
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <USlideover :open="Boolean(selectedTaskId)" :title="selectedTask ? taskLabel(selectedTask) : 'Task'" :description="selectedTask ? taskPlace.map(crumb => crumb.label).join(' / ') : undefined" :ui="{ content: 'w-full max-w-2xl' }" @update:open="value => { if (!value) selectedTaskId = null }">
+      <template #body>
+        <div class="contents" v-on="taskSwipe">
+        <template v-if="isMobile && selectedTask">
+          <div v-if="taskVideo || taskPictures.length" class="-mx-4 -mt-4 mb-3 bg-black">
+            <video v-if="taskVideo" :src="serverUrl(taskVideo.url)" :poster="taskPictures[0] ? serverUrl(taskPictures[0].url) : undefined" controls playsinline preload="metadata" class="max-h-[50dvh] w-full" />
+            <a v-else-if="taskPictures[0]" :href="serverUrl(taskPictures[0].url)" target="_blank" rel="noopener noreferrer"><img :src="serverUrl(taskPictures[0].url)" :alt="`Picture ${taskPictures[0].filename}`" class="max-h-[50dvh] w-full object-contain"></a>
+            <ul v-if="taskPictures.length > (taskVideo ? 0 : 1)" class="flex gap-1 overflow-x-auto p-1" aria-label="Frames">
+              <li v-for="picture in taskPictures.slice(taskVideo ? 0 : 1)" :key="picture.id" class="shrink-0"><a :href="serverUrl(picture.url)" target="_blank" rel="noopener noreferrer"><img :src="serverUrl(picture.url)" :alt="`Frame ${picture.filename}`" loading="lazy" class="h-28 rounded object-contain"></a></li>
+            </ul>
+          </div>
+          <UButton v-if="taskRecording && !taskRecording.marks && can(Permission.writeTasks, selectedTask.projectId)" class="mb-3 w-full justify-center" icon="i-ph-selection" label="Mark this recording" :to="`/projects/mark/${selectedTask.id}`" />
+          <UTabs v-model="phoneTab" :items="phoneTabs" :content="false" size="sm" class="mb-4 w-full" />
+        </template>
+        <section v-if="selectedTask && can(Permission.executeTasks, selectedTask.projectId) && can(Permission.useAgents, selectedTask.projectId)" v-show="onPhoneTab('more')" class="mb-6 space-y-2 border-b border-default pb-4" aria-label="Agent task execution">
+          <span :title="taskRunProblem || undefined"><UButton label="Run assigned agent" icon="i-ph-play" :loading="startingRun" :disabled="Boolean(taskRunProblem)" :aria-describedby="taskRunProblem ? 'task-run-problem' : undefined" @click="runSelectedTask" /></span>
+          <p v-if="taskRunProblem" id="task-run-problem" class="text-sm text-muted" role="status">{{ taskRunProblem }}</p>
+          <div v-if="taskRunFix" class="flex flex-wrap gap-2"><UButton v-if="taskRunFix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(taskRunFix.grant)" /><UButton :to="taskRunFix.to" :label="taskRunFix.label" color="neutral" variant="outline" size="sm" /></div>
+          <p v-else class="text-sm text-muted">Assignment does not start a run. Use Run assigned agent when you are ready.</p>
+          <p v-if="!selectedTask.channelId" class="text-xs text-muted">The agent posts its report in this task’s discussion. A separate report channel is optional.</p>
+        </section>
+        <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
+        <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
+        <fieldset v-else-if="selectedTask" v-show="!isMobile || phoneTab !== 'discussion' || taskDirty" :disabled="!can(Permission.writeTasks, selectedTask.projectId)" class="space-y-8 min-w-0">
+          <section v-if="selectedTask.source" v-show="onPhoneTab('task')" class="rounded-lg border border-default p-3 text-sm" aria-label="Task source">
+            <template v-if="selectedTask.source.state === 'available'">
+              <p class="text-muted">Created from a message{{ selectedTask.source.authorName ? ` by ${selectedTask.source.authorName}` : '' }} in <ULink :to="selectedTask.source.path" class="text-primary">{{ selectedTask.source.channelName }}</ULink></p>
+              <p class="mt-1 line-clamp-3 text-default">{{ selectedTask.source.excerpt }}</p>
+            </template>
+            <p v-else-if="selectedTask.source.state === 'deleted'" class="text-muted">Created from a message in <ULink :to="selectedTask.source.path" class="text-primary">{{ selectedTask.source.channelName }}</ULink>. The message was deleted.</p>
+            <p v-else class="text-muted">Created from a message in a conversation you cannot open.</p>
+          </section>
+          <section class="grid gap-4 sm:grid-cols-2">
+            <UFormField v-if="onPhoneTab('task')" label="Title" class="sm:col-span-2"><UInput v-model="editTask.title" class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
+            <UFormField v-if="onPhoneTab('task')" label="Description" class="sm:col-span-2"><UTextarea v-model="editTask.description" :rows="5" autoresize class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
+            <UFormField v-if="onPhoneTab('task')" label="Status"><USelect v-model="editTask.status" :items="manualStatusOptions" class="w-full" /></UFormField>
+            <UFormField v-if="onPhoneTab('task')" label="Assignee"><USelect v-model="editTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
+          <UFormField v-if="projectOptions.length > 1 && onPhoneTab('more')" label="Project" help="For agent work in a repository."><USelect v-model="editTask.projectId" :items="projectOptions" class="w-full" :disabled="Boolean(selectedTask.archivedAt)" /></UFormField>
+            <UFormField v-if="can(Permission.useComputer, editTask.projectId) && onPhoneTab('more')" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="editTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+            <UFormField v-if="onPhoneTab('more')" label="Priority"><USelect v-model="editTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
+            <UFormField v-if="onPhoneTab('more')" label="Due"><UInput v-model="editTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
+            <UFormField v-if="onPhoneTab('task')" label="Board"><USelect :model-value="editTask.boardId" :items="boardOptions" class="w-full" @update:model-value="changeEditBoard" /></UFormField>
+            <UFormField v-if="onPhoneTab('more')" label="Report channel" help="Optional. Without a separate channel, the agent reports in this task’s discussion."><USelect v-model="editTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
+          </section>
+
+          <section v-if="allBoards.find(board => board.id === editTask.boardId)?.labels.length" v-show="onPhoneTab('more')">
+            <div class="mb-2 text-sm font-medium">Labels</div>
+            <div class="flex flex-wrap gap-3">
+              <UCheckbox
+                v-for="label in allBoards.find(board => board.id === editTask.boardId)?.labels ?? []"
+                :key="label.id"
+                :model-value="editTask.labelIds.includes(label.id)"
+                :label="label.name"
+                @update:model-value="value => toggleId(editTask.labelIds, label.id, Boolean(value))"
+              />
+            </div>
+          </section>
+
+          <section v-if="dependencyChoices.length" v-show="onPhoneTab('more')">
+            <div class="mb-1 text-sm font-medium">Depends on</div>
+            <p class="mb-2 text-xs text-muted">Tasks on this board that must be finished first.</p>
+            <div class="max-h-36 space-y-1 overflow-y-auto">
+              <UCheckbox
+                v-for="task in dependencyChoices"
+                :key="task.id"
+                :model-value="editTask.dependencyIds.includes(task.id)"
+                :label="taskLabel(task)"
+                @update:model-value="value => toggleId(editTask.dependencyIds, task.id, Boolean(value))"
+              />
+            </div>
+          </section>
+
+          <section v-show="onPhoneTab('more')">
+            <div class="mb-2 text-sm font-medium">Checklist</div>
+            <div class="space-y-2">
+              <div v-for="item in selectedTask.checklist" :key="item.id" class="flex items-center gap-2">
+                <UCheckbox :model-value="item.completed" :label="item.title" @update:model-value="value => updateChecklistItem(item.id, Boolean(value))" />
+                <UButton class="ml-auto" color="neutral" variant="ghost" size="xs" icon="i-ph-x" aria-label="Remove checklist item" @click="deleteChecklistItem(item.id)" />
+              </div>
+              <UInput v-model="checklistTitle" placeholder="Add an item and press Enter" class="w-full" @keyup.enter="addChecklistItem" />
+            </div>
+          </section>
+
+          <section v-show="onPhoneTab('more')">
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <span class="text-sm font-medium">Files</span>
+              <UButton size="xs" color="neutral" variant="soft" icon="i-ph-paperclip" label="Attach file" :disabled="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)" :loading="saving" @click="fileInput?.click()" />
+              <label v-if="can(Permission.writeTasks, selectedTask.projectId)" class="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md bg-elevated px-2 text-xs font-medium">
+                <input type="file" accept="video/*,image/*" class="sr-only" aria-label="Add a recording or screenshot" @change="chooseRecording($event, selectedTask!.id)">
+                <UIcon name="i-ph-record" class="size-4" />Add recording
+              </label>
+              <input ref="fileInput" type="file" class="hidden" @change="uploadAttachment">
+            </div>
+            <p v-if="!taskFiles.length" class="text-sm text-muted">No files yet.</p>
+            <div v-else class="space-y-3">
+              <div v-for="attachment in taskFiles" :key="attachment.id" class="space-y-1">
+                <div class="flex items-center gap-2 text-sm">
+                  <UIcon :name="attachment.role === 'recording' ? 'i-ph-film-strip' : 'i-ph-paperclip'" class="size-4 shrink-0 text-muted" />
+                  <ULink :to="attachment.url" target="_blank" class="truncate">{{ attachment.filename }}</ULink>
+                  <UButton v-if="attachment.contentType.startsWith('image/') && selectedTask.coverAttachmentId !== attachment.id" class="ml-auto" color="neutral" variant="ghost" size="xs" label="Use as cover" @click="setCover(attachment.id)" />
+                  <UButton v-if="attachment.role === 'recording' && !attachment.marks" color="primary" variant="soft" size="xs" label="Mark" :to="`/projects/mark/${selectedTask.id}`" />
+                  <UButton :class="attachment.contentType.startsWith('image/') && selectedTask.coverAttachmentId !== attachment.id ? '' : 'ml-auto'" color="neutral" variant="ghost" size="xs" icon="i-ph-trash" :aria-label="attachment.role === 'recording' ? 'Delete the recording and its frames' : 'Delete file'" @click="deleteAttachment(attachment.id)" />
+                </div>
+                <video v-if="attachment.role === 'recording' && attachment.contentType.startsWith('video/')" :src="serverUrl(attachment.url)" controls playsinline preload="metadata" class="max-h-72 w-full rounded border border-default" />
+                <ol v-if="recordingClips(attachment).length" class="space-y-1 text-sm">
+                  <li v-for="(clip, index) in recordingClips(attachment)" :key="index" class="flex gap-2"><span class="font-mono text-primary">{{ index + 1 }}</span><span class="min-w-0 break-words">{{ clip.comment || 'No comment' }}</span></li>
+                </ol>
+              </div>
+              <ul v-if="taskFrames.length" class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <li v-for="frame in taskFrames" :key="frame.id" class="relative">
+                  <a :href="serverUrl(frame.url)" target="_blank" rel="noopener noreferrer"><img :src="serverUrl(frame.url)" :alt="`Frame ${frame.filename}`" loading="lazy" class="w-full rounded border border-default" :class="selectedTask.coverAttachmentId === frame.id ? 'ring-2 ring-primary' : ''"></a>
+                  <UButton v-if="selectedTask.coverAttachmentId !== frame.id" size="xs" color="neutral" variant="solid" label="Cover" class="absolute bottom-1 right-1" @click="setCover(frame.id)" />
+                </li>
+              </ul>
+              <UButton v-if="selectedTask.coverAttachmentId" size="xs" color="neutral" variant="ghost" label="Remove cover" @click="setCover(null)" />
+            </div>
+          </section>
+
+          <p v-if="selectedTask.factoryState" v-show="onPhoneTab('more')" class="text-sm">Workspace: {{ selectedTask.factoryState }}</p>
+          <section v-if="selectedTask.resultSummary || selectedTask.resultDetails" v-show="onPhoneTab('more')">
+            <div class="mb-2 text-sm font-medium">Result</div>
+            <div class="space-y-2 rounded-lg border border-default p-3 text-sm">
+              <ChatMarkdownView v-if="selectedTask.resultSummary && !selectedTask.resultDetails" :content="selectedTask.resultSummary" />
+              <ChatMarkdownView v-if="selectedTask.resultDetails" :content="selectedTask.resultDetails" class="text-xs text-muted" />
+            </div>
+          </section>
+
+
+
+          <div v-if="can(Permission.manageTasks)" v-show="onPhoneTab('more')" class="flex items-center gap-2 border-t border-default pt-4">
+            <UButton color="neutral" variant="ghost" size="sm" :icon="selectedTask.archivedAt ? 'i-ph-arrow-counter-clockwise' : 'i-ph-archive'" :label="selectedTask.archivedAt ? 'Restore task' : 'Archive task'" @click="archiveTask" />
+            <UButton color="error" variant="ghost" size="sm" icon="i-ph-trash" label="Delete task" @click="deleteTask" />
+          </div>
+
+          <LayoutSaveBar v-if="can(Permission.writeTasks, selectedTask?.projectId)" :dirty="taskDirty" :saving="saving" :disabled="!editTask.title.trim()" @save="saveTask" @reset="fillEditTask(selectedTask)" />
+        </fieldset>
+
+        <DataReferences v-if="selectedTask" :id="selectedTask.id" type="task" :writable="can(Permission.writeTasks, selectedTask.projectId) && !selectedTask.archivedAt" />
+
+        <TasksDiscussion
+          v-if="selectedTask"
+          v-show="onPhoneTab('discussion')"
+            :can-create="can(Permission.writeTasks, selectedTask.projectId)"
+            :task-id="selectedTask.id"
+            :channel-id="selectedTask.discussionChannelId"
+            :server-id="serverId"
+            :members="members"
+          />
+
+        </div>
+      </template>
+    </USlideover>
+
+    <UModal v-model:open="showConfirm" :title="confirmTitle">
+      <template #footer>
+        <UButton color="neutral" variant="ghost" label="Cancel" @click="showConfirm = false" />
+        <UButton color="error" label="Confirm" :loading="saving" @click="confirmMutation" />
+      </template>
+    </UModal>
+    <TasksRecordingMarker
+      v-if="recordingFile && limits.data.value"
+      :key="recordingFile.name + recordingFile.size"
+      :file="recordingFile" :limits="limits.data.value.limits" :task-id="recordingTaskId"
+      @sent="recordingSent" @cancel="recordingFile = null"
+    />
+  </div>
+</template>

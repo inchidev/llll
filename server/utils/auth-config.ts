@@ -1,0 +1,267 @@
+import { eq } from 'drizzle-orm'
+import { authProviderCredentials, authSettings } from '../../drizzle/schema'
+import type { AuthCredentialProvider, AuthLoginMethod, AuthMode, AuthSettingsAdminDTO, PublicAuthConfig, RegistrationMode } from '../../shared/types'
+import { nowIso } from '../../shared/ids'
+import type { L4Env } from '../../workers/env'
+import { authEmailAvailable } from '../../workers/mail-transport'
+import { decryptAuthSecret } from './auth-secrets'
+import { getDb } from './db'
+import { authMode } from './cloudflare-access'
+import { readServerMailDomains } from './server-mail'
+import { MAIL_DEFAULT_LOCAL_PART, readServerSetting } from '../../shared/server-settings'
+
+export const AUTH_PROVIDERS = ['github', 'google', 'twitter', 'linkedin', 'turnstile'] as const satisfies readonly AuthCredentialProvider[]
+export const LOGIN_METHODS = ['password', 'github', 'google', 'twitter', 'linkedin'] as const satisfies readonly AuthLoginMethod[]
+export const DEV_AUTH_SECRET = 'llll-dev-secret-do-not-use-in-prod!!'
+
+type Credential = {
+  publicKey: string
+  secret: string
+  source: 'deployment' | 'database'
+  secretReadable: boolean
+}
+
+export type AuthRuntimeConfig = {
+  mode: AuthMode
+  registrationMode: RegistrationMode
+  enabled: Record<AuthLoginMethod | 'turnstile', boolean>
+  credentials: Partial<Record<AuthCredentialProvider, Credential>>
+  email: {
+    binding: boolean
+    from: string | null
+    fromName: string | null
+    senderManagedByDeployment: boolean
+    verificationReady: boolean
+  }
+}
+
+export function authSecret(env: L4Env, baseURL?: string): string {
+  const local = baseURL ? ['localhost', '127.0.0.1', '::1'].includes(new URL(baseURL).hostname) : false
+  const secret = (env.AUTH_SECRET || (local ? DEV_AUTH_SECRET : '')).trim()
+  if (!secret) throw new Error('AUTH_SECRET is required')
+  if (secret.length < 32) throw new Error('AUTH_SECRET must be at least 32 characters')
+  return secret
+}
+
+export function installedMailboxSender(env: L4Env): string | null {
+  const localPart = env.MAIL_DEFAULT_LOCAL_PART?.trim().toLowerCase()
+  let domain = ''
+  try { domain = JSON.parse(env.LLLL_EMAIL_DOMAINS || '[]')[0]?.domain?.trim().toLowerCase() || '' } catch { /* No configured domain. */ }
+  return localPart && domain ? `${localPart}@${domain}` : null
+}
+
+export async function installedMailboxSenderFromDb(env: L4Env): Promise<string | null> {
+  const localPart = (await readServerSetting(env.DB, MAIL_DEFAULT_LOCAL_PART) || env.MAIL_DEFAULT_LOCAL_PART || '').trim().toLowerCase()
+  const [domain] = await readServerMailDomains(env)
+  return localPart && domain ? `${localPart}@${domain.domain}` : null
+}
+
+function envCredential(env: L4Env, provider: AuthCredentialProvider): Credential | null {
+  const pairs: Record<AuthCredentialProvider, [string | undefined, string | undefined]> = {
+    github: [env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET],
+    google: [env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET],
+    twitter: [env.TWITTER_CLIENT_ID, env.TWITTER_CLIENT_SECRET],
+    linkedin: [env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET],
+    turnstile: [env.TURNSTILE_SITE_KEY, env.TURNSTILE_SECRET_KEY],
+  }
+  const pair = pairs[provider]
+  const publicKey = pair[0]?.trim()
+  const secret = pair[1]?.trim()
+  return publicKey && secret ? { publicKey, secret, source: 'deployment', secretReadable: true } : null
+}
+
+function registrationDefault(env: L4Env): RegistrationMode {
+  return env.AUTH_REGISTRATION_MODE?.trim() === 'open' ? 'open' : 'invite_only'
+}
+
+async function ensureSettings(env: L4Env) {
+  const db = getDb(env.DB)
+  const existing = (await db.select().from(authSettings).where(eq(authSettings.id, 1)).limit(1))[0]
+  if (existing) return existing
+  const created = nowIso()
+  await db.insert(authSettings).values({
+    id: 1,
+    registrationMode: registrationDefault(env),
+    passwordEnabled: true,
+    githubEnabled: Boolean(envCredential(env, 'github')),
+    linkedinEnabled: Boolean(envCredential(env, 'linkedin')),
+    googleEnabled: Boolean(envCredential(env, 'google')),
+    twitterEnabled: Boolean(envCredential(env, 'twitter')),
+    turnstileEnabled: Boolean(envCredential(env, 'turnstile')),
+    emailFrom: null,
+    emailFromName: null,
+    createdAt: created,
+    updatedAt: created,
+  }).onConflictDoNothing()
+  return (await db.select().from(authSettings).where(eq(authSettings.id, 1)).limit(1))[0]!
+}
+
+// Session checks run on every API request. Reading two settings rows from a
+// distant D1 primary each time dominated request latency, so session-only
+// callers reuse the resolved config briefly within an isolate. Sign-in, signup
+// and settings flows still read the rows fresh.
+const SESSION_CONFIG_TTL_MS = 30_000
+let sessionConfigCache: { key: string, expiresAt: number, value: AuthRuntimeConfig } | null = null
+
+export async function loadSessionAuthConfig(env: L4Env, baseURL?: string): Promise<AuthRuntimeConfig> {
+  const key = baseURL ?? ''
+  const now = Date.now()
+  if (sessionConfigCache && sessionConfigCache.key === key && sessionConfigCache.expiresAt > now) {
+    return sessionConfigCache.value
+  }
+  // The value, never its promise: a promise belongs to the request that made it. If that request ends
+  // first, the promise never settles on Workers, and every signed-in request awaiting it hangs.
+  const value = await loadAuthRuntimeConfig(env, baseURL)
+  sessionConfigCache = { key, expiresAt: now + SESSION_CONFIG_TTL_MS, value }
+  return value
+}
+
+export function forgetSessionAuthConfig() {
+  sessionConfigCache = null
+}
+
+export async function loadAuthRuntimeConfig(env: L4Env, baseURL?: string): Promise<AuthRuntimeConfig> {
+  const db = getDb(env.DB)
+  const [settings, stored] = await Promise.all([
+    ensureSettings(env),
+    db.select().from(authProviderCredentials),
+  ])
+  const credentials: Partial<Record<AuthCredentialProvider, Credential>> = {}
+  const secret = authSecret(env, baseURL)
+
+  await Promise.all(AUTH_PROVIDERS.map(async (provider) => {
+    const deployment = envCredential(env, provider)
+    if (deployment) {
+      credentials[provider] = deployment
+      return
+    }
+    const row = stored.find(item => item.provider === provider)
+    if (!row) return
+    try {
+      credentials[provider] = {
+        publicKey: row.publicKey,
+        secret: await decryptAuthSecret(secret, provider, {
+          ciphertext: row.secretCiphertext,
+          iv: row.secretIv,
+          version: row.secretVersion,
+        }),
+        source: 'database',
+        secretReadable: true,
+      }
+    }
+    catch {
+      credentials[provider] = {
+        publicKey: row.publicKey,
+        secret: '',
+        source: 'database',
+        secretReadable: false,
+      }
+    }
+  }))
+
+  const deploymentFrom = env.EMAIL_FROM?.trim() || null
+  const from = deploymentFrom ?? settings.emailFrom?.trim() ?? await installedMailboxSenderFromDb(env)
+  const fromName = env.EMAIL_FROM_NAME?.trim() || settings.emailFromName?.trim() || null
+  const enabled = {
+    password: settings.passwordEnabled,
+    github: settings.githubEnabled,
+    linkedin: settings.linkedinEnabled,
+    google: settings.googleEnabled,
+    twitter: settings.twitterEnabled,
+    turnstile: settings.turnstileEnabled,
+  }
+  const binding = authEmailAvailable(env)
+
+  return {
+    mode: authMode(env),
+    registrationMode: settings.registrationMode,
+    enabled,
+    credentials,
+    email: {
+      binding,
+      from,
+      fromName,
+      senderManagedByDeployment: Boolean(deploymentFrom),
+      verificationReady: binding && Boolean(from),
+    },
+  }
+}
+
+export function publicAuthConfig(config: AuthRuntimeConfig): PublicAuthConfig {
+  if (config.mode === 'access') {
+    return {
+      mode: 'access',
+      registrationMode: 'open',
+      signupEnabled: false,
+      emailSignupEnabled: false,
+      inviteSignupEnabled: false,
+      passwordResetEnabled: false,
+      methods: { password: false, github: false, google: false, twitter: false, linkedin: false },
+      turnstile: { enabled: false, siteKey: null },
+    }
+  }
+  const methods = {
+    password: config.enabled.password,
+    github: config.enabled.github && credentialReady(config, 'github'),
+    linkedin: config.enabled.linkedin && credentialReady(config, 'linkedin'),
+    google: config.enabled.google && credentialReady(config, 'google'),
+    twitter: config.enabled.twitter && credentialReady(config, 'twitter'),
+  }
+  const turnstileReady = config.enabled.turnstile && credentialReady(config, 'turnstile')
+  // A private invite is the admission credential: a username and password are enough,
+  // and no mail is ever needed. Without an invite, sign-up is open only where the Owner
+  // opened it, and it then needs working mail and Turnstile (the rule auth.patch enforces).
+  const inviteSignupEnabled = methods.password
+  const emailSignupEnabled = config.registrationMode === 'open' && methods.password && config.email.verificationReady && turnstileReady
+  return {
+    mode: 'builtin',
+    registrationMode: config.registrationMode,
+    signupEnabled: config.registrationMode === 'open' && (emailSignupEnabled || methods.github || methods.google || methods.twitter || methods.linkedin),
+    emailSignupEnabled,
+    inviteSignupEnabled,
+    passwordResetEnabled: methods.password && config.email.verificationReady,
+    methods,
+    turnstile: {
+      enabled: turnstileReady,
+      siteKey: turnstileReady ? config.credentials.turnstile!.publicKey : null,
+    },
+  }
+}
+
+export function credentialReady(config: AuthRuntimeConfig, provider: AuthCredentialProvider): boolean {
+  const credential = config.credentials[provider]
+  return Boolean(credential?.publicKey && credential.secret && credential.secretReadable)
+}
+
+export function authSettingsAdminDto(config: AuthRuntimeConfig): AuthSettingsAdminDTO {
+  const publicConfig = publicAuthConfig(config)
+  const providerDto = (provider: AuthCredentialProvider) => {
+    const credential = config.credentials[provider]
+    return {
+      provider,
+      enabled: config.enabled[provider],
+      configured: Boolean(credential),
+      effective: config.enabled[provider] && credentialReady(config, provider),
+      source: credential?.source ?? 'missing',
+      publicKey: credential?.publicKey ?? null,
+      secretReadable: credential?.secretReadable ?? true,
+    } as const
+  }
+  return {
+    ...publicConfig,
+    email: {
+      binding: config.email.binding,
+      sender: config.email.from,
+      senderName: config.email.fromName,
+      verificationReady: config.email.verificationReady,
+      senderManagedByDeployment: config.email.senderManagedByDeployment,
+    },
+    providers: {
+      github: providerDto('github'),
+      linkedin: providerDto('linkedin'),
+      google: providerDto('google'),
+      twitter: providerDto('twitter'),
+      turnstile: providerDto('turnstile'),
+    },
+  }
+}

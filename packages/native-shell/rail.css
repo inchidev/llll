@@ -1,0 +1,12 @@
+:root { color-scheme: dark; --edge-bottom: env(safe-area-inset-bottom, 0px); --top: env(safe-area-inset-top, 0px); }
+/* Runs the whole height of the screen, like a Client's own column borders. */
+body::after { content: ""; position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: 1px; background: #262626; pointer-events: none; }
+html, body { margin: 0; height: 100%; background: #000; color: #a3a3a3; overscroll-behavior: none; -webkit-user-select: none; user-select: none; font-family: -apple-system, system-ui, sans-serif; }
+nav { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 12px; height: 100%; overflow-y: auto; padding: var(--top) 0 calc(var(--edge-bottom) + 8px); scrollbar-width: none; }
+nav::-webkit-scrollbar { display: none; }
+ul { display: contents; list-style: none; }
+button { display: flex; align-items: center; justify-content: center; flex: none; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 16px; background: none; color: inherit; font: inherit; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+#list { color: #fafafa; }
+.server { background: #171717; color: #fafafa; font-size: 15px; font-weight: 600; outline: 2px solid transparent; outline-offset: 2px; }
+.server[aria-current="page"] { outline-color: #fafafa; }
+.server img { width: 100%; height: 100%; object-fit: cover; }
