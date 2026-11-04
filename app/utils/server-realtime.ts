@@ -137,7 +137,8 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
   }
   if (event.t === 'tasks.changed') {
     void cache.invalidateQueries({ queryKey: ['boards'] })
-    if (event.taskId) void cache.invalidateQueries({ queryKey: ['task', event.taskId] })
+    // A child edit also changes its parent's progress and its siblings' navigation.
+    void cache.invalidateQueries({ queryKey: ['task'] })
     return
   }
   if (event.t === 'live.changed') {

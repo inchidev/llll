@@ -160,3 +160,11 @@ it('creates a subtask in the saved parent’s board and Project and opens it', a
   expect(api).toHaveBeenCalledWith('/api/boards/board/tasks', expect.objectContaining({ body: expect.objectContaining({ parentTaskId: 'task', projectId: null, title: 'Child work' }) }))
   expect(navigateTo).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ task: 'created-task' }) }))
 })
+
+it('preserves unsaved parent edits when live subtask progress refreshes the detail', async () => {
+  await render()
+  await view.get('fieldset input').setValue('An unsaved parent title')
+  client.setQueryData(['task', '1001'], { task: { ...task, subtaskTotal: 2, subtaskCompleted: 1 } })
+  await flushPromises()
+  expect((view.get('fieldset input').element as HTMLInputElement).value).toBe('An unsaved parent title')
+})

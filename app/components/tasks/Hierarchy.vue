@@ -47,7 +47,7 @@ async function setParent(taskId: string, parentTaskId: string | null) {
     </div>
     <div v-if="writable && parentChoices.length" class="flex flex-wrap items-end gap-2">
       <UFormField :label="task.parent ? 'Change parent' : 'Parent task'" class="min-w-0 flex-1">
-        <USelectMenu v-model="parentChoice" :items="parentChoices" value-key="value" placeholder="Choose a task" :disabled="disabled" class="w-full" />
+        <USelectMenu v-model="parentChoice" aria-label="Choose parent task" :items="parentChoices" value-key="value" placeholder="Choose a task" :disabled="disabled" class="w-full" />
       </UFormField>
       <UButton label="Set parent" size="sm" color="neutral" variant="outline" :disabled="disabled || !parentChoice" @click="setParent(task.id, parentChoice ?? null)" />
     </div>
@@ -69,7 +69,7 @@ async function setParent(taskId: string, parentTaskId: string | null) {
       <p v-else class="text-xs text-muted">Break this task into work with its own assignee, status and due date.</p>
       <div v-if="writable && childChoices.length" class="flex flex-wrap items-end gap-2">
         <UFormField label="Link existing task" class="min-w-0 flex-1">
-          <USelectMenu v-model="childChoice" :items="childChoices" value-key="value" placeholder="Choose a task" :disabled="disabled" class="w-full" />
+          <USelectMenu v-model="childChoice" aria-label="Choose existing subtask" :items="childChoices" value-key="value" placeholder="Choose a task" :disabled="disabled" class="w-full" />
         </UFormField>
         <UButton label="Link subtask" size="sm" color="neutral" variant="outline" :disabled="disabled || !childChoice" @click="setParent(childChoice!, task.id)" />
       </div>

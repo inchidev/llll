@@ -241,15 +241,17 @@ describe('server unread cache events', () => {
     expect(cache.getQueryState(['dms'])?.isInvalidated).toBe(true)
   })
 
-  it('invalidates task boards and the changed task detail', () => {
+  it('invalidates task boards and related task details for live subtask progress', () => {
     const cache = new QueryClient()
     cache.setQueryData(['boards', 'main', false], { boards: [] })
     cache.setQueryData(['task', 'task-1'], { task: { id: 'task-1' } })
+    cache.setQueryData(['task', 'parent'], { task: { id: 'parent', subtaskTotal: 1 } })
 
     applyServerRealtimeEvent(cache, { t: 'tasks.changed', boardId: 'board-1', taskId: 'task-1' })
 
     expect(cache.getQueryState(['boards', 'main', false])?.isInvalidated).toBe(true)
     expect(cache.getQueryState(['task', 'task-1'])?.isInvalidated).toBe(true)
+    expect(cache.getQueryState(['task', 'parent'])?.isInvalidated).toBe(true)
   })
 
   it('invalidates the member directory when server membership changes', () => {
