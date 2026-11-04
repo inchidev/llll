@@ -26,7 +26,7 @@ Each Server serves its own web interface, the **Client**, at its own address. Yo
 
 If you use several Servers, each Client can keep a list of the others in your browser. An entry is only an address. It holds no Account, no login and no membership. The official site at [llll.gg](https://llll.gg) hosts these docs and the `/create` installer.
 
-See [Servers](../concepts/server-and-shell.md) for details.
+See [Servers](../concepts/servers.md) for details.
 
 ## Agents
 
