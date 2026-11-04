@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
-  const node = await requireCanvasNode(env, id)
+  const node = await requireCanvasNode(env, id, actor.authorization, true)
   if (node.version !== body.version) fail(409, 'stale_canvas_item', 'This canvas item changed elsewhere. Reload and try again.')
   const assignments = ['updated_at = ?', 'version = version + 1']
   const values: Array<string | number> = [nowIso()]

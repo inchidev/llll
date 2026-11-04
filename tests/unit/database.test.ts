@@ -33,9 +33,9 @@ describe('fresh server Data schema', () => {
 
     db.exec("INSERT INTO database_definitions (id, name, created_by) VALUES ('db-1', 'Leads', 'user-1')")
     db.exec("INSERT INTO database_fields (id, database_id, name, type, slot, created_by) VALUES ('field-1', 'db-1', 'Company', 'text', 'text_1', 'user-1')")
-    db.exec("INSERT INTO database_items (id, database_id, title, created_by, text_1, number_1, boolean_1) VALUES ('item-1', 'db-1', 'Acme', 'user-1', 'Acme Inc', 42.5, 1)")
+    db.exec("INSERT INTO data_items (id, database_id, title, created_by, text_1, number_1, boolean_1) VALUES ('item-1', 'db-1', 'Acme', 'user-1', 'Acme Inc', 42.5, 1)")
 
-    expect(db.prepare('SELECT text_1, number_1, boolean_1 FROM database_items WHERE id = ?').get('item-1')).toEqual({ text_1: 'Acme Inc', number_1: 42.5, boolean_1: 1 })
+    expect(db.prepare('SELECT text_1, number_1, boolean_1 FROM data_items WHERE id = ?').get('item-1')).toEqual({ text_1: 'Acme Inc', number_1: 42.5, boolean_1: 1 })
     const page = await loadDatabasePage({ DB: d1(db) } as never, 'db-1', { page: 1, pageSize: 100 })
     expect(page.database.fields).toMatchObject([{ id: 'field-1', name: 'Company' }])
     expect(page.items).toMatchObject([{ id: 'item-1', values: { 'field-1': 'Acme Inc' } }])

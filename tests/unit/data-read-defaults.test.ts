@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createError } from 'h3'
 import { d1 } from '../helpers/sqlite-d1'
 import { INIT_SQL } from '../../server/utils/db'
-import { createDocument } from '../../server/utils/document-service'
+import { createItem } from '../../server/utils/item-service'
 import { readRecords } from '../../server/utils/record-service'
 import { loadDatabasePage } from '../../server/utils/database-views'
 import { defaultDatabaseViewConfig } from '../../shared/database'
@@ -20,17 +20,15 @@ beforeEach(() => {
     INSERT INTO server_identity(singleton,id) VALUES(1,'${auth.serverId}'); INSERT INTO server(id,name,owner_id) VALUES('${auth.serverId}','Fixture','owner');
     INSERT INTO database_definitions(id,name,created_by) VALUES('table','Table','owner');
     INSERT INTO database_fields(id,database_id,name,type,slot,config_json,created_by) VALUES('done','table','Done','boolean','boolean_1','{}','owner');
-    INSERT INTO database_items(id,database_id,title,boolean_1,created_by) VALUES('unset','table','A Unset',NULL,'owner'),('false','table','B False',0,'owner'),('true','table','C True',1,'owner');`)
+    INSERT INTO data_items(id,database_id,title,boolean_1,created_by) VALUES('unset','table','A Unset',NULL,'owner'),('false','table','B False',0,'owner'),('true','table','C True',1,'owner');`)
   env = { DB: d1(db) } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
-it('creates multiple untitled documents atomically, including concurrent requests and explicit name collisions', async () => {
-  await createDocument(env, auth, { title: 'Untitled 2' })
-  const docs = await Promise.all(Array.from({ length: 5 }, () => createDocument(env, auth, {})))
-  expect(new Set(docs.map(d => d.title)).size).toBe(5)
-  expect(docs.map(d => d.title).sort()).toEqual(['Untitled', 'Untitled 3', 'Untitled 4', 'Untitled 5', 'Untitled 6'])
-  await expect(createDocument(env, auth, { title: 'untitled' })).rejects.toMatchObject({ statusCode: 409 })
-  expect(db.prepare('SELECT count(*) AS count FROM documents').get()).toMatchObject({ count: 6 })
+it('allows same-title pages with independent identity, including concurrent creates', async () => {
+  const pages = await Promise.all(Array.from({length:5},()=>createItem(env,auth,{})))
+  expect(new Set(pages.map(page=>page.id)).size).toBe(5)
+  expect(pages.every(page=>page.title==='Untitled')).toBe(true)
+  expect((await createItem(env,auth,{title:'Untitled'})).title).toBe('Untitled')
 })
 async function filtered(operator: 'equals'|'not_equals', value: boolean) {
   const config = { ...defaultDatabaseViewConfig(), filters: [{ fieldId: 'done', operator, value }], sorts: [{ fieldId: 'title', direction: 'asc' }] }

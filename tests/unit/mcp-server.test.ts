@@ -119,17 +119,18 @@ describe('L4 MCP server', () => {
       'list_data_trash',
       'trash_data',
       'restore_data',
-      'list_document_revisions',
-      'restore_document_revision',
+      'list_item_revisions',
+      'restore_item_revision',
       'list_task_boards',
       'list_tasks',
       'get_task',
       'create_task',
       'update_task',
-      'list_documents',
-      'get_document',
-      'create_document',
-      'update_document',
+      'list_items',
+      'move_item',
+      'get_item',
+      'create_item',
+      'update_item',
       'list_channels',
       'list_members',
       'list_roles',
@@ -154,9 +155,9 @@ describe('L4 MCP server', () => {
     resumePausedTools()
     const handler = createHandler()
     const request = (name: string, args: Record<string, unknown>) => call(handler, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } })
-    const created = await request('create_document', { title: 'Large MCP document', content: 'a'.repeat(150_000) })
+    const created = await request('create_item', { title: 'Large MCP document', content: 'a'.repeat(150_000) })
     expect(created.payload.result.isError).not.toBe(true)
-    const updated = await request('update_document', { documentId: 'missing', version: 1, content: 'changed' })
+    const updated = await request('update_item', { itemId: 'missing', version: 1, content: 'changed' })
     expect(updated.payload.result.isError).toBe(true)
     expect(JSON.parse(updated.payload.result.content![0]!.text)).toMatchObject({ error: { code: 'not_found' } })
   })
@@ -227,22 +228,22 @@ describe('L4 MCP server', () => {
       id: 2,
       method: 'tools/call',
       params: {
-        name: 'create_document',
+        name: 'create_item',
         arguments: { title: 'Web', content: '<p>Import Slack, Mattermost, and Discord.</p>' },
       },
     })
 
     expect(response.status).toBe(200)
     expect(payload.result.isError).not.toBe(true)
-    expect(sqlite.prepare('SELECT title, content, created_by as createdBy FROM documents').get()).toEqual({
+    expect(sqlite.prepare('SELECT title, content, created_by as createdBy FROM data_items').get()).toEqual({
       title: 'Web',
       content: '<p>Import Slack, Mattermost, and Discord.</p>',
       createdBy: 'agent',
     })
     const audit = sqlite.prepare('SELECT action, target_type as targetType, actor_id as actorId, meta_json as metaJson FROM audit_log').get() as { action: string; targetType: string; actorId: string; metaJson: string }
     expect(audit).toMatchObject({
-      action: 'document.create',
-      targetType: 'document',
+      action: 'item.create',
+      targetType: 'item',
       actorId: 'agent',
     })
     expect(JSON.parse(audit.metaJson)).toMatchObject({ delegatedBy: 'owner', credentialKind: 'mcp' })

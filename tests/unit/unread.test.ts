@@ -18,6 +18,7 @@ function unreadCount(userId: string, channelId: string): number {
 beforeEach(() => {
   db = new DatabaseSync(':memory:')
   db.exec(`
+    CREATE TABLE channel_attention (channel_id TEXT, user_id TEXT, following INTEGER DEFAULT 0, PRIMARY KEY(channel_id,user_id));
     CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT);
     CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, deleted_at TEXT);
     CREATE TABLE channel_reads (
@@ -41,6 +42,7 @@ describe('channel unread aggregation', () => {
       INSERT INTO channel_reads VALUES
         ('dm-1', 'user-1', '01990000-0000-7000-8000-000000000001'),
         ('thread-1', 'user-1', '01990000-0000-7000-8000-000000000001');
+      INSERT INTO channel_attention VALUES ('thread-1','user-1',1);
     `)
 
     expect(hasUnread('user-1', 'dm-1')).toBe(true)
@@ -63,6 +65,7 @@ describe('channel unread aggregation', () => {
       INSERT INTO channel_reads VALUES
         ('channel-1', 'user-1', '01990000-0000-7000-8000-000000000001'),
         ('thread-1', 'user-1', '01990000-0000-7000-8000-000000000001');
+      INSERT INTO channel_attention VALUES ('thread-1','user-1',1);
     `)
 
     expect(unreadCount('user-1', 'channel-1')).toBe(2)
@@ -101,7 +104,7 @@ describe('channel unread aggregation', () => {
       expect(db.prepare(channelUnreadCountsSql(1)).get('user-1', 'root')).toEqual({ channel_id: 'root', unread_count: count })
     }
     check(0) // Never-opened replies do not keep the parent unread forever.
-    db.exec("INSERT INTO channel_reads VALUES ('thread', 'user-1', 'm1')")
+    db.exec("INSERT INTO channel_reads VALUES ('thread', 'user-1', 'm1'); INSERT INTO channel_attention VALUES ('thread','user-1',1)")
     check(2)
     db.exec("UPDATE messages SET deleted_at = '2026-10-24' WHERE id = 'm3'")
     check(1)
@@ -143,7 +146,8 @@ describe('recent threads for the navigation', () => {
   beforeEach(() => {
     tdb = new DatabaseSync(':memory:')
     tdb.exec(`
-      CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
+      CREATE TABLE channel_attention (channel_id TEXT, user_id TEXT, following INTEGER DEFAULT 0, PRIMARY KEY(channel_id,user_id));
+    CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
       CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT);
       CREATE TABLE channel_reads (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read_message_id TEXT, PRIMARY KEY (channel_id, user_id));
       INSERT INTO channels(id,type,parent_id,name) VALUES
@@ -161,6 +165,7 @@ describe('recent threads for the navigation', () => {
       INSERT INTO channel_reads VALUES
         ('stale', 'user-1', 'm2'),
         ('stale-unread', 'user-1', 'm3');
+      INSERT INTO channel_attention VALUES ('stale','user-1',1),('stale-unread','user-1',1);
     `)
   })
 
@@ -195,7 +200,8 @@ describe('bounded unread counts', () => {
   beforeEach(() => {
     bdb = new DatabaseSync(':memory:')
     bdb.exec(`
-      CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
+      CREATE TABLE channel_attention (channel_id TEXT, user_id TEXT, following INTEGER DEFAULT 0, PRIMARY KEY(channel_id,user_id));
+    CREATE TABLE channels (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z');
       CREATE TABLE messages (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z', deleted_at TEXT);
       CREATE TABLE channel_reads (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read_message_id TEXT, PRIMARY KEY (channel_id, user_id));
       CREATE INDEX messages_channel_created_idx ON messages (channel_id, created_at, id);

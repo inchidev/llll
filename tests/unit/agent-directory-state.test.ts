@@ -2,11 +2,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
+import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
 
-const state = vi.hoisted(() => ({ target: 'removed-agent', body: { status: 'active' }, query: {} as Record<string, unknown> }))
-vi.mock('../../server/utils/guards', () => ({ requireMember: async () => ({ isOwner: true, ownerId: 'owner', perms: ALL_PERMISSIONS, user: { id: 'owner' }, authorization: { serverId: '00000000-0000-4000-8000-000000000001', principal: { id: 'owner', kind: 'human', roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true }, credential: { kind: 'session' } } }) }))
+const state = vi.hoisted(() => ({ target: 'removed-agent', body: { status: 'active' }, query: {} as Record<string, unknown>, member: null as unknown }))
+vi.mock('../../server/utils/guards', () => ({ requireMember: async () => state.member ?? ({ isOwner: true, ownerId: 'owner', perms: ALL_PERMISSIONS, user: { id: 'owner' }, authorization: { serverId: '00000000-0000-4000-8000-000000000001', principal: { id: 'owner', kind: 'human', roleId: 'owner-role', roleName: 'Owner', permissions: ALL_PERMISSIONS, isOwner: true }, credential: { kind: 'session' } } }) }))
 let db: DatabaseSync, env: L4Env
 const serverId = '00000000-0000-4000-8000-000000000001'
 const getFile = vi.fn(), putFile = vi.fn(), deleteFile = vi.fn()
@@ -20,7 +20,7 @@ beforeAll(() => {
 })
 afterAll(() => vi.unstubAllGlobals())
 beforeEach(() => {
-  state.target = 'removed-agent'; state.query = {}; state.body = { status: 'active' }
+  state.target = 'removed-agent'; state.query = {}; state.body = { status: 'active' }; state.member = null
   vi.clearAllMocks()
   db = new DatabaseSync(':memory:'); db.exec(INIT_SQL)
   db.exec(`INSERT INTO server_identity(singleton,id) VALUES(1,'${serverId}');
@@ -56,9 +56,21 @@ it('publishes only agent status, without management instructions, in member prof
   expect(members.find(m => m.user.id === 'owner')).not.toHaveProperty('agentStatus')
   expect(JSON.stringify(members)).not.toContain('private agent prompt')
 })
-it('rejects reactivation after the real membership-removal handler runs', async () => {
+it('refuses to remove an Agent through the Member route, which skips its check and cleanup', async () => {
   state.target = 'active-agent'
-  await (await import('../../server/api/servers/[id]/members/[userId].delete')).default(event() as never)
+  await expect((await import('../../server/api/servers/[id]/members/[userId].delete')).default(event() as never)).rejects.toMatchObject({ statusCode: 409 })
+  expect(db.prepare("SELECT status FROM users WHERE id='active-agent'").get()).toEqual({ status: 'active' })
+})
+it('shows task agents only to someone who may use Agents, as the Member directory does', async () => {
+  const limited = { isOwner: false, ownerId: 'owner', perms: Permission.readTasks, user: { id: 'reader' }, authorization: { serverId, principal: { id: 'reader', kind: 'human', roleId: 'r', roleName: 'Reader', permissions: Permission.readTasks, isOwner: false }, credential: { kind: 'session' } } }
+  state.member = limited
+  expect(await taskAgents()).toEqual({ agents: [] })
+  state.member = { ...limited, perms: Permission.readTasks | Permission.useAgents, authorization: { ...limited.authorization, principal: { ...limited.authorization.principal, permissions: Permission.readTasks | Permission.useAgents } } }
+  expect((await taskAgents()).agents.map(a => a.id)).toEqual(['active-agent', 'paused-agent'])
+})
+it('rejects reactivation after the real Agent delete handler runs', async () => {
+  state.target = 'active-agent'
+  await (await import('../../server/api/servers/[id]/agents/[agentId].delete')).default(event() as never)
   expect((await listAgents()).agents.map(a => a.id)).not.toContain(state.target)
   expect((await taskAgents()).agents.map(a => a.id)).not.toContain(state.target)
   await expect((await import('../../server/api/servers/[id]/agents/[agentId].patch')).default(event() as never)).rejects.toMatchObject({ statusCode: 404 })

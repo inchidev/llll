@@ -793,6 +793,88 @@ UNIT
   esac
 }
 
+# Diagnostic commands are bounded, use only the local daemon and never print
+# Compose config, container environments, response bodies or raw error output.
+doctor_docker() { timeout 15 docker --host unix:///var/run/docker.sock "$@"; }
+doctor_compose() {
+  timeout 15 env -i PATH="$PATH" docker --host unix:///var/run/docker.sock compose --project-name "$project" --project-directory "$dir" --env-file "$dir/.env" -f "$dir/llll-compose.yml" -f "$dir/compose.vps.yml" "$@"
+}
+doctor_ok() { printf 'OK   %s\n' "$*"; }
+doctor_fail() { printf 'FAIL %s\n' "$*"; doctor_failed=1; }
+doctor_server() {
+  local doctor_failed=0 tool key value config_ok=true daemon_ok=true service origins origin code server_id rows
+  for tool in docker jq curl timeout; do
+    if ! type -P "$tool" >/dev/null; then doctor_fail "Missing prerequisite: $tool"; fi
+  done
+  [[ $doctor_failed == 0 ]] || return 1
+  if ! (load_installation) >/dev/null 2>&1; then
+    doctor_fail 'Managed installation is missing or invalid. Check LLLL_DIR, .env and .llll-managed.'
+    return 1
+  fi
+  load_installation
+  for key in AUTH_SECRET SETUP_TOKEN RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY SERVER_ID PUBLIC_ORIGIN LLLL_IMAGE; do
+    if ! value=$(get_env "$key") || [[ -z $value ]]; then doctor_fail "Missing or duplicate setting: $key"; config_ok=false; fi
+  done
+  server_id=$(get_env SERVER_ID 2>/dev/null) || server_id=''
+  if [[ ! $server_id =~ ^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$ ]]; then
+    doctor_fail 'SERVER_ID must be the saved Server UUIDv4.'; config_ok=false
+  fi
+  if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    doctor_fail 'LLLL_VERSION is invalid.'; config_ok=false
+  fi
+  for key in AUTH_SECRET SETUP_TOKEN; do
+    value=$(get_env "$key" 2>/dev/null) || value=''
+    if [[ ${#value} -lt 32 ]]; then doctor_fail "$key must have at least 32 characters."; config_ok=false; fi
+  done
+  if ! doctor_compose config --quiet >/dev/null 2>&1; then
+    doctor_fail 'Compose configuration is invalid. Check the private .env and Compose files.'; config_ok=false
+  elif [[ $config_ok == true ]]; then doctor_ok 'Managed configuration (secret values hidden)'; fi
+  if ! doctor_docker version >/dev/null 2>&1; then
+    doctor_fail 'Local Docker daemon is unavailable. Check the Docker service.'; daemon_ok=false
+  else doctor_ok 'Local Docker daemon'; fi
+  if [[ $config_ok == true && $daemon_ok == true ]]; then
+    if rows=$(doctor_compose ps --all --format json 2>/dev/null) &&
+      printf '%s' "$rows" | jq -es 'if length == 1 and (.[0] | type) == "array" then .[0] else . end' > "$stage/doctor-containers.json" 2>/dev/null; then
+      for service in rustfs llll gateway; do
+        if jq -e --arg service "$service" 'any(.[]; .Service == $service and .State == "running" and (if $service == "gateway" then ((.Health // "") == "" or .Health == "healthy") else .Health == "healthy" end))' "$stage/doctor-containers.json" >/dev/null 2>&1; then
+          doctor_ok "$service container"
+        else doctor_fail "$service is missing, stopped or unhealthy. Inspect with llll logs."; fi
+      done
+    else doctor_fail 'Cannot read container status.'; fi
+    if doctor_compose exec -T llll /usr/local/bin/llll-healthcheck >/dev/null 2>&1; then
+      doctor_ok 'Server database and migrations (an unclaimed Owner is allowed)'
+    else doctor_fail 'Server readiness failed. Check migrations and RustFS with llll logs.'; fi
+  fi
+  if [[ $config_ok == true ]]; then
+    if origins=$(domain_origins 2>/dev/null); then
+      while IFS= read -r origin; do
+        # Reject userinfo, paths and shell/control characters before showing an address.
+        if [[ ! $origin =~ ^https?://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]+)?$ ]]; then
+          doctor_fail 'Invalid public origin. Use llll domain to manage addresses.'; continue
+        fi
+        code=0
+        curl --silent --fail --proto '=http,https' --connect-timeout 3 --max-time 8 --max-filesize 1048576 "$origin/.well-known/llll" -o "$stage/doctor-discovery.json" 2>/dev/null || code=$?
+        if [[ $code != 0 ]]; then
+          case "$code" in
+            6) doctor_fail "$origin: DNS lookup failed." ;;
+            7) doctor_fail "$origin: connection refused or unreachable. Check ports and the firewall." ;;
+            28) doctor_fail "$origin: request timed out. Check DNS, routing and the gateway." ;;
+            35|51|60) doctor_fail "$origin: TLS verification failed. Check the domain and Caddy certificates." ;;
+            *) doctor_fail "$origin: discovery request failed. Check the gateway and Server logs." ;;
+          esac
+        elif jq -e --arg id "$server_id" --arg version "$version" --arg origin "$origin" '.product == "llll" and .kind == "server" and .id == $id and .version == $version and (.origin == $origin or ((.aliases // []) | index($origin)) != null)' "$stage/doctor-discovery.json" >/dev/null 2>&1; then
+          doctor_ok "$origin: discovery, UUID and installed version"
+          if [[ $origin == https://* ]]; then doctor_ok "$origin: DNS/connection and TLS verified from this host"
+          else printf 'WARN %s: HTTP only; TLS was not checked.\n' "$origin"; fi
+        else doctor_fail "$origin: discovery does not match this Server UUID, version or address."; fi
+      done <<< "$origins"
+    else doctor_fail 'Cannot read public addresses from .env.'; fi
+  fi
+  if [[ $doctor_failed == 0 ]]; then say 'Doctor passed. External reachability and off-host recovery still need operator verification.'
+  else say 'Doctor found problems. No services or configuration were changed.'; fi
+  return "$doctor_failed"
+}
+
 main() {
   set -Eeuo pipefail
   umask 077
@@ -816,6 +898,7 @@ main() {
   else shift; fi
   case "$command" in
     install) install_server ;;
+    doctor) [[ $# == 0 ]] || fail 'Usage: llll doctor'; doctor_server ;;
     apply-upgrade) apply_upgrade ;;
     restore) [[ $# == 1 ]] || fail 'Usage: LLLL_DIR=/opt/llll llll restore <backup>'; restore_server "$1" ;;
     *)
@@ -832,7 +915,7 @@ main() {
         domain) domain_command "$@" ;;
         compute|factory) factory_command "$@" ;;
         uninstall) uninstall_server "$@" ;;
-        *) fail 'Usage: llll status|logs|start|stop|backup|restore <file>|upgrade [version]|domain list|add <hostname>|remove <hostname>|primary <hostname>|uninstall [--purge] [--yes] [--no-backup]' ;;
+        *) fail 'Usage: llll doctor|status|logs|start|stop|backup|restore <file>|upgrade [version]|domain list|add <hostname>|remove <hostname>|primary <hostname>|uninstall [--purge] [--yes] [--no-backup]' ;;
       esac
       ;;
   esac

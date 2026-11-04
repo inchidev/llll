@@ -90,3 +90,20 @@ The Inbox badge in the rail counts only approvals and mentions, so ongoing work 
 - [Notifications](notifications.md)
 - [Calls and Live](calls.md)
 - [Accounts, Members and Roles](../concepts/accounts-members-roles.md)
+
+## Following threads and message notifications
+
+Opening a Thread marks the replies you see as read. Choose **Follow** in its header to subscribe to future replies. **Inbox → My threads** lists the Threads you follow in the active Space, with unread replies first. Choose **Following** to stop following. Existing followed discussions are preserved when the Server updates.
+
+The bell in a conversation's header controls message alerts for your Account:
+
+- **Default:** mentions and followed Threads; Direct Messages also alert for messages and replies.
+- **All messages:** messages in the main conversation, mentions and followed Threads.
+- **Mentions only:** messages that mention you.
+- **Off:** no message alerts. Unread messages remain visible in Chat and Inbox.
+
+Thread replies inherit the parent conversation's notification setting. Reading, following and notification settings are separate; these settings grant no access to a conversation.
+
+Choose **Mark unread from here** on a message to leave it and later messages for another visit. For a Thread, this also follows it. The action returns you to Inbox; an older open tab cannot immediately mark those messages read again. Reopen the conversation to resume reading.
+
+In **Inbox → Unread chats**, the eye button previews up to five latest unread messages without marking them read. Followed Thread replies are included. Open a preview to jump to the message, or use **Mark as read** to clear a conversation and its followed Threads.

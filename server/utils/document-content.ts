@@ -1,6 +1,5 @@
 import sanitizeHtml from 'sanitize-html'
 import { marked } from 'marked'
-import TurndownService from 'turndown'
 import { DOCUMENT_CONTENT_MAX } from '../../shared/documents'
 import { fail } from './cf'
 
@@ -22,6 +21,8 @@ export function documentInputHtml(content: string, format: 'html' | 'markdown' =
   return sanitizeDocumentHtml(format === 'markdown' ? marked.parse(content, { async: false }) : content)
 }
 
-export function documentMarkdown(content: string): string {
+/** Only export uses Turndown and its DOM, so a Worker starting for anything else does not load them. */
+export async function documentMarkdown(content: string): Promise<string> {
+  const { default: TurndownService } = await import('turndown')
   return new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }).turndown(sanitizeDocumentHtml(content))
 }

@@ -71,7 +71,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const factory: FactoryRelease = JSON.parse(new TextDecoder().decode(factoryBytes))
   if (factory.schemaVersion !== 1 || factory.version !== server.version || !/^sha256:[a-f0-9]{64}$/u.test(factory.manifestDigest)) throw new Error('Factory release identity mismatch')
   const base = new URL('.', descriptor.url).toString()
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const before = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
   const existing = before.bindings ?? []
   const boundPolicy = existing.find(binding => binding.name === 'FACTORY_POLICY')

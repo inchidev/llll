@@ -3,8 +3,8 @@ import { authorize, authorizeResource, ServerAction, type AuthorizationContext }
 import { DataReferenceTypes, type DataReferenceType, type DataSearchHit, type DataReferences } from '../../shared/data-search'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
-import { requireDatabase, requireDatabaseItem } from './database-data'
-import { requireDocument, requireCanvas } from './data-resources'
+import { requireDatabase } from './database-data'
+import { requireItem } from './item-access'
 import { getTask } from './task-service'
 import { requireTaskPermission } from './task-policy'
 import { fail } from './cf'
@@ -15,7 +15,7 @@ export const dataReferenceSchema = z.object({ type: z.enum(DataReferenceTypes), 
 export const dataReferenceWriteSchema = z.object({ source: dataReferenceSchema, target: dataReferenceSchema, remove: z.boolean().default(false) })
 
 const spaceOfReference = (env: L4Env, type: DataReferenceType, id: string) =>
-  spaceOfResource(env, type === 'record' ? 'item' : type, id)
+  spaceOfResource(env, type, id)
 
 /** Resolve every title under today's permissions; stored references never grant access. */
 export async function resolveDataReference(env: L4Env, auth: AuthorizationContext, type: DataReferenceType, id: string, write = false): Promise<DataSearchHit> {
@@ -28,18 +28,14 @@ export async function resolveDataReference(env: L4Env, auth: AuthorizationContex
     }
     return { type, id: task.id, title: task.title, resourceId: task.boardId }
   }
-  if (type === 'record' || type === 'database') {
-    authorize(auth, write ? type === 'database' ? ServerAction.manageData : ServerAction.writeRecords : ServerAction.readRecords)
-    const item = type === 'record' ? await requireDatabaseItem(env, id, auth) : null
-    const resourceId = item?.databaseId ?? id
-    authorizeResource(auth, 'databases', resourceId)
-    const database = await requireDatabase(env, resourceId, write, auth)
-    return { type, id, title: item?.title ?? database.name, resourceId }
+  if (type === 'database') {
+    authorize(auth, write ? ServerAction.manageData : ServerAction.readRecords)
+    authorizeResource(auth, 'databases', id)
+    const database = await requireDatabase(env, id, write, auth)
+    return { type, id, title: database.name, resourceId: id }
   }
-  authorize(auth, write ? ServerAction.writeDocuments : ServerAction.readDocuments)
-  authorizeResource(auth, type === 'document' ? 'documents' : 'canvases', id)
-  const item = type === 'document' ? await requireDocument(env, id, auth) : await requireCanvas(env, id, auth)
-  return { type, id, title: item.title, resourceId: id }
+  const item = await requireItem(env, auth, id, write)
+  return { type: 'item', id, title: item.title, resourceId: item.databaseId ?? id }
 }
 
 export async function visibleDataReference(env: L4Env, auth: AuthorizationContext, type: DataReferenceType, id: string) {
@@ -60,7 +56,7 @@ export async function listDataReferences(env: L4Env, auth: AuthorizationContext,
     const to = direction === 'outgoing' ? 'target' : 'source'
     // Page through metadata so inaccessible backlinks cannot hide accessible ones.
     for (let offset = 0; result[direction].length < 100; offset += 100) {
-      const rows = (await env.DB.prepare(`SELECT ${to}_type AS type, ${to}_id AS id FROM data_references WHERE ${from}_type=? AND ${from}_id=? ORDER BY created_at,${to}_type,${to}_id LIMIT 100 OFFSET ?`).bind(type, source.id, offset).all<{ type: DataReferenceType; id: string }>()).results
+      const rows = (await env.DB.prepare(`SELECT ${to}_type AS type, ${to}_id AS id FROM data_references WHERE ${from}_type=? AND ${from}_id=? ORDER BY created_at,${to}_type,${to}_id LIMIT 100 OFFSET ?`).bind(source.type, source.id, offset).all<{ type: DataReferenceType; id: string }>()).results
       for (const row of rows) {
         const hit = await visibleDataReference(env, auth, row.type, row.id)
         // A link never crosses a Space, even for someone in both.

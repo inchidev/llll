@@ -46,6 +46,7 @@ Rerunning the same installer restarts/verifies its managed Server without changi
 
 ```sh
 sudo llll status
+sudo llll doctor
 sudo llll logs
 sudo llll stop
 sudo llll start
@@ -57,6 +58,10 @@ sudo llll domain add chat.example.com
 sudo llll domain primary chat.example.com
 sudo llll domain remove old.example.com
 ```
+
+`llll doctor` checks the saved configuration without printing secret values, the local Docker daemon, RustFS/Server/gateway status, database and migration readiness, and discovery at every configured address. Discovery must match the saved UUID and installed version. HTTPS requests verify the certificate; DNS, connection, timeout and TLS failures have separate messages. An unclaimed Server is healthy when its database is usable. Exit status is 0 when all checks pass and 1 on a failed check. Commands and network requests have timeouts. Doctor never repairs configuration, starts containers, installs packages or takes a backup; only its temporary diagnostic files are created and removed. Run it with sudo, and use the same `LLLL_DIR` as installation. A successful request from the VPS does not prove access from another network or backup recoverability.
+
+The Server container runs as UID/GID 10001 with a read-only root filesystem, all Linux capabilities dropped and privilege escalation disabled. Only its celld volume and a bounded 256 MiB `/tmp` are writable; generated configuration lives in `/tmp/llll`, with application and migration paths referring to the read-only image. A short-lived, network-disabled permissions service prepares the existing celld volume before startup, including volumes from older root-running releases and restored backups. The installer still needs root to manage Docker and private installation files.
 
 `llll domain` manages every public address of the Server. Point the new hostname's DNS at the VPS first, then `domain add`: the command appends the origin to `LLLL_ORIGINS`, adds the name to the Caddy site address, restarts Compose, waits for a certificate and verifies discovery at every listed address. A failed change restores the previous `.env` and restarts the old configuration. `domain primary` changes `PUBLIC_ORIGIN` without removing the old address. The primary cannot be removed; promote another address first. Alias changes are not written to D1, because the installer-managed VPS uses `PUBLIC_ORIGIN` and `LLLL_ORIGINS` as its authority.
 

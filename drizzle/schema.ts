@@ -577,6 +577,19 @@ export const channelReads = sqliteTable('channel_reads', {
   index('channel_reads_user_id_idx').on(table.userId),
 ])
 
+/** Personal conversation state. It never grants access to the conversation. */
+export const channelAttention = sqliteTable('channel_attention', {
+  channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  following: integer('following', { mode: 'boolean' }).notNull().default(false),
+  notifications: text('notifications', { enum: ['default', 'all', 'mentions', 'muted'] }).notNull().default('default'),
+  readGeneration: integer('read_generation').notNull().default(0),
+}, table => [
+  primaryKey({ columns: [table.channelId, table.userId] }),
+  index('channel_attention_user_idx').on(table.userId, table.following),
+  check('channel_attention_notifications_check', sql`${table.notifications} in ('default', 'all', 'mentions', 'muted')`),
+])
+
 export const invites = sqliteTable('invites', {
   spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
   code: text('code').primaryKey(),
@@ -738,6 +751,8 @@ export const emailMessages = sqliteTable('email_messages', {
   deliveryAttempts: integer('delivery_attempts').notNull().default(0),
   deliveryError: text('delivery_error'),
   deliveredAt: text('delivered_at'),
+  /** What the receiving hop found about the sender of inbound mail. Earlier mail has none. */
+  authVerdict: text('auth_verdict', { enum: ['verified', 'failed', 'unverified'] }),
   /** `markdown` is sent as sanitized HTML with a text/plain alternative. */
   bodyFormat: text('body_format', { enum: ['text', 'markdown'] }).notNull().default('text'),
 }, table => [
@@ -830,11 +845,16 @@ export const databaseFields = sqliteTable('database_fields', {
 ])
 
 /** Scalar custom fields use bounded typed slots; semantic names stay in database_fields. */
-export const databaseItems = sqliteTable('database_items', {
+export const dataItems = sqliteTable('data_items', {
   id: text('id').primaryKey(),
+  spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
+  kind: text('kind', { enum: ['page', 'canvas'] }).notNull().default('page'),
+  parentId: text('parent_id').references((): AnySQLiteColumn => dataItems.id, { onDelete: 'restrict' }),
+  content: text('content').notNull().default(''),
+  icon: text('icon'),
   deletedAt: text('deleted_at'),
   mutationId: text('mutation_id'),
-  databaseId: text('database_id').notNull().references(() => databaseDefinitions.id, { onDelete: 'cascade' }),
+  databaseId: text('database_id').references(() => databaseDefinitions.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   position: integer('position').notNull().default(0),
   version: integer('version').notNull().default(1),
@@ -889,6 +909,10 @@ export const databaseItems = sqliteTable('database_items', {
   select8: text('select_8'),
   ...isoTimestamps(),
 }, table => [
+  index('data_items_parent_idx').on(table.spaceId, table.parentId, table.position),
+  // parent_id's ON DELETE RESTRICT looks up children by this column on every deleted row.
+  index('data_items_parent_id_idx').on(table.parentId),
+  check('data_items_kind_check', sql`${table.kind} in ('page', 'canvas')`),
   index('database_items_database_position_idx').on(table.databaseId, table.position),
   index('database_items_active_position_idx').on(table.databaseId, table.position, table.createdAt, table.id).where(sql`${table.deletedAt} is null`),
   check('database_items_version_check', sql`${table.version} > 0`),
@@ -922,23 +946,23 @@ export const dataReferences = sqliteTable('data_references', {
 }, table => [
   primaryKey({ columns: [table.sourceType, table.sourceId, table.targetType, table.targetId] }),
   index('data_references_target_idx').on(table.targetType, table.targetId),
-  check('data_references_source_check', sql`${table.sourceType} in ('document','record','database','canvas','task')`),
-  check('data_references_target_check', sql`${table.targetType} in ('document','record','database','canvas','task')`),
+  check('data_references_source_check', sql`${table.sourceType} in ('item','document','record','database','canvas','task')`),
+  check('data_references_target_check', sql`${table.targetType} in ('item','document','record','database','canvas','task')`),
 ])
 
 export const dataRecordRequests = sqliteTable('data_record_requests', {
   principalId: text('principal_id').notNull().references(() => users.id),
   databaseId: text('database_id').notNull().references(() => databaseDefinitions.id, { onDelete: 'cascade' }),
   requestId: text('request_id').notNull(),
-  recordId: text('record_id').references(() => databaseItems.id, { onDelete: 'set null' }),
+  recordId: text('record_id').references(() => dataItems.id, { onDelete: 'set null' }),
   bodyHash: text('body_hash').notNull(),
 }, table => [primaryKey({ columns: [table.principalId, table.databaseId, table.requestId] })])
 
 export const databaseItemLinks = sqliteTable('database_item_links', {
   id: text('id').primaryKey(),
   fieldId: text('field_id').notNull().references(() => databaseFields.id, { onDelete: 'cascade' }),
-  itemId: text('item_id').notNull().references(() => databaseItems.id, { onDelete: 'cascade' }),
-  targetItemId: text('target_item_id').notNull().references(() => databaseItems.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull().references(() => dataItems.id, { onDelete: 'cascade' }),
+  targetItemId: text('target_item_id').notNull().references(() => dataItems.id, { onDelete: 'cascade' }),
   position: integer('position').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, table => [
@@ -947,50 +971,18 @@ export const databaseItemLinks = sqliteTable('database_item_links', {
   index('database_item_links_target_idx').on(table.targetItemId),
 ])
 
-/** Rich-text documents are durable server data. */
-export const documents = sqliteTable('documents', {
-  spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
-  id: text('id').primaryKey(),
-  deletedAt: text('deleted_at'),
-  title: text('title').notNull(),
-  content: text('content').notNull().default(''),
-  position: integer('position').notNull().default(0),
-  version: integer('version').notNull().default(1),
-  createdBy: text('created_by').notNull().references(() => users.id),
-  ...isoTimestamps(),
-}, table => [
-  uniqueIndex('documents_title_unique').on(table.spaceId, sql`lower(${table.title})`),
-  index('documents_position_idx').on(table.position),
-  check('documents_version_check', sql`${table.version} > 0`),
-  index('documents_space_idx').on(table.spaceId),
-])
-
+/** Previous page bodies, shared by standalone pages and database records. */
 export const documentRevisions = sqliteTable('document_revisions', {
-  documentId: text('document_id').notNull().references(() => documents.id, { onDelete: 'cascade' }),
+  documentId: text('document_id').notNull().references(() => dataItems.id, { onDelete: 'cascade' }),
   version: integer('version').notNull(),
   title: text('title').notNull(),
   content: text('content').notNull(),
   savedAt: text('saved_at').notNull(),
 }, table => [primaryKey({ columns: [table.documentId, table.version] })])
 
-export const canvases = sqliteTable('canvases', {
-  spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
-  id: text('id').primaryKey(),
-  deletedAt: text('deleted_at'),
-  title: text('title').notNull(),
-  position: integer('position').notNull().default(0),
-  version: integer('version').notNull().default(1),
-  createdBy: text('created_by').notNull().references(() => users.id),
-  ...isoTimestamps(),
-}, table => [
-  index('canvases_position_idx').on(table.position),
-  check('canvases_version_check', sql`${table.version} > 0`),
-  index('canvases_space_idx').on(table.spaceId),
-])
-
 export const canvasNodes = sqliteTable('canvas_nodes', {
   id: text('id').primaryKey(),
-  canvasId: text('canvas_id').notNull().references(() => canvases.id, { onDelete: 'cascade' }),
+  canvasId: text('canvas_id').notNull().references(() => dataItems.id, { onDelete: 'cascade' }),
   kind: text('kind', { enum: ['note', 'text'] }).notNull().default('note'),
   content: text('content').notNull().default(''),
   x: real('x').notNull().default(0),
@@ -1010,7 +1002,7 @@ export const canvasNodes = sqliteTable('canvas_nodes', {
 
 export const canvasEdges = sqliteTable('canvas_edges', {
   id: text('id').primaryKey(),
-  canvasId: text('canvas_id').notNull().references(() => canvases.id, { onDelete: 'cascade' }),
+  canvasId: text('canvas_id').notNull().references(() => dataItems.id, { onDelete: 'cascade' }),
   fromNodeId: text('from_node_id').notNull().references(() => canvasNodes.id, { onDelete: 'cascade' }),
   toNodeId: text('to_node_id').notNull().references(() => canvasNodes.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').notNull().references(() => users.id),
@@ -1024,14 +1016,14 @@ export const canvasEdges = sqliteTable('canvas_edges', {
 /** Private, cross-device shortcuts. Target existence is checked at the API boundary. */
 export const dataBookmarks = sqliteTable('data_bookmarks', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  targetType: text('target_type', { enum: ['database_view', 'document', 'canvas'] }).notNull(),
+  targetType: text('target_type', { enum: ['database_view', 'item'] }).notNull(),
   targetId: text('target_id').notNull(),
   position: integer('position').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, table => [
   primaryKey({ columns: [table.userId, table.targetType, table.targetId] }),
   index('data_bookmarks_user_position_idx').on(table.userId, table.position, table.createdAt),
-  check('data_bookmarks_target_type_check', sql`${table.targetType} in ('database_view', 'document', 'canvas')`),
+  check('data_bookmarks_target_type_check', sql`${table.targetType} in ('database_view', 'item')`),
 ])
 
 /** Declarative internal tools. Drafts are mutable; published versions are immutable snapshots. */
@@ -1155,6 +1147,8 @@ export const grants = sqliteTable('grants', {
 ])
 
 export const tasks = sqliteTable('tasks', {
+  /** A subtask is ordinary work on the same board and in the same Project. */
+  parentTaskId: text('parent_task_id').references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
   /** The Project a Task names for agent work; with none, it follows Server Roles. */
   projectId: text('project_id').references(() => projects.id),
   id: text('id').primaryKey(),
@@ -1188,6 +1182,7 @@ export const tasks = sqliteTable('tasks', {
   previewUrl: text('preview_url'),
   ...isoTimestamps(),
 }, table => [
+  index('tasks_parent_idx').on(table.parentTaskId),
   index('tasks_board_status_position_idx').on(table.boardId, table.status, table.position),
   index('tasks_assignee_id_idx').on(table.assigneeId),
   index('tasks_source_message_idx').on(table.sourceChannelId, table.sourceMessageId).where(sql`${table.sourceMessageId} IS NOT NULL`),
@@ -1748,6 +1743,7 @@ export const schema = {
   channelMembers,
   messages,
   channelReads,
+  channelAttention,
   invites,
   attachments,
   messageReactions,
@@ -1762,11 +1758,9 @@ export const schema = {
   auditLog,
   databaseDefinitions,
   databaseFields,
-  databaseItems,
+  dataItems,
   databaseViews,
-  documents,
   documentRevisions,
-  canvases,
   canvasNodes,
   canvasEdges,
   dataBookmarks,

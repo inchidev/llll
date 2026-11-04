@@ -124,6 +124,35 @@ export function assertPublicHttpUrl(raw: string, serverHosts: string[] = []): UR
   return parsed
 }
 
+type DohAnswer = { Answer?: Array<{ type?: number, data?: string }> }
+
+/** Addresses of a hostname, from a resolver outside this network, so a split-horizon name finds nothing. */
+async function resolvePublicDns(host: string, fetcher: typeof fetch): Promise<string[]> {
+  const answers = await Promise.all([['A', 1], ['AAAA', 28]].map(async ([type, code]) => {
+    const response = await fetcher(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`, { headers: { accept: 'application/dns-json' } })
+    if (!response.ok) throw new Error('DNS lookup failed')
+    const body = await response.json() as DohAnswer
+    // A CNAME chain arrives in the same answer; only the addresses at its end matter.
+    return (body.Answer ?? []).filter(answer => answer.type === code && answer.data).map(answer => answer.data!)
+  }))
+  return answers.flat()
+}
+
+/**
+ * For the local Chromium path: a name like 127.0.0.1.nip.io looks public until it is resolved.
+ * Every address must be public, and a failed lookup refuses. Chromium looks the name up again itself,
+ * so DNS rebinding remains: see Browser in docs/self-host/celld.md.
+ */
+export async function assertPublicDestination(raw: string, serverHosts: string[] = [], fetcher: typeof fetch = fetch): Promise<void> {
+  const parsed = assertPublicHttpUrl(raw, serverHosts)
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
+  if (host.includes(':') || isIpv4(host)) return
+  const addresses = await resolvePublicDns(host, fetcher)
+  if (!addresses.length || addresses.some(address => address.includes(':') ? isPrivateIpv6(address) : isPrivateIpv4(address))) {
+    throw new Error('That address is not a public website')
+  }
+}
+
 function browserError(status: number, body: string): Error {
   try {
     const parsed = JSON.parse(body) as { errors?: Array<{ message?: string }>, error?: string, message?: string }
@@ -148,7 +177,10 @@ export function browserBindingFor(env: BrowserEnv): BrowserBinding | null {
   if (env.BROWSER) return env.BROWSER
   if (cloudflareRestConfigured(env)) return cloudflareBrowser(env)
   const cdpUrl = env.BROWSER_CDP_URL?.trim()
-  if (cdpUrl) return chromiumBrowser(cdpUrl, finalUrl => assertPublicHttpUrl(finalUrl, serverHostsFrom(env)))
+  if (cdpUrl) {
+    const hosts = serverHostsFrom(env)
+    return chromiumBrowser(cdpUrl, finalUrl => assertPublicHttpUrl(finalUrl, hosts), url => assertPublicDestination(url, hosts))
+  }
   return null
 }
 

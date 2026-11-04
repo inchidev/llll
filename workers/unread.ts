@@ -12,8 +12,8 @@ function placeholders(count: number, first: number): string {
 }
 
 /**
- * Each root plus every thread of it the member has opened, with the member's
- * read cursor. Never-opened threads do not keep a parent unread forever.
+ * Each root plus every thread of it the member follows, with the member's
+ * read cursor. Unfollowed threads do not keep a parent unread forever.
  * Binds ?1 = member and ?2.. = root ids.
  */
 function unreadScopesSql(rootCount: number): string {
@@ -25,9 +25,10 @@ function unreadScopesSql(rootCount: number): string {
     WHERE root.id IN (${roots})
     UNION ALL
     SELECT t.parent_id, t.id, cr.last_read_message_id
-    FROM channel_reads cr
-    JOIN channels t ON t.id = cr.channel_id
-    WHERE cr.user_id = ?1 AND cr.last_read_message_id IS NOT NULL
+    FROM channel_attention a
+    JOIN channels t ON t.id = a.channel_id
+    LEFT JOIN channel_reads cr ON cr.channel_id = t.id AND cr.user_id = a.user_id
+    WHERE a.user_id = ?1 AND a.following = 1
       AND t.type = 'thread' AND t.parent_id IN (${roots})
   `
 }
@@ -40,7 +41,7 @@ function boundedUnread(scope: string, cursor: string): string {
     LIMIT ${UNREAD_COUNT_CAP}))`
 }
 
-/** Root messages and replies in threads this member opened; deleted messages never count. Binds member, root. */
+/** Root messages and replies in threads this member follows; deleted messages never count. Binds member, root. */
 export const channelUnreadSql = `
   WITH scopes AS (${unreadScopesSql(1)})
   SELECT EXISTS (
@@ -72,7 +73,7 @@ export async function channelUnreadCount(db: D1Reader, userId: string, channelId
   return (await channelUnreadCounts(db, userId, [channelId])).get(channelId) ?? 0
 }
 
-/** Unread messages per root and its opened threads, capped at UNREAD_COUNT_CAP. */
+/** Unread messages per root and its followed threads, capped at UNREAD_COUNT_CAP. */
 export async function channelUnreadCounts(
   db: D1Reader,
   userId: string,
@@ -109,27 +110,28 @@ export async function unreadNavigationCount(db: D1Reader, userId: string): Promi
 
 /**
  * Threads of the given parents created or active since `since`, or with
- * messages the member has not read in a thread they have opened before.
- * Threads they never opened do not count as unread until opened, matching
+ * messages the member has not read in a thread they follow.
+ * Unfollowed threads do not count as unread, matching
  * the parent channel aggregation. Binds ?1 = member, ?2 = since, ?3.. = parents.
  */
 export function recentThreadsSql(parentCount: number): string {
   if (!Number.isInteger(parentCount) || parentCount < 1) throw new Error('parentCount must be positive')
   return `
     WITH scoped AS (
-      SELECT t.id, t.parent_id, t.name, t.created_at, cr.last_read_message_id AS cursor,
+      SELECT t.id, t.parent_id, t.name, t.created_at, cr.last_read_message_id AS cursor, COALESCE(a.following, 0) AS following,
              (SELECT m.created_at FROM messages m WHERE m.channel_id = t.id AND m.deleted_at IS NULL
               ORDER BY m.created_at DESC LIMIT 1) AS last_at
       FROM channels t
       LEFT JOIN channel_reads cr ON cr.channel_id = t.id AND cr.user_id = ?1
+      LEFT JOIN channel_attention a ON a.channel_id = t.id AND a.user_id = ?1
       WHERE t.type = 'thread' AND t.parent_id IN (${placeholders(parentCount, 3)})
     ), counted AS (
-      SELECT scoped.*, CASE WHEN cursor IS NULL THEN 0 ELSE ${boundedUnread('scoped.id', 'scoped.cursor')} END AS unread
+      SELECT scoped.*, CASE WHEN following = 0 THEN 0 ELSE ${boundedUnread('scoped.id', 'scoped.cursor')} END AS unread
       FROM scoped
     )
     SELECT id, parent_id AS parentId, name AS title,
            COALESCE(last_at, created_at) AS lastMessageAt,
-           cursor IS NOT NULL AS opened,
+           cursor IS NOT NULL AS opened, following,
            CAST(unread AS INTEGER) AS unreadCount
     FROM counted
     WHERE COALESCE(last_at, created_at) >= ?2 OR unread > 0
@@ -142,6 +144,7 @@ export type RecentThreadRow = {
   title: string
   lastMessageAt: string
   opened: boolean
+  following: boolean
   unreadCount: number
 }
 
@@ -151,7 +154,7 @@ export async function recentThreads(db: D1Reader, userId: string, since: string,
   for (let offset = 0; offset < ids.length; offset += ID_BATCH) {
     const batch = ids.slice(offset, offset + ID_BATCH)
     const rows = await db.prepare(recentThreadsSql(batch.length)).bind(userId, since, ...batch).all<RecentThreadRow>()
-    for (const row of rows.results ?? []) result.push({ ...row, opened: Boolean(row.opened), unreadCount: Number(row.unreadCount) })
+    for (const row of rows.results ?? []) result.push({ ...row, opened: Boolean(row.opened), following: Boolean(row.following), unreadCount: Number(row.unreadCount) })
   }
   return result
 }

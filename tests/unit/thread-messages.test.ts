@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
@@ -69,4 +69,45 @@ it('shows the original immediately for a freshly created, cached thread without 
   await flushPromises()
   expect(list.findAll('article').map(item => item.text())).toEqual(['My first message'])
   expect(list.emitted('read')).toBeUndefined()
+})
+
+describe('reads', () => {
+  let generation = 0
+  const api = vi.fn(async (url: string) => url.endsWith('/attention')
+    ? { following: false, notifications: 'default', readGeneration: generation }
+    : { messages: [message('m1', url.split('/')[3]!, 'One')], rootMessage: null, nextCursor: null, lastReadMessageId: null })
+  const settle = async () => { await flushPromises(); await nextTick(); await flushPromises() }
+  beforeEach(() => {
+    generation = 0
+    api.mockClear()
+    vi.stubGlobal('useApi', () => ({ api }))
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  })
+  const reads = (list: VueWrapper) => (list.emitted('read') ?? []) as Array<[string, number]>
+
+  it('asks afresh on returning to a conversation inside staleTime, so reads do not stall', async () => {
+    const list = open()
+    await settle()
+    expect(reads(list).at(-1)).toEqual(['m1', 0])
+    await list.setProps({ channelId: 'other' })
+    await settle()
+    expect(reads(list).at(-1)).toEqual(['m1', 0])
+    const before = reads(list).length
+    await list.setProps({ channelId: 'thread' })
+    await settle()
+    expect(api.mock.calls.filter(([url]) => url === '/api/channels/thread/attention')).toHaveLength(2)
+    expect(reads(list).length).toBe(before + 1)
+  })
+
+  it('stays paused after another tab marks unread, and resumes with the new generation on a newer message', async () => {
+    const list = open()
+    await settle()
+    expect(reads(list)).toEqual([['m1', 0]])
+    client.setQueryData(['chat-read-generation', 'thread'], 3)
+    await settle()
+    expect(reads(list)).toHaveLength(1)
+    client.setQueryData(['messages', 'thread'], { pages: [{ messages: [message('m1', 'thread', 'One'), message('m2', 'thread', 'Two')], rootMessage: null, nextCursor: null }], pageParams: [undefined] })
+    await settle()
+    expect(reads(list).at(-1)).toEqual(['m2', 3])
+  })
 })

@@ -61,8 +61,9 @@ function limits(grant: AgentAccessGrant) {
     </div>
     <LayoutLoadError v-if="query.error.value" message="Agent access did not load." :retry="query.refetch" />
     <UFormField v-if="query.data.value" label="Answers">
-      <USelect :model-value="query.data.value.access" :items="modeItems" :disabled="busy" aria-label="Who the agent answers" class="w-full" @update:model-value="setMode($event as AgentAccessMode)" />
+      <USelect :model-value="query.data.value.access" :items="modeItems" :disabled="busy || query.data.value.external" aria-label="Who the agent answers" class="w-full" @update:model-value="setMode($event as AgentAccessMode)" />
     </UFormField>
+    <p v-if="query.data.value?.external" class="text-sm text-muted">An external agent acts as itself through its own connection, so it can do everything its Role allows for whoever asks. It answers only the people you give access to here. Keep its Role narrow.</p>
     <div v-if="query.data.value?.grants.length" class="divide-y divide-default rounded-lg border border-default">
       <div v-for="grant in query.data.value.grants" :key="grant.id" class="flex flex-wrap items-center justify-between gap-3 p-4">
         <div class="min-w-0"><p class="font-medium">{{ grant.name }}</p><p class="text-xs text-muted">{{ grant.kind === 'role' ? 'Server role' : 'Person' }} · {{ limits(grant) }}</p></div>

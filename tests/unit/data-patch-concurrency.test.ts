@@ -60,12 +60,12 @@ beforeEach(() => {
   context.sqlite.exec(`
     INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('role', 'owner', 'Owner', 1023);
     INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('owner', 'Owner', 'active', 'role', CURRENT_TIMESTAMP);
-    INSERT INTO documents (id, title, content, created_by) VALUES ('doc', 'Document', 'Initial', 'owner');
-    INSERT INTO canvases (id, title, created_by) VALUES ('canvas', 'Initial', 'owner');
+    INSERT INTO data_items (id, title, content, created_by) VALUES ('doc', 'Document', 'Initial', 'owner');
+    INSERT INTO data_items (kind, id, title, created_by) VALUES ('canvas', 'canvas', 'Initial', 'owner');
     INSERT INTO canvas_nodes (id, canvas_id, content, created_by) VALUES ('node', 'canvas', 'Initial', 'owner');
     INSERT INTO database_definitions (id, name, created_by) VALUES ('database', 'Database', 'owner');
     INSERT INTO database_fields (id, database_id, name, type, slot, created_by) VALUES ('field', 'database', 'Text', 'text', 'text_1', 'owner');
-    INSERT INTO database_items (id, database_id, title, text_1, created_by) VALUES ('item', 'database', 'Record', 'Initial', 'owner');
+    INSERT INTO data_items (id, database_id, title, text_1, created_by) VALUES ('item', 'database', 'Record', 'Initial', 'owner');
   `)
   context.beforeUpdate = undefined
   context.afterWrite = undefined
@@ -74,10 +74,10 @@ beforeEach(() => {
 afterEach(() => context.sqlite?.close())
 
 const cases = [
-  { id: 'doc', table: 'documents', column: 'content', body: { content: 'My change' }, load: () => import('../../server/api/documents/[id].patch'), responseKey: 'document', valueKey: 'content', staleCode: 'stale_document' },
-  { id: 'canvas', table: 'canvases', column: 'title', body: { title: 'My change' }, load: () => import('../../server/api/canvases/[id].patch'), responseKey: 'canvas', valueKey: 'title', staleCode: 'stale_canvas' },
+  { id: 'doc', table: 'data_items', column: 'content', body: { content: 'My change' }, load: () => import('../../server/api/items/[id].patch'), responseKey: 'item', valueKey: 'content', staleCode: 'stale_item' },
+  { id: 'canvas', table: 'data_items', column: 'title', body: { title: 'My change' }, load: () => import('../../server/api/items/[id].patch'), responseKey: 'item', valueKey: 'title', staleCode: 'stale_item' },
   { id: 'node', table: 'canvas_nodes', column: 'content', body: { content: 'My change' }, load: () => import('../../server/api/canvas-nodes/[id].patch'), responseKey: 'node', valueKey: 'content', staleCode: 'stale_canvas_item' },
-  { id: 'item', table: 'database_items', column: 'text_1', body: { values: { field: 'My change' } }, load: () => import('../../server/api/database-items/[id].patch'), responseKey: 'item', valueKey: 'values.field', staleCode: 'stale_record' },
+  { id: 'item', table: 'data_items', column: 'text_1', body: { values: { field: 'My change' } }, load: () => import('../../server/api/items/[id]/properties.patch'), responseKey: 'item', valueKey: 'values.field', staleCode: 'stale_record' },
 ]
 
 describe.each(cases)('$table optimistic concurrency', ({ id, table, column, body, load, responseKey, valueKey, staleCode }) => {

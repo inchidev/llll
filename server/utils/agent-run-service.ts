@@ -22,7 +22,7 @@ import { admitRunEnvironment, findCodeEnvironment, requireRunEnvironment } from 
 import { repositoryResourceId, type RunEnvironment } from '../../shared/code-environments'
 import { fanoutAgentTurns } from '../../workers/agent-turns'
 import { agentWebhook } from './agent-webhooks'
-import { agentAccessMode, agentInvocationAllowed } from './agent-access'
+import { agentAccessMode, agentInvocationAllowed, EFFECTIVE_ACCESS_SQL } from './agent-access'
 
 const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id as channelId, initiated_by as initiatedBy,
  task_id as taskId, source_message_id as sourceMessageId, status, prompt, model, instructions, mandate_json as mandateJson, result_text as resultText,
@@ -94,7 +94,7 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
     (async () => {
       const [actor, profile] = await Promise.all([
         env.DB.prepare(`SELECT u.kind FROM users u WHERE u.id=? AND u.status='active'`).bind(run.initiatedBy).first<{ kind: string }>(),
-        env.DB.prepare("SELECT status,harness,access FROM agents WHERE user_id=?").bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>(),
+        env.DB.prepare(`SELECT status,harness,${EFFECTIVE_ACCESS_SQL} AS access FROM agents a WHERE a.user_id=?`).bind(run.agentId).first<{ status: string; harness: string; access: 'open' | 'granted' }>(),
       ])
       if (!actor || actor.kind !== 'human' || !profile || !agentInvocationAllowed(profile.access, delegation, mandate.projectId)) fail(403, 'run_revoked', 'Agent access was revoked')
       if (profile.status !== 'active' || profile.harness !== 'pi') fail(403, 'run_revoked', 'Agent is paused')

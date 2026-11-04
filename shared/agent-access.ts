@@ -37,7 +37,13 @@ export type AgentAccessGrant = {
   createdAt: string
 }
 
-export type AgentAccessDTO = { access: AgentAccessMode; grants: AgentAccessGrant[]; canManage: boolean }
+export type AgentAccessDTO = {
+  access: AgentAccessMode
+  grants: AgentAccessGrant[]
+  canManage: boolean
+  /** It works through a webhook, so it is always `granted`. */
+  external?: boolean
+}
 
 /** What one person may do through one Agent, beyond their own Role. */
 export type DelegatedAgentAccess = {

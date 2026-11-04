@@ -1,4 +1,4 @@
-import { createDocumentSchema, updateDocumentSchema } from '../../shared/documents'
+import { createItemSchema, updateItemSchema, moveItemSchema } from '../../shared/data-items'
 import { DataTrashTypes } from '../../shared/data-trash'
 import { dataError } from '../../shared/data-errors'
 import { bulkCreateRecords, bulkRecordsSchema } from './data-transfer'
@@ -13,7 +13,7 @@ import { McpServer, createMcpHandler, hostHeaderValidationResponse, originValida
 import { z } from 'zod'
 import { version as packageVersion } from '../../package.json'
 import type { L4Env } from '../../workers/env'
-import { createDocument, getDocument, listAuthorizedDataResources, updateDocument } from './document-service'
+import { createItem, getItem, updateItem, listItems, moveItem } from './item-service'
 import type { McpPrincipal } from './mcp-principal'
 import { createTask, findTasks, getTask, listTasks, updateTask } from './task-service'
 import {
@@ -112,11 +112,11 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   server.registerTool('search_data', { description: 'Search Data names and document content within current scopes and resource grants.', inputSchema: { query: z.string().min(2).max(200) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ query }) => dataResult(async () => ({ hits: await searchData(env, principal.authorization, query) })))
   server.registerTool('list_data_trash', { description: 'List recoverable Data you may manage. Requires data:manage.', inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => dataResult(async () => ({ entries: await listDataTrash(env, principal.authorization) })))
   for (const action of ['trash', 'restore'] as const) server.registerTool(`${action}_data`, { description: `${action === 'trash' ? 'Move to Trash' : 'Restore'} an authorized Data resource. Requires data:manage and Manage data. Permanent purge is human-only.`, inputSchema: { type: z.enum(DataTrashTypes), id: z.string().min(1) }, annotations: { readOnlyHint: false, destructiveHint: action === 'trash', idempotentHint: true, openWorldHint: false } }, async ({ type, id }) => dataResult(() => changeDataTrash(env, principal.authorization, type, id, action)))
-  server.registerTool('list_document_revisions', { description: 'List the last 50 changed versions of an authorized document.', inputSchema: { documentId: z.string().min(1) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ documentId }) => dataResult(async () => ({ revisions: await listDocumentRevisions(env, principal.authorization, documentId) })))
-  server.registerTool('restore_document_revision', { description: 'Restore an earlier document revision as a new version. Supply the current version to protect concurrent edits.', inputSchema: { documentId: z.string().min(1), revision: z.number().int().positive(), version: z.number().int().positive() }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ documentId, revision, version }) => dataResult(async () => ({ document: await restoreDocumentRevision(env, principal.authorization, documentId, revision, version) })))
+  server.registerTool('list_item_revisions', { description: 'List the last 50 changed versions of an authorized document.', inputSchema: { itemId: z.string().min(1) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ itemId }) => dataResult(async () => ({ revisions: await listDocumentRevisions(env, principal.authorization, itemId) })))
+  server.registerTool('restore_item_revision', { description: 'Restore an earlier document revision as a new version. Supply the current version to protect concurrent edits.', inputSchema: { itemId: z.string().min(1), revision: z.number().int().positive(), version: z.number().int().positive() }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ itemId, revision, version }) => dataResult(async () => ({ item: await restoreDocumentRevision(env, principal.authorization, itemId, revision, version) })))
 
   server.registerTool('list_task_boards', {
-    description: 'List task boards with their tasks, labels, dependencies, and checklist counts.',
+    description: 'List task boards with their tasks, parent IDs, subtask progress, labels, dependencies, and checklist counts.',
     inputSchema: { includeArchived: z.boolean().default(false) },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ includeArchived }) => {
@@ -135,7 +135,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ project, ...filter }) => result(await findTasks(env, principal.authorization, { ...filter, names: new Set((project ?? '').split(',').map(name => name.trim().toLowerCase().replace(/[^a-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '')).filter(Boolean)) })))
 
   server.registerTool('get_task', {
-    description: 'Get one task by UUID or human-readable number, with its labels, dependencies, checklist, and attachments. A task with a recording also returns its frames as images, in reading order, and its marks on the recording attachment.',
+    description: 'Get one task by UUID or human-readable number, with its parent, direct subtasks (including archived), labels, dependencies, checklist, and attachments. A task with a recording also returns its frames as images, in reading order, and its marks on the recording attachment.',
     inputSchema: { taskId: taskReferenceSchema.describe('Task UUID or human-readable number') },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId }) => {
@@ -157,6 +157,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
       environmentId: z.string().min(8).nullable().optional(),
       channelId: z.string().min(8).nullable().default(null),
       labelIds: z.array(z.string().min(8)).max(20).default([]),
+      parentTaskId: z.string().min(8).nullable().optional().describe('Parent on the same board and Project. Null detaches. Status and archive remain independent.'),
       dependencyIds: z.array(z.string().min(8)).max(100).default([]),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -180,6 +181,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
       channelId: z.string().min(8).nullable().optional(),
       archived: z.boolean().optional(),
       labelIds: z.array(z.string().min(8)).max(20).optional(),
+      parentTaskId: z.string().min(8).nullable().optional().describe('Parent on the same board and Project. Null detaches. Status and archive remain independent.'),
       dependencyIds: z.array(z.string().min(8)).max(100).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -188,37 +190,38 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
     return result({ task: await updateTask(env, principal.authorization, taskId, input, schedule) })
   })
 
-  if (!toolPaused('list_documents')) server.registerTool('list_documents', {
-    description: 'List L4 document summaries. Use get_document to read a document body.',
+  if (!toolPaused('list_items')) server.registerTool('list_items', {
+    description: 'List accessible page and Canvas Item summaries, including their parent and database. Use get_item for content and properties.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
-    const resources = await listAuthorizedDataResources(env, principal.authorization)
-    return result({ documents: resources.documents })
+    return result({ items: await listItems(env, principal.authorization) })
   })
 
-  if (!toolPaused('get_document')) server.registerTool('get_document', {
-    description: 'Read one L4 document. The content field contains HTML used by the rich-text editor.',
-    inputSchema: { documentId: z.string().min(8) },
+  server.registerTool('move_item', {description:'Move an Item. Changing database removes property values and relation links only when discardProperties=true.',inputSchema:{itemId:z.string().min(1),...moveItemSchema.shape},annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},async({itemId,...input})=>dataResult(async()=>({item:await moveItem(env,principal.authorization,itemId,input)})))
+
+  if (!toolPaused('get_item')) server.registerTool('get_item', {
+    description: 'Read an authorized Item with HTML content, database properties and child pages.',
+    inputSchema: { itemId: z.string().min(8) },
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async ({ documentId }) => {
-    return dataResult(async () => ({ document: await getDocument(env, principal.authorization, documentId) }))
+  }, async ({ itemId }) => {
+    return dataResult(async () => ({ item: await getItem(env, principal.authorization, itemId) }))
   })
 
-  if (!toolPaused('create_document')) server.registerTool('create_document', {
-    description: 'Create a L4 document. Supply HTML or set format to markdown.',
-    inputSchema: createDocumentSchema.shape,
+  if (!toolPaused('create_item')) server.registerTool('create_item', {
+    description: 'Create a page or Canvas Item, optionally under a parent or in a database. Supply HTML or set format to markdown.',
+    inputSchema: createItemSchema.shape,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (input) => {
-    return dataResult(async () => ({ document: await createDocument(env, principal.authorization, input) }))
+    return dataResult(async () => ({ item: await createItem(env, principal.authorization, input) }))
   })
 
-  if (!toolPaused('update_document')) server.registerTool('update_document', {
-    description: 'Update a L4 document using its current version. Supply HTML or set format to markdown.',
-    inputSchema: { documentId: z.string().min(1), ...updateDocumentSchema.shape },
+  if (!toolPaused('update_item')) server.registerTool('update_item', {
+    description: 'Update Item content and appearance using its current version. Supply HTML or set format to markdown. Use move_item for its location and update_record for properties.',
+    inputSchema: { itemId: z.string().min(1), ...updateItemSchema.shape },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, async ({ documentId, ...input }) => {
-    return dataResult(async () => ({ document: await updateDocument(env, principal.authorization, documentId, input) }))
+  }, async ({ itemId, ...input }) => {
+    return dataResult(async () => ({ item: await updateItem(env, principal.authorization, itemId, input) }))
   })
 
   const pageSchema = {

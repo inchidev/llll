@@ -41,10 +41,10 @@ export function applyChannelReadAck(cache: ServerQueryCache, channelId: string, 
 
 /**
  * Keeps a thread listed under its channel in step with activity: new replies
- * bump it (and count as unread once the member has opened it), reads clear it.
+ * bump it (and count as unread while the member follows it), reads clear it.
  * A thread not listed yet (newly active) refreshes the channel list.
  */
-function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId: string, change: { unread: boolean | 'if-opened', increment?: boolean, at?: string }) {
+function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId: string, change: { unread: boolean | 'if-followed', increment?: boolean, at?: string }) {
   let found = false
   let parentListed = false
   const update = (old: ChannelList | undefined) => {
@@ -55,7 +55,7 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
       ...old,
       threads: old.threads.map((thread) => {
         if (thread.id !== threadId) return thread
-        const unread = change.unread === 'if-opened' ? thread.opened : change.unread
+        const unread = change.unread === 'if-followed' ? Boolean(thread.following) : change.unread
         return {
           ...thread,
           opened: thread.opened || change.unread === false,
@@ -77,6 +77,21 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
 type MessagePages = { pages: Array<{ messages: Array<{ threadId?: string | null }> }> }
 
 export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerRealtimeEvent) {
+  if (['chat.attention', 'channel.activity', 'channel.read', 'channels.changed', 'channel.access.changed'].includes(event.t)) {
+    void cache.invalidateQueries({ queryKey: ['followed-threads'] })
+    void cache.invalidateQueries({ queryKey: ['unread-preview'] })
+  }
+  if (event.t === 'chat.attention') {
+    const generation = cache.getQueryData<number>(['chat-read-generation', event.channelId]) ?? 0
+    if (event.readGeneration > generation) {
+      cache.setQueryData(['chat-read-generation', event.channelId], event.readGeneration)
+      cache.removeQueries({ queryKey: ['readCursor', event.channelId] })
+    }
+    void cache.invalidateQueries({ queryKey: ['chat-attention', event.channelId] })
+    void cache.invalidateQueries({ queryKey: ['channels'] })
+    void cache.invalidateQueries({ queryKey: ['dms'] })
+    return
+  }
   if (event.t === 'channels.changed') {
     if (event.deletedIds.length) {
       const ids = new Set(event.deletedIds)
@@ -137,7 +152,8 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
   }
   if (event.t === 'tasks.changed') {
     void cache.invalidateQueries({ queryKey: ['boards'] })
-    if (event.taskId) void cache.invalidateQueries({ queryKey: ['task', event.taskId] })
+    // A child edit also changes its parent's progress and its siblings' navigation.
+    void cache.invalidateQueries({ queryKey: ['task'] })
     return
   }
   if (event.t === 'live.changed') {
@@ -157,6 +173,7 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
     cache.setQueriesData<ChannelList>({ queryKey: ['dms'] }, update)
     return
   }
+  if (event.t === 'channel.read' && (event.generation ?? 0) < (cache.getQueryData<number>(['chat-read-generation', event.sourceChannelId]) ?? 0)) return
   const readCursor = cache.getQueryData<string>(['readCursor', event.sourceChannelId])
   const inThread = event.sourceChannelId !== event.rootChannelId
   if (event.t === 'channel.activity') {
@@ -167,10 +184,10 @@ export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerR
         : undefined
       // The sidebar is bounded, so an absent thread needs an authoritative refresh.
       const lists = [...cache.getQueriesData<ChannelList>({ queryKey: ['channels'] }), ...cache.getQueriesData<ChannelList>({ queryKey: ['dms'] })]
-      const opened = Boolean(readCursor) || lists.some(([, list]) => list?.threads?.some(thread => thread.id === event.sourceChannelId && thread.opened))
-      if (!inThread || opened) applyUnread(cache, event.rootChannelId, true, true, at)
-      if (inThread) applyThreadActivity(cache, event.sourceChannelId, event.rootChannelId, { unread: 'if-opened', increment: true, at })
-      if (inThread && !opened) {
+      const following = lists.some(([, list]) => list?.threads?.some(thread => thread.id === event.sourceChannelId && thread.following))
+      if (!inThread || following) applyUnread(cache, event.rootChannelId, true, true, at)
+      if (inThread) applyThreadActivity(cache, event.sourceChannelId, event.rootChannelId, { unread: 'if-followed', increment: true, at })
+      if (inThread && !following) {
         void cache.invalidateQueries({ queryKey: ['channels'] })
         void cache.invalidateQueries({ queryKey: ['dms'] })
       }

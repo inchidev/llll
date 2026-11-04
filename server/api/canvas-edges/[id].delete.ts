@@ -1,6 +1,7 @@
 import { getServerId } from '../../../shared/server-id'
 import { Permission } from '../../../shared/permissions'
 import { cf, fail } from '../../utils/cf'
+import { requireCanvas } from '../../utils/data-resources'
 import { requireMember } from '../../utils/guards'
 import { writeAudit } from '../../utils/messages'
 
@@ -12,6 +13,7 @@ export default defineEventHandler(async (event) => {
     'SELECT id, canvas_id as canvasId, from_node_id as fromNodeId, to_node_id as toNodeId FROM canvas_edges WHERE id = ?',
   ).bind(id).first<{ id: string; canvasId: string; fromNodeId: string; toNodeId: string }>()
   if (!edge) fail(404, 'not_found', 'Canvas connection not found')
+  await requireCanvas(env, edge.canvasId, actor.authorization, true)
   await env.DB.prepare('DELETE FROM canvas_edges WHERE id = ?').bind(id).run()
   await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_edge.delete', targetType: 'canvas_edge', targetId: id, meta: { canvasId: edge.canvasId } })
   return { ok: true }

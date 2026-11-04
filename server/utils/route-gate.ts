@@ -13,7 +13,7 @@ const context = (event: H3Event) => (event.context ?? {}) as GateContext
 /** What each handler answers for a missing resource, so a foreign one is indistinguishable. */
 const MISSING: Partial<Record<SpaceResourceKind, string>> = {
   channel: 'Channel not found', message: 'Message not found', board: 'Board not found', task: 'Task not found', project: 'Project not found',
-  database: 'Database not found', document: 'Document not found', canvas: 'Canvas not found', gadget: 'App not found',
+  database: 'Database not found', item: 'Item not found', document: 'Document not found', canvas: 'Canvas not found', gadget: 'App not found',
   attachment: 'File not found', taskAttachment: 'File not found', agent: 'Agent not found', schedule: 'Schedule not found', run: 'Run not found',
 }
 
@@ -82,7 +82,7 @@ export async function enforceRoutePolicy(event: H3Event): Promise<void> {
 }
 
 /** Hard per-Member limit on one action in one Space. A Space can tighten or loosen its defaults. */
-async function enforceActionLimit(event: H3Event, action: string, userId: string, spaceId: string | null) {
+export async function enforceActionLimit(event: H3Event, action: string, userId: string, spaceId: string | null) {
   const fallback = ACTION_RATE_LIMITS[action]
   if (!spaceId) {
     if (fallback) await requireRateLimit(event, [{ key: `action:${action}:${userId}`, limit: fallback.limit, windowMs: fallback.windowSeconds * 1000 }], 'Too many requests. Try again in a moment.')

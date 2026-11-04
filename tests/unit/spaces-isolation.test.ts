@@ -17,7 +17,8 @@ import { loadInbox } from '../../server/utils/inbox-service'
 import { loadSpaceAttention } from '../../server/utils/space-attention'
 import { listProjects, requireProject } from '../../server/utils/project-service'
 import { getTask, listTasks } from '../../server/utils/task-service'
-import { getDocument, listAuthorizedDataResources } from '../../server/utils/document-service'
+import { getItem } from '../../server/utils/item-service'
+import { listAuthorizedDataResources } from '../../server/utils/data-catalog'
 import { listAuthorizedTables } from '../../server/utils/table-catalog'
 import { listGadgets } from '../../server/utils/gadget-catalog'
 import { listMemberMailboxes } from '../../server/utils/mail-service'
@@ -84,7 +85,7 @@ beforeEach(() => {
     INSERT INTO task_boards(id,space_id,name,created_by) VALUES('b-hq','${DEFAULT_SPACE_ID}','HQ','dana'),('b-sales','${SALES}','Deals','sam');
     INSERT INTO tasks(id,board_id,title,status,created_by) VALUES('t-hq','b-hq','Close the books','ready','dana'),('t-sales','b-sales','Call Acme','ready','sam');
     INSERT INTO database_definitions(id,space_id,name,created_by) VALUES('db-hq','${DEFAULT_SPACE_ID}','Salaries','dana'),('db-sales','${SALES}','Leads','sam');
-    INSERT INTO documents(id,space_id,title,created_by) VALUES('d-hq','${DEFAULT_SPACE_ID}','Plan','dana'),('d-sales','${SALES}','Pitch','sam');
+    INSERT INTO data_items(id,space_id,title,created_by) VALUES('d-hq','${DEFAULT_SPACE_ID}','Plan','dana'),('d-sales','${SALES}','Pitch','sam');
     INSERT INTO gadgets(id,space_id,name,draft_spec_json,created_by) VALUES('g-hq','${DEFAULT_SPACE_ID}','HQ app','{}','dana'),('g-sales','${SALES}','CRM','{}','sam');`)
   const stub = new Proxy({}, { get: () => async () => [] })
   env = { DB: d1(db), SERVER_DO: { getByName: () => stub }, CHANNEL_DO: { getByName: () => stub } } as unknown as L4Env
@@ -134,7 +135,8 @@ describe('two Members in different Spaces', () => {
     expect(await gate('/api/channels/hq-general/messages')).toBe(404)
     expect(await gate('/api/channels/hq-general/messages', 'POST')).toBe(404)
     expect(await gate('/api/tasks/t-hq')).toBe(404)
-    expect(await gate('/api/documents/d-hq')).toBe(404)
+    expect(await gate('/api/items/d-hq')).toBe(404)
+    await expect(enforceRoutePolicy({ path: '/api/items/d-hq', method: 'GET', context: {} } as never)).rejects.toMatchObject({ statusMessage: 'Item not found' })
     expect(await gate('/api/projects/p-hq')).toBe(404)
     expect(await gate('/api/gadgets/g-hq')).toBe(404)
     expect(await gate('/api/users/dana/avatar')).toBe(404)
@@ -254,7 +256,7 @@ describe('two Members in different Spaces', () => {
     expect(data.documents.map(row => row.id)).toEqual(['d-sales'])
     expect(data.databases.map(row => row.id)).toEqual(['db-sales'])
     expect((await listAuthorizedTables(env, sam)).map(row => row.id)).toEqual(['db-sales'])
-    expect(await code(getDocument(env, sam, 'd-hq'))).toBe(404)
+    expect(await code(getItem(env, sam, 'd-hq'))).toBe(404)
   })
 
   it('Apps stay in their Space', async () => {
@@ -285,7 +287,7 @@ describe('two Members in different Spaces', () => {
     expect(listed.boards.map(board => board.id)).toEqual(['b-sales'])
     const data = await tools.call('list_data', {}) as { documents: Array<{ id: string }> }
     expect(data.documents.map(row => row.id)).toEqual(['d-sales'])
-    expect(await code(tools.call('get_document', { documentId: 'd-hq' }) as Promise<unknown>)).toBe(404)
+    expect(await code(tools.call('get_item', { itemId: 'd-hq' }) as Promise<unknown>)).toBe(404)
   })
 
   it('MCP tokens carry the boundary of their subject', async () => {
@@ -486,7 +488,7 @@ describe('a Server with one Space', () => {
   it('asks no more of anyone: everything is reachable and nothing is excluded', async () => {
     db.exec(`DELETE FROM space_members WHERE space_id='${SALES}'; DELETE FROM channels WHERE space_id='${SALES}';
       DELETE FROM tasks WHERE board_id='b-sales'; DELETE FROM task_boards WHERE space_id='${SALES}'; DELETE FROM projects WHERE space_id='${SALES}';
-      DELETE FROM documents WHERE space_id='${SALES}'; DELETE FROM database_definitions WHERE space_id='${SALES}'; DELETE FROM gadgets WHERE space_id='${SALES}';
+      DELETE FROM data_items WHERE space_id='${SALES}'; DELETE FROM database_definitions WHERE space_id='${SALES}'; DELETE FROM gadgets WHERE space_id='${SALES}';
       DELETE FROM spaces WHERE id='${SALES}';`)
     const boundary = await loadSpaceBoundary(env, 'dana')
     expect(boundary).toMatchObject({ ids: [DEFAULT_SPACE_ID], active: DEFAULT_SPACE_ID, denied: {} })

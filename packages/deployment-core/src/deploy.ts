@@ -506,7 +506,7 @@ async function uploadWorker(
   const backupBucketName = serverBackupBucketName(request, existing)
   if (backupBucketName) {
     if (backupBucketName === resources.bucketName) throw createError({ statusCode: 400, statusMessage: 'Backup bucket must be separate from live files' })
-    await ensureR2(cloudflareClient(accessToken), accountId, backupBucketName)
+    await ensureR2(await cloudflareClient(accessToken), accountId, backupBucketName)
   }
   const bindings: Array<Record<string, unknown>> = existing.exists && existing.bindings?.length
     ? updateWorkerBindings(existing.bindings, manifest, {
@@ -660,7 +660,7 @@ export async function deployL4Update(
   release: { manifest: InstallerReleaseManifest, worker: ArrayBuffer, assets: InstallerAssetsPayload },
   options: InstallVerifyOptions = {},
 ) {
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const account = await client.accounts.get({ account_id: accountId })
   if (account.id !== accountId) throw createError({ statusCode: 403, statusMessage: 'Cloudflare account is unavailable' })
   const existing = await inspectWorker(client, accountId, workerName)

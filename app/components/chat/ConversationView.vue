@@ -397,6 +397,7 @@ defineShortcuts({
         <USeparator v-if="!isDm && channel?.topic" orientation="vertical" class="h-4" />
         <p v-if="!isDm" class="text-sm text-muted truncate hidden lg:block min-w-0 flex-1">{{ channel?.topic }}</p>
         <div class="ml-auto flex items-center gap-2">
+          <ChatAttentionControls v-if="channel" :channel-id="channelId" :dm="isDm" />
           <UTooltip v-if="showConnection && connection === 'offline'" text="You're offline. New messages will appear when you reconnect.">
             <span class="flex size-7 items-center justify-center text-muted" role="status" aria-label="Offline">
               <UIcon name="i-ph-wifi-slash" class="size-4" />
@@ -478,6 +479,7 @@ defineShortcuts({
         @end="endLive"
       />
       <ChatMessageList
+        can-mark-unread
         v-else
         :channel-id="channelId"
         :members="members"
@@ -490,7 +492,7 @@ defineShortcuts({
         :link-path="channel ? channelPath(channel) : undefined"
         @reply="onReply"
         @thread="onThread"
-        @read="(messageId) => send({ t: 'read', messageId })"
+        @read="(messageId, generation) => send({ t: 'read', messageId, generation })"
         @retry="retry"
       />
       <UAlert v-if="frozen" color="neutral" variant="subtle" title="You can no longer send messages to this user." class="rounded-none shrink-0" />

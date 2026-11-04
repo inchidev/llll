@@ -331,6 +331,8 @@ or:
 
 A `BROWSER` binding is used first. Without one, the Cloudflare API token calls Browser Run. `BROWSER_CDP_URL` is the next choice: a Chromium DevTools HTTP base (`http://127.0.0.1:9222`) or a browser WebSocket (`ws://` or `wss://`). The agent reads a public http(s) URL, lists its links, or stores a screenshot. Private addresses and the server origin are rejected before navigation. Do not publish the DevTools port.
 
+On the `BROWSER_CDP_URL` path L4 also checks every request the page makes, redirects included: it resolves the hostname over DNS-over-HTTPS (`cloudflare-dns.com`) and refuses it if any address is private, or if the lookup fails, so this node needs that endpoint. This is not a complete boundary. Chromium does its own lookup afterwards, so a hostname can answer differently the second time (DNS rebinding), and WebSockets, WebRTC and new windows that a page opens are not checked. Run local Chromium on an isolated network with no route to this node, its metadata service or your private ranges.
+
 Without a binding, the Cloudflare token, and `BROWSER_CDP_URL`, page reading is off and the agent settings explain that.
 
 Calls and live sessions use Cloudflare RealtimeKit. On Cloudflare's network the existing connection flow stays. With `LLLL_RUNTIME=celld` and the Cloudflare API token, the first call creates a RealtimeKit app named `L4` with the host and participant presets. Live settings explain that. A pasted Realtime token is optional. Without the API token, the owner connects RealtimeKit in Settings → Live the same way as on Cloudflare: paste a token with **Realtime Admin**, or use the Server's kept Cloudflare access. Until one of these is set, rooms do not start. Text chat keeps working.

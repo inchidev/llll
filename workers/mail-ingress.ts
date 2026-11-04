@@ -1,9 +1,10 @@
 import { fileStorage } from '../shared/file-storage'
 import { getServerId } from '../shared/server-id'
-import PostalMime, { type Address } from 'postal-mime'
+import type { Address, Email } from 'postal-mime'
 import { newId, nowIso } from '../shared/ids'
 import { MAIL_EXTERNAL_USER_ID, MAIL_LIMITS, mailAddressList, mergeMailAddresses } from '../shared/mail'
 import { mailAttachmentFilename, mailAttachmentType, mailFilesAvailable } from '../shared/mail-attachments'
+import { mailAuthVerdict, trustedAuthResults, type MailAuthResults } from '../shared/mail-auth'
 import { plainMailBody } from '../shared/mail-content'
 import type { L4Env } from './env'
 import { signalMailChanged } from './mail-events'
@@ -20,6 +21,11 @@ export type ServerEmailEnvelope = {
   raw: ReadableStream<Uint8Array>
   /** Size of the raw message when the transport reports it. */
   rawSize?: number
+  /**
+   * What a hop this Server trusts recorded, read by that path and never from the message's own
+   * headers. A path with nothing to offer leaves it out, and its mail counts as unverified.
+   */
+  authResults?: MailAuthResults | null
 }
 
 export type ServerEmailIngressResult =
@@ -87,6 +93,9 @@ async function readRaw(stream: ReadableStream<Uint8Array>, limit: number): Promi
  * with no Message-ID is stored once per SHA-256 of its raw bytes, in
  * `client_request_id`, so a replay does not add a second copy. That digest is
  * not written as a Message-ID.
+ *
+ * Mail that does not prove its sender is always stored, but starts its own conversation, with only
+ * its sender as a participant and no Reply-To: anyone can name a Message-ID, a Cc or a Reply-To.
  */
 export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env): Promise<ServerEmailIngressResult> {
   const recipient = message.to.trim().toLowerCase()
@@ -102,7 +111,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   if ((message.rawSize ?? 0) > MAIL_LIMITS.rawBytes) return { accepted: false, reason: 'Message is too large' }
   const raw = await readRaw(message.raw, MAIL_LIMITS.rawBytes)
   if (!raw) return { accepted: false, reason: 'Message is too large' }
-  let parsed: Awaited<ReturnType<typeof PostalMime.parse>>
+  // Only inbound mail needs the parser, so a Worker starting for anything else does not load it.
+  const { default: PostalMime } = await import('postal-mime')
+  let parsed: Email
   try { parsed = await PostalMime.parse(raw) }
   catch {
     // Parser limits and malformed MIME are permanent input failures, not retryable delivery errors.
@@ -126,8 +137,10 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   const cc = addressList(parsed.cc)
   const bcc = addressList(parsed.bcc)
   const refs = referenceIds(parsed.inReplyTo, parsed.references)
+  const authVerdict = mailAuthVerdict(message.authResults, from.address)
+  const trusted = authVerdict === 'verified'
   let thread: { channelId: string; participantsJson: string } | null = null
-  if (refs.length) {
+  if (refs.length && authVerdict !== 'failed') {
     const placeholders = refs.map(() => '?').join(',')
     thread = await env.DB.prepare(
       `SELECT t.channel_id as channelId, t.participants_json as participantsJson
@@ -135,6 +148,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
        WHERE em.mailbox_channel_id = ? AND t.mailbox_channel_id = ? AND em.rfc_message_id IN (${placeholders})
        ORDER BY em.created_at DESC LIMIT 1`,
     ).bind(mailbox.channelId, mailbox.channelId, ...refs).first<{ channelId: string; participantsJson: string }>()
+    // Many paths can't say who sent a message. A reply from someone already in the conversation still
+    // threads, but naming a Message-ID alone must not let a stranger in.
+    if (thread && !trusted && !mailAddressList(thread.participantsJson).includes(from.address)) thread = null
   }
 
   const serverId = await getServerId(env.DB)
@@ -173,7 +189,7 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
 
   const participants = mergeMailAddresses(
     mailAddressList(thread?.participantsJson),
-    [from.address, ...to.map(item => item.address), ...cc.map(item => item.address)],
+    trusted ? [from.address, ...to.map(item => item.address), ...cc.map(item => item.address)] : [from.address],
   ).filter(address => address !== mailbox.address)
   const statements: D1PreparedStatement[] = []
   const threadChannelId = thread?.channelId ?? newId()
@@ -209,8 +225,8 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
     env.DB.prepare(
       `INSERT INTO email_messages
        (message_id, thread_channel_id, mailbox_channel_id, direction, from_address, from_name, to_json, cc_json, bcc_json,
-        rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at, reply_to_json)
-       VALUES (?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?, ?)`,
+        rfc_message_id, in_reply_to, references_json, delivery_status, raw_r2_key, client_request_id, created_at, reply_to_json, auth_verdict)
+       VALUES (?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?, ?, ?)`,
     ).bind(
       messageId,
       threadChannelId,
@@ -226,7 +242,8 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
       files ? rawKey : null,
       rawHash,
       created,
-      JSON.stringify(mergeMailAddresses(addressList(parsed.replyTo).map(item => item.address))),
+      JSON.stringify(trusted ? mergeMailAddresses(addressList(parsed.replyTo).map(item => item.address)) : []),
+      authVerdict,
     ),
     ...(files ? attachmentRows : []).map(attachment => env.DB.prepare(
       `INSERT INTO attachments
@@ -272,6 +289,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
 }
 
 export async function receiveServerEmail(message: ForwardableEmailMessage, env: L4Env): Promise<void> {
-  const result = await ingestServerEmail({ from: message.from, to: message.to, raw: message.raw, rawSize: message.rawSize }, env)
+  const result = await ingestServerEmail({
+    from: message.from, to: message.to, raw: message.raw, rawSize: message.rawSize,
+    authResults: trustedAuthResults(message.headers.get('authentication-results')),
+  }, env)
   if (!result.accepted) message.setReject(result.reason)
 }

@@ -30,6 +30,7 @@ beforeEach(() => {
     INSERT INTO messages(id,channel_id,author_id,content,deleted_at,created_at) VALUES('m3','chat','owner','gone','2026-01-03','2026-01-03');
     INSERT INTO channels(id,name,type,visibility,parent_id,parent_message_id) VALUES('followed','followed','thread','server','chat','m1'),('unfollowed','unfollowed','thread','server','chat','m2');
     INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('t1','followed','owner','r','2026-01-04'),('t2','followed','owner','r','2026-01-05'),('u1','unfollowed','owner','r','2026-01-04');
+    INSERT INTO channel_attention(channel_id,user_id,following) VALUES('followed','me',1);
     INSERT INTO channel_reads(channel_id,user_id,last_read_message_id,updated_at) VALUES('followed','me','t1','2026-01-04');`)
   state.env = { DB: d1(sqlite) } as unknown as L4Env
   state.userId = 'me'; state.pending = []

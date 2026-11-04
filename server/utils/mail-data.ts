@@ -39,6 +39,7 @@ export async function hydrateMailMessages(env: L4Env, rows: Array<typeof message
             deliveryStatus: email.deliveryStatus,
             deliveryError: email.deliveryError,
             deliveryUncertain: mailDeliveryUncertain(email),
+            ...(email.authVerdict === 'failed' || email.authVerdict === 'unverified' ? { authWarning: email.authVerdict } : {}),
             format: email.bodyFormat,
           }
         : null,

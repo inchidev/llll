@@ -1,4 +1,5 @@
 import { MAIL_LIMITS } from '../shared/mail'
+import type { MailAuthResults } from '../shared/mail-auth'
 import { cloudflareNetwork, type L4Env } from './env'
 import {
   configuredInboundSecret,
@@ -70,7 +71,7 @@ function rawStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
   })
 }
 
-async function deliver(env: L4Env, from: string, recipients: string[], raw: Uint8Array, successStatus: 200 | 202): Promise<Response> {
+async function deliver(env: L4Env, from: string, recipients: string[], raw: Uint8Array, successStatus: 200 | 202, authResults?: MailAuthResults): Promise<Response> {
   if (!recipients.length) return badRequest('Missing recipient')
   let accepted = false
   let failure = 422
@@ -78,7 +79,7 @@ async function deliver(env: L4Env, from: string, recipients: string[], raw: Uint
   for (const to of recipients) {
     let result: ServerEmailIngressResult
     try {
-      result = await ingestServerEmail({ from, to, raw: rawStream(raw), rawSize: raw.byteLength }, env)
+      result = await ingestServerEmail({ from, to, raw: rawStream(raw), rawSize: raw.byteLength, ...(authResults ? { authResults } : {}) }, env)
     }
     catch {
       return new Response('Inbound email failed', { status: 500 })
@@ -294,10 +295,11 @@ export async function acceptMailgunInbound(request: Request, env: L4Env): Promis
   return deliver(env, from, [to], raw, 200)
 }
 
+type SesVerdict = { status?: unknown }
 type SesReceipt = {
   notificationType?: unknown
   mail?: { source?: unknown, destination?: unknown }
-  receipt?: { recipients?: unknown }
+  receipt?: { recipients?: unknown, dmarcVerdict?: SesVerdict, dkimVerdict?: SesVerdict, spfVerdict?: SesVerdict }
   content?: unknown
 }
 
@@ -340,7 +342,14 @@ export async function acceptSesInbound(request: Request, env: L4Env, fetcher: ty
   const recipients = sesRecipients(receipt).map(recipientField).filter((value): value is string => Boolean(value))
   const from = envelopeField(extractAddress(text(receipt.mail?.source)))
   if (!recipients.length || from === null) return badRequest('Invalid envelope')
-  return deliver(env, from, recipients, raw, 200)
+  return deliver(env, from, recipients, raw, 200, sesAuthResults(receipt))
+}
+
+/** SES records its checks outside the message, in the notification that SNS signed. */
+function sesAuthResults(receipt: SesReceipt): MailAuthResults | undefined {
+  const result = (verdict?: SesVerdict) => typeof verdict?.status === 'string' ? verdict.status.toLowerCase() : undefined
+  const dmarc = result(receipt.receipt?.dmarcVerdict), dkim = result(receipt.receipt?.dkimVerdict), spf = result(receipt.receipt?.spfVerdict)
+  return dmarc || dkim || spf ? { ...(dmarc ? { dmarc } : {}), ...(dkim ? { dkim } : {}), ...(spf ? { spf } : {}) } : undefined
 }
 
 function snsTimestampFresh(value: string | undefined): boolean {

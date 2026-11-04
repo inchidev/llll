@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { deployL4Update, type InstallerReleaseManifest } from '../../../packages/deployment-core/src/index'
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
+import { cloudflareClient, deployL4Update, type InstallerReleaseManifest } from '../../../packages/deployment-core/src/index'
 
 const asset = { url: 'https://releases.example/asset', sha256: 'a'.repeat(64), size: 0 }
 const manifest: InstallerReleaseManifest = {
@@ -12,6 +12,8 @@ const manifest: InstallerReleaseManifest = {
   ],
 }
 
+// The SDK loads on first use, which takes real time that fake timers cannot advance.
+beforeAll(async () => { await cloudflareClient('token') })
 beforeEach(() => {
   vi.useFakeTimers()
   vi.spyOn(console, 'warn').mockImplementation(() => {})

@@ -1,3 +1,4 @@
+import { liveItemSql, readableItemSql } from './item-access'
 import { DatabaseColumnWidth, DatabaseViewFilterOperators, DatabaseViewLayouts, defaultDatabaseViewConfig, filterOperatorsFor, isListFieldType, type DatabaseFieldType, type DatabaseScalarValue, type DatabaseViewConfig, type DatabaseViewFilter, type DatabaseViewFilterOperator, type DatabaseViewLayout } from '../../shared/database'
 import type { DatabasePageDTO, DatabaseViewDTO } from '../../shared/types'
 import { resourceAllowed, type AuthorizationContext } from '../../shared/authorization'
@@ -171,14 +172,14 @@ function viewQuery(
   search: string,
   dateRange?: { from: string, to: string },
 ) {
-  const clauses = ['database_id = ?', 'deleted_at IS NULL']
+  const clauses = ['database_id = ?', liveItemSql()]
   const values: Array<string | number | null> = []
   for (const filter of config.filters) {
     const type = fieldType(fields, filter.fieldId)
     if (type === 'relation') {
       // Linked records are rows of their own; empty means no row for this field.
       if (filter.operator !== 'is_empty' && filter.operator !== 'is_not_empty') continue
-      clauses.push(`${filter.operator === 'is_empty' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM database_item_links WHERE item_id = database_items.id AND field_id = ?)`)
+      clauses.push(`${filter.operator === 'is_empty' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM database_item_links WHERE item_id = data_items.id AND field_id = ?)`)
       values.push(filter.fieldId)
       continue
     }
@@ -233,7 +234,7 @@ export async function databaseItemMatchesView(
   const view = (await loadDatabaseViews(env, databaseId, fields)).find(candidate => candidate.id === viewId)
   if (!view) return false
   const query = viewQuery(view.config, fields, '')
-  const match = await env.DB.prepare(`SELECT 1 FROM database_items WHERE id = ? AND ${query.where} LIMIT 1`)
+  const match = await env.DB.prepare(`SELECT 1 FROM data_items WHERE id = ? AND ${query.where} LIMIT 1`)
     .bind(itemId, databaseId, ...query.values).first()
   return Boolean(match)
 }
@@ -256,32 +257,33 @@ export async function loadDatabasePage(
     : undefined
   if (options.groupPages !== undefined && view.layout === 'calendar' && (!dateRange || !validCalendarRange(dateRange.from, dateRange.to))) fail(400, 'calendar_range_required', 'Grouped Calendar pages require a visible range of at most 62 days')
   const query = viewQuery(view.config, fields, options.search ?? '', dateRange)
+  query.where += ` AND ${readableItemSql(options.authorization)}`
   const offset = (options.page - 1) * options.pageSize
   const groupColumn = view.layout === 'board' && view.config.groupFieldId
     ? columnFor(fields, view.config.groupFieldId)
     : view.layout === 'calendar' && view.config.dateFieldId ? columnFor(fields, view.config.dateFieldId) : null
   const grouped = groupColumn && options.groupPages !== undefined
   const statements = [
-    env.DB.prepare(`SELECT COUNT(*) as total FROM database_items WHERE ${query.where}`).bind(databaseId, ...query.values),
+    env.DB.prepare(`SELECT COUNT(*) as total FROM data_items WHERE ${query.where}`).bind(databaseId, ...query.values),
     grouped
       ? env.DB.prepare(`WITH ranked AS (
           SELECT *, database_id AS databaseId, created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt,
             COALESCE(CAST(${groupColumn} AS TEXT),'') AS _groupKey,
             ROW_NUMBER() OVER (PARTITION BY COALESCE(CAST(${groupColumn} AS TEXT),'') ORDER BY ${query.order}) AS _rank
-          FROM database_items WHERE ${query.where}
+          FROM data_items WHERE ${query.where}
         ) SELECT ranked.* FROM ranked LEFT JOIN json_each(?) pages ON pages.key=ranked._groupKey
           WHERE _rank > (COALESCE(pages.value,1)-1)*10 AND _rank <= COALESCE(pages.value,1)*10 ORDER BY _groupKey,_rank`)
         .bind(databaseId, ...query.values, JSON.stringify(options.groupPages))
       : env.DB.prepare(
         `SELECT *, database_id as databaseId, created_by as createdBy,
-         created_at as createdAt, updated_at as updatedAt FROM database_items
+         created_at as createdAt, updated_at as updatedAt FROM data_items
          WHERE ${query.where} ORDER BY ${query.order} LIMIT ? OFFSET ?`,
       ).bind(databaseId, ...query.values, options.pageSize, offset),
   ]
   if (groupColumn) {
     statements.push(env.DB.prepare(
       `SELECT COALESCE(CAST(${groupColumn} AS TEXT), '') as groupKey, COUNT(*) as total
-       FROM database_items WHERE ${query.where} GROUP BY ${groupColumn}`,
+       FROM data_items WHERE ${query.where} GROUP BY ${groupColumn}`,
     ).bind(databaseId, ...query.values))
   }
   const [countResult, itemsResult, groupResult] = await env.DB.batch(statements)
@@ -293,7 +295,7 @@ export async function loadDatabasePage(
     views,
     view,
     items: items.map(item => databaseItemDto(item, fields, links.get(item.id))),
-    linked: await loadLinkedRecords(env, links, databaseId => !options.authorization || resourceAllowed(options.authorization, 'databases', databaseId)),
+    linked: await loadLinkedRecords(env, links, databaseId => !options.authorization || resourceAllowed(options.authorization, 'databases', databaseId), options.authorization),
     total: Number(count),
     page: options.page,
     pageSize: grouped ? 10 : options.pageSize,

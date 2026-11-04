@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
+import type { ChatAttention } from '~~/shared/chat-attention'
 import type { InfiniteData } from '@tanstack/vue-query'
 import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { ChannelThreadDTO, MemberDTO, MessageContextResponse, MessageDTO, MessagePinDTO, MessageSearchHitDTO, MessageSearchResponse, TaskSourceLinkDTO } from '~~/shared/types'
@@ -29,6 +30,8 @@ const props = withDefaults(defineProps<{
   linkPath?: string
   /** Offer Create task on messages (Create and update tasks somewhere in the Server). */
   canCreateTasks?: boolean
+  /** Ordinary chats can be left unread in Inbox; task discussions have their own destination. */
+  canMarkUnread?: boolean
   /** An archived conversation: history only. Existing threads still open; nothing new is added. */
   readOnly?: boolean
 }>(), { channelName: undefined, linkPath: undefined, showIntro: true, allowThreads: true })
@@ -36,7 +39,7 @@ const { api } = useApi()
 const emit = defineEmits<{
   reply: [id: string]
   thread: [msg: MessageDTO]
-  read: [messageId: string]
+  read: [messageId: string, generation: number]
   retry: [clientId: string]
   rootMessage: [message: MessageDTO | null]
 }>()
@@ -55,8 +58,11 @@ const jumpingToId = ref<string | null>(null)
 const unreadBoundary = ref<string | null>(null)
 const activeId = ref<string | null>(null)
 let lastRead = ''
+let readGeneration: number | undefined
+const leaveUnread = ref(false)
 
 type MessageResponse = MessagePage & {
+  readGeneration?: number
   lastReadMessageId?: string | null
 }
 
@@ -92,6 +98,17 @@ const q = useInfiniteQuery({
     query: { cursor: pageParam, limit: 50 },
   }),
   getNextPageParam: (last) => last.nextCursor ?? undefined,
+})
+
+
+// Read the generation afresh on each visit, even when the message history is cached.
+// Keep that generation for this visit: another tab's Mark unread pauses this view's reads.
+const readSnapshot = useQuery({
+  queryKey: computed(() => ['chat-attention', props.channelId]),
+  queryFn: () => api<ChatAttention>(`/api/channels/${props.channelId}/attention`),
+  refetchOnMount: 'always',
+  // Switching back reuses this component and only refetches what is stale; reads wait for a fresh answer.
+  staleTime: 0,
 })
 
 // The "New" divider comes from the read cursor in the first fresh page. Cached
@@ -250,11 +267,16 @@ function scrollToBottom(smooth = false) {
 
 function markReadIfVisible() {
   const message = messages.value.at(-1)
-  if (!scroller.value || !message || message.channelId !== props.channelId || ui.searchOpen || document.hidden || !document.hasFocus()) return
+  if (leaveUnread.value || !scroller.value || !message || message.channelId !== props.channelId || ui.searchOpen || document.hidden || !document.hasFocus()) return
   if (distanceFromBottom() > BOTTOM_SLACK || message.id === lastRead || message.id.startsWith('tmp:')) return
+  if (readGeneration === undefined && (!readSnapshot.isFetchedAfterMount.value || readSnapshot.isFetching.value)) return
+  readGeneration ??= readSnapshot.data.value?.readGeneration
+  if (readGeneration === undefined) return
   lastRead = message.id
-  emit('read', message.id)
+  emit('read', message.id, readGeneration)
 }
+
+watch(() => readSnapshot.isFetching.value, async fetching => { if (!fetching) { await nextTick(); markReadIfVisible() } })
 
 watch(() => messages.value.at(-1)?.id, async (id, previous) => {
   const last = messages.value.at(-1)
@@ -262,6 +284,10 @@ watch(() => messages.value.at(-1)?.id, async (id, previous) => {
   await nextTick()
   if (pinned.value || sentByMe) scrollToBottom()
   else if (id && previous && last && last.author.id !== session.user?.id) unseen.value += 1
+  // Another tab's Mark unread holds reads back only until something newer arrives.
+  if (readGeneration !== undefined && id && !id.startsWith('tmp:') && lastRead && id > lastRead) {
+    readGeneration = Math.max(readGeneration, readSnapshot.data.value?.readGeneration ?? 0, qc.getQueryData<number>(['chat-read-generation', props.channelId]) ?? 0)
+  }
   markReadIfVisible()
 })
 
@@ -477,6 +503,23 @@ function canThread(message: MessageDTO) {
   return props.allowThreads && (!props.readOnly || Boolean(message.threadId))
 }
 
+async function markUnread(message: MessageDTO) {
+  leaveUnread.value = true
+  try {
+    await api(`/api/channels/${props.channelId}/unread`, { method: 'POST', body: { messageId: message.id } })
+    for (const key of ['channels', 'dms', 'followed-threads']) void qc.invalidateQueries({ queryKey: [key] })
+    ui.threadId = null
+    ui.threadParentId = null
+    await navigateTo('/inbox?section=chats')
+  }
+  catch {
+    leaveUnread.value = false
+    toast.add({ title: 'Could not mark as unread', color: 'error' })
+  }
+}
+
+watch(() => props.channelId, () => { lastRead = ''; readGeneration = undefined; leaveUnread.value = false; boundarySettled = false })
+
 function actionsFor(message: MessageDTO): DropdownMenuItem[][] {
   const mine = message.author.id === session.user?.id
   const main: DropdownMenuItem[] = props.readOnly ? [] : [
@@ -501,6 +544,7 @@ function actionsFor(message: MessageDTO): DropdownMenuItem[][] {
   copyItems.push({ label: 'Copy message ID', icon: 'i-ph-identification-badge', onSelect: () => { void copy(message.id, 'ID') } })
   const groups = [main, copyItems]
   if (mine || props.canModerate) groups.push([{ label: 'Delete message', icon: 'i-ph-trash', color: 'error', onSelect: () => remove(message.id) }])
+  if (props.canMarkUnread && !props.readOnly && !message.deletedAt && message.channelId === props.channelId) main.push({ label: 'Mark unread from here', icon: 'i-ph-envelope-simple', onSelect: () => markUnread(message) })
   return groups
 }
 

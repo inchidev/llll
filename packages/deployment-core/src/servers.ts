@@ -124,7 +124,7 @@ function serverFromMetadata(
   }
 }
 
-async function accountZones(client: ReturnType<typeof cloudflareClient>, accountId: string): Promise<CloudflareZone[]> {
+async function accountZones(client: Awaited<ReturnType<typeof cloudflareClient>>, accountId: string): Promise<CloudflareZone[]> {
   const zones: CloudflareZone[] = []
   for await (const zone of client.zones.list({ account: { id: accountId }, per_page: 50 })) {
     if (!zone.id || !zone.name) continue
@@ -133,8 +133,8 @@ async function accountZones(client: ReturnType<typeof cloudflareClient>, account
   return zones
 }
 
-export function listAccountZones(accessToken: string, accountId: string): Promise<CloudflareZone[]> {
-  return accountZones(cloudflareClient(accessToken), accountId)
+export async function listAccountZones(accessToken: string, accountId: string): Promise<CloudflareZone[]> {
+  return accountZones(await cloudflareClient(accessToken), accountId)
 }
 
 const SETTINGS_CONCURRENCY = 10
@@ -152,7 +152,7 @@ async function mapConcurrent<T, R>(items: T[], limit: number, task: (item: T) =>
 }
 
 async function workerMetadata(
-  client: ReturnType<typeof cloudflareClient>,
+  client: Awaited<ReturnType<typeof cloudflareClient>>,
   accountId: string,
   workerIds: string[],
   strict = false,
@@ -177,7 +177,7 @@ export async function listL4Servers(
   options: { zones?: CloudflareZone[]; strict?: boolean } = {},
 ): Promise<CloudflareServer[]> {
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account is invalid' })
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   // Zones are only needed to interpret bindings, so they load alongside the workers instead of before them.
   const [zones, { workerIds, metadataList }] = await Promise.all([
     options.zones || (async () => {
@@ -212,7 +212,7 @@ export async function readL4Server(
 ): Promise<CloudflareServer | null> {
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account is invalid' })
   if (!workerName.trim()) return null
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const [worker, zones] = await Promise.all([
     client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
       .catch(() => null)
@@ -231,7 +231,7 @@ export async function readL4Server(
 
 export async function findL4Servers(accessToken: string, origin: unknown): Promise<CloudflareServer[]> {
   const hostname = serverHostname(origin)
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const accounts = []
   for await (const account of client.accounts.list({ per_page: 50 })) accounts.push(account)
   const zones: CloudflareZone[] = []

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { itemPath } from '~~/shared/data-items'
 import { useSwipeToClose } from '~/composables/useSwipeToClose'
 /**
  * A record opened as a page, like Notion: the title on top, then every field
@@ -41,6 +42,7 @@ const swipe = useSwipeToClose(() => { open.value = false })
         <div class="flex items-center gap-1 px-4 pt-3 text-xs text-muted">
           <UIcon name="i-ph-table" class="size-4" /><span class="truncate">{{ databaseName }}</span>
           <span v-if="saving" class="ms-2 flex items-center gap-1"><span class="size-1.5 animate-pulse rounded-full bg-primary" />Saving</span>
+          <UButton :to="itemPath(item.id)" icon="i-ph-arrow-square-out" label="Open page" color="neutral" variant="ghost" size="sm" />
           <UButton icon="i-ph-x" color="neutral" variant="ghost" size="sm" aria-label="Close record" class="ms-auto" @click="open = false" />
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
@@ -54,7 +56,7 @@ const swipe = useSwipeToClose(() => { open.value = false })
             </div>
             <p v-if="!fields.length" class="py-3 text-sm text-muted">This database has no fields yet. Add one with + in the table header.</p>
           </dl>
-          <DataReferences :id="item.id" type="record" :writable="canWrite" />
+          <DataReferences :id="item.id" type="item" :writable="canWrite" />
           <div class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-dimmed">
             <span>Created {{ formatMessageTime(item.createdAt).replace(/^(Today|Yesterday)/, word => word.toLowerCase()) }}<template v-if="creator"> by {{ creator }}</template></span>
             <span v-if="item.updatedAt !== item.createdAt">Edited {{ formatMessageTime(item.updatedAt).replace(/^(Today|Yesterday)/, word => word.toLowerCase()) }}</span>

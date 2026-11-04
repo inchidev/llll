@@ -15,7 +15,7 @@ function stream(text: string): ReadableStream<Uint8Array> {
 }
 function receive(id: string, extra: string[] = []) {
   const raw = ['From: Customer <customer@example.net>', 'To: support@example.com', 'Subject: Invoice question', `Message-ID: ${id}`, ...extra, 'MIME-Version: 1.0', 'Content-Type: text/plain', '', 'Where is my invoice?'].join('\r\n')
-  return ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(raw) }, env)
+  return ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(raw), authResults: { dmarc: 'pass' } }, env)
 }
 const outbox = () => sqlite.prepare('SELECT recipient_id AS recipient, kind, payload_json AS payload, channel_id AS channel FROM notification_outbox ORDER BY recipient_id').all() as Array<{ recipient: string; kind: string; payload: string; channel: string }>
 

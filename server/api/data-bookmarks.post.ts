@@ -3,13 +3,13 @@ import { z } from 'zod'
 import type { DataBookmarkDTO } from '../../shared/types'
 import { Permission } from '../../shared/permissions'
 import { cf } from '../utils/cf'
-import { requireCanvas, requireDocument } from '../utils/data-resources'
+import { requireItem } from '../utils/item-access'
 import { requireDatabase } from '../utils/database-data'
 import { requireDatabaseView } from '../utils/database-views'
 import { requireMember } from '../utils/guards'
 import { parseBody } from '../utils/validate'
 
-const bodySchema = z.object({ targetType: z.enum(['database_view', 'document', 'canvas']), targetId: z.string().min(1) })
+const bodySchema = z.object({ targetType: z.enum(['database_view', 'item']), targetId: z.string().min(1) })
 
 export default defineEventHandler(async (event): Promise<{ bookmark: DataBookmarkDTO }> => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
@@ -19,8 +19,7 @@ export default defineEventHandler(async (event): Promise<{ bookmark: DataBookmar
     const view = await requireDatabaseView(env, body.targetId, actor.authorization)
     await requireDatabase(env, view.databaseId, true)
   }
-  else if (body.targetType === 'document') await requireDocument(env, body.targetId, actor.authorization)
-  else await requireCanvas(env, body.targetId, actor.authorization)
+  else await requireItem(env, actor.authorization, body.targetId)
   const position = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) + 1024 as value FROM data_bookmarks WHERE user_id = ?')
     .bind(actor.user.id).first<{ value: number }>()
   await env.DB.prepare(

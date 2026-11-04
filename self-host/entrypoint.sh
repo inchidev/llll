@@ -6,7 +6,7 @@
 set -eu
 
 TEMPLATE="${CELLD_TEMPLATE:-/opt/llll/wrangler.celld.json}"
-CONFIG="${CELLD_CONFIG:-$(dirname "$TEMPLATE")/wrangler.celld.local.json}"
+CONFIG="${CELLD_CONFIG:-/tmp/llll/wrangler.celld.local.json}"
 CELLD_BUCKET="${CELLD_BUCKET:-s3://cells}"
 S3_ENDPOINT="${S3_ENDPOINT:-http://rustfs:9000}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -14,6 +14,12 @@ CELLD_LISTEN="${CELLD_LISTEN:-0.0.0.0:8080}"
 CELLD_INTERNAL_LISTEN="${CELLD_INTERNAL_LISTEN:-127.0.0.1:8081}"
 CELLD_ADVERTISE="${CELLD_ADVERTISE:-127.0.0.1:8081}"
 CELLD_WATCH="${CELLD_WATCH:-/var/lib/llll/celld}"
+
+# An older Compose file sets no user and its volume is root-owned. Take the volume over, then give up root.
+if [ "$(id -u)" = 0 ]; then
+  chown -R 10001:10001 "$CELLD_WATCH"
+  exec setpriv --reuid=10001 --regid=10001 --clear-groups --inh-caps=-all -- "$0" "$@"
+fi
 CELLD_RESTART_DELAY="${CELLD_RESTART_DELAY:-15}"
 
 export AWS_REGION S3_ENDPOINT CELLD_WATCH
@@ -103,7 +109,18 @@ if [ ! -f "$TEMPLATE" ]; then
 fi
 
 umask 077
-cp "$TEMPLATE" "$CONFIG"
+mkdir -p "$(dirname "$CONFIG")"
+# Keep secrets and generated configuration off the read-only application image.
+# celld requires project-relative paths (absolute paths are rejected). Link the
+# read-only source directory into the temporary project, keeping file/asset
+# paths relative while the generated configuration remains writable.
+template_dir=$(cd "$(dirname "$TEMPLATE")" && pwd)
+ln -sfn "$template_dir" "$(dirname "$CONFIG")/source"
+jq '
+  def source_path: "source/" + ltrimstr("./");
+  .main |= source_path | .assets.directory |= source_path |
+  .d1_databases |= map(.migrations_dir |= source_path)
+' "$TEMPLATE" > "$CONFIG"
 
 put_var() {
   key=$1
@@ -172,7 +189,7 @@ if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
   build_directory=$(printf '%s' "$LLLL_DEV_DEPLOYED_BUILD" | jq -r '.directory')
   case "$build_directory" in build-[0-9]*) ;; *) fail "missing completed backend build" ;; esac
   tmp=$(mktemp)
-  jq --arg dir ".output/$build_directory" \
+  jq --arg dir "source/.output/$build_directory" \
     '.main=($dir+"/server/index.mjs") | .assets.directory=($dir+"/public")' "$CONFIG" > "$tmp"
   mv "$tmp" "$CONFIG"
   export LLLL_DEV_DEPLOYED_BUILD

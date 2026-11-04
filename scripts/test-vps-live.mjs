@@ -66,6 +66,7 @@ else{const r=spawnSync(${JSON.stringify(realCurl)},args,{stdio:'inherit'});proce
 `, { mode: 0o755 })
   const installer = join(directory, 'install.sh')
   await run(installer)
+  assert.match(await run(join(target, 'llll'), ['doctor']), /Doctor passed/)
   const firstEnv = readFileSync(join(target, '.env'), 'utf8'), config = dotenv(join(target, '.env'))
   const discovery = await (await api('/.well-known/llll')).json()
   const password = randomBytes(24).toString('hex')
@@ -90,11 +91,19 @@ else{const r=spawnSync(${JSON.stringify(realCurl)},args,{stdio:'inherit'});proce
   const attachment = (await upload.json()).attachment
   assert.ok(!(await run(installer)).includes('claim='))
   assert.equal(readFileSync(join(target, '.env'), 'utf8'), firstEnv)
+  // Simulate a pre-hardening installation: only this fixture's stopped volume
+  // is made root-owned. The permissions service must recover it on restart.
+  await run(join(target, 'llll'), ['stop'])
+  assert.match(config.LLLL_PROJECT, /^llll-vps-[a-f0-9]{12}$/)
+  docker(['run', '--rm', '--network', 'none', '--mount', `type=volume,src=${config.LLLL_PROJECT}_celld-data,dst=/data`, 'alpine:3.24', 'chown', '-R', '0:0', '/data'])
+  await run(join(target, 'llll'), ['start'])
+  assert.match(await run(join(target, 'llll'), ['doctor']), /Doctor passed/)
   await run(join(target, 'llll'), ['backup'])
   const backup = readdirSync(env.LLLL_BACKUP_DIR).find(name => name.endsWith('.tar.gz'))
   await run(join(target, 'llll'), ['uninstall', '--yes', '--purge', '--no-backup'])
   assert.ok(existsSync(join(env.LLLL_BACKUP_DIR, backup)))
   await run(join(target, 'llll'), ['restore', join(env.LLLL_BACKUP_DIR, backup)], { LLLL_DIR: restored })
+  assert.match(await run(join(restored, 'llll'), ['doctor'], { LLLL_DIR: restored }), /Doctor passed/)
   assert.equal((await (await api('/.well-known/llll')).json()).id, discovery.id)
   assert.ok((await (await api(`/api/channels/${general.id}/messages`)).json()).messages.some(item => item.id === message.message.id))
   assert.equal(await (await api('/api/files/' + attachment.id)).text(), 'private VPS backup file')

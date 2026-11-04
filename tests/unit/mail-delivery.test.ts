@@ -7,7 +7,7 @@ import { hydrateMailMessages } from '../../server/utils/mail-data'
 import { messages } from '../../drizzle/schema'
 import { MAIL_LIMITS } from '../../shared/mail'
 import type { L4Env } from '../../workers/env'
-import { ingestServerEmail } from '../../workers/mail-ingress'
+import { ingestServerEmail, receiveServerEmail } from '../../workers/mail-ingress'
 import { mailboxGrantsSql } from '../helpers/grants'
 
 let sqlite: DatabaseSync
@@ -71,7 +71,7 @@ function email(input: { id: string; to: string; subject?: string; from?: string;
 }
 
 function receive(raw: string, to: string, rawSize?: number) {
-  return ingestServerEmail({ from: 'customer@example.net', to, raw: stream(raw), rawSize }, env)
+  return ingestServerEmail({ from: 'customer@example.net', to, raw: stream(raw), rawSize, authResults: { dmarc: 'pass' } }, env)
 }
 
 function threadsIn(mailboxId: string) {
@@ -387,4 +387,59 @@ describe('mail folders', () => {
     expect(await list('archive')).toEqual(['Older'])
     expect(await list('trash')).toEqual(['Binned'])
   })
+
+  describe('sender authentication', () => {
+    const first = () => email({ id: '<first@example.net>', to: 'support@example.com', from: 'customer@example.net', cc: 'team@example.net' })
+    const forged = email({ id: '<forged@evil.example>', to: 'support@example.com', from: 'ceo@example.net', replyTo: 'attacker@evil.example', cc: 'attacker@evil.example', inReplyTo: '<first@example.net>' })
+    const stored = (id: string) => sqlite.prepare('SELECT auth_verdict AS verdict, reply_to_json AS replyTo, thread_channel_id AS thread FROM email_messages WHERE rfc_message_id = ?').get(id) as { verdict: string; replyTo: string; thread: string }
+
+    it.each([
+      ['failing DMARC', { dmarc: 'fail', spf: 'pass', dkim: 'pass' }, 'failed'],
+      ['no pass at all', { dmarc: 'none', spf: 'softfail', dkim: 'none' }, 'unverified'],
+      ['a path with no verdict', undefined, 'unverified'],
+    ] as const)('keeps mail with %s but gives it no say in a conversation', async (_label, authResults, verdict) => {
+      await receive(first(), 'support@example.com')
+      const accepted = await ingestServerEmail({ from: 'ceo@example.net', to: 'support@example.com', raw: stream(forged), authResults }, env)
+      expect(accepted).toEqual({ accepted: true })
+      const message = stored('<forged@evil.example>')
+      expect(message).toMatchObject({ verdict, replyTo: '[]' })
+      expect(message.thread).not.toBe(stored('<first@example.net>').thread)
+      const threads = threadsIn('support')
+      expect(threads).toHaveLength(2)
+      expect(JSON.parse(threads.find(thread => thread.id === message.thread)!.participants)).toEqual(['ceo@example.net'])
+      expect(threads.find(thread => thread.id !== message.thread)!.participants).not.toContain('attacker')
+    })
+
+    it('lets an unverified reply from someone already in the conversation join it, and nothing more', async () => {
+      await receive(first(), 'support@example.com')
+      const reply = email({ id: '<known@example.net>', to: 'support@example.com', from: 'customer@example.net', replyTo: 'attacker@evil.example', cc: 'attacker@evil.example', inReplyTo: '<first@example.net>' })
+      await ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(reply) }, env)
+      expect(stored('<known@example.net>')).toMatchObject({ verdict: 'unverified', replyTo: '[]', thread: stored('<first@example.net>').thread })
+      expect(threadsIn('support')).toHaveLength(1)
+      expect(threadsIn('support')[0]!.participants).not.toContain('attacker')
+    })
+
+    it('never lets failing DMARC into a conversation, even from someone already in it', async () => {
+      await receive(first(), 'support@example.com')
+      const reply = email({ id: '<failed@example.net>', to: 'support@example.com', from: 'customer@example.net', inReplyTo: '<first@example.net>' })
+      await ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(reply), authResults: { dmarc: 'fail' } }, env)
+      expect(stored('<failed@example.net>').thread).not.toBe(stored('<first@example.net>').thread)
+    })
+
+    it('reads Email Routing\'s verdict from its own header, not a sender\'s', async () => {
+      await receive(first(), 'support@example.com')
+      const delivered = (header: string) => ({ from: 'ceo@example.net', to: 'support@example.com', raw: stream(forged), rawSize: forged.length, headers: new Headers({ 'authentication-results': header }), setReject: vi.fn() }) as unknown as ForwardableEmailMessage
+      await receiveServerEmail(delivered('evil.example; dmarc=pass, mx.cloudflare.net; dmarc=pass'), env)
+      expect(stored('<forged@evil.example>').verdict).toBe('unverified')
+    })
+
+    it('lets a verified reply join its conversation and keep its Reply-To', async () => {
+      await receive(first(), 'support@example.com')
+      const reply = email({ id: '<reply@example.net>', to: 'support@example.com', replyTo: 'desk@example.net', inReplyTo: '<first@example.net>' })
+      const delivered = { from: 'customer@example.net', to: 'support@example.com', raw: stream(reply), rawSize: reply.length, headers: new Headers({ 'authentication-results': 'mx.cloudflare.net; spf=pass; dkim=pass; dmarc=pass' }), setReject: vi.fn() } as unknown as ForwardableEmailMessage
+      await receiveServerEmail(delivered, env)
+      expect(stored('<reply@example.net>')).toMatchObject({ verdict: 'verified', replyTo: '["desk@example.net"]', thread: stored('<first@example.net>').thread })
+    })
+  })
+
 })

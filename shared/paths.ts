@@ -50,11 +50,11 @@ export function databasePath(databaseId?: string | null, archived = false, viewI
 }
 
 export function documentPath(documentId?: string | null): string {
-  return documentId ? `/documents?document=${encodeURIComponent(documentId)}` : '/documents'
+  return documentId ? `/items/${encodeURIComponent(documentId)}` : '/data'
 }
 
 export function canvasPath(canvasId?: string | null): string {
-  return canvasId ? `/canvases?canvas=${encodeURIComponent(canvasId)}` : '/canvases'
+  return canvasId ? `/items/${encodeURIComponent(canvasId)}` : '/data'
 }
 
 export function gadgetPath(gadgetId?: string | null, edit = false): string {

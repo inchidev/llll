@@ -27,7 +27,7 @@ export async function installL4(
   }
 
   await progress('account', 'active')
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const account = await client.accounts.get({ account_id: request.accountId })
   if (account.id !== request.accountId) throw createError({ statusCode: 403, statusMessage: 'Cloudflare account is unavailable' })
   if (request.customDomainEnabled || request.mailEnabled) {

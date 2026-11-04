@@ -1,13 +1,13 @@
 /**
  * Field types a database offers, like Notion's property types. Each one is stored
- * in one of five physical column pools of database_items (see DatabaseFieldStorage),
+ * in one of five physical column pools of data_items (see DatabaseFieldStorage),
  * except relation, whose values are rows of database_item_links.
  */
 export const DatabaseFieldTypes = ['text', 'number', 'boolean', 'date', 'select', 'multi_select', 'url', 'email', 'phone', 'person', 'relation'] as const
 
 export type DatabaseFieldType = (typeof DatabaseFieldTypes)[number]
 
-/** The physical column pools of database_items. */
+/** The physical column pools of data_items. */
 export const DatabaseStorageTypes = ['text', 'number', 'boolean', 'date', 'select'] as const
 export type DatabaseStorageType = (typeof DatabaseStorageTypes)[number]
 

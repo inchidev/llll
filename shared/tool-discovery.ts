@@ -15,7 +15,7 @@ export type DiscoverableTool = RuntimeTool & { guidance: ToolGuidance; provenanc
 export function searchToolCatalog(catalog: DiscoverableTool[], query: string, limit = 5) {
   const words = [...new Set(query.toLowerCase().replaceAll('_', ' ').match(/[\p{L}\p{N}]+/gu) ?? [])].slice(0, 32)
   const aliases: Record<string, string[]> = {
-    research: ['search', 'web'], records: ['records', 'table'], data: ['records', 'table', 'document'],
+    research: ['search', 'web'], records: ['records', 'table'], data: ['records', 'table', 'document', 'item', 'page'],
     repository: ['code', 'factory'], github: ['code', 'factory'], computer: ['code', 'factory'], coding: ['code', 'factory'], compute: ['factory'], node: ['factory'], git: ['code', 'factory'], sources: ['search', 'url'],
     cheaper: ['local'], cheapest: ['local'],
   }

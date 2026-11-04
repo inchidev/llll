@@ -103,7 +103,7 @@ export async function rotateOwnerSetupToken(
   if (token.length < 32 || token.length > 256) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid owner setup token' })
   }
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   await editBindings(accessToken, client, accountId, workerName, [
     { type: 'secret_text', name: 'SETUP_TOKEN', text: token },
   ])
@@ -238,7 +238,7 @@ export async function setPrimaryAppDomain(
   hostname: string,
 ) {
   const normalized = hostnameInsideZone(zone, hostname)
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const current = await workerBindings(client, accountId, workerName)
   // The Server reads its origins from D1 and PUBLIC_ORIGIN; zone/app metadata
   // env bindings are gone.
@@ -266,7 +266,7 @@ export async function connectEmailDomain(
   value: ManagedEmailDomain,
 ) {
   const domain = hostnameInsideZone(zone, value.domain)
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const bindings = await workerBindings(client, accountId, workerName)
   const configured = emailDomains(bindings)
   const managed = configured.find(item => item.domain === domain) || { ...value, domain, zoneId: zone.id }
@@ -288,7 +288,7 @@ export async function disconnectEmailDomain(
   workerName: string,
   domain: ManagedEmailDomain & { sendingSubdomainId?: string | null },
 ) {
-  const client = cloudflareClient(accessToken)
+  const client = await cloudflareClient(accessToken)
   const bindings = await workerBindings(client, accountId, workerName)
   const remaining = emailDomains(bindings).filter(item => item.id !== domain.id && item.domain !== domain.domain)
   if (domain.sendingSubdomainId) {

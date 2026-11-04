@@ -96,6 +96,7 @@ defineShortcuts({
         <UButton class="size-10 shrink-0 justify-center md:size-8" size="sm" color="neutral" variant="ghost" icon="i-ph-arrow-right" aria-label="Close thread" @click="close" />
       </UTooltip>
       <span class="min-w-0 truncate text-sm font-semibold">{{ threadTitle }}</span>
+      <ChatAttentionControls v-if="threadId" :channel-id="threadId" thread class="ml-auto" />
       <UBadge label="Thread" color="neutral" variant="subtle" size="sm" class="shrink-0" />
     </header>
     <LayoutLoadError v-if="threadQ.error.value" inline class="shrink-0 py-2" message="Thread details did not load." :retry="threadQ.refetch" />
@@ -105,6 +106,7 @@ defineShortcuts({
     </div>
     <template v-else-if="threadId">
     <ChatMessageList
+        can-mark-unread
       :channel-id="threadId"
       :members="members"
       :channel-name="threadTitle"
@@ -117,7 +119,7 @@ defineShortcuts({
       :link-path="linkPath"
       @root-message="rootMessage = $event"
       @reply="onReply"
-      @read="(messageId) => send({ t: 'read', messageId })"
+      @read="(messageId, generation) => send({ t: 'read', messageId, generation })"
       @retry="retry"
     />
     <ChatComposer

@@ -89,8 +89,10 @@ export async function testMcpMessages({ api, runtimes, origins, ids, cookies, me
   assert.equal(audit.actor_id, memberId)
   assert.equal(JSON.parse(audit.meta_json).clientId, clientId)
   assert.equal((await tool(readOnly, 'send_message', { channelId: chat.id, content: 'Denied by scope' })).error, true)
-  // Document tools are paused, so the Server does not offer them at all.
-  assert.ok((await tool(token, 'list_documents')).payload.error || (await tool(token, 'list_documents')).error)
+  // Data needs its own scope: the same tool works with it and refuses without it.
+  const dataToken = await connect('alpha-owner', ownerId, ['documents:read', 'documents:write'])
+  assert.ok((await tool(dataToken, 'create_item', { title: 'Allowed by scope' })).value.item.id)
+  assert.equal((await tool(ownerToken, 'create_item', { title: 'Denied by scope' })).error, true)
   assert.equal((await tool(token, 'create_task', { boardId: 'irrelevant-board', title: 'Denied' })).error, true)
   assert.equal((await tool(token, 'send_message', { channelId: chat.id, content: 'Invalid reply', replyToId: 'missing-message' })).error, true)
 

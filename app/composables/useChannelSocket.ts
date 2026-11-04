@@ -325,6 +325,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             break
           }
           case 'read.ack':
+            if ((parsed.generation ?? 0) < (queryClient()?.getQueryData<number>(['chat-read-generation', parsed.channelId]) ?? 0)) break
             if (pendingRead && pendingRead.messageId <= parsed.messageId) pendingRead = null
             queryClient()?.setQueryData(['readCursor', parsed.channelId], parsed.messageId)
             applyReadAck(parsed.channelId, parsed.unread)
@@ -365,6 +366,10 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
   }
 
   function send(msg: ClientMsg) {
+    if (msg.t === 'read') {
+      const current = queryClient()?.getQueryData<number>(['chat-read-generation', toValue(channelId)]) ?? 0
+      if ((msg.generation ?? 0) < current) return
+    }
     if (msg.t === 'message.create') {
       outstanding.set(msg.clientId, msg)
       updateUnloadGuard()

@@ -94,6 +94,9 @@ export type TaskAttachmentDTO = AttachmentDTO & {
 }
 
 export type TaskDTO = {
+  parentTaskId: string | null
+  subtaskTotal: number
+  subtaskCompleted: number
   projectId?: string | null
   id: string
   number: number
@@ -128,7 +131,11 @@ export type TaskDTO = {
   attachmentCount: number
 }
 
+export type TaskRelationDTO = Pick<TaskDTO, 'id' | 'number' | 'title' | 'boardId' | 'projectId' | 'status' | 'priority' | 'assigneeId' | 'archivedAt'>
+
 export type TaskDetailDTO = TaskDTO & {
+  parent: TaskRelationDTO | null
+  subtasks: TaskRelationDTO[]
   checklist: TaskChecklistItemDTO[]
   attachments: TaskAttachmentDTO[]
   /** The chat message the task was created from, as this viewer may see it. */
@@ -306,7 +313,7 @@ export type DatabaseSummaryDTO = Pick<DatabaseDTO, 'id' | 'name' | 'archivedAt'>
   views: DatabaseViewSummaryDTO[]
 }
 
-export type DataBookmarkTargetType = 'database_view' | 'document' | 'canvas'
+export type DataBookmarkTargetType = 'database_view' | 'item'
 
 export type DataBookmarkDTO = {
   targetType: DataBookmarkTargetType
@@ -316,6 +323,7 @@ export type DataBookmarkDTO = {
 }
 
 export type DataResourcesDTO = {
+  items: import('./data-items').DataItemSummary[]
   databases: DatabaseSummaryDTO[]
   documents: DocumentSummaryDTO[]
   canvases: CanvasSummaryDTO[]
@@ -360,6 +368,8 @@ export type MailMessageDTO = MessageDTO & {
     /** Why the last delivery attempt failed, when it did. */
     deliveryError: string | null
     deliveryUncertain?: boolean
+    /** Inbound mail whose sender could not be confirmed. Absent otherwise. */
+    authWarning?: 'failed' | 'unverified'
     /** `markdown` was sent as HTML; `content` is its text alternative. */
     format?: 'text' | 'markdown'
   }
@@ -682,7 +692,8 @@ export type SidebarThreadDTO = {
   parentId: string
   title: string
   lastMessageAt: string
-  /** The member has opened this thread, so new replies count as unread for them. */
+  /** Explicitly follows replies; opening a thread only advances its read cursor. */
+  following?: boolean
   opened: boolean
   unread: boolean
   unreadCount: number
@@ -808,7 +819,7 @@ export type ClientMsg =
   | { t: 'message.update'; id: string; content: string }
   | { t: 'message.delete'; id: string }
   | { t: 'typing'; active: boolean }
-  | { t: 'read'; messageId: string }
+  | { t: 'read'; messageId: string; generation?: number }
   | { t: 'reaction.add'; messageId: string; emoji: string }
   | { t: 'reaction.remove'; messageId: string; emoji: string }
   | { t: 'agent.control'; agentId: string; action: 'stop' | 'approve' | 'reject'; executionId?: string }
@@ -829,7 +840,7 @@ export type ServerMsg =
   | { t: 'dm.update'; name: string | null }
   | { t: 'reaction'; messageId: string; emoji: string; userId: string; op: 'add' | 'remove' }
   | { t: 'pin'; messageId: string; pin: MessagePinDTO | null }
-  | { t: 'read.ack'; channelId: string; messageId: string; unread: boolean }
+  | { t: 'read.ack'; channelId: string; messageId: string; unread: boolean; generation?: number }
   | { t: 'error'; code: string; message: string; clientId?: string }
   | { t: 'ack'; clientId: string; id: string }
 

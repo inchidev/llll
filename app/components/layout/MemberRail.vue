@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { memberRemovalPath } from '~/utils/member-removal'
 import { useSwipeToClose } from '~/composables/useSwipeToClose'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { DropdownMenuItem } from '@nuxt/ui'
@@ -68,14 +69,17 @@ const grouped = computed(() => {
   }
 })
 
-const kickId = ref<string | null>(null)
+const kickTarget = ref<{ id: string; kind?: string } | null>(null)
+const kickId = computed(() => kickTarget.value?.id ?? null)
+const kickingAgent = computed(() => kickTarget.value?.kind === 'agent')
 
 async function confirmKick() {
-  if (!kickId.value) return
-  await api(`/api/servers/${props.serverId}/members/${kickId.value}`, { method: 'DELETE' })
+  if (!kickTarget.value) return
+  const agent = kickingAgent.value
+  await api(memberRemovalPath(props.serverId, kickTarget.value), { method: 'DELETE' })
   await qc.invalidateQueries({ queryKey: ['members', props.serverId] })
-  toast.add({ title: 'Member kicked', color: 'success' })
-  kickId.value = null
+  toast.add({ title: agent ? 'Agent deleted' : 'Member kicked', color: 'success' })
+  kickTarget.value = null
 }
 
 async function message(userId: string) {
@@ -91,7 +95,7 @@ function chipColor(status: string) {
 }
 
 function onKickOpen(open: boolean) {
-  if (!open) kickId.value = null
+  if (!open) kickTarget.value = null
 }
 
 function itemsFor(m: MemberDTO): DropdownMenuItem[][] {
@@ -99,8 +103,8 @@ function itemsFor(m: MemberDTO): DropdownMenuItem[][] {
   const actions: DropdownMenuItem[] = [
     { label: 'Message', icon: 'i-ph-chat-circle', onSelect: () => { void message(m.user.id) } },
   ]
-  if (can(Permission.kick) && m.role.name !== 'owner') {
-    return [actions, [{ label: 'Kick', icon: 'i-ph-user-minus', color: 'error', onSelect: () => { kickId.value = m.user.id } }]]
+  if (can(m.user.kind === 'agent' ? Permission.manageAgents : Permission.kick) && m.role.name !== 'owner') {
+    return [actions, [{ label: m.user.kind === 'agent' ? 'Delete agent' : 'Kick', icon: 'i-ph-user-minus', color: 'error', onSelect: () => { kickTarget.value = m.user } }]]
   }
   return [actions]
 }
@@ -231,9 +235,9 @@ function roleLabel(name: string) {
     <div v-else class="flex-1 min-h-0 overflow-y-auto">
       <ChannelFilesPanel :channel-id="channelId" />
     </div>
-    <UModal :open="Boolean(kickId)" title="Kick this member?" @update:open="onKickOpen">
+    <UModal :open="Boolean(kickId)" :title="kickingAgent ? 'Delete this agent?' : 'Kick this member?'" @update:open="onKickOpen">
       <template #footer>
-        <UButton color="neutral" variant="outline" label="Cancel" @click="kickId = null" />
+        <UButton color="neutral" variant="outline" label="Cancel" @click="kickTarget = null" />
         <UButton color="error" label="Kick" @click="confirmKick" />
       </template>
     </UModal>

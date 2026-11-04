@@ -60,6 +60,12 @@ const jumbo = computed(() => isJumboEmoji(props.message.content))
 const pickerOpen = ref(false)
 const reactionPickerOpen = ref(false)
 const moreOpen = ref(false)
+// The list builds actions only for the hovered row. Keep an open menu intact
+// when the pointer leaves that row for the menu's teleported content.
+const menuActions = shallowRef(props.actions)
+watch([() => props.actions, moreOpen], ([actions, open]) => {
+  if (actions || !open) menuActions.value = actions
+})
 const profileOpen = ref(false)
 const nameProfileOpen = ref(false)
 const toolbarVisible = computed(() => actionable.value && !props.editing
@@ -355,7 +361,7 @@ function taskLinkState(link: TaskSourceLinkDTO) {
           <UButton size="sm" variant="ghost" color="error" square icon="i-ph-trash" aria-label="Delete now" @click="emit('remove', true)" />
         </UTooltip>
       </template>
-      <UDropdownMenu v-else-if="actions?.length" v-model:open="moreOpen" :items="actions" :content="{ align: 'end' }">
+      <UDropdownMenu v-else-if="menuActions?.length" v-model:open="moreOpen" :items="menuActions" :content="{ align: 'end' }">
         <UButton size="sm" variant="ghost" color="neutral" square icon="i-ph-dots-three" aria-label="More" />
       </UDropdownMenu>
     </div>
