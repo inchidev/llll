@@ -82,8 +82,8 @@ function fixture() {
       ('lead-status', 'leads', 'Status', 'select', 'select_1', '{"options":["Open","Won"]}', 'owner'),
       ('lead-secret', 'leads', 'Secret', 'text', 'text_1', '{}', 'owner'),
       ('company-tier', 'companies', 'Tier', 'text', 'text_1', '{}', 'owner');
-    INSERT INTO database_items (id, database_id, title, select_1, text_1, created_by) VALUES ('lead-1', 'leads', 'Acme deal', 'Open', 'Private note', 'owner');
-    INSERT INTO database_items (id, database_id, title, text_1, created_by) VALUES ('company-1', 'companies', 'Acme', 'Enterprise', 'owner');
+    INSERT INTO data_items (id, database_id, title, select_1, text_1, created_by) VALUES ('lead-1', 'leads', 'Acme deal', 'Open', 'Private note', 'owner');
+    INSERT INTO data_items (id, database_id, title, text_1, created_by) VALUES ('company-1', 'companies', 'Acme', 'Enterprise', 'owner');
   `)
   return sqlite
 }
@@ -198,7 +198,7 @@ describe('Gadgets', () => {
     await expect(invokeGadget(env, member, created.id, {
       bindingId: 'companies', operation: 'update', recordId: 'company-1', version: 1, title: 'Changed',
     })).rejects.toThrow('does not allow that operation')
-    expect(sqlite.prepare("SELECT COUNT(*) as count FROM database_items WHERE database_id = 'companies'").get()).toEqual({ count: 1 })
+    expect(sqlite.prepare("SELECT COUNT(*) as count FROM data_items WHERE database_id = 'companies'").get()).toEqual({ count: 1 })
     sqlite.close()
   })
 
@@ -257,7 +257,7 @@ describe('Gadgets', () => {
     sqlite.exec(`
       INSERT INTO database_views (id, database_id, name, config_json, created_by) VALUES
         ('open-leads', 'leads', 'Open leads', '{"visibleFieldIds":null,"filters":[{"fieldId":"lead-status","operator":"equals","value":"Open"}],"sorts":[],"groupFieldId":null,"dateFieldId":null}', 'owner');
-      INSERT INTO database_items (id, database_id, title, select_1, created_by) VALUES
+      INSERT INTO data_items (id, database_id, title, select_1, created_by) VALUES
         ('lead-won', 'leads', 'Closed deal', 'Won', 'owner');
     `)
     const env = { DB: d1(sqlite) } as never
@@ -279,7 +279,7 @@ describe('Gadgets', () => {
     await expect(invokeGadget(env, member, created.id, {
       bindingId: 'open-leads', operation: 'update', recordId: 'lead-won', version: 1, title: 'Not allowed',
     })).rejects.toThrow('does not belong to this App Binding')
-    expect(sqlite.prepare("SELECT title FROM database_items WHERE id = 'lead-won'").get()).toEqual({ title: 'Closed deal' })
+    expect(sqlite.prepare("SELECT title FROM data_items WHERE id = 'lead-won'").get()).toEqual({ title: 'Closed deal' })
     sqlite.close()
   })
 })

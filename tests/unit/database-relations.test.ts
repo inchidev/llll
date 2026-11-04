@@ -27,7 +27,7 @@ beforeEach(() => {
       ('tags','tasks','Tags','multi_select','select_1','{"options":["Bug","Idea"]}','owner'),
       ('owner','tasks','Owner','person','text_1','{"options":[]}','owner'),
       ('site','tasks','Site','url','text_2','{"options":[]}','owner');
-    INSERT INTO database_items(id,database_id,title,created_by) VALUES('p1','projects','Website','owner'),('p2','projects','App','owner');`)
+    INSERT INTO data_items(id,database_id,title,created_by) VALUES('p1','projects','Website','owner'),('p2','projects','App','owner');`)
   env = { DB: d1(db) } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
@@ -59,7 +59,7 @@ describe('relation, list and address fields', () => {
     await expect(createRecord(env, auth, 'tasks', { title: 'Bad person', values: { owner: ['nobody'] } })).rejects.toMatchObject({ statusCode: 400 })
     await expect(createRecord(env, auth, 'tasks', { title: 'Bad tag', values: { tags: ['Nope'] } })).rejects.toMatchObject({ statusCode: 400 })
     await expect(createRecord(env, auth, 'tasks', { title: 'Bad site', values: { site: 'not a url' } })).rejects.toMatchObject({ statusCode: 400 })
-    expect(db.prepare('SELECT COUNT(*) as total FROM database_items WHERE database_id = ?').get('tasks')).toEqual({ total: 1 })
+    expect(db.prepare('SELECT COUNT(*) as total FROM data_items WHERE database_id = ?').get('tasks')).toEqual({ total: 1 })
   })
 
   it('filters by linked, option and person values', async () => {
@@ -80,7 +80,7 @@ describe('relation, list and address fields', () => {
 
   it('drops a link with the record it points at and accepts a gallery view', async () => {
     const item = await createRecord(env, auth, 'tasks', { title: 'Launch', values: { project: ['p1', 'p2'] } })
-    db.prepare('DELETE FROM database_items WHERE id = ?').run('p1')
+    db.prepare('DELETE FROM data_items WHERE id = ?').run('p1')
     expect((await loadDatabaseItem(env, item.id))?.values.project).toEqual(['p2'])
     db.prepare(`INSERT INTO database_views(id,database_id,name,layout,created_by) VALUES('g','tasks','Cards','gallery','owner')`).run()
     expect((await loadDatabasePage(env, 'tasks', { viewId: 'g', page: 1, pageSize: 10 })).view.layout).toBe('gallery')

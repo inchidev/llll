@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
   const canvasId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
-  await requireCanvas(env, canvasId, actor.authorization)
+  await requireCanvas(env, canvasId, actor.authorization, true)
   const id = newId()
   const now = nowIso()
   await env.DB.prepare(

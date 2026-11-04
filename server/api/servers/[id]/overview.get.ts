@@ -13,8 +13,8 @@ export default defineEventHandler(async (event) => {
     (SELECT count(*) FROM projects WHERE archived_at IS NULL) AS projects,
     (SELECT count(*) FROM tasks WHERE archived_at IS NULL) AS tasks,
     (SELECT count(*) FROM database_definitions WHERE deleted_at IS NULL) AS tables,
-    (SELECT count(*) FROM documents WHERE deleted_at IS NULL) AS documents,
-    (SELECT count(*) FROM canvases WHERE deleted_at IS NULL) AS canvases,
+    (SELECT count(*) FROM data_items WHERE kind='page' AND database_id IS NULL AND deleted_at IS NULL) AS documents,
+    (SELECT count(*) FROM data_items WHERE kind='canvas' AND deleted_at IS NULL) AS canvases,
     (SELECT count(*) FROM email_mailboxes WHERE enabled=1) AS mailboxes`).first()
   return { totals }
 })

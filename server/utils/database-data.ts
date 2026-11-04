@@ -1,3 +1,4 @@
+import { liveItemSql, readableItemSql, requireItem } from './item-access'
 import { databaseSlotPeers, databaseSlots, decodeListValue, encodeListValue, isDatabaseSlot, normalizeDatabaseOptions, type DatabaseFieldType, type DatabaseValue } from '../../shared/database'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { newId } from '../../shared/ids'
@@ -85,13 +86,13 @@ export async function loadItemLinks(env: L4Env, itemIds: string[]): Promise<Item
  * another load. A title belongs to its database: records of a database the reader may not
  * open are left out, and their chips show no name.
  */
-export async function loadLinkedRecords(env: L4Env, links: ItemLinks, canRead: (databaseId: string) => boolean = () => true): Promise<Record<string, LinkedRecordDTO>> {
+export async function loadLinkedRecords(env: L4Env, links: ItemLinks, canRead: (databaseId: string) => boolean = () => true, authorization?: AuthorizationContext): Promise<Record<string, LinkedRecordDTO>> {
   const targetIds = new Set<string>()
   for (const fields of links.values()) for (const ids of fields.values()) for (const id of ids) targetIds.add(id)
   const linked: Record<string, LinkedRecordDTO> = {}
   for (const chunk of chunks([...targetIds])) {
     const result = await env.DB.prepare(
-      `SELECT id, database_id as databaseId, title FROM database_items WHERE deleted_at IS NULL AND database_id IN (SELECT id FROM database_definitions WHERE deleted_at IS NULL) AND id IN (${chunk.map(() => '?').join(', ')})`,
+      `SELECT id, database_id as databaseId, title FROM data_items WHERE ${readableItemSql(authorization)} AND database_id IN (SELECT id FROM database_definitions WHERE deleted_at IS NULL) AND id IN (${chunk.map(() => '?').join(', ')})`,
     ).bind(...chunk).all<LinkedRecordDTO>()
     for (const row of result.results ?? []) if (canRead(row.databaseId)) linked[row.id] = row
   }
@@ -101,9 +102,9 @@ export async function loadLinkedRecords(env: L4Env, links: ItemLinks, canRead: (
 export async function loadDatabaseItem(env: L4Env, itemId: string): Promise<DatabaseItemDTO | null> {
   const row = await env.DB.prepare(
     `SELECT id, database_id as databaseId, title, position, version, created_by as createdBy,
-     created_at as createdAt, updated_at as updatedAt, * FROM database_items WHERE deleted_at IS NULL AND id = ?`,
+     created_at as createdAt, updated_at as updatedAt, * FROM data_items WHERE ${liveItemSql()} AND id = ?`,
   ).bind(itemId).first<ItemRow>()
-  if (!row) return null
+  if (!row?.databaseId) return null
   await requireDatabase(env, row.databaseId)
   const fields = await databaseFieldsFor(env, row.databaseId)
   const links = fields.some(field => field.type === 'relation') ? await loadItemLinks(env, [itemId]) : null
@@ -139,11 +140,12 @@ export async function requireDatabaseField(env: L4Env, id: string): Promise<Stor
 }
 
 export async function requireDatabaseItem(env: L4Env, id: string, authorization?: AuthorizationContext): Promise<ItemRow> {
+  if (authorization) await requireItem(env, authorization, id)
   const item = await env.DB.prepare(
     `SELECT id, database_id as databaseId, title, position, version, created_by as createdBy,
-     created_at as createdAt, updated_at as updatedAt, * FROM database_items WHERE deleted_at IS NULL AND id = ?`,
+     created_at as createdAt, updated_at as updatedAt, * FROM data_items WHERE ${liveItemSql()} AND id = ?`,
   ).bind(id).first<ItemRow>()
-  if (!item || (authorization && spaceResourceDenied(authorization, 'databases', String(item.databaseId)))) fail(404, 'not_found', 'Record not found')
+  if (!item?.databaseId || (authorization && spaceResourceDenied(authorization, 'databases', String(item.databaseId)))) fail(404, 'not_found', 'Record not found')
   await requireDatabase(env, item.databaseId)
   return item
 }
@@ -252,6 +254,7 @@ export async function prepareRecordValues(
   values: Record<string, unknown>,
   unknownField: () => never,
   authorizeTarget: (databaseId: string) => void = () => {},
+  authorization?: AuthorizationContext,
 ): Promise<PreparedRecordValues> {
   const prepared: PreparedRecordValues = { columns: [], links: [] }
   const people = new Set<string>()
@@ -284,7 +287,7 @@ export async function prepareRecordValues(
     if (link.targetIds.length) { authorizeTarget(targetDatabaseId); await requireDatabase(env, targetDatabaseId) }
     for (const chunk of chunks(link.targetIds)) {
       const known = await env.DB.prepare(
-        `SELECT id FROM database_items WHERE deleted_at IS NULL AND database_id = ? AND id IN (${chunk.map(() => '?').join(', ')})`,
+        `SELECT id FROM data_items WHERE ${readableItemSql(authorization)} AND database_id = ? AND id IN (${chunk.map(() => '?').join(', ')})`,
       ).bind(targetDatabaseId, ...chunk).all<{ id: string }>()
       if ((known.results ?? []).length !== chunk.length) fail(400, 'bad_request', `${link.field.name} can only link records of its database`)
     }
@@ -294,7 +297,7 @@ export async function prepareRecordValues(
 
 /** Replaces the links of each submitted relation field with the given records, in order. */
 export function linkStatements(env: L4Env, itemId: string, links: PreparedRecordValues['links'], now: string, mutationId?: string): D1PreparedStatement[] {
-  const guard = mutationId ? ' AND EXISTS (SELECT 1 FROM database_items WHERE deleted_at IS NULL AND id = ? AND mutation_id = ?)' : ' AND EXISTS (SELECT 1 FROM database_items WHERE deleted_at IS NULL AND id = ?)'
+  const guard = mutationId ? ` AND EXISTS (SELECT 1 FROM data_items WHERE ${liveItemSql()} AND id = ? AND mutation_id = ?)` : ` AND EXISTS (SELECT 1 FROM data_items WHERE ${liveItemSql()} AND id = ?)`
   const guardValues = mutationId ? [itemId, mutationId] : [itemId]
   return links.flatMap(link => [
     env.DB.prepare(`DELETE FROM database_item_links WHERE item_id = ? AND field_id = ?${guard}`).bind(itemId, link.field.id, ...guardValues),

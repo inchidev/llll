@@ -11,6 +11,8 @@ import { INIT_SQL } from '../../server/utils/db'
 /**
  * `drizzle/schema.ts` must match the baseline plus all subsequent migrations. The
  * published baseline stays immutable; compare the schema the runtime actually installs.
+ * `drizzle/schema.ts` and the migration SQL are written separately, and the runtime only
+ * ever runs the SQL. This keeps them saying the same thing, table by table.
  */
 /** The full-text index and SQLite's shadow tables behind it have no Drizzle form. */
 const FTS = /^message_search(_(config|content|data|docsize|idx))?$/u
@@ -133,6 +135,8 @@ const checkCount = (table: string) => {
 
 describe('drizzle/schema.ts matches the complete migration chain', () => {
   it('declares every table, and none the migrations lack', () => {
+describe('drizzle/schema.ts matches the baseline', () => {
+  it('declares every table, and none the migrated schema lacks', () => {
     expect([...tables.keys()].sort()).toEqual(baselineTables)
   })
 

@@ -54,7 +54,7 @@ describe('untrusted context and egress boundary', () => {
   })
   it('keeps taint after a failed read, a reconstructed service and a new Run in the same Session', async () => {
     const first = await f.run()
-    await expect(executeRunTool(f.env, first.run.id, { callId: 'missing', name: 'get_document', arguments: { documentId: 'missing-document' } }, () => {})).rejects.toThrow()
+    await expect(executeRunTool(f.env, first.run.id, { callId: 'missing', name: 'get_item', arguments: { documentId: 'missing-document' } }, () => {})).rejects.toThrow()
     const second = await f.run()
     expect(second.run.sessionId).toBe(first.run.sessionId)
     const tools = await toolsForRun(f.env, second.authorization, () => {}, second.run)

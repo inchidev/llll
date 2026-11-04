@@ -10,16 +10,17 @@ describe('documents and canvases', () => {
     sqlite.exec(`
       INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('owner-role', 'owner', 'Owner', 1023);
       INSERT INTO users (id, display_name, status, role_id, joined_at) VALUES ('user-1', 'Owner', 'active', 'owner-role', CURRENT_TIMESTAMP);
-      INSERT INTO database_definitions (id, name, created_by, archived_at) VALUES ('db-1', 'Archive', 'user-1', CURRENT_TIMESTAMP);
-      INSERT INTO database_items (id, database_id, title, created_by, text_1) VALUES ('record-1', 'db-1', 'Acme', 'user-1', 'Private record body');
-      INSERT INTO documents (id, title, content, created_by) VALUES ('doc-1', 'Plan', '<p>Hello</p>', 'user-1');
-      INSERT INTO canvases (id, title, created_by) VALUES ('canvas-1', 'Launch', 'user-1');
+      INSERT INTO database_definitions (id, name, created_by, archived_at) VALUES ('db-1', 'Archive', 'user-1', NULL);
+      INSERT INTO data_items (id, database_id, title, created_by, text_1) VALUES ('record-1', 'db-1', 'Acme', 'user-1', 'Private record body');
+      UPDATE database_definitions SET archived_at=CURRENT_TIMESTAMP;
+      INSERT INTO data_items (id, title, content, created_by) VALUES ('doc-1', 'Plan', '<p>Hello</p>', 'user-1');
+      INSERT INTO data_items (kind, id, title, created_by) VALUES ('canvas', 'canvas-1', 'Launch', 'user-1');
       INSERT INTO canvas_nodes (id, canvas_id, content, x, y, created_by) VALUES ('node-1', 'canvas-1', 'Start', 10, 20, 'user-1');
       INSERT INTO canvas_nodes (id, canvas_id, content, x, y, created_by) VALUES ('node-2', 'canvas-1', 'Ship', 300, 20, 'user-1');
       INSERT INTO canvas_edges (id, canvas_id, from_node_id, to_node_id, created_by) VALUES ('edge-1', 'canvas-1', 'node-1', 'node-2', 'user-1');
     `)
 
-    expect(sqlite.prepare('SELECT title, content, version FROM documents WHERE id = ?').get('doc-1')).toEqual({ title: 'Plan', content: '<p>Hello</p>', version: 1 })
+    expect(sqlite.prepare('SELECT title, content, version FROM data_items WHERE id = ?').get('doc-1')).toEqual({ title: 'Plan', content: '<p>Hello</p>', version: 1 })
     expect(sqlite.prepare('SELECT count(*) AS count FROM canvas_nodes WHERE canvas_id = ?').get('canvas-1')).toEqual({ count: 2 })
     expect(sqlite.prepare('SELECT from_node_id, to_node_id FROM canvas_edges WHERE id = ?').get('edge-1')).toEqual({ from_node_id: 'node-1', to_node_id: 'node-2' })
     expect(() => sqlite.exec("INSERT INTO canvas_edges (id, canvas_id, from_node_id, to_node_id, created_by) VALUES ('edge-self', 'canvas-1', 'node-1', 'node-1', 'user-1')")).toThrow()

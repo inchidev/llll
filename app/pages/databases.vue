@@ -188,7 +188,7 @@ function isConflict(error: unknown) {
 
 const rowEdits = useDatabaseEdits(
   async (id, patch) => {
-    const send = (version: number) => api<{ item: DatabaseItemDTO }>(`/api/database-items/${id}`, { method: 'PATCH', body: { ...patch, version } })
+    const send = (version: number) => api<{ item: DatabaseItemDTO }>(`/api/items/${id}/properties`, { method: 'PATCH', body: { ...patch, version } })
     try {
       return (await send(patch.version)).item
     }
@@ -361,10 +361,10 @@ function setFieldVisible(fieldId: string, visible: boolean) {
 /** The record open as a page: from the loaded page when it is there, otherwise on its own. */
 const recordQ = useQuery({
   queryKey: computed(() => ['database-item', selectedRecordId.value] as const),
-  queryFn: () => api<{ item: DatabaseItemDTO; linked: Record<string, LinkedRecordDTO> }>(`/api/database-items/${selectedRecordId.value}`),
+  queryFn: () => api<{ item: DatabaseItemDTO & { linked: Record<string, LinkedRecordDTO> } }>(`/api/items/${selectedRecordId.value}`),
   enabled: computed(() => Boolean(selectedRecordId.value) && !visibleItems.value.some(item => item.id === selectedRecordId.value)),
 })
-watch(() => recordQ.data.value?.linked, records => { if (records) rememberLinked(Object.values(records)) })
+watch(() => recordQ.data.value?.item.linked, records => { if (records) rememberLinked(Object.values(records)) })
 const panelItem = computed(() => {
   const id = selectedRecordId.value
   if (!id) return null
@@ -718,7 +718,7 @@ async function updateFieldValue(item: DatabaseItemDTO, field: DatabaseFieldDTO, 
 
 function deleteItem(item: DatabaseItemDTO) {
   askConfirm(`Move to Trash: ${item.title}?`, async () => {
-    const removed = await mutate(() => api(`/api/database-items/${item.id}`, { method: 'DELETE' }))
+    const removed = await mutate(() => api(`/api/items/${item.id}`, { method: 'DELETE' }))
     if (!removed) return
     if (selectedRecordId.value === item.id) selectedRecordId.value = null
     rowEdits.discard(item)

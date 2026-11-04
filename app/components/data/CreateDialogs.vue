@@ -2,7 +2,8 @@
 import { dataTemplates, dataTemplateFields } from '~~/shared/data-templates'
 import { useQueryClient } from '@tanstack/vue-query'
 import { canvasPath, databasePath, documentPath } from '~~/shared/paths'
-import type { CanvasDTO, DatabaseDTO, DocumentDTO } from '~~/shared/types'
+import type { DataItemDetail } from '~~/shared/data-items'
+import type { DatabaseDTO } from '~~/shared/types'
 import { documentCreateGuardKey } from '../../composables/useDocumentCreateGuard'
 
 const { serverId } = useServer()
@@ -45,10 +46,10 @@ async function createDocument() {
   nav.documentCreating.value = true
   try {
     if (documentGuard?.value && !await documentGuard.value()) return
-    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: {} })
-    qc.setQueryData(['document', result.document.id], result)
+    const result = await api<{ item: DataItemDetail }>(`/api/servers/${serverId.value}/items`, { method: 'POST', body: {} })
+    qc.setQueryData(['item', result.item.id], result)
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
-    await navigateTo(documentPath(result.document.id))
+    await navigateTo(documentPath(result.item.id))
   }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { nav.documentCreating.value = false }
@@ -59,10 +60,10 @@ async function createCanvas() {
   if (!title || !serverId.value || saving.value) return
   saving.value = true
   try {
-    const result = await api<{ canvas: CanvasDTO }>(`/api/servers/${serverId.value}/canvases`, { method: 'POST', body: { title } })
+    const result = await api<{ item: DataItemDetail }>(`/api/servers/${serverId.value}/items`, { method: 'POST', body: { title, kind: 'canvas' } })
     nav.createCanvasOpen.value = false
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
-    await navigateTo(canvasPath(result.canvas.id))
+    await navigateTo(canvasPath(result.item.id))
   }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { saving.value = false }

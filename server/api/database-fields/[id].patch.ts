@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
     if (!hasFieldOptions(field.type)) fail(400, 'bad_request', 'Only select fields have options')
     options = normalizeDatabaseOptions(body.options)
     const values = await env.DB.prepare(
-      `SELECT DISTINCT ${field.slot} as value FROM database_items
+      `SELECT DISTINCT ${field.slot} as value FROM data_items
        WHERE database_id = ? AND ${field.slot} IS NOT NULL`,
     ).bind(field.databaseId).all<{ value: string }>()
     const used = (values.results ?? []).flatMap(row => field.type === 'multi_select' ? decodeListValue(row.value) : [row.value])

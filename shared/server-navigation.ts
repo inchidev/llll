@@ -20,7 +20,7 @@ export function serverNavigationSection(path: string): ServerNavigationSection |
   if (segment === 'tasks' || (segment === 'projects' && ['board', 'my-tasks', 'mark'].includes(next || ''))) return 'tasks'
   if (segment === 'projects' || segment === 'factory' || segment === 'runs') return 'factory'
   if (segment === 'schedules') return 'agents'
-  if (['data', 'databases', 'documents', 'canvases'].includes(segment || '')) return 'data'
+  if (['data', 'databases', 'items'].includes(segment || '')) return 'data'
   if (segment === 'inbox' || segment === 'agents' || segment === 'mail' || segment === 'gadgets') return segment
   return null
 }

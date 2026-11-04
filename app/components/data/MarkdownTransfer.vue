@@ -19,11 +19,11 @@ async function importFile(event: Event) {
   try {
     if (props.saveDraft && !await props.saveDraft()) throw new Error('Save or resolve the current draft first')
     if (file.size > DOCUMENT_CONTENT_MAX) throw new Error('Choose a Markdown file no larger than 1 MB')
-    const result = await api<{ document: DocumentDTO }>(`/api/servers/${serverId.value}/documents`, { method: 'POST', body: { title: file.name.replace(/\.(md|markdown)$/iu, '').slice(0, 160) || undefined, content: await file.text(), format: 'markdown' } })
-    qc.setQueryData(['document', result.document.id], result)
+    const result = await api<{ item: DocumentDTO }>(`/api/servers/${serverId.value}/items`, { method: 'POST', body: { title: file.name.replace(/\.(md|markdown)$/iu, '').slice(0, 160) || undefined, content: await file.text(), format: 'markdown' } })
+    qc.setQueryData(['item', result.item.id], result)
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     open.value = false
-    await navigateTo(documentPath(result.document.id))
+    await navigateTo(documentPath(result.item.id))
   }
   catch (cause) { error.value = errorMessage(cause) }
   finally { busy.value = false }
@@ -33,8 +33,8 @@ async function download() {
   busy.value = true; error.value = ''
   try {
     if (props.saveDraft && !await props.saveDraft()) throw new Error('Save or resolve the current draft first')
-    const contents = await api<string>(`/api/documents/${props.documentId}/export`)
-    downloadDataFile(contents, 'document.md', 'text/markdown;charset=utf-8')
+    const contents = await api<string>(`/api/items/${props.documentId}/export`)
+    downloadDataFile(contents, 'page.md', 'text/markdown;charset=utf-8')
   }
   catch (cause) { error.value = errorMessage(cause) }
   finally { busy.value = false }
@@ -46,8 +46,8 @@ async function download() {
   <UModal v-model:open="open" title="Markdown files" :dismissible="!busy">
     <template #body>
       <UAlert v-if="error" :description="error" color="error" class="mb-3" />
-      <UButton v-if="documentId" label="Export this document" icon="i-ph-download-simple" :loading="busy" @click="download" />
-      <UFormField v-if="writable" label="Import a new document" description="Formatting is converted to the document editor. A file never replaces an existing document." class="mt-4"><input type="file" accept=".md,.markdown,text/markdown" :disabled="busy" @change="importFile"></UFormField>
+      <UButton v-if="documentId" label="Export this page" icon="i-ph-download-simple" :loading="busy" @click="download" />
+      <UFormField v-if="writable" label="Import a new page" description="Formatting is converted to the page editor. A file never replaces an existing page." class="mt-4"><input type="file" accept=".md,.markdown,text/markdown" :disabled="busy" @change="importFile"></UFormField>
     </template>
   </UModal>
 </template>

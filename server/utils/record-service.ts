@@ -1,3 +1,4 @@
+import { liveItemSql, requireItem } from './item-access'
 import { sha256Hex } from '../../shared/server-settings'
 import { z } from 'zod'
 import { newId, nowIso } from '../../shared/ids'
@@ -49,29 +50,32 @@ export async function createRecord(env: L4Env, authorization: AuthorizationConte
     if (receipt.bodyHash !== bodyHash) fail(409, 'request_conflict', 'This request ID was already used for different values')
     const item = receipt.recordId ? await loadDatabaseItem(env, receipt.recordId) : null
     if (!item) fail(409, 'record_removed', 'The record created by this request was removed; restore it from Trash')
+    await requireItem(env, authorization, item.id)
+    if (item.databaseId !== databaseId) fail(409, 'record_moved', 'The record created by this request now belongs to another database')
     return item
   }
   const previous = await replay()
   if (previous) return previous
   const fields = await databaseFieldsFor(env, databaseId)
   const fieldMap = new Map(fields.map(field => [field.id, field]))
-  const columns = ['id', 'database_id', 'title', 'position', 'version', 'created_by', 'created_at', 'updated_at']
+  const space = await env.DB.prepare('SELECT space_id AS id FROM database_definitions WHERE id=?').bind(databaseId).first<{id:string}>()
+  const columns = ['id', 'space_id', 'database_id', 'title', 'position', 'version', 'created_by', 'created_at', 'updated_at']
   const positionRow = await env.DB.prepare(
-    'SELECT COALESCE(MAX(position), 0) as position FROM database_items WHERE database_id = ?',
+    'SELECT COALESCE(MAX(position), 0) as position FROM data_items WHERE database_id = ?',
   ).bind(databaseId).first<{ position: number }>()
   const id = newId()
   const now = nowIso()
-  const values: Array<string | number | null> = [id, databaseId, body.title, (positionRow?.position ?? 0) + 1024, 1, authorization.principal.id, now, now]
-  const prepared = await prepareRecordValues(env, fieldMap, body.values, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId))
+  const values: Array<string | number | null> = [id, space!.id, databaseId, body.title, (positionRow?.position ?? 0) + 1024, 1, authorization.principal.id, now, now]
+  const prepared = await prepareRecordValues(env, fieldMap, body.values, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId), authorization)
   for (const column of prepared.columns) { columns.push(column.slot); values.push(column.value) }
   const placeholders = columns.map(() => '?').join(', ')
   const guard = recordWriteGuard(databaseId, fields, body.values)
   let saved: Parameters<typeof databaseItemDto>[0] | undefined
   try {
     const results = await env.DB.batch([
-      env.DB.prepare(`INSERT INTO database_items (${columns.join(', ')}) SELECT ${placeholders} WHERE ${guard.sql} RETURNING *,database_id AS databaseId,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt`).bind(...values, ...guard.values),
+      env.DB.prepare(`INSERT INTO data_items (${columns.join(', ')}) SELECT ${placeholders} WHERE ${guard.sql} RETURNING *,database_id AS databaseId,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt`).bind(...values, ...guard.values),
       ...linkStatements(env, id, prepared.links, now),
-      ...(body.requestId ? [env.DB.prepare('INSERT INTO data_record_requests(principal_id,database_id,request_id,record_id,body_hash) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM database_items WHERE id=?)')
+      ...(body.requestId ? [env.DB.prepare('INSERT INTO data_record_requests(principal_id,database_id,request_id,record_id,body_hash) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM data_items WHERE id=?)')
         .bind(authorization.principal.id, databaseId, body.requestId, id, bodyHash, id)] : []),
     ])
     saved = results[0]?.results?.[0] as typeof saved
@@ -84,6 +88,7 @@ export async function createRecord(env: L4Env, authorization: AuthorizationConte
 export async function updateRecord(env: L4Env, authorization: AuthorizationContext, id: string, input: z.input<typeof updateRecordSchema>) {
   authorize(authorization, ServerAction.writeRecords)
   const body = updateRecordSchema.parse(input)
+  await requireItem(env, authorization, id, true)
   const item = await requireDatabaseItem(env, id, authorization)
   authorizeResource(authorization, 'databases', item.databaseId)
   await requireDatabase(env, item.databaseId, true)
@@ -95,12 +100,12 @@ export async function updateRecord(env: L4Env, authorization: AuthorizationConte
   const assignments = ['updated_at = ?', 'version = version + 1', 'mutation_id = ?']
   const values: Array<string | number | null> = [now, mutationId]
   if (body.title !== undefined) { assignments.push('title = ?'); values.push(body.title) }
-  const prepared = await prepareRecordValues(env, fieldMap, body.values ?? {}, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId))
+  const prepared = await prepareRecordValues(env, fieldMap, body.values ?? {}, () => fail(400, 'bad_request', 'A supplied field does not belong to this database'), targetId => authorizeResource(authorization, 'databases', targetId), authorization)
   for (const column of prepared.columns) { assignments.push(`${column.slot} = ?`); values.push(column.value) }
   const guard = recordWriteGuard(item.databaseId, fields, body.values ?? {})
   const results = await env.DB.batch([
     env.DB.prepare(
-    `UPDATE database_items SET ${assignments.join(', ')} WHERE deleted_at IS NULL AND id = ? AND version = ? AND ${guard.sql}
+    `UPDATE data_items SET ${assignments.join(', ')} WHERE ${liveItemSql()} AND id = ? AND version = ? AND ${guard.sql}
      RETURNING *, database_id as databaseId, created_by as createdBy,
      created_at as createdAt, updated_at as updatedAt`,
     ).bind(...values, id, body.version, ...guard.values),

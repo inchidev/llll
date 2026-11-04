@@ -22,7 +22,7 @@ const search = ref('')
 const debouncedSearch = refDebounced(search, 250)
 const searchQ = useQuery({ queryKey: computed(() => ['data-search', serverId.value, debouncedSearch.value]), queryFn: () => api<{ hits: DataSearchHit[] }>('/api/data-search', { query: { q: debouncedSearch.value } }), enabled: computed(() => debouncedSearch.value.trim().length >= 2) })
 const contentMatches = computed(() => new Set(debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.map(hit => hit.id) ?? [] : []))
-const recordMatches = computed(() => debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.filter(hit => hit.type === 'record') ?? [] : [])
+const recordMatches = computed(() => debouncedSearch.value.trim().length >= 2 ? searchQ.data.value?.hits.filter(hit => hit.type === 'item') ?? [] : [])
 const matches = (title: string) => title.toLowerCase().includes(search.value.trim().toLowerCase())
 
 const count = (noun: string, n: number) => n === 1 ? `1 ${noun}` : `${n} ${noun}s`
@@ -32,7 +32,7 @@ type Row = { id: string; title: string; detail: string; to: string }
 type Group = { key: 'documents' | 'databases' | 'canvases'; name: string; icon: string; createLabel: string; canCreate: boolean; create: () => void; creating?: boolean; hint: string; rows: Row[] }
 
 const creators = computed(() => ({
-  documents: { label: 'Document', icon: 'i-ph-file-text', can: can(Permission.writeData), open: () => { nav.createDocumentOpen.value = true } },
+  documents: { label: 'Page', icon: 'i-ph-file-text', can: can(Permission.writeData), open: () => { nav.createDocumentOpen.value = true } },
   databases: { label: 'Database', icon: 'i-ph-table', can: can(Permission.manageDatabases), open: () => { nav.createDatabaseOpen.value = true } },
   canvases: { label: 'Canvas', icon: 'i-ph-selection-background', can: can(Permission.manageDatabases), open: () => { nav.createCanvasOpen.value = true } },
 }))
@@ -44,7 +44,7 @@ const archivedCount = computed(() => databases.value.filter(database => database
 
 const groups = computed<Group[]>(() => [
   {
-    key: 'documents', name: 'Documents', icon: 'i-ph-file-text', createLabel: 'New document', canCreate: creators.value.documents.can, create: creators.value.documents.open, creating: nav.documentCreating.value,
+    key: 'documents', name: 'Pages', icon: 'i-ph-file-text', createLabel: 'New page', canCreate: creators.value.documents.can, create: creators.value.documents.open, creating: nav.documentCreating.value,
     hint: 'Notes, specs and guides your team edits together.',
     rows: (resources.data.value?.documents ?? []).map(item => ({ id: item.id, title: item.title || 'Untitled', detail: edited(item.updatedAt), to: documentPath(item.id) })),
   },
@@ -68,13 +68,9 @@ const bookmarks = computed(() => (resources.data.value?.bookmarks ?? []).flatMap
       if (view) return [{ key: `view:${view.id}`, title: `${database.name} / ${view.name}`, icon: 'i-ph-layout', to: databasePath(database.id, false, view.id) }]
     }
   }
-  if (bookmark.targetType === 'document') {
-    const document = resources.data.value?.documents.find(candidate => candidate.id === bookmark.targetId)
-    if (document) return [{ key: `document:${document.id}`, title: document.title || 'Untitled', icon: 'i-ph-file-text', to: documentPath(document.id) }]
-  }
-  if (bookmark.targetType === 'canvas') {
-    const canvas = resources.data.value?.canvases.find(candidate => candidate.id === bookmark.targetId)
-    if (canvas) return [{ key: `canvas:${canvas.id}`, title: canvas.title, icon: 'i-ph-selection-background', to: canvasPath(canvas.id) }]
+  if (bookmark.targetType === 'item') {
+    const item = resources.data.value?.items.find(item=>item.id===bookmark.targetId)
+    if (item) return [{ key:`item:${item.id}`, title:item.title, icon:item.kind==='canvas'?'i-ph-selection-background':'i-ph-file-text', to:documentPath(item.id) }]
   }
   return []
 }))
@@ -103,11 +99,11 @@ const noMatches = computed(() => searching.value && !visibleGroups.value.length 
     <main class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
         <h2 class="text-xl font-semibold text-highlighted">Your team's knowledge</h2>
-        <p class="mt-1 text-sm text-muted">Documents, databases and canvases, kept together in this Server.</p>
+        <p class="mt-1 text-sm text-muted">Pages, databases and canvases, kept together in this Server.</p>
 
         <LayoutSkeleton v-if="resources.isPending.value" variant="nav" :rows="6" class="mt-8" />
         <LayoutLoadError v-else-if="resources.error.value" message="Data did not load." :retry="resources.refetch" />
-        <LayoutEmptyState v-else-if="nothingYet" icon="i-ph-stack" title="Nothing here yet" :description="newMenu.length ? 'Start with a document, a database for structured records, or a canvas to think on.' : 'Documents, databases and canvases shared with you appear here.'">
+        <LayoutEmptyState v-else-if="nothingYet" icon="i-ph-stack" title="Nothing here yet" :description="newMenu.length ? 'Start with a page, a database for structured records, or a canvas to think on.' : 'Pages, databases and canvases shared with you appear here.'">
           <UButton v-for="item in creatorList" :key="item.label" :label="item.label" :icon="item.icon" color="neutral" variant="subtle" @click="item.open" />
         </LayoutEmptyState>
         <template v-else>

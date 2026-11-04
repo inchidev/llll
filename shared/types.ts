@@ -313,7 +313,7 @@ export type DatabaseSummaryDTO = Pick<DatabaseDTO, 'id' | 'name' | 'archivedAt'>
   views: DatabaseViewSummaryDTO[]
 }
 
-export type DataBookmarkTargetType = 'database_view' | 'document' | 'canvas'
+export type DataBookmarkTargetType = 'database_view' | 'item'
 
 export type DataBookmarkDTO = {
   targetType: DataBookmarkTargetType
@@ -323,6 +323,7 @@ export type DataBookmarkDTO = {
 }
 
 export type DataResourcesDTO = {
+  items: import('./data-items').DataItemSummary[]
   databases: DatabaseSummaryDTO[]
   documents: DocumentSummaryDTO[]
   canvases: CanvasSummaryDTO[]

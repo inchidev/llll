@@ -34,12 +34,10 @@ describe('resource authorization', () => {
 
   it('checks the owning table for direct record/field/view routes', async () => {
     const env = { DB: { prepare: () => ({ bind: () => ({ first: async () => ({ resourceId: 'database-private' }) }) }) } } as L4Env
-    for (const collection of ['database-items', 'database-fields', 'database-views']) {
+    for (const collection of ['database-fields', 'database-views']) {
       await expect(authorizeResourceRequest(env, context(), `/api/${collection}/item-id`)).rejects.toThrow('not granted')
     }
-    await expect(authorizeResourceRequest(env, context(), '/api/documents/document-private')).rejects.toThrow('not granted')
-    await expect(authorizeResourceRequest(env, context(), '/api/documents/document-public')).resolves.toBeUndefined()
-    await expect(authorizeResourceRequest(env, context(), '/api/servers/server/documents')).rejects.toThrow('not granted')
+
   })
 })
 

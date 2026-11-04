@@ -16,8 +16,8 @@ export default defineEventHandler(async (event) => {
   const canvasId = getRouterParam(event, 'id')!
   const body = parseBody(bodySchema, await readBody(event))
   const { env } = cf(event)
-  await requireCanvas(env, canvasId, actor.authorization)
-  const [from, to] = await Promise.all([requireCanvasNode(env, body.fromNodeId, actor.authorization), requireCanvasNode(env, body.toNodeId, actor.authorization)])
+  await requireCanvas(env, canvasId, actor.authorization, true)
+  const [from, to] = await Promise.all([requireCanvasNode(env, body.fromNodeId, actor.authorization, true), requireCanvasNode(env, body.toNodeId, actor.authorization, true)])
   if (from.canvasId !== canvasId || to.canvasId !== canvasId) fail(400, 'bad_request', 'Canvas items must belong to this canvas')
   const duplicate = await env.DB.prepare(
     `SELECT id FROM canvas_edges WHERE canvas_id = ? AND

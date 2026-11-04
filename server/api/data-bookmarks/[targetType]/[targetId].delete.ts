@@ -3,7 +3,7 @@ import { Permission } from '../../../../shared/permissions'
 import { cf, fail } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
 
-const targetTypes = new Set(['database_view', 'document', 'canvas'])
+const targetTypes = new Set(['database_view', 'item'])
 
 export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
