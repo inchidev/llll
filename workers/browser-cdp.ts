@@ -10,9 +10,44 @@ export type CdpClient = {
   send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown>
   waitFor: (predicate: (event: CdpEvent) => boolean, timeoutMs: number) => Promise<void>
   close: () => Promise<void>
+  /** Called with every later event; returns how to stop listening. */
+  on?: (listener: (event: CdpEvent) => void) => () => void
 }
 
 type BrowserAction = 'markdown' | 'screenshot' | 'links'
+
+/** Throws for a URL this page must not reach. Checked for every request it makes. */
+export type RequestGuard = (url: string) => Promise<unknown>
+
+/**
+ * Pauses each request of one page until the guard has seen its URL, redirect hops included: Chromium
+ * follows a redirect itself, so checking only the first and last URL misses what happened between.
+ * Resolves when a document was refused, so nothing waits for a page that will never load.
+ */
+async function guardRequests(client: CdpClient, sessionId: string, guard: RequestGuard) {
+  if (!client.on) throw new Error('Chromium cannot check this page\'s requests')
+  let refuse!: () => void
+  const refused = new Promise<void>((resolve) => { refuse = resolve })
+  const checks = new Map<string, Promise<unknown>>()
+  const stop = client.on((event) => {
+    if (event.method !== 'Fetch.requestPaused' || event.sessionId !== sessionId) return
+    const { requestId, request, resourceType } = event.params as { requestId: string, request: { url: string }, resourceType?: string }
+    const url = URL.canParse(request.url) ? new URL(request.url) : null
+    const web = url?.protocol === 'http:' || url?.protocol === 'https:'
+    // The page's own inline content goes nowhere, and a page may ask for one host many times.
+    const check = url?.protocol === 'data:' || url?.protocol === 'blob:' ? Promise.resolve() : (web ? checks.get(url.host) : undefined) ?? guard(request.url)
+    if (web) checks.set(url.host, check)
+    void check.then(
+      () => client.send('Fetch.continueRequest', { requestId }, sessionId),
+      () => {
+        if (resourceType === 'Document') refuse()
+        return client.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sessionId)
+      },
+    ).catch(() => undefined)
+  })
+  await client.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, sessionId)
+  return { refused, stop }
+}
 
 const PAGE_TEXT = `(() => { const root = document.querySelector('article, main') || document.body; return root ? root.innerText : '' })()`
 const PAGE_LINKS = `Array.from(document.querySelectorAll('a[href]')).map((node) => node.href).filter(Boolean).slice(0, 50)`
@@ -43,22 +78,26 @@ export async function chromiumQuickAction(
   action: BrowserAction,
   url: string,
   assertFinalUrl?: (finalUrl: string) => unknown,
+  guard?: RequestGuard,
 ): Promise<Response> {
   const created = await client.send('Target.createTarget', { url: 'about:blank' }) as { targetId?: string }
   const targetId = created.targetId
   if (!targetId) throw new Error('Chromium did not open a page')
+  let stopGuard: (() => void) | undefined
   try {
     const attached = await client.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId?: string }
     const sessionId = attached.sessionId
     if (!sessionId) throw new Error('Chromium did not attach to the page')
     await client.send('Page.enable', {}, sessionId)
+    const guarded = guard ? await guardRequests(client, sessionId, guard) : null
+    stopGuard = guarded?.stop
     await client.send('Page.navigate', { url }, sessionId)
-    try {
-      await client.waitFor(event => event.method === 'Page.loadEventFired' && event.sessionId === sessionId, NAVIGATION_TIMEOUT_MS)
-    }
-    catch {
+    let blocked = false
+    const loaded = client.waitFor(event => event.method === 'Page.loadEventFired' && event.sessionId === sessionId, NAVIGATION_TIMEOUT_MS)
       // A page that never finishes loading can still have readable text.
-    }
+      .catch(() => undefined)
+    await Promise.race([loaded, guarded?.refused.then(() => { blocked = true }) ?? loaded])
+    if (blocked) throw new Error('The page did not end on a public website')
     if (assertFinalUrl) {
       const info = await client.send('Target.getTargetInfo', { targetId }) as { targetInfo?: { url?: string } }
       const finalUrl = info.targetInfo?.url
@@ -91,6 +130,7 @@ export async function chromiumQuickAction(
     return Response.json({ result: markdown })
   }
   finally {
+    stopGuard?.()
     await client.send('Target.closeTarget', { targetId }).catch(() => undefined)
   }
 }
@@ -164,6 +204,10 @@ export async function connectCdp(webSocketUrl: string): Promise<CdpClient> {
         waiters.add(onEvent)
       })
     },
+    on(listener) {
+      waiters.add(listener)
+      return () => waiters.delete(listener)
+    },
     async close() {
       for (const waiter of pending.values()) waiter.reject(new Error('Chromium DevTools socket closed'))
       pending.clear()
@@ -172,7 +216,7 @@ export async function connectCdp(webSocketUrl: string): Promise<CdpClient> {
   }
 }
 
-export function chromiumBrowser(cdpUrl: string, assertFinalUrl?: (finalUrl: string) => unknown): {
+export function chromiumBrowser(cdpUrl: string, assertFinalUrl?: (finalUrl: string) => unknown, guard?: RequestGuard): {
   quickAction: (action: BrowserAction, options: { url: string }) => Promise<Response>
 } {
   return {
@@ -180,7 +224,7 @@ export function chromiumBrowser(cdpUrl: string, assertFinalUrl?: (finalUrl: stri
       const socketUrl = await resolveCdpWebSocketUrl(cdpUrl)
       const client = await connectCdp(socketUrl)
       try {
-        return await chromiumQuickAction(client, action, options.url, assertFinalUrl)
+        return await chromiumQuickAction(client, action, options.url, assertFinalUrl, guard)
       }
       finally {
         await client.close()

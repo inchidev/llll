@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  assertPublicDestination,
   assertPublicHttpUrl,
   captureBrowserScreenshot,
   listBrowserLinks,
@@ -171,5 +172,73 @@ describe('Chromium final URL check', () => {
   it('returns content when the final URL is public', async () => {
     const response = await chromiumQuickAction(clientEndingAt('https://www.example.com/'), 'markdown', 'https://example.com/', url => assertPublicHttpUrl(url))
     expect(await response.json()).toEqual({ result: 'secret' })
+  })
+})
+
+describe('the local Chromium path', () => {
+  const doh = (records: Record<string, Array<{ type: number, data: string }>>) => vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input))
+    const type = url.searchParams.get('type') === 'A' ? 1 : 28
+    return Response.json({ Answer: (records[url.searchParams.get('name')!] ?? []).filter(answer => answer.type === type || answer.type === 5) })
+  }) as unknown as typeof fetch
+
+  it('refuses a public-looking name that resolves to a private address', async () => {
+    const fetcher = doh({
+      '127.0.0.1.nip.io': [{ type: 1, data: '127.0.0.1' }],
+      'mixed.example.com': [{ type: 1, data: '93.184.216.34' }, { type: 28, data: 'fd00::1' }],
+      'mapped.example.com': [{ type: 28, data: '::ffff:10.0.0.1' }],
+      'www.example.com': [{ type: 5, data: 'cdn.example.net.' }, { type: 1, data: '93.184.216.34' }],
+    })
+    await expect(assertPublicDestination('http://127.0.0.1.nip.io/', [], fetcher)).rejects.toThrow('not a public website')
+    await expect(assertPublicDestination('https://mixed.example.com/', [], fetcher)).rejects.toThrow('not a public website')
+    await expect(assertPublicDestination('https://mapped.example.com/', [], fetcher)).rejects.toThrow('not a public website')
+    await expect(assertPublicDestination('https://nothing.example.com/', [], fetcher)).rejects.toThrow('not a public website')
+    await expect(assertPublicDestination('https://www.example.com/', [], fetcher)).resolves.toBeUndefined()
+  })
+
+  it('refuses when the lookup fails, and skips it for a literal public address', async () => {
+    const down = vi.fn(async () => new Response('', { status: 503 })) as unknown as typeof fetch
+    await expect(assertPublicDestination('https://example.com/', [], down)).rejects.toThrow()
+    await expect(assertPublicDestination('https://93.184.216.34/', [], down)).resolves.toBeUndefined()
+    expect(down).toHaveBeenCalledTimes(2)
+    await expect(assertPublicDestination('http://169.254.169.254/', [], down)).rejects.toThrow()
+  })
+
+  function pausingClient(requests: Array<{ url: string, resourceType: string }>) {
+    const sent: Array<{ method: string, params?: Record<string, unknown> }> = []
+    let listener: ((event: { method: string, sessionId: string, params: unknown }) => void) | undefined
+    const client: CdpClient = {
+      on(next) { listener = next as typeof listener; return () => { listener = undefined } },
+      async send(method, params) {
+        sent.push({ method, params })
+        if (method === 'Target.createTarget') return { targetId: 't' }
+        if (method === 'Target.attachToTarget') return { sessionId: 's' }
+        if (method === 'Page.navigate') requests.forEach((request, index) => listener?.({ method: 'Fetch.requestPaused', sessionId: 's', params: { requestId: `r${index}`, request: { url: request.url }, resourceType: request.resourceType } }))
+        if (method === 'Target.getTargetInfo') return { targetInfo: { url: 'https://example.com/' } }
+        if (method === 'Runtime.evaluate') return { result: { value: 'text' } }
+        return {}
+      },
+      async waitFor() { await new Promise(resolve => setTimeout(resolve, 20)) },
+      async close() {},
+    }
+    return { client, sent }
+  }
+  const guard = async (url: string) => { if (new URL(url).hostname.endsWith('.nip.io')) throw new Error('private') }
+
+  it('refuses a document that redirects to a private name, instead of reading it', async () => {
+    const { client, sent } = pausingClient([{ url: 'https://example.com/', resourceType: 'Document' }, { url: 'http://127.0.0.1.nip.io/', resourceType: 'Document' }])
+    await expect(chromiumQuickAction(client, 'markdown', 'https://example.com/', undefined, guard)).rejects.toThrow('did not end on a public website')
+    await vi.waitFor(() => expect(sent.filter(call => call.method === 'Fetch.failRequest')).toEqual([expect.objectContaining({ params: { requestId: 'r1', errorReason: 'BlockedByClient' } })]))
+    expect(sent.filter(call => call.method === 'Runtime.evaluate')).toEqual([])
+    expect(sent.map(call => call.method).indexOf('Fetch.enable')).toBeLessThan(sent.map(call => call.method).indexOf('Page.navigate'))
+    expect(sent.at(-1)?.method).toBe('Target.closeTarget')
+  })
+
+  it('fails only a private subresource, and lets inline data through unchecked', async () => {
+    const { client, sent } = pausingClient([{ url: 'https://example.com/', resourceType: 'Document' }, { url: 'http://10.0.0.1.nip.io/a.png', resourceType: 'Image' }, { url: 'data:image/png;base64,AA', resourceType: 'Image' }])
+    const response = await chromiumQuickAction(client, 'markdown', 'https://example.com/', undefined, guard)
+    expect(await response.json()).toEqual({ result: 'text' })
+    expect(sent.filter(call => call.method === 'Fetch.continueRequest').map(call => call.params?.requestId).sort()).toEqual(['r0', 'r2'])
+    expect(sent.filter(call => call.method === 'Fetch.failRequest').map(call => call.params?.requestId)).toEqual(['r1'])
   })
 })
