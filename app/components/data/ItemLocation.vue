@@ -14,8 +14,9 @@ const qc = useQueryClient()
 const open = ref(false),
   busy = ref(false),
   error = ref('')
-const parentId = ref(''),
-  databaseId = ref(''),
+const noLocation = '__none__'
+const parentId = ref(noLocation),
+  databaseId = ref(noLocation),
   discardProperties = ref(false)
 const itemsQ = useQuery({
   queryKey: computed(() => ['items', serverId.value]),
@@ -39,23 +40,23 @@ const parents = computed(() => {
       }
   }
   return [
-    { value: '', label: 'Top level' },
+    { value: noLocation, label: 'Top level' },
     ...items.filter((item) => !excluded.has(item.id)).map((item) => ({ value: item.id, label: item.title })),
   ]
 })
 const databases = computed(() => [
-  { value: '', label: 'No database' },
+  { value: noLocation, label: 'No database' },
   ...(resourcesQ.data.value?.databases ?? [])
     .filter((db) => !db.archivedAt)
     .map((db) => ({ value: db.id, label: db.name })),
 ])
 const removingProperties = computed(
-  () => !!props.item.databaseId && (databaseId.value || null) !== props.item.databaseId,
+  () => !!props.item.databaseId && databaseId.value !== props.item.databaseId,
 )
 watch(open, (value) => {
   if (value) {
-    parentId.value = props.item.parentId ?? ''
-    databaseId.value = props.item.databaseId ?? ''
+    parentId.value = props.item.parentId ?? noLocation
+    databaseId.value = props.item.databaseId ?? noLocation
     discardProperties.value = false
     error.value = ''
   }
@@ -70,8 +71,8 @@ async function move() {
       method: 'POST',
       body: {
         version: props.item.version,
-        parentId: parentId.value || null,
-        databaseId: databaseId.value || null,
+        parentId: parentId.value === noLocation ? null : parentId.value,
+        databaseId: databaseId.value === noLocation ? null : databaseId.value,
         discardProperties: discardProperties.value,
       },
     })

@@ -279,9 +279,9 @@ function retryLoad() {
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
     <header class="df-top-row-min flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2 shadow-[0_1px_0_var(--ui-border)]">
-      
+
       <UIcon name="i-ph-selection-background" class="size-5 text-muted" />
-      
+
       <span class="font-semibold">Canvas</span>
       <div class="ml-auto flex max-w-full flex-wrap items-center gap-1">
         <UButton color="neutral" variant="soft" icon="i-ph-note" label="Note" :disabled="!activeCanvas || !writable" @click="addNode('note')" />

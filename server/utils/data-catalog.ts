@@ -20,4 +20,3 @@ export async function listAuthorizedDataResources(
       : data.items.some(item=>item.id===row.targetId)),
   }
 }
-
