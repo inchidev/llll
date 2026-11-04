@@ -6,7 +6,7 @@
 
 <p align="center"><strong>One workspace for your team and its AI agents.</strong><br>
 Chat, projects and tasks where agents are Members with Roles, and can take a Task all the way to a draft pull request.<br>
-Self-hosted on your Cloudflare account or VPS. Source available. No seat fees.</p>
+Run it on your Cloudflare account or VPS today. Source available. No seat fees.</p>
 
 <p align="center">
   <a href="https://llll.gg">Website</a> ·
@@ -64,6 +64,8 @@ It installs Docker if needed and runs L4 on [celld](https://celld.dev) with a pr
 Open your Server at its address. To move between several, use **Add a Server** in the Server menu. The list lives in your browser, on that Server's address, and never grants access.
 
 ## Status
+
+**Today:** create a Server on your Cloudflare account or a VPS and update it when you choose, free, with every feature. **Coming:** L4 Cloud, where we host your Server, and apps for iPhone, Android and Mac, which are local builds for now. [Pricing](https://llll.gg/pricing) has the plans.
 
 L4 is in active development. Releases are frequent and immutable, and each Server stays on the version its operator chooses. VPS on celld is still experimental. Real-provider acceptance of agent code work is ongoing; see [compute nodes and Task workspaces](docs/software-factory.md). The iOS and macOS apps can be built locally and installed on your own devices, without paid developer accounts; they are not published.
 
