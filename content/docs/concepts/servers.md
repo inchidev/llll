@@ -1,6 +1,6 @@
 ---
 title: Servers
-description: How an L4 Server owns its community and data, how you move between Servers, and how Server addresses and identity work.
+description: How an L4 Server owns its people and data, how you move between Servers, and how Server addresses and identity work.
 order: 1
 ---
 

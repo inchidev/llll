@@ -105,7 +105,7 @@ server {
 
 ### More than one address
 
-To serve extra hostnames, set `LLLL_ORIGINS` to a comma-separated list of origins and route all of them to the same container. Only listed origins are trusted. `PUBLIC_ORIGIN` stays the [primary address](../concepts/server-and-shell.md#addresses).
+To serve extra hostnames, set `LLLL_ORIGINS` to a comma-separated list of origins and route all of them to the same container. Only listed origins are trusted. `PUBLIC_ORIGIN` stays the [primary address](../concepts/servers.md#addresses).
 
 ## Update
 

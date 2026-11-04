@@ -48,4 +48,4 @@ These apps are local builds and are not published. The app keeps this device's l
 ## Related
 
 - [Invite your team](invite-your-team.md)
-- [Servers](../concepts/server-and-shell.md)
+- [Servers](../concepts/servers.md)
