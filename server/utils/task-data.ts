@@ -5,13 +5,14 @@ import type {
   TaskDetailDTO,
   TaskDTO,
   TaskLabelDTO,
+  TaskRelationDTO,
 } from '../../shared/types'
 import { agentImageMarker, stripAgentImageMarkers } from '../../shared/agent-images'
 import { runFrames, type RecordingFrameMarks } from '../../shared/task-recordings'
 import type { L4Env } from '../../workers/env'
 
 type BoardRow = Omit<TaskBoardDTO, 'tasks' | 'labels'>
-type TaskRow = Omit<TaskDTO, 'labels' | 'checklistTotal' | 'checklistCompleted' | 'dependencyIds' | 'attachmentCount' | 'hasRecording'>
+type TaskRow = Omit<TaskDTO, 'labels' | 'checklistTotal' | 'checklistCompleted' | 'dependencyIds' | 'attachmentCount' | 'hasRecording' | 'subtaskTotal' | 'subtaskCompleted'>
 type LabelLinkRow = TaskLabelDTO & { taskId: string }
 
 /** `spaces` is an inline list from `spaceSql`; every listing passes it, only a lookup by ID omits it. */
@@ -28,7 +29,7 @@ export async function loadTaskBoards(env: L4Env, includeArchived = false, spaces
        created_at as createdAt, updated_at as updatedAt FROM task_boards ${archivedClause} ORDER BY position, created_at`,
     ).all<BoardRow>(),
     env.DB.prepare(
-      `SELECT t.id, n.number, t.board_id as boardId, t.project_id as projectId, t.title, t.description, t.status, t.priority, t.due_at as dueAt, t.position,
+      `SELECT t.id, n.number, t.board_id as boardId, t.project_id as projectId, t.parent_task_id as parentTaskId, t.title, t.description, t.status, t.priority, t.due_at as dueAt, t.position,
        t.assignee_id as assigneeId, t.channel_id as channelId, t.environment_id as environmentId,
        t.discussion_channel_id as discussionChannelId, t.cover_attachment_id as coverAttachmentId, t.created_by as createdBy,
        t.factory_state as factoryState, t.result_summary as resultSummary, t.result_details as resultDetails, t.last_error as lastError,
@@ -65,8 +66,19 @@ export async function loadTaskBoards(env: L4Env, includeArchived = false, spaces
   }
   const checklist = new Map((checklistResult.results ?? []).map(row => [row.taskId, row]))
   const attachments = new Map((attachmentResult.results ?? []).map(row => [row.taskId, row]))
+  // Active direct children only; archives remain available in the detail below.
+  const progress = new Map<string, { total: number; completed: number }>()
+  for (const child of taskResult.results ?? []) {
+    if (!child.parentTaskId || child.archivedAt) continue
+    const counts = progress.get(child.parentTaskId) ?? { total: 0, completed: 0 }
+    counts.total++
+    if (child.status === 'done') counts.completed++
+    progress.set(child.parentTaskId, counts)
+  }
   const taskRows: TaskDTO[] = (taskResult.results ?? []).map(task => ({
     ...task,
+    subtaskTotal: progress.get(task.id)?.total ?? 0,
+    subtaskCompleted: progress.get(task.id)?.completed ?? 0,
     labels: labelsByTask.get(task.id) ?? [],
     checklistTotal: checklist.get(task.id)?.total ?? 0,
     checklistCompleted: checklist.get(task.id)?.completed ?? 0,
@@ -102,8 +114,13 @@ export async function loadTaskDetail(env: L4Env, taskReference: string | number)
        WHERE task_id = ? ORDER BY created_at, filename`,
     ).bind(taskId).all<Omit<TaskAttachmentDTO, 'url' | 'marks'> & { marksJson: string | null }>(),
   ])
+  const related = boards.flatMap(board => board.tasks)
+  const summary = (item: TaskDTO): TaskRelationDTO => ({ id: item.id, number: item.number, title: item.title, boardId: item.boardId, projectId: item.projectId, status: item.status, priority: item.priority, assigneeId: item.assigneeId, archivedAt: item.archivedAt })
+  const parent = related.find(item => item.id === task.parentTaskId)
   return {
     ...task,
+    parent: parent ? summary(parent) : null,
+    subtasks: related.filter(item => item.parentTaskId === task.id).map(summary),
     checklist: (checklistResult.results ?? []).map(item => ({ ...item, completed: Boolean(item.completed) })),
     attachments: (attachmentsResult.results ?? []).map(({ marksJson, ...item }) => ({ ...item, marks: marksJson ? JSON.parse(marksJson) as unknown : null, url: `/api/task-files/${item.id}` })),
   }

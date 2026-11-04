@@ -6,6 +6,7 @@ import { updateTask } from '../../utils/task-service'
 import { parseBody } from '../../utils/validate'
 
 const bodySchema = z.object({
+  parentTaskId: z.string().min(8).nullable().optional(),
   title: z.string().trim().min(1).max(160).optional(),
   description: z.string().trim().max(12_000).optional(),
   status: z.enum(['backlog', 'ready', 'review', 'done', 'failed']).optional(),

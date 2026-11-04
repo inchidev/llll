@@ -1,22 +1,21 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { getTableName, is, SQL } from 'drizzle-orm'
 import type { SQLiteColumn} from 'drizzle-orm/sqlite-core';
 import { SQLiteSyncDialect, SQLiteTable, getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import * as declared from '../../drizzle/schema'
+import { INIT_SQL } from '../../server/utils/db'
 
 /**
- * `drizzle/schema.ts` and the baseline SQL are written separately, and the runtime only
- * ever runs the SQL. This keeps them saying the same thing, table by table.
+ * `drizzle/schema.ts` must match the baseline plus all subsequent migrations. The
+ * published baseline stays immutable; compare the schema the runtime actually installs.
  */
-const BASELINE = new URL('../../drizzle/server-migrations/0000_baseline.sql', import.meta.url)
 /** The full-text index and SQLite's shadow tables behind it have no Drizzle form. */
 const FTS = /^message_search(_(config|content|data|docsize|idx))?$/u
 
 const sqlite = new DatabaseSync(':memory:')
-sqlite.exec(readFileSync(BASELINE, 'utf8').replaceAll('--> statement-breakpoint', ''))
+sqlite.exec(INIT_SQL)
 
 const tables = new Map(Object.values(declared)
   .filter((value): value is SQLiteTable => is(value, SQLiteTable))
@@ -131,8 +130,8 @@ const checkCount = (table: string) => {
   return row.sql.match(/\bCHECK\s*\(/giu)?.length ?? 0
 }
 
-describe('drizzle/schema.ts matches the baseline', () => {
-  it('declares every table, and none the baseline lacks', () => {
+describe('drizzle/schema.ts matches the complete migration chain', () => {
+  it('declares every table, and none the migrations lack', () => {
     expect([...tables.keys()].sort()).toEqual(baselineTables)
   })
 

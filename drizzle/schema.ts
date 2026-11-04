@@ -1155,6 +1155,8 @@ export const grants = sqliteTable('grants', {
 ])
 
 export const tasks = sqliteTable('tasks', {
+  /** A subtask is ordinary work on the same board and in the same Project. */
+  parentTaskId: text('parent_task_id').references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
   /** The Project a Task names for agent work; with none, it follows Server Roles. */
   projectId: text('project_id').references(() => projects.id),
   id: text('id').primaryKey(),
@@ -1188,6 +1190,7 @@ export const tasks = sqliteTable('tasks', {
   previewUrl: text('preview_url'),
   ...isoTimestamps(),
 }, table => [
+  index('tasks_parent_idx').on(table.parentTaskId),
   index('tasks_board_status_position_idx').on(table.boardId, table.status, table.position),
   index('tasks_assignee_id_idx').on(table.assigneeId),
   index('tasks_source_message_idx').on(table.sourceChannelId, table.sourceMessageId).where(sql`${table.sourceMessageId} IS NOT NULL`),

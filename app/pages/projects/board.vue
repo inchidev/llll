@@ -9,6 +9,7 @@ import type {
   TaskAgentDTO,
   TaskBoardDTO,
   TaskDetailDTO,
+  TaskRelationDTO,
   TaskLabelDTO,
   TaskDTO,
   TaskMessageDraftDTO,
@@ -172,6 +173,8 @@ const taskQ = useQuery({
 })
 
 const allBoards = computed(() => boardsQ.data.value?.boards ?? [])
+const allTasks = computed(() => allBoards.value.flatMap(board => board.tasks))
+const tasksById = computed(() => new Map(allTasks.value.map(task => [task.id, task])))
 const inProject = computed(() => {
   const project = String(route.query.project || '')
   return project ? allBoards.value.filter(board => board.tasks.some(task => task.projectId === project)) : allBoards.value
@@ -295,7 +298,8 @@ type TaskForm = {
   dependencyIds: string[]
 }
 
-const newTask = reactive<TaskForm>({ title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
+const newTaskParent = shallowRef<TaskRelationDTO | null>(null)
+const newTask = reactive<TaskForm & { parentTaskId: string | null }>({ parentTaskId: null, title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
 // A project with one connected repository fills it in for a new task; the person can still change it.
 watch(() => newTask.projectId, async (projectId) => {
   if (!projectId || newTask.environmentId) return
@@ -333,15 +337,18 @@ function fillEditTask(task: TaskDetailDTO | null) {
     status: task.status,
   })
 }
-watch(selectedTask, fillEditTask, { immediate: true })
+watch(selectedTask, (task, previous) => {
+  // Live subtask progress must not discard edits in the parent's form.
+  if (previous && task?.id === previous.id && hasTaskEdits(previous)) return
+  fillEditTask(task)
+}, { immediate: true })
 
 function sameIds(a: string[], b: string[]) {
   return a.length === b.length && a.every(id => b.includes(id))
 }
 
 /** Field edits wait for the save bar; checklist, files, and discussion save as they happen. */
-const taskDirty = computed(() => {
-  const task = selectedTask.value
+function hasTaskEdits(task: TaskDetailDTO | null) {
   if (!task || task.archivedAt) return false
   return editTask.title !== task.title
     || editTask.description !== task.description
@@ -355,7 +362,8 @@ const taskDirty = computed(() => {
     || editTask.status !== task.status
     || !sameIds(editTask.labelIds, task.labels.map(label => label.id))
     || !sameIds(editTask.dependencyIds, task.dependencyIds)
-})
+}
+const taskDirty = computed(() => hasTaskEdits(selectedTask.value))
 const dependencyChoices = computed(() => allBoards.value
   .find(board => board.id === editTask.boardId)?.tasks
   .filter(task => task.id !== selectedTask.value?.id && !task.archivedAt) ?? [])
@@ -480,7 +488,8 @@ function deleteBoard() {
 }
 
 function openCreateTask() {
-  Object.assign(newTask, { title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
+  newTaskParent.value = null
+  Object.assign(newTask, { parentTaskId: null, title: '', description: '', priority: 'normal', dueAt: '', assigneeId: null, projectId: null, environmentId: null, channelId: null, labelIds: [], dependencyIds: [] })
   newTask.projectId = String(route.query.project || '') || null
   sourceDraft.value = null
   showTaskForm.value = true
@@ -509,7 +518,7 @@ function changeNewTaskBoard(value: string | number | undefined) {
 
 async function createTask(runAfter = false) {
   if (!activeBoard.value || !newTask.title.trim()) return
-  const boardId = activeBoard.value.id
+  const boardId = newTaskParent.value?.boardId ?? activeBoard.value.id
   let created: TaskDetailDTO | undefined
   const ok = await mutate(async () => {
     const res = await api<{ task: TaskDetailDTO }>(`/api/boards/${boardId}/tasks`, {
@@ -525,8 +534,17 @@ async function createTask(runAfter = false) {
   }, 'Task created')
   if (ok) {
     showTaskForm.value = false
+    if (created && newTask.parentTaskId && !runAfter) selectedTaskId.value = created.id
     if (runAfter && created) await runTask(created)
   }
+}
+
+function createSubtask() {
+  const parent = selectedTask.value
+  if (!parent || taskDirty.value) return
+  openCreateTask()
+  newTaskParent.value = parent
+  Object.assign(newTask, { parentTaskId: parent.id, projectId: parent.projectId ?? null })
 }
 
 function openTask(task: TaskDTO) {
@@ -581,7 +599,7 @@ function archiveTask() {
 function deleteTask() {
   const task = selectedTask.value
   if (!task) return
-  askConfirm(`Delete ${task.title}?`, async () => {
+  askConfirm(`Delete ${task.title}? Subtasks will be kept and detached.`, async () => {
     const ok = await mutate(() => api(`/api/tasks/${task.id}`, { method: 'DELETE' }), 'Task deleted')
     if (ok) selectedTaskId.value = null
   })
@@ -773,6 +791,8 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
                   </div>
                   <UBadge v-if="task.priority !== 'normal'" :color="priorityColor(task.priority)" variant="subtle" size="xs">{{ task.priority }}</UBadge>
                 </div>
+                <p v-if="task.parentTaskId" class="text-xs text-muted">Subtask of {{ tasksById.get(task.parentTaskId)?.title || 'archived task' }}</p>
+                <p v-if="task.subtaskTotal" class="text-xs text-muted">Subtasks {{ task.subtaskCompleted }}/{{ task.subtaskTotal }} done</p>
                 <p v-if="task.description" class="text-xs text-muted line-clamp-3">{{ task.description }}</p>
                 <div v-if="task.labels.length" class="flex flex-wrap gap-1">
                   <UBadge v-for="label in task.labels" :key="label.id" :color="label.color as 'neutral'" variant="subtle" size="xs">{{ label.name }}</UBadge>
@@ -814,42 +834,6 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showBoardForm = false" />
         <UButton label="Save" :loading="saving" :disabled="!boardName.trim()" @click="saveBoard" />
-      </template>
-    </UModal>
-
-    <UModal v-model:open="showTaskForm" title="Create task" :ui="{ content: 'sm:max-w-2xl' }">
-      <template #body>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <p v-if="sourceDraft" class="flex items-center gap-2 text-sm text-muted sm:col-span-2"><UIcon name="i-ph-chat-circle-text" class="size-4 shrink-0" />From a message{{ sourceDraft.authorName ? ` by ${sourceDraft.authorName}` : '' }} in {{ sourceDraft.channelName }}. The task links back to it.</p>
-          <UFormField v-if="sourceDraft" label="Board" class="sm:col-span-2"><USelect :model-value="activeBoard?.id" :items="boardOptions" class="w-full" @update:model-value="changeNewTaskBoard" /></UFormField>
-          <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
-          <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
-          <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
-          <UFormField v-if="projectOptions.length > 1" label="Project" help="For agent work in a repository."><USelect v-model="newTask.projectId" :items="projectOptions" class="w-full" /></UFormField>
-          <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
-          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><div v-if="newTaskRunProblem.fix" class="flex flex-wrap gap-2"><UButton v-if="newTaskRunProblem.fix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(newTaskRunProblem.fix.grant)" /><UButton :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div></div>
-          <p v-else-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
-          <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
-          <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
-          <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
-          <div v-if="activeBoard?.labels.length" class="sm:col-span-2">
-            <div class="text-sm font-medium mb-2">Labels</div>
-            <div class="flex flex-wrap gap-3">
-              <UCheckbox v-for="label in activeBoard.labels" :key="label.id" :model-value="newTask.labelIds.includes(label.id)" :label="label.name" @update:model-value="value => toggleId(newTask.labelIds, label.id, Boolean(value))" />
-            </div>
-          </div>
-          <div v-if="boardTasks.length" class="sm:col-span-2">
-            <div class="text-sm font-medium mb-2">Dependencies</div>
-            <div class="max-h-32 overflow-y-auto space-y-1">
-              <UCheckbox v-for="task in boardTasks" :key="task.id" :model-value="newTask.dependencyIds.includes(task.id)" :label="taskLabel(task)" @update:model-value="value => toggleId(newTask.dependencyIds, task.id, Boolean(value))" />
-            </div>
-          </div>
-        </div>
-      </template>
-      <template #footer>
-        <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
-        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active') && !newTaskRunProblem" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
-        <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
       </template>
     </UModal>
 
@@ -895,7 +879,8 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
         </section>
         <LayoutSkeleton v-if="taskQ.isPending.value" variant="form" />
         <LayoutLoadError v-else-if="taskQ.error.value" message="This task did not load." :retry="taskQ.refetch" />
-        <fieldset v-else-if="selectedTask" v-show="!isMobile || phoneTab !== 'discussion' || taskDirty" :disabled="!can(Permission.writeTasks, selectedTask.projectId)" class="space-y-8 min-w-0">
+        <TasksHierarchy v-if="selectedTask" v-show="onPhoneTab('task')" :key="selectedTask.id" :task="selectedTask" :tasks="allTasks" :dirty="taskDirty" @create="createSubtask" />
+        <fieldset v-if="selectedTask && !taskQ.isPending.value && !taskQ.error.value" v-show="!isMobile || phoneTab !== 'discussion' || taskDirty" :disabled="!can(Permission.writeTasks, selectedTask.projectId)" class="space-y-8 min-w-0">
           <section v-if="selectedTask.source" v-show="onPhoneTab('task')" class="rounded-lg border border-default p-3 text-sm" aria-label="Task source">
             <template v-if="selectedTask.source.state === 'available'">
               <p class="text-muted">Created from a message{{ selectedTask.source.authorName ? ` by ${selectedTask.source.authorName}` : '' }} in <ULink :to="selectedTask.source.path" class="text-primary">{{ selectedTask.source.channelName }}</ULink></p>
@@ -1024,6 +1009,44 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
         </div>
       </template>
     </USlideover>
+
+    <!-- The creation dialog must sit above the open parent task and its backdrop. -->
+    <UModal v-model:open="showTaskForm" :title="newTask.parentTaskId ? 'Create subtask' : 'Create task'" :ui="{ content: 'sm:max-w-2xl' }">
+      <template #body>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <p v-if="newTaskParent" class="text-sm text-muted sm:col-span-2">Subtask of {{ taskLabel(newTaskParent) }}. Shares its board and Project.</p>
+          <p v-if="sourceDraft" class="flex items-center gap-2 text-sm text-muted sm:col-span-2"><UIcon name="i-ph-chat-circle-text" class="size-4 shrink-0" />From a message{{ sourceDraft.authorName ? ` by ${sourceDraft.authorName}` : '' }} in {{ sourceDraft.channelName }}. The task links back to it.</p>
+          <UFormField v-if="sourceDraft" label="Board" class="sm:col-span-2"><USelect :model-value="activeBoard?.id" :items="boardOptions" class="w-full" @update:model-value="changeNewTaskBoard" /></UFormField>
+          <UFormField label="Title" class="sm:col-span-2"><UInput v-model="newTask.title" autofocus class="w-full" @keyup.enter="createTask(false)" /></UFormField>
+          <UFormField label="Description" class="sm:col-span-2"><UTextarea v-model="newTask.description" :rows="5" class="w-full" /></UFormField>
+          <UFormField label="Assignee"><USelect v-model="newTask.assigneeId" :items="assigneeOptions" class="w-full" /></UFormField>
+          <UFormField v-if="projectOptions.length > 1" label="Project" help="For agent work in a repository."><USelect v-model="newTask.projectId" :disabled="Boolean(newTask.parentTaskId)" :items="projectOptions" class="w-full" /></UFormField>
+          <UFormField v-if="can(Permission.useComputer, newTask.projectId)" label="Repository environment" help="Uses a dedicated branch in the repository, or an optional fork."><USelect v-model="newTask.environmentId" :items="environmentOptions" class="w-full" /></UFormField>
+          <div v-if="newTaskRunProblem" class="space-y-2 sm:col-span-2" role="status"><p class="text-sm text-warning">{{ newTaskRunProblem.message }}</p><div v-if="newTaskRunProblem.fix" class="flex flex-wrap gap-2"><UButton v-if="newTaskRunProblem.fix.grant" label="Give Developer access here" size="sm" :loading="granting" @click="grantProjectWork(newTaskRunProblem.fix.grant)" /><UButton :to="newTaskRunProblem.fix.to" :label="newTaskRunProblem.fix.label" color="neutral" variant="outline" size="sm" /></div></div>
+          <p v-else-if="agents.some(agent => agent.id === newTask.assigneeId)" class="text-sm text-muted sm:col-span-2">Assignment does not start a run. Choose Create and run to start immediately, or run it from the task later.</p>
+          <UFormField label="Report channel"><USelect v-model="newTask.channelId" :items="channelOptions" class="w-full" /></UFormField>
+          <UFormField label="Priority"><USelect v-model="newTask.priority" :items="priorityOptions" class="w-full" /></UFormField>
+          <UFormField label="Due"><UInput v-model="newTask.dueAt" type="datetime-local" class="w-full" /></UFormField>
+          <div v-if="activeBoard?.labels.length" class="sm:col-span-2">
+            <div class="text-sm font-medium mb-2">Labels</div>
+            <div class="flex flex-wrap gap-3">
+              <UCheckbox v-for="label in activeBoard.labels" :key="label.id" :model-value="newTask.labelIds.includes(label.id)" :label="label.name" @update:model-value="value => toggleId(newTask.labelIds, label.id, Boolean(value))" />
+            </div>
+          </div>
+          <div v-if="boardTasks.length" class="sm:col-span-2">
+            <div class="text-sm font-medium mb-2">Dependencies</div>
+            <div class="max-h-32 overflow-y-auto space-y-1">
+              <UCheckbox v-for="task in boardTasks" :key="task.id" :model-value="newTask.dependencyIds.includes(task.id)" :label="taskLabel(task)" @update:model-value="value => toggleId(newTask.dependencyIds, task.id, Boolean(value))" />
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <UButton color="neutral" variant="ghost" label="Cancel" @click="showTaskForm = false" />
+        <UButton v-if="can(Permission.executeTasks, newTask.projectId) && can(Permission.useAgents, newTask.projectId) && agents.some(agent => agent.id === newTask.assigneeId && agent.status === 'active') && !newTaskRunProblem" label="Create and run" :loading="saving || startingRun" :disabled="!newTask.title.trim()" @click="createTask(true)" />
+        <UButton label="Create task" :loading="saving" :disabled="!newTask.title.trim()" @click="createTask(false)" />
+      </template>
+    </UModal>
 
     <UModal v-model:open="showConfirm" :title="confirmTitle">
       <template #footer>

@@ -116,7 +116,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   server.registerTool('restore_document_revision', { description: 'Restore an earlier document revision as a new version. Supply the current version to protect concurrent edits.', inputSchema: { documentId: z.string().min(1), revision: z.number().int().positive(), version: z.number().int().positive() }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ documentId, revision, version }) => dataResult(async () => ({ document: await restoreDocumentRevision(env, principal.authorization, documentId, revision, version) })))
 
   server.registerTool('list_task_boards', {
-    description: 'List task boards with their tasks, labels, dependencies, and checklist counts.',
+    description: 'List task boards with their tasks, parent IDs, subtask progress, labels, dependencies, and checklist counts.',
     inputSchema: { includeArchived: z.boolean().default(false) },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ includeArchived }) => {
@@ -135,7 +135,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   }, async ({ project, ...filter }) => result(await findTasks(env, principal.authorization, { ...filter, names: new Set((project ?? '').split(',').map(name => name.trim().toLowerCase().replace(/[^a-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '')).filter(Boolean)) })))
 
   server.registerTool('get_task', {
-    description: 'Get one task by UUID or human-readable number, with its labels, dependencies, checklist, and attachments. A task with a recording also returns its frames as images, in reading order, and its marks on the recording attachment.',
+    description: 'Get one task by UUID or human-readable number, with its parent, direct subtasks (including archived), labels, dependencies, checklist, and attachments. A task with a recording also returns its frames as images, in reading order, and its marks on the recording attachment.',
     inputSchema: { taskId: taskReferenceSchema.describe('Task UUID or human-readable number') },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId }) => {
@@ -157,6 +157,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
       environmentId: z.string().min(8).nullable().optional(),
       channelId: z.string().min(8).nullable().default(null),
       labelIds: z.array(z.string().min(8)).max(20).default([]),
+      parentTaskId: z.string().min(8).nullable().optional().describe('Parent on the same board and Project. Null detaches. Status and archive remain independent.'),
       dependencyIds: z.array(z.string().min(8)).max(100).default([]),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -180,6 +181,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
       channelId: z.string().min(8).nullable().optional(),
       archived: z.boolean().optional(),
       labelIds: z.array(z.string().min(8)).max(20).optional(),
+      parentTaskId: z.string().min(8).nullable().optional().describe('Parent on the same board and Project. Null detaches. Status and archive remain independent.'),
       dependencyIds: z.array(z.string().min(8)).max(100).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
