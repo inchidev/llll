@@ -30,7 +30,7 @@ Each PR Preview shows one change alone. The main Preview shows everything merged
 - **Data.** It keeps its own D1 database, `llll-server-main`, across deployments: migrations apply in order on existing data, as on a customer Server that updates. Files, backups and tickets use the shared staging resources.
 - **Secrets.** Nothing new. Its Server uses the same `LLLL_PREVIEW_AUTH_SECRET` and `LLLL_PREVIEW_SETUP_TOKEN` as PR Previews; its own database keeps its Accounts apart. Claim the Owner once with the setup token.
 - **Access.** It is public like other Previews. Put Cloudflare Access in front of `main.server-preview.llll.gg` if it should be restricted.
-- **Reset.** If its data is no longer useful, delete `llll-server-main` through administrative cleanup; the next main Build creates an empty one. Keep backup destinations.
+- **Reset.** If its data is no longer useful, delete `llll-server-main` through administrative cleanup; the next main Build creates an empty one in APAC, with an Owner from the current `LLLL_PREVIEW_ADMIN_PASSWORD`. An existing Owner keeps the password it was created with. Keep backup destinations.
 
 Workers Builds configuration for the main branch (administrative, not code):
 
