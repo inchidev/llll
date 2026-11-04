@@ -61,4 +61,4 @@ If the Server does not keep Cloudflare access, every add, promote or remove goes
 ## Related
 
 - [Mail](mail.md)
-- [Servers](../concepts/server-and-shell.md)
+- [Servers](../concepts/servers.md)

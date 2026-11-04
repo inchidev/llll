@@ -105,7 +105,7 @@ server {
 
 ### More than one address
 
-To serve extra hostnames, set `LLLL_ORIGINS` to a comma-separated list of origins and route all of them to the same container. Only listed origins are trusted. `PUBLIC_ORIGIN` stays the [primary address](../concepts/server-and-shell.md#addresses).
+To serve extra hostnames, set `LLLL_ORIGINS` to a comma-separated list of origins and route all of them to the same container. Only listed origins are trusted. `PUBLIC_ORIGIN` stays the [primary address](../concepts/servers.md#addresses).
 
 ## Update
 
@@ -170,4 +170,4 @@ Without a Cloudflare token, calls stay unavailable and the call button is disabl
 docker compose -f docker-compose.yml -f compose.build.yml up -d --build --wait
 ```
 
-The build needs about 8 GB of free RAM. Use it to test source changes, not to run a community Server.
+The build needs about 8 GB of free RAM. Use it to test source changes, not to run a Server people rely on.

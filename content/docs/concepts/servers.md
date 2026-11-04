@@ -1,14 +1,14 @@
 ---
 title: Servers
-description: How an L4 Server owns its community and data, how you move between Servers, and how Server addresses and identity work.
+description: How an L4 Server holds your organization and its data, how you move between Servers, and how Server addresses and identity work.
 order: 1
 ---
 
-A **Server** is where your community and its data live. You use one by opening its address.
+A **Server** is where your organization and its data live. You use one by opening its address.
 
 ## The Server
 
-A Server is one community with its own Members, Roles, conversations, content and settings. Each Server is a separate deployment that its operator runs, either on their own Cloudflare account or on their own VPS. There is no hosted L4 service.
+A Server is one organization with its own Members, Roles, conversations, content and settings. Each Server is a separate deployment that its operator runs, either on their own Cloudflare account or on their own VPS. [L4 Cloud](https://llll.gg/pricing), where we host the Server for you, is coming.
 
 A Server owns:
 

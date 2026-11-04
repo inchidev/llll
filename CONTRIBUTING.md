@@ -1,6 +1,6 @@
 # Contributing to L4
 
-L4 is source-available software for independent communities, under the
+L4 is source-available software for independent organizations, under the
 [Elastic License 2.0](LICENSE).
 
 The project does not accept outside code contributions. Pull requests from
