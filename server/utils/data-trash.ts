@@ -7,7 +7,7 @@ import {
 } from '../../shared/authorization'
 import type { DataTrashEntry, DataTrashType } from '../../shared/data-trash'
 import { requireItem } from './item-access'
-import { nowIso } from '../../shared/ids'
+import { newId, nowIso } from '../../shared/ids'
 import { spaceSql } from '../../shared/spaces'
 import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
@@ -90,11 +90,16 @@ export async function changeDataTrash(
   }
   if (action === 'purge') {
     if (type === 'database') {
-      const items = await purgeItemStatements(env, auth, 'database_id=?', id)
-      await env.DB.batch([
-        ...items,
-        env.DB.prepare('DELETE FROM database_definitions WHERE id=? AND deleted_at IS NOT NULL').bind(id),
-      ])
+      await purgeItems(env, auth, 'database', id)
+      await writeAudit(env, {
+        serverId: auth.serverId,
+        actorId: auth.principal.id,
+        action: 'data.purge',
+        targetType: type,
+        targetId: id,
+        meta: { title: row.title },
+        authorization: auth,
+      })
       return { ok: true }
     }
     // Only purge frees a field slot; clear its data before a new field can claim it.
@@ -141,19 +146,44 @@ export async function changeDataTrash(
   return { ok: true }
 }
 
-async function purgeItemStatements(env: L4Env, auth: AuthorizationContext, selection: string, id: string) {
-  const rows = (
-    await env.DB.prepare(
-      `WITH RECURSIVE tree(id,depth) AS (
+/** The first statement claims an unchanged subtree; every deletion checks that transaction-local claim. */
+async function purgeItems(env: L4Env, auth: AuthorizationContext, kind: 'item' | 'database', id: string) {
+  const selection = kind === 'item' ? 'id=?' : 'database_id=?'
+  const tree = `WITH RECURSIVE tree(id,depth) AS (
     SELECT id,0 FROM data_items WHERE ${selection}
     UNION ALL SELECT c.id,t.depth+1 FROM data_items c JOIN tree t ON c.parent_id=t.id
-  ) SELECT id,MAX(depth) AS depth FROM tree GROUP BY id ORDER BY depth DESC`,
+  )`
+  const rows = (
+    await env.DB.prepare(
+      `${tree} SELECT i.id,i.version,i.parent_id AS parentId,i.database_id AS databaseId,MAX(t.depth) AS depth FROM tree t JOIN data_items i ON i.id=t.id GROUP BY i.id ORDER BY depth DESC`,
     )
       .bind(id)
-      .all<{ id: string }>()
+      .all<{ id: string; version: number; parentId: string | null; databaseId: string | null }>()
   ).results
   for (const row of rows) await requireItem(env, auth, row.id, false, true)
-  return rows.map((row) => env.DB.prepare('DELETE FROM data_items WHERE id=?').bind(row.id))
+  const table = kind === 'item' ? 'data_items' : 'database_definitions'
+  const markerColumn = kind === 'item' ? 'mutation_id' : 'updated_at'
+  const root = await env.DB.prepare(`SELECT deleted_at AS deletedAt,updated_at AS updatedAt FROM ${table} WHERE id=?`)
+    .bind(id)
+    .first<{ deletedAt: string | null; updatedAt: string }>()
+  if (!root?.deletedAt) fail(409, 'not_in_trash', 'Move this resource to Trash first')
+  const marker = newId()
+  // updated_at is only a transaction-local claim for a Database that is deleted in the same batch.
+  const claim = env.DB.prepare(
+    `UPDATE ${table} SET ${markerColumn}=? WHERE id=? AND deleted_at=? AND updated_at=?
+    AND NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN data_items i ON i.id=json_extract(e.value,'$.id')
+      WHERE i.id IS NULL OR i.version<>json_extract(e.value,'$.version') OR i.parent_id IS NOT json_extract(e.value,'$.parentId') OR i.database_id IS NOT json_extract(e.value,'$.databaseId'))
+    AND (${tree} SELECT COUNT(DISTINCT id) FROM tree)=? RETURNING id`,
+  ).bind(marker, id, root.deletedAt, root.updatedAt, JSON.stringify(rows), id, rows.length)
+  const guard = `EXISTS(SELECT 1 FROM ${table} WHERE id=? AND ${markerColumn}=?)`
+  const result = await env.DB.batch([
+    claim,
+    ...rows.map((row) => env.DB.prepare(`DELETE FROM data_items WHERE id=? AND ${guard}`).bind(row.id, id, marker)),
+    ...(kind === 'database'
+      ? [env.DB.prepare(`DELETE FROM database_definitions WHERE id=? AND ${markerColumn}=?`).bind(id, marker)]
+      : []),
+  ])
+  if (!result[0]?.results.length) fail(409, 'data_conflict', 'Data changed elsewhere. Reload before deleting it.')
 }
 async function changeItemTrash(
   env: L4Env,
@@ -167,15 +197,18 @@ async function changeItemTrash(
     .first<{ deletedAt: string | null }>()
   if (action === 'purge') {
     if (!row?.deletedAt) fail(409, 'not_in_trash', 'Move this Item to Trash first')
-    await env.DB.batch(await purgeItemStatements(env, auth, 'id=?', id))
+    await purgeItems(env, auth, 'item', id)
   } else {
     if (action === 'restore') {
       if (item.parentId) await requireItem(env, auth, item.parentId)
       if (item.databaseId) await requireDatabase(env, item.databaseId, false, auth)
     }
-    await env.DB.prepare('UPDATE data_items SET deleted_at=?,updated_at=?,version=version+1 WHERE id=? AND version=?')
+    const saved = await env.DB.prepare(
+      'UPDATE data_items SET deleted_at=?,updated_at=?,version=version+1 WHERE id=? AND version=? RETURNING id',
+    )
       .bind(action === 'trash' ? nowIso() : null, nowIso(), id, item.version)
-      .run()
+      .first()
+    if (!saved) fail(409, 'data_conflict', 'Data changed elsewhere. Reload and try again.')
   }
   await writeAudit(env, {
     serverId: auth.serverId,

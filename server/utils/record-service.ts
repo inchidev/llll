@@ -50,6 +50,8 @@ export async function createRecord(env: L4Env, authorization: AuthorizationConte
     if (receipt.bodyHash !== bodyHash) fail(409, 'request_conflict', 'This request ID was already used for different values')
     const item = receipt.recordId ? await loadDatabaseItem(env, receipt.recordId) : null
     if (!item) fail(409, 'record_removed', 'The record created by this request was removed; restore it from Trash')
+    await requireItem(env, authorization, item.id)
+    if (item.databaseId !== databaseId) fail(409, 'record_moved', 'The record created by this request now belongs to another database')
     return item
   }
   const previous = await replay()

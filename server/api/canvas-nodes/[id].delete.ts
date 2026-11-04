@@ -9,7 +9,7 @@ export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)), Permission.manageDatabases)
   const id = getRouterParam(event, 'id')!
   const { env } = cf(event)
-  const node = await requireCanvasNode(env, id)
+  const node = await requireCanvasNode(env, id, actor.authorization, true)
   await env.DB.prepare('DELETE FROM canvas_nodes WHERE id = ?').bind(id).run()
   await writeAudit(env, { serverId: (await getServerId(cf(event).env.DB)), actorId: actor.user.id, action: 'canvas_node.delete', targetType: 'canvas_node', targetId: id, meta: { canvasId: node.canvasId } })
   return { ok: true }

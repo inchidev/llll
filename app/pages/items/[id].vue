@@ -46,6 +46,7 @@ async function patchProperty(fieldId: string, value: DatabaseValue) {
       body: { version: item.version, values: { [fieldId]: value } },
     })
     qc.setQueryData(['item', item.id], { item: { ...item, ...result.item } })
+    await documentQ.refetch()
     await invalidate()
   } catch (error) {
     toast.add({ title: errorMessage(error), color: 'error' })

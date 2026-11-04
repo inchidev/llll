@@ -5,11 +5,11 @@ import { createError } from 'h3'
 import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
 import { createItem, getItem, listItems, moveItem, updateItem } from '../../server/utils/item-service'
-import { readRecords, updateRecord } from '../../server/utils/record-service'
+import { createRecord, readRecords, updateRecord } from '../../server/utils/record-service'
 import { changeDataTrash } from '../../server/utils/data-trash'
 import { changeDataReference, listDataReferences } from '../../server/utils/data-references'
 import { searchData } from '../../server/utils/data-search'
-import { requireCanvas } from '../../server/utils/data-resources'
+import { requireCanvas, requireCanvasNode } from '../../server/utils/data-resources'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { DEFAULT_SPACE_ID } from '../../shared/spaces'
 import type { AuthorizationContext } from '../../shared/authorization'
@@ -176,4 +176,64 @@ it('migrates a populated published baseline without dangling foreign keys or cha
   })
   expect(old.prepare('SELECT target_type FROM data_bookmarks').get()?.target_type).toBe('item')
   old.close()
+})
+
+it('reauthorizes idempotent receipts against current membership and ancestors', async () => {
+  const record = await createRecord(env, auth, 'a', { requestId: 'same-request', title: 'Before' })
+  await moveItem(env, auth, record.id, { version: 1, databaseId: 'b', discardProperties: true })
+  const limited: AuthorizationContext = {
+    ...auth,
+    principal: { ...auth.principal, isOwner: false, resourceAccess: { databases: ['a'] } },
+  }
+  await expect(createRecord(env, limited, 'a', { requestId: 'same-request', title: 'Before' })).rejects.toMatchObject({
+    statusCode: 403,
+  })
+  await expect(createRecord(env, auth, 'a', { requestId: 'same-request', title: 'Before' })).rejects.toMatchObject({
+    statusCode: 409,
+  })
+})
+it('rejects response read-scope failures before creating or moving an Item', async () => {
+  const writeOnly: AuthorizationContext = { ...auth, credential: { kind: 'mcp', scopes: ['documents:write'] } }
+  await expect(createItem(env, writeOnly, { title: 'Must not commit' })).rejects.toMatchObject({ statusCode: 403 })
+  expect((await listItems(env, auth)).length).toBe(0)
+  const page = await createItem(env, auth, {})
+  const noDestinationRead: AuthorizationContext = {
+    ...auth,
+    credential: { kind: 'mcp', scopes: ['documents:read', 'documents:write', 'data:write', 'data:manage'] },
+  }
+  await expect(moveItem(env, noDestinationRead, page.id, { version: 1, databaseId: 'a' })).rejects.toMatchObject({
+    statusCode: 403,
+  })
+  expect((await getItem(env, auth, page.id)).databaseId).toBeNull()
+})
+it.each(['restore', 'move', 'add-child'] as const)(
+  'refuses purge when concurrent %s invalidates its subtree snapshot',
+  async (change) => {
+    const root = await createItem(env, auth, {}),
+      child = await createItem(env, auth, { parentId: root.id })
+    await changeDataTrash(env, auth, 'item', root.id, 'trash')
+    const batch = env.DB.batch.bind(env.DB)
+    env.DB.batch = async (statements) => {
+      if (change === 'restore')
+        db.prepare('UPDATE data_items SET deleted_at=NULL,version=version+1 WHERE id=?').run(root.id)
+      if (change === 'move')
+        db.prepare('UPDATE data_items SET parent_id=NULL,version=version+1 WHERE id=?').run(child.id)
+      if (change === 'add-child') {
+        db.prepare('UPDATE data_items SET deleted_at=NULL WHERE id=?').run(root.id)
+        db.prepare("INSERT INTO data_items(id,parent_id,title,created_by) VALUES('new',?,'New','owner')").run(root.id)
+        db.prepare("UPDATE data_items SET deleted_at='again' WHERE id=?").run(root.id)
+      }
+      return batch(statements)
+    }
+    await expect(changeDataTrash(env, auth, 'item', root.id, 'purge')).rejects.toMatchObject({ statusCode: 409 })
+    expect(db.prepare('SELECT id FROM data_items WHERE id=?').get(root.id)).toBeTruthy()
+    expect(db.prepare('SELECT id FROM data_items WHERE id=?').get(child.id)).toBeTruthy()
+  },
+)
+it('checks Canvas writable membership for existing nodes in an archived database', async () => {
+  const canvas = await createItem(env, auth, { kind: 'canvas', databaseId: 'a' })
+  db.prepare("INSERT INTO canvas_nodes(id,canvas_id,content,created_by) VALUES('node',?,'Keep','owner')").run(canvas.id)
+  db.exec("UPDATE database_definitions SET archived_at='now' WHERE id='a'")
+  expect((await requireCanvas(env, canvas.id, auth)).id).toBe(canvas.id)
+  await expect(requireCanvasNode(env, 'node', auth, true)).rejects.toMatchObject({ statusCode: 409 })
 })

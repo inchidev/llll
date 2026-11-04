@@ -18,7 +18,7 @@ import { creationSpaceId } from '../../shared/spaces'
 import { newId, nowIso } from '../../shared/ids'
 import { DatabaseStorageTypes, databaseSlots } from '../../shared/database'
 import type { L4Env } from '../../workers/env'
-import { ITEM_COLUMNS, liveItemSql, readableItemSql, requireItem } from './item-access'
+import { ITEM_COLUMNS, authorizeItem, liveItemSql, readableItemSql, requireItem } from './item-access'
 import {
   requireDatabase,
   databaseFieldsFor,
@@ -58,6 +58,7 @@ async function destination(
 ) {
   if (parentId) {
     const parent = await requireItem(env, auth, parentId, true)
+    authorizeItem(auth, parent)
     if (parent.spaceId !== spaceId) fail(404, 'not_found', 'Parent not found')
   }
   if (databaseId) {
@@ -87,6 +88,8 @@ export async function createItem(
   }
   const id = newId(),
     now = nowIso()
+  // The response includes current content; reject missing read grants before committing a write.
+  authorizeItem(auth, { id, kind: body.kind, databaseId })
   const content = documentInputHtml(body.content ?? '', body.format)
   await env.DB.prepare(
     `INSERT INTO data_items(id,space_id,kind,parent_id,database_id,title,content,icon,cover,position,created_by,created_at,updated_at)
@@ -163,6 +166,7 @@ export async function moveItem(
   const parentId = body.parentId === undefined ? item.parentId : body.parentId
   const databaseId = body.databaseId === undefined ? item.databaseId : body.databaseId
   await destination(env, auth, item.spaceId, parentId, databaseId)
+  authorizeItem(auth, { ...item, databaseId })
   if (!databaseId && item.databaseId) {
     authorize(auth, ServerAction.writeDocuments)
     authorizeResource(auth, item.kind === 'canvas' ? 'canvases' : 'documents', '*')
