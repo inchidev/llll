@@ -7,6 +7,8 @@ import type { L4Env } from './env'
  */
 export async function chatAlertRecipients(env: L4Env, input: {
   rootId: string; channelId: string; actorId: string; dm: boolean; mentioned: string[]; candidates: string[]; edit?: boolean
+  /** Named on purpose whatever the rules, like someone's own reminder: the author is not left out and preferences do not apply. */
+  exempt?: string[]
 }): Promise<string[]> {
   const extra = input.edit ? [] : (await env.DB.prepare(`SELECT DISTINCT a.user_id AS id FROM channel_attention a
     WHERE ((a.channel_id = ?1 AND a.notifications = 'all') OR (a.channel_id = ?2 AND a.following = 1))
@@ -15,7 +17,8 @@ export async function chatAlertRecipients(env: L4Env, input: {
       AND NOT EXISTS (SELECT 1 FROM email_mailboxes WHERE channel_id = ?1)`)
     .bind(input.rootId, input.channelId, input.actorId).all<{ id: string }>()).results ?? []
   const added = extra.length ? await filterLiveRecipients(env, input.rootId, extra.map(row => row.id)) : []
-  const candidates = [...new Set([...input.candidates, ...added])].filter(id => id !== input.actorId)
+  const exempt = new Set(input.exempt ?? [])
+  const candidates = [...new Set([...input.candidates, ...added, ...exempt])].filter(id => id !== input.actorId || exempt.has(id))
   if (!candidates.length) return []
   const states = await env.DB.prepare(`SELECT u.id, COALESCE(a.notifications, 'default') AS notifications,
     COALESCE(t.following, 0) AS following FROM users u
@@ -27,6 +30,7 @@ export async function chatAlertRecipients(env: L4Env, input: {
   const byUser = new Map(states.results.map(row => [row.id, row]))
   const mentioned = new Set(input.mentioned)
   return candidates.filter(id => {
+    if (exempt.has(id)) return true
     const state = byUser.get(id)
     return chatNotificationAllowed(state?.notifications ?? 'default', {
       dm: input.dm, thread: input.channelId !== input.rootId, following: Boolean(state?.following), mentioned: mentioned.has(id),

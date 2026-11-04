@@ -106,7 +106,7 @@ export async function signalChannelActivity(
   const mentions = await env.DB.prepare('SELECT user_id AS id FROM message_mentions WHERE message_id = ?').bind(message.id).all<{ id: string }>()
   const mentioned = mentions.results.map(row => row.id)
   const alerts = new Set(await chatAlertRecipients(env, { rootId: audience.rootChannelId, channelId: message.channelId,
-    actorId: message.author.id, dm: audience.rootType === 'dm', mentioned, candidates: audience.recipientIds }))
+    actorId: message.author.id, dm: audience.rootType === 'dm', mentioned, candidates: audience.recipientIds, exempt: alsoNotify }))
   await Promise.all([
     stub.notifyChannelActivity({ ...event, notify: true }, audience.recipientIds.filter(id => alerts.has(id))),
     stub.notifyChannelActivity({ ...event, notify: false }, audience.recipientIds.filter(id => !alerts.has(id))),

@@ -107,6 +107,8 @@ const readSnapshot = useQuery({
   queryKey: computed(() => ['chat-attention', props.channelId]),
   queryFn: () => api<ChatAttention>(`/api/channels/${props.channelId}/attention`),
   refetchOnMount: 'always',
+  // Switching back reuses this component and only refetches what is stale; reads wait for a fresh answer.
+  staleTime: 0,
 })
 
 // The "New" divider comes from the read cursor in the first fresh page. Cached
@@ -282,6 +284,10 @@ watch(() => messages.value.at(-1)?.id, async (id, previous) => {
   await nextTick()
   if (pinned.value || sentByMe) scrollToBottom()
   else if (id && previous && last && last.author.id !== session.user?.id) unseen.value += 1
+  // Another tab's Mark unread holds reads back only until something newer arrives.
+  if (readGeneration !== undefined && id && !id.startsWith('tmp:') && lastRead && id > lastRead) {
+    readGeneration = Math.max(readGeneration, readSnapshot.data.value?.readGeneration ?? 0, qc.getQueryData<number>(['chat-read-generation', props.channelId]) ?? 0)
+  }
   markReadIfVisible()
 })
 

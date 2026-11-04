@@ -112,6 +112,18 @@ it('honors all/mentions/off and followed threads without granting private-channe
   expect(await recipients('thread')).toEqual([])
 })
 
+it('keeps a self-reminder\'s tab alert: its author is exempt from the author rule and preferences', async () => {
+  state.channelId = 'chat'
+  await patch({ notifications: 'muted' })
+  expect(await chatAlertRecipients(state.env, { rootId: 'chat', channelId: 'chat', actorId: 'me', dm: false, mentioned: [], candidates: ['me'] })).toEqual([])
+  expect(await chatAlertRecipients(state.env, { rootId: 'chat', channelId: 'chat', actorId: 'me', dm: false, mentioned: [], candidates: ['me'], exempt: ['me'] })).toEqual(['me'])
+})
+
+it.each([['attention', () => patch({ notifications: 'loud' })], ['unread', () => unread('')]] as const)('answers 400 for a bad %s body', async (_name, call) => {
+  state.channelId = 'chat'
+  await expect(call()).rejects.toMatchObject({ statusCode: 400 })
+})
+
 it('rechecks mute and deletion before delivering a previously queued message', async () => {
   state.channelId = 'chat'
   await patch({ notifications: 'all' })

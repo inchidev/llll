@@ -1,13 +1,14 @@
 import { z } from 'zod'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
+import { parseBody } from '../../../utils/validate'
 import { signalChatAttention } from '../../../../workers/channel-activity'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const access = await requireChannelAccess(event, id)
   if (access.mailPermission) fail(400, 'mail_read', 'Mark mail as unread from the mailbox')
-  const { messageId } = z.object({ messageId: z.string().min(1).max(100) }).parse(await readBody(event))
+  const { messageId } = parseBody(z.object({ messageId: z.string().min(1).max(100) }), await readBody(event))
   const { env, waitUntil } = cf(event)
   const message = await env.DB.prepare('SELECT id FROM messages WHERE id = ? AND channel_id = ? AND deleted_at IS NULL').bind(messageId, id).first()
   if (!message) fail(404, 'not_found', 'Message not found')

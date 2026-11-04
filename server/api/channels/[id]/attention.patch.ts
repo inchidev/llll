@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { requireChannelAccess } from '../../../utils/guards'
 import { cf, fail } from '../../../utils/cf'
+import { parseBody } from '../../../utils/validate'
 import { CHAT_NOTIFICATION_LEVELS } from '../../../../shared/chat-attention'
 import { chatAttention } from '../../../../workers/chat-attention'
 import { signalChatAttention } from '../../../../workers/channel-activity'
@@ -10,7 +11,7 @@ const schema = z.object({ following: z.boolean().optional(), notifications: z.en
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const access = await requireChannelAccess(event, id)
-  const input = schema.parse(await readBody(event))
+  const input = parseBody(schema, await readBody(event))
   const thread = access.channel.type === 'thread'
   if (access.mailPermission || (input.following !== undefined && !thread) || (input.notifications !== undefined && thread)) {
     fail(400, 'chat_attention', 'Follow a thread or change notifications on its conversation')
