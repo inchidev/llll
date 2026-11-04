@@ -1,3 +1,4 @@
+import { chatAlertRecipients } from './chat-alerts'
 import { filterLiveRecipients } from './live-audience'
 import type { LiveKind, PublicUser } from '../shared/types'
 import { liveNotificationTitle } from '../shared/live'
@@ -149,12 +150,15 @@ export async function messageNotificationStatement(env: L4Env, message: Notifica
   const { channel, root } = channels
   const dm = root.type === 'dm'
   if (dm && message.edit) return null
-  const recipientIds = dm
+  const candidates = dm
     ? await activeDmRecipients(env, root.id, message.author.id)
     : [...await accessibleMentions(env, root, message.author.id, message.mentions), ...(message.roleMentions ?? [])]
+  const mentioned = [...message.mentions, ...(message.roleMentions ?? [])]
+  const recipientIds = await chatAlertRecipients(env, { rootId: root.id, channelId: channel.id, actorId: message.author.id,
+    dm, mentioned, candidates, edit: message.edit })
   if (!recipientIds.length) return null
   const kind: NotificationKind = dm ? 'dm_message' : 'mention'
-  const title = dm ? message.author.displayName : `${message.author.displayName} mentioned you in #${root.name}`
+  const title = dm ? message.author.displayName : `${message.author.displayName} in #${root.name}`
   const url = channel.type === 'thread' ? channelPath(root.id, channel.id) : channelPath(channel.id)
   return outboxStatement(env, {
     eventId: `message:${message.id}`,

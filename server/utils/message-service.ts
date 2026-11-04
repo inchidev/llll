@@ -205,9 +205,11 @@ export async function readChannelMessages(env: L4Env, member: Membership, channe
     ? await db.select().from(messages).where(and(eq(messages.id, thread.parentMessageId), eq(messages.channelId, thread.parentId))).limit(1)
     : []
   const [rootMessage] = await hydrateMessages(env, rootRows, member.user.id)
-  const read = await env.DB.prepare('SELECT last_read_message_id as lastReadMessageId FROM channel_reads WHERE channel_id = ? AND user_id = ?')
-    .bind(channelId, member.user.id).first<{ lastReadMessageId: string | null }>()
-  return { frozen: access.frozen, messages: dtos, rootMessage: rootMessage ?? null, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
+  const read = await env.DB.prepare(`SELECT r.last_read_message_id AS lastReadMessageId, COALESCE(a.read_generation, 0) AS readGeneration
+    FROM channels c LEFT JOIN channel_reads r ON r.channel_id = c.id AND r.user_id = ?2
+    LEFT JOIN channel_attention a ON a.channel_id = c.id AND a.user_id = ?2 WHERE c.id = ?1`)
+    .bind(channelId, member.user.id).first<{ lastReadMessageId: string | null; readGeneration: number }>()
+  return { readGeneration: read?.readGeneration ?? 0, frozen: access.frozen, messages: dtos, rootMessage: rootMessage ?? null, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
 }
 
 export async function sendChannelMessage(env: L4Env, actor: Membership, channelId: string, input: z.input<typeof sendMessageSchema>, schedule: (promise: Promise<unknown>) => void, deliveryId?: string,

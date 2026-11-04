@@ -63,7 +63,7 @@ export function useServerSocket(serverId: MaybeRefOrGetter<string>) {
           connection.value = 'connected'
         }
         else if (parsed.t === 'presence') presence.apply(parsed.users)
-        else if (parsed.t === 'channel.access.changed' || parsed.t === 'channels.changed' || parsed.t === 'channel.activity' || parsed.t === 'channel.read' || parsed.t === 'tasks.changed' || parsed.t === 'mail.changed' || parsed.t === 'members.changed' || parsed.t === 'live.changed') {
+        else if (parsed.t === 'chat.attention' || parsed.t === 'channel.access.changed' || parsed.t === 'channels.changed' || parsed.t === 'channel.activity' || parsed.t === 'channel.read' || parsed.t === 'tasks.changed' || parsed.t === 'mail.changed' || parsed.t === 'members.changed' || parsed.t === 'live.changed') {
           const qc = queryClient()
           if (qc) applyServerRealtimeEvent(qc, parsed)
           if (parsed.t === 'channel.access.changed' && parsed.revoked) {

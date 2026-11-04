@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { INIT_SQL } from '../../server/utils/db'
 import { DatabaseSync } from 'node:sqlite'
 import { getTableName, is, SQL } from 'drizzle-orm'
 import type { SQLiteColumn} from 'drizzle-orm/sqlite-core';

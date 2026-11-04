@@ -10,6 +10,7 @@ const sections = computed<Array<{ value: InboxSection; label: string; icon: stri
   { value: 'agents', label: 'Agent work', icon: 'i-ph-robot', count: inbox.value?.runs.filter(run => run.status === 'queued' || run.status === 'running').length ?? 0 },
   { value: 'tasks', label: 'My tasks', icon: 'i-ph-kanban', count: (inbox.value?.assigned.length ?? 0) + (inbox.value?.review.length ?? 0) },
   { value: 'mail', label: 'Mail', icon: 'i-ph-envelope-simple', count: unreadMailboxes.value.reduce((sum, mailbox) => sum + mailbox.unreadCount, 0) },
+  { value: 'threads', label: 'My threads', icon: 'i-ph-chats', count: 0 },
   { value: 'chats', label: 'Unread chats', icon: 'i-ph-chat-circle', count: unreadConversations.value.length },
 ])
 </script>

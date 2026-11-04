@@ -8,7 +8,7 @@ export type InboxRunDTO = { id: string; status: 'queued' | 'running' | 'complete
 export type InboxTaskDTO = { id: string; number: number; title: string; status: TaskStatus; priority: TaskPriority; dueAt: string | null; boardName: string }
 export type InboxDTO = { approvals: InboxApprovalDTO[]; mentions: InboxMentionDTO[]; runs: InboxRunDTO[]; assigned: InboxTaskDTO[]; review: InboxTaskDTO[] }
 
-export const INBOX_SECTIONS = ['all', 'approvals', 'mentions', 'agents', 'tasks', 'mail', 'chats'] as const
+export const INBOX_SECTIONS = ['all', 'approvals', 'mentions', 'agents', 'tasks', 'mail', 'chats', 'threads'] as const
 export type InboxSection = typeof INBOX_SECTIONS[number]
 export function inboxSection(value: unknown): InboxSection {
   return (INBOX_SECTIONS as readonly unknown[]).includes(value) ? value as InboxSection : 'all'
