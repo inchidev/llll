@@ -105,12 +105,15 @@ fi
 umask 077
 mkdir -p "$(dirname "$CONFIG")"
 # Keep secrets and generated configuration off the read-only application image.
-# celld resolves paths relative to this file, so preserve the template's base.
+# celld requires project-relative paths (absolute paths are rejected). Link the
+# read-only source directory into the temporary project, keeping file/asset
+# paths relative while the generated configuration remains writable.
 template_dir=$(cd "$(dirname "$TEMPLATE")" && pwd)
-jq --arg root "$template_dir" '
-  def absolute: if startswith("/") then . else $root + "/" + . end;
-  .main |= absolute | .assets.directory |= absolute |
-  .d1_databases |= map(.migrations_dir |= absolute)
+ln -sfn "$template_dir" "$(dirname "$CONFIG")/source"
+jq '
+  def source_path: "source/" + ltrimstr("./");
+  .main |= source_path | .assets.directory |= source_path |
+  .d1_databases |= map(.migrations_dir |= source_path)
 ' "$TEMPLATE" > "$CONFIG"
 
 put_var() {
@@ -180,7 +183,7 @@ if [ "${LLLL_DEV_RELOAD:-false}" = true ]; then
   build_directory=$(printf '%s' "$LLLL_DEV_DEPLOYED_BUILD" | jq -r '.directory')
   case "$build_directory" in build-[0-9]*) ;; *) fail "missing completed backend build" ;; esac
   tmp=$(mktemp)
-  jq --arg dir "/opt/llll/.output/$build_directory" \
+  jq --arg dir "source/.output/$build_directory" \
     '.main=($dir+"/server/index.mjs") | .assets.directory=($dir+"/public")' "$CONFIG" > "$tmp"
   mv "$tmp" "$CONFIG"
   export LLLL_DEV_DEPLOYED_BUILD

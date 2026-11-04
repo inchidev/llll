@@ -204,6 +204,10 @@ try {
   }
 } catch (error) {
   console.error(error.message)
+  // Capture startup errors before shutdown removes the failing process.
+  if (managesContainers) {
+    spawnSync('docker', [...composeArgs, 'logs', '--no-color', '--tail', '80'], { cwd: root, env, stdio: 'inherit', timeout: 15000 })
+  }
   if (command === 'dev') await shutdown()
   process.exitCode = 1
 }
