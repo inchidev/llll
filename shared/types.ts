@@ -368,6 +368,8 @@ export type MailMessageDTO = MessageDTO & {
     /** Why the last delivery attempt failed, when it did. */
     deliveryError: string | null
     deliveryUncertain?: boolean
+    /** Inbound mail whose sender could not be confirmed. Absent otherwise. */
+    authWarning?: 'failed' | 'unverified'
     /** `markdown` was sent as HTML; `content` is its text alternative. */
     format?: 'text' | 'markdown'
   }

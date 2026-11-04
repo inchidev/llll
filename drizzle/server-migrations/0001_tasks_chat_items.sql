@@ -427,3 +427,6 @@ END;
 
 --> statement-breakpoint
 CREATE TRIGGER database_view_bookmarks_after_delete AFTER DELETE ON database_views BEGIN DELETE FROM data_bookmarks WHERE target_type='database_view' AND target_id=OLD.id; END;
+
+--> statement-breakpoint
+ALTER TABLE `email_messages` ADD `auth_verdict` text;

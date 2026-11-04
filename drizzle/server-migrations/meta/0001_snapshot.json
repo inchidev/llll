@@ -5287,6 +5287,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'text'"
+        },
+        "auth_verdict": {
+          "name": "auth_verdict",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {

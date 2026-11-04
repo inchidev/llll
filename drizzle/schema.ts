@@ -751,6 +751,8 @@ export const emailMessages = sqliteTable('email_messages', {
   deliveryAttempts: integer('delivery_attempts').notNull().default(0),
   deliveryError: text('delivery_error'),
   deliveredAt: text('delivered_at'),
+  /** What the receiving hop found about the sender of inbound mail. Earlier mail has none. */
+  authVerdict: text('auth_verdict', { enum: ['verified', 'failed', 'unverified'] }),
   /** `markdown` is sent as sanitized HTML with a text/plain alternative. */
   bodyFormat: text('body_format', { enum: ['text', 'markdown'] }).notNull().default('text'),
 }, table => [

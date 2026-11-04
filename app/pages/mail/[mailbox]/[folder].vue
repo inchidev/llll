@@ -612,6 +612,10 @@ const deliveryBadge = {
                 <UTooltip v-if="message.email && canSend && !message.id.startsWith('tmp:')" text="Forward"><UButton icon="i-ph-arrow-bend-double-up-right" color="neutral" variant="ghost" size="xs" square aria-label="Forward" @click="forward(message)" /></UTooltip>
               </div>
               <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-default">{{ message.content }}</p>
+              <p v-if="message.email?.authWarning" role="status" class="mt-3 flex items-start gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
+                <UIcon name="i-ph-warning" class="mt-0.5 size-4 shrink-0" />
+                <span>{{ message.email.authWarning === 'failed' ? `This email failed the sender's authentication check. It may not be from ${message.email.fromAddress}.` : `L4 could not confirm this email is from ${message.email.fromAddress}.` }} It was kept as its own conversation, and a reply goes only to that address.</span>
+              </p>
               <div v-if="message.email?.deliveryStatus === 'failed' || message.email?.deliveryUncertain" class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
                 <UIcon name="i-ph-warning-circle" class="size-4 shrink-0" />
                 <span class="min-w-0 flex-1">{{ message.email?.deliveryUncertain ? 'Delivery could not be confirmed. The recipient may already have this email.' : message.email?.deliveryError || 'This email was not delivered.' }}</span>
