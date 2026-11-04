@@ -1,9 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { drizzle } from 'drizzle-orm/d1'
 import baselineSql from '../../drizzle/server-migrations/0000_baseline.sql?raw'
-import taskSubtasksSql from '../../drizzle/server-migrations/0001_task_subtasks.sql?raw'
-import chatAttentionSql from '../../drizzle/server-migrations/0001_chat_attention.sql?raw'
-import itemsSql from '../../drizzle/server-migrations/0001_data_items.sql?raw'
+import tasksChatItemsSql from '../../drizzle/server-migrations/0001_tasks_chat_items.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -28,9 +26,7 @@ export function d1ExecSql(sql: string): string {
 
 export const INIT_SQL = d1ExecSql([
   baselineSql,
-  taskSubtasksSql,
-  chatAttentionSql,
-  itemsSql,
+  tasksChatItemsSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

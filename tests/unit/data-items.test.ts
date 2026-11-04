@@ -160,7 +160,7 @@ it('migrates a populated published baseline without dangling foreign keys or cha
  INSERT INTO database_items(id,database_id,title,created_by) VALUES('record','a','Record','owner');
  INSERT INTO data_references(source_type,source_id,target_type,target_id,created_by) VALUES('document','doc','record','record','owner');
  INSERT INTO data_bookmarks(user_id,target_type,target_id) VALUES('owner','document','doc');`)
-  old.exec(readFileSync(new URL('../../drizzle/server-migrations/0001_data_items.sql', import.meta.url), 'utf8'))
+  old.exec(readFileSync(new URL('../../drizzle/server-migrations/0001_tasks_chat_items.sql', import.meta.url), 'utf8'))
   expect(old.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   expect(old.prepare('SELECT id,kind,space_id FROM data_items ORDER BY id').all()).toEqual([
     { id: 'canvas', kind: 'canvas', space_id: DEFAULT_SPACE_ID },

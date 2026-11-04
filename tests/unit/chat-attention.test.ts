@@ -129,7 +129,9 @@ it('rechecks mute and deletion before delivering a previously queued message', a
 
 it('upgrades existing read threads to explicit follows without changing their cursors', async () => {
   sqlite.exec("INSERT INTO channel_reads(channel_id,user_id,last_read_message_id,updated_at) VALUES('thread','me','t1','before'); DROP TABLE channel_attention")
-  sqlite.exec(readFileSync(new URL('../../drizzle/server-migrations/0001_chat_attention.sql', import.meta.url), 'utf8'))
+  for (const statement of readFileSync(new URL('../../drizzle/server-migrations/0001_tasks_chat_items.sql', import.meta.url), 'utf8').split('--> statement-breakpoint')) {
+    if (statement.includes('channel_attention')) sqlite.exec(statement)
+  }
   expect(await chatAttention(state.env.DB, 'thread', 'me')).toEqual({ following: true, notifications: 'default', readGeneration: 0 })
   expect((await chatAttention(state.env.DB, 'chat', 'me')).following).toBe(false)
   expect(sqlite.prepare("SELECT last_read_message_id FROM channel_reads WHERE channel_id='thread' AND user_id='me'").get()).toEqual({ last_read_message_id: 't1' })
