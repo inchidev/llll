@@ -14,6 +14,12 @@ CELLD_LISTEN="${CELLD_LISTEN:-0.0.0.0:8080}"
 CELLD_INTERNAL_LISTEN="${CELLD_INTERNAL_LISTEN:-127.0.0.1:8081}"
 CELLD_ADVERTISE="${CELLD_ADVERTISE:-127.0.0.1:8081}"
 CELLD_WATCH="${CELLD_WATCH:-/var/lib/llll/celld}"
+
+# An older Compose file sets no user and its volume is root-owned. Take the volume over, then give up root.
+if [ "$(id -u)" = 0 ]; then
+  chown -R 10001:10001 "$CELLD_WATCH"
+  exec setpriv --reuid=10001 --regid=10001 --clear-groups --inh-caps=-all -- "$0" "$@"
+fi
 CELLD_RESTART_DELAY="${CELLD_RESTART_DELAY:-15}"
 
 export AWS_REGION S3_ENDPOINT CELLD_WATCH

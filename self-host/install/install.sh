@@ -804,7 +804,7 @@ doctor_fail() { printf 'FAIL %s\n' "$*"; doctor_failed=1; }
 doctor_server() {
   local doctor_failed=0 tool key value config_ok=true daemon_ok=true service origins origin code server_id rows
   for tool in docker jq curl timeout; do
-    if ! command -v "$tool" >/dev/null; then doctor_fail "Missing prerequisite: $tool"; fi
+    if ! type -P "$tool" >/dev/null; then doctor_fail "Missing prerequisite: $tool"; fi
   done
   [[ $doctor_failed == 0 ]] || return 1
   if ! (load_installation) >/dev/null 2>&1; then

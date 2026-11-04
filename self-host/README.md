@@ -96,9 +96,10 @@ Restore by stopping the stack, extracting those archives back onto empty volumes
 Server Settings → Backups can also download a TAR of D1 SQL and R2 objects. That archive does not include the celld deployment, KV, or live Durable Object state. To load its SQL into this node while the stack is up, copy `restore.sql` into the L4 container and run:
 
 ```bash
+docker compose exec -T llll sh -c 'cat > /tmp/restore.sql' < restore.sql
 docker compose exec llll \
-  celld d1 execute llll /opt/llll/wrangler.celld.local.json \
-  --file /path/inside/container/restore.sql \
+  celld d1 execute llll /tmp/llll/wrangler.celld.local.json \
+  --file /tmp/restore.sql \
   --bucket s3://cells
 ```
 

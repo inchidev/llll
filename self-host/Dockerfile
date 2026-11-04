@@ -58,8 +58,8 @@ WORKDIR /opt/llll
 ENV CELLD_WATCH=/var/lib/llll/celld \
     CELLD_ESBUILD=/usr/local/bin/esbuild
 
-USER 10001:10001
-
+# Stays root so an older Compose file, which sets no user, can still prepare its root-owned volume.
+# The entrypoint gives up root before starting anything.
 EXPOSE 8080
 
 LABEL org.opencontainers.image.title="llll" \
