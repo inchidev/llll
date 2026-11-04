@@ -189,7 +189,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   })
 
   if (!toolPaused('list_items')) server.registerTool('list_items', {
-    description: 'List L4 document summaries. Use get_item to read a document body.',
+    description: 'List accessible page and Canvas Item summaries, including their parent and database. Use get_item for content and properties.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
@@ -199,7 +199,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   server.registerTool('move_item', {description:'Move an Item. Changing database removes property values and relation links only when discardProperties=true.',inputSchema:{itemId:z.string().min(1),...moveItemSchema.shape},annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},async({itemId,...input})=>dataResult(async()=>({item:await moveItem(env,principal.authorization,itemId,input)})))
 
   if (!toolPaused('get_item')) server.registerTool('get_item', {
-    description: 'Read one L4 document. The content field contains HTML used by the rich-text editor.',
+    description: 'Read an authorized Item with HTML content, database properties and child pages.',
     inputSchema: { itemId: z.string().min(8) },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ itemId }) => {
@@ -207,7 +207,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   })
 
   if (!toolPaused('create_item')) server.registerTool('create_item', {
-    description: 'Create a L4 document. Supply HTML or set format to markdown.',
+    description: 'Create a page or Canvas Item, optionally under a parent or in a database. Supply HTML or set format to markdown.',
     inputSchema: createItemSchema.shape,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (input) => {
@@ -215,7 +215,7 @@ export function createL4McpServer({ env, principal, schedule, origin = '' }: Mcp
   })
 
   if (!toolPaused('update_item')) server.registerTool('update_item', {
-    description: 'Update a L4 document using its current version. Supply HTML or set format to markdown.',
+    description: 'Update Item content and appearance using its current version. Supply HTML or set format to markdown. Use move_item for its location and update_record for properties.',
     inputSchema: { itemId: z.string().min(1), ...updateItemSchema.shape },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async ({ itemId, ...input }) => {

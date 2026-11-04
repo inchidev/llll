@@ -115,11 +115,11 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     })
   add('list_items', undefined, z.object({}), 'List accessible pages and canvas Items, including their parent and database.', async()=>({items:await listItems(env,authorization)}))
   add('move_item', ServerAction.manageData, moveItemSchema.safeExtend({itemId:z.string().min(1)}), 'Move an Item under a parent or into/out of a database. Changing database requires discardProperties=true to remove prior values and relation links. The body, ID, history and ordinary links are preserved.', async({itemId,...input})=>({item:await moveItem(env,authorization,itemId,input)}))
-  add('get_item', undefined, z.object({ itemId: z.string().min(1) }), 'Read an authorized document.', async ({ itemId }) => ({ item: await getItem(env, authorization, itemId) }))
+  add('get_item', undefined, z.object({ itemId: z.string().min(1) }), 'Read an authorized Item with HTML content, database properties and child pages.', async ({ itemId }) => ({ item: await getItem(env, authorization, itemId) }))
   add('create_item', undefined, createItemSchema,
-    'Create a document when your resource scope permits new documents.', async input => ({ item: await createItem(env, authorization, input) }))
+    'Create a page or Canvas Item within your resource scope, optionally under a parent or in a database.', async input => ({ item: await createItem(env, authorization, input) }))
   add('update_item', undefined, updateItemSchema.safeExtend({ itemId: z.string().min(1) }),
-    'Update an authorized document using its current version.', async ({ itemId, ...input }) => ({ item: await updateItem(env, authorization, itemId, input) }))
+    'Update authorized Item content and appearance using its current version. Use move_item for location and update_record for properties.', async ({ itemId, ...input }) => ({ item: await updateItem(env, authorization, itemId, input) }))
   add('read_records', ServerAction.readRecords, readRecordsSchema,
     'Read authorized table fields and records without saved view filters by default. Supply viewId to apply a saved view, or search/pageSize to page results. Fields use opaque IDs returned by list_tables; relation values are record IDs with their titles in `linked`.', async ({ databaseId, page, ...options }) => readRecords(env, authorization, databaseId, page, options))
   add('create_record', ServerAction.writeRecords, createRecordSchema.extend({ databaseId: z.string().min(1) }),
