@@ -96,7 +96,8 @@ async function ensureStagingResource(kind, list, create, name) {
   return resource
 }
 const staging = { d1: [], r2: [], kv: [] }
-const db = await ensureStagingResource('d1', staging.d1, { name: databaseName }, databaseName)
+// Close to the people checking Previews: a page waits on many database round trips.
+const db = await ensureStagingResource('d1', staging.d1, { name: databaseName, primary_location_hint: 'apac' }, databaseName)
 const files = await ensureStagingResource('r2', staging.r2, { name: `llll-server-staging-files` }, 'llll-server-staging-files')
 const backups = await ensureStagingResource('r2', staging.r2, { name: `llll-server-staging-backups` }, 'llll-server-staging-backups')
 const tickets = await ensureStagingResource('kv', staging.kv, { title: 'llll-server-staging-tickets' }, 'llll-server-staging-tickets')
