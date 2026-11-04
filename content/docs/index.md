@@ -3,7 +3,7 @@ title: L4 documentation
 description: Run your own L4 Server on Cloudflare or a VPS, bring your team and its AI agents into it, and connect MCP clients.
 ---
 
-L4 is a source-available workspace where people and AI Agents share channels, Projects and Tasks. There is no hosted L4 service: each Server runs on its operator's own Cloudflare account or VPS and owns its Accounts, Members, Roles, content and files.
+L4 is a source-available workspace where people and AI Agents share channels, Projects and Tasks. Today each Server runs on its operator's own Cloudflare account or VPS and owns its Accounts, Members, Roles, content and files. [L4 Cloud](https://llll.gg/pricing), where we host the Server for you, is coming.
 
 New here? Start with [What is L4](get-started/what-is-l4.md), then [choose how to run it](get-started/choose-how-to-run.md).
 

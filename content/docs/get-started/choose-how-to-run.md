@@ -4,7 +4,7 @@ description: Compare running an L4 Server on your Cloudflare account with runnin
 order: 2
 ---
 
-Every L4 Server runs on infrastructure you control. There are two targets: your **Cloudflare account** or a **VPS** you manage. Both run the same published release, and in both the Server owns its Accounts, files and conversations.
+Today every L4 Server runs on infrastructure you control. There are two targets: your **Cloudflare account** or a **VPS** you manage. Both run the same published release, and in both the Server owns its Accounts, files and conversations.
 
 If you only want to join a Server someone else runs, you do not need either. See [Connect to a Server](connect-a-server.md).
 
@@ -36,6 +36,10 @@ Start here: [Create a Server on Cloudflare](create-on-cloudflare.md). For the fu
 Choose a VPS if you already run servers, want everything on one machine, or want agents to run code on that machine. The installer sets up Docker Compose, HTTPS through Caddy and the Server, then prints a private link where you choose the Owner password.
 
 Start here: [Install on a VPS](install-on-a-vps.md). Docker Compose and Coolify are also possible; see [Docker](../self-host/docker.md) and [Coolify](../self-host/coolify.md).
+
+## L4 Cloud (coming)
+
+With L4 Cloud we host your Server, and there is nothing for you to run. It is not available yet. See [Pricing](https://llll.gg/pricing) for the plans we intend to offer.
 
 ## You can run more than one
 

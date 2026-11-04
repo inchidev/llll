@@ -170,4 +170,4 @@ Without a Cloudflare token, calls stay unavailable and the call button is disabl
 docker compose -f docker-compose.yml -f compose.build.yml up -d --build --wait
 ```
 
-The build needs about 8 GB of free RAM. Use it to test source changes, not to run a community Server.
+The build needs about 8 GB of free RAM. Use it to test source changes, not to run a Server people rely on.
