@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useSwipeToClose } from '~/composables/useSwipeToClose'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { changedTaskFields, refreshedTaskEdit, taskEditFields, toDateInput } from '~/utils/task-edit'
 import type { CodeEnvironment } from '~~/shared/code-environments'
 import { hasPermission, Permission } from '~~/shared/permissions'
 import type {
@@ -322,46 +323,21 @@ const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 
 function fillEditTask(task: TaskDetailDTO | null) {
   if (!task) return
-  Object.assign(editTask, {
-    title: task.title,
-    description: task.description,
-    priority: task.priority,
-    dueAt: toDateInput(task.dueAt),
-    assigneeId: task.assigneeId,
-    projectId: task.projectId ?? null,
-    environmentId: task.environmentId ?? null,
-    channelId: task.channelId,
-    labelIds: task.labels.map(label => label.id),
-    dependencyIds: [...task.dependencyIds],
-    boardId: task.boardId,
-    status: task.status,
-  })
+  Object.assign(editTask, taskEditFields(task))
 }
 watch(selectedTask, (task, previous) => {
-  // Live subtask progress must not discard edits in the parent's form.
-  if (previous && task?.id === previous.id && hasTaskEdits(previous)) return
+  // A live refresh updates what this person has not touched and keeps what they have.
+  if (previous && task && task.id === previous.id && hasTaskEdits(previous)) {
+    Object.assign(editTask, refreshedTaskEdit(editTask, taskEditFields(previous), taskEditFields(task)))
+    return
+  }
   fillEditTask(task)
 }, { immediate: true })
-
-function sameIds(a: string[], b: string[]) {
-  return a.length === b.length && a.every(id => b.includes(id))
-}
 
 /** Field edits wait for the save bar; checklist, files, and discussion save as they happen. */
 function hasTaskEdits(task: TaskDetailDTO | null) {
   if (!task || task.archivedAt) return false
-  return editTask.title !== task.title
-    || editTask.description !== task.description
-    || editTask.priority !== task.priority
-    || editTask.dueAt !== toDateInput(task.dueAt)
-    || editTask.assigneeId !== task.assigneeId
-    || editTask.channelId !== task.channelId
-    || editTask.projectId !== (task.projectId ?? null)
-    || editTask.environmentId !== (task.environmentId ?? null)
-    || editTask.boardId !== task.boardId
-    || editTask.status !== task.status
-    || !sameIds(editTask.labelIds, task.labels.map(label => label.id))
-    || !sameIds(editTask.dependencyIds, task.dependencyIds)
+  return Object.keys(changedTaskFields(editTask, taskEditFields(task))).length > 0
 }
 const taskDirty = computed(() => hasTaskEdits(selectedTask.value))
 const dependencyChoices = computed(() => allBoards.value
@@ -386,13 +362,6 @@ function assignee(id: string | null) {
 
 function priorityColor(priority: TaskPriority) {
   return priority === 'urgent' ? 'error' : priority === 'high' ? 'warning' : priority === 'low' ? 'neutral' : 'primary'
-}
-
-function toDateInput(value: string | null) {
-  if (!value) return ''
-  const date = new Date(value)
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
 }
 
 function toIso(value: string) {
@@ -556,12 +525,15 @@ async function saveTask() {
   if (!task) return
   const key = selectedTaskId.value
   await mutate(async () => {
+    // Only what this person changed: an old status or board in the form must not be written back.
+    const changes = changedTaskFields(editTask, taskEditFields(task))
     const res = await api<{ task: TaskDetailDTO }>(`/api/tasks/${task.id}`, {
       method: 'PATCH',
-      body: { ...editTask, dueAt: toIso(editTask.dueAt) },
+      body: { ...changes, ...(changes.dueAt === undefined ? {} : { dueAt: toIso(changes.dueAt) }) },
     })
     // The saved task comes back with the response, so the save bar clears at once.
     qc.setQueryData(['task', key], { task: res.task })
+    fillEditTask(res.task)
   }, 'Task saved')
 }
 

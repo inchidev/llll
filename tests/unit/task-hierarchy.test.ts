@@ -76,6 +76,12 @@ describe('ordinary Tasks with a hierarchy', () => {
     await patch('child', { archived: false }); await patch('child', { parentTaskId: null, boardId: 'other-board' })
     expect(await patch('parent', { projectId: 'project-a' })).toMatchObject({ projectId: 'project-a' })
   })
+  it('detaches an archived subtask without restoring it, so its parent can move', async () => {
+    insert('parent'); insert('child', 'parent'); await patch('child', { archived: true })
+    await expect(patch('parent', { boardId: 'other-board' })).rejects.toMatchObject({ statusCode: 400 })
+    expect(await patch('child', { parentTaskId: null })).toMatchObject({ parentTaskId: null, archivedAt: expect.any(String) })
+    expect(await patch('parent', { boardId: 'other-board' })).toMatchObject({ boardId: 'other-board' })
+  })
   it('preserves children on parent deletion, and still deletes a whole board', () => {
     insert('parent'); insert('child', 'parent'); insert('grandchild', 'child')
     db.exec("UPDATE tasks SET archived_at='y' WHERE id='child'; DELETE FROM tasks WHERE id='parent'")

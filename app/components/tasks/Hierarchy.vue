@@ -15,7 +15,8 @@ const busy = ref(false)
 const parentChoice = ref<string>()
 const childChoice = ref<string>()
 watch(() => props.task.id, () => { parentChoice.value = undefined; childChoice.value = undefined })
-const writable = computed(() => can(Permission.writeTasks, props.task.projectId) && !props.task.archivedAt)
+const canWrite = computed(() => can(Permission.writeTasks, props.task.projectId))
+const writable = computed(() => canWrite.value && !props.task.archivedAt)
 const disabled = computed(() => busy.value || props.dirty)
 const scoped = computed(() => props.tasks.filter(t => t.boardId === props.task.boardId && (t.projectId ?? null) === (props.task.projectId ?? null) && !t.archivedAt))
 const label = (task: Pick<TaskDTO, 'number' | 'title'>) => `#${task.number} ${task.title}`
@@ -43,7 +44,7 @@ async function setParent(taskId: string, parentTaskId: string | null) {
       <span class="text-xs text-muted">Parent</span>
       <ULink :to="link(task.parent)" class="min-w-0 flex-1 truncate text-sm text-primary" :aria-label="`Open parent ${label(task.parent)}`">{{ label(task.parent) }}</ULink>
       <UBadge v-if="task.parent.archivedAt" label="Archived" color="neutral" size="xs" />
-      <UButton v-if="writable" label="Detach" aria-label="Detach from parent" color="neutral" variant="ghost" size="xs" :disabled="disabled" @click="setParent(task.id, null)" />
+      <UButton v-if="canWrite" label="Detach" aria-label="Detach from parent" color="neutral" variant="ghost" size="xs" :disabled="disabled" @click="setParent(task.id, null)" />
     </div>
     <div v-if="writable && parentChoices.length" class="flex flex-wrap items-end gap-2">
       <UFormField :label="task.parent ? 'Change parent' : 'Parent task'" class="min-w-0 flex-1">
@@ -63,7 +64,7 @@ async function setParent(taskId: string, parentTaskId: string | null) {
           <UIcon :name="child.status === 'done' ? 'i-ph-check-circle' : 'i-ph-circle'" class="size-4 shrink-0 text-muted" />
           <ULink :to="link(child)" class="min-w-0 flex-1 truncate text-sm text-primary">{{ label(child) }}</ULink>
           <span class="text-xs text-muted">{{ child.archivedAt ? 'Archived' : child.status }}</span>
-          <UButton v-if="writable && !child.archivedAt" icon="i-ph-x" :aria-label="`Detach ${label(child)}`" color="neutral" variant="ghost" size="xs" :disabled="disabled" @click="setParent(child.id, null)" />
+          <UButton v-if="canWrite" icon="i-ph-x" :aria-label="`Detach ${label(child)}`" color="neutral" variant="ghost" size="xs" :disabled="disabled" @click="setParent(child.id, null)" />
         </li>
       </ul>
       <p v-else class="text-xs text-muted">Break this task into work with its own assignee, status and due date.</p>

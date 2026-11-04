@@ -24,7 +24,7 @@ export async function validateTaskHierarchy(
   if (task.id) {
     const outside = await env.DB.prepare('SELECT 1 AS found FROM tasks WHERE parent_task_id=? AND (board_id<>? OR project_id IS NOT ?) LIMIT 1')
       .bind(task.id, task.boardId, task.projectId).first()
-    if (outside) fail(400, 'task_hierarchy', 'Detach subtasks before moving their parent to another board or Project')
+    if (outside) fail(400, 'task_hierarchy', 'Detach its subtasks, archived ones too, before moving a parent to another board or Project')
   }
 }
 

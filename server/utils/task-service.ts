@@ -270,7 +270,8 @@ export async function updateTask(
 
   const parentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
   const changingParent = parentTaskId !== task.parentTaskId
-  if (changingParent && task.archivedAt) fail(400, 'task_hierarchy', 'Restore the task before changing its parent')
+  // Detaching stays open: an archived subtask must not pin its parent to a board or Project.
+  if (changingParent && parentTaskId && task.archivedAt) fail(400, 'task_hierarchy', 'Restore the task before changing its parent')
   if (changingParent && task.parentTaskId) await requireTask(env, task.parentTaskId, authorization, Permission.writeTasks)
   await validateTaskHierarchy(env, authorization, { id, boardId, projectId, parentTaskId }, changingParent)
 

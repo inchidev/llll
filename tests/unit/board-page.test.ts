@@ -168,3 +168,19 @@ it('preserves unsaved parent edits when live subtask progress refreshes the deta
   await flushPromises()
   expect((view.get('fieldset input').element as HTMLInputElement).value).toBe('An unsaved parent title')
 })
+
+it('saves only the changed fields, refills from the response, and follows live changes to the rest', async () => {
+  task.status = 'ready'
+  await render()
+  const form = () => view.findAll('input').find(input => (input.element as HTMLInputElement).value === 'Say OK' || (input.element as HTMLInputElement).value === 'Say OK now')!
+  await form().setValue('  Say OK now  ')
+  // Someone else moves the Task meanwhile: the form follows, and the typed title stays.
+  client.setQueryData(['task', '1001'], { task: { ...task, status: 'done' } })
+  await flushPromises()
+  api.mockClear()
+  task = { ...task, status: 'done', title: 'Say OK now' }
+  view.findComponent({ name: 'LayoutSaveBar' }).vm.$emit('save')
+  await flushPromises()
+  expect(api.mock.calls[0]).toEqual(['/api/tasks/task', { method: 'PATCH', body: { title: '  Say OK now  ' } }])
+  expect((form().element as HTMLInputElement).value).toBe('Say OK now')
+})

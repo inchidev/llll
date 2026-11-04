@@ -41,6 +41,14 @@ it('allows read-only navigation to archived parents and children with no mutatio
   expect(view.findAll('button')).toHaveLength(0)
   expect(view.get('[aria-label="Subtask completion"]').attributes('max')).toBe('1')
 })
+it('offers to detach an archived subtask, and an archived task from its parent', async () => {
+  render({ subtasks: [task('old', { archivedAt: 'y' })], subtaskTotal: 0 })
+  await view.get('[aria-label="Detach #1 old"]').trigger('click'); await flushPromises()
+  expect(api).toHaveBeenCalledWith('/api/tasks/old', { method: 'PATCH', body: { parentTaskId: null } })
+  render({ archivedAt: 'y', parent: task('ancestor'), parentTaskId: 'ancestor' }, [task('peer')])
+  expect(view.find('[aria-label="Detach from parent"]').exists()).toBe(true)
+  expect(view.findAll('select')).toHaveLength(0)
+})
 it('keeps unsaved edits safe by disabling hierarchy mutations until saved', () => {
   render({ parent: task('ancestor'), parentTaskId: 'ancestor', subtasks: [task('child')], subtaskTotal: 1 }, [task('peer')], true)
   expect(view.text()).toContain('Save or reset your edits')
