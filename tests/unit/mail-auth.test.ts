@@ -3,7 +3,7 @@ import { mailAuthVerdict, trustedAuthResults } from '../../shared/mail-auth'
 
 it('reads the results from the header Email Routing wrote', () => {
   expect(trustedAuthResults('mx.cloudflare.net; spf=pass smtp.mailfrom=a.example; dkim=pass header.d=a.example; dmarc=pass header.from=a.example'))
-    .toEqual({ spf: 'pass', dkim: 'pass', dmarc: 'pass' })
+    .toMatchObject({ spf: 'pass', dkim: 'pass', dmarc: 'pass', dkimDomains: ['a.example'], spfDomain: 'a.example' })
   expect(trustedAuthResults('MX.Cloudflare.Net 1; DMARC=FAIL')).toEqual({ dmarc: 'fail' })
 })
 
@@ -28,11 +28,16 @@ it('ignores what the sender can write after or inside the trusted header', () =>
   expect(trustedAuthResults('mx.cloudflare.net; spf=fail (a; dmarc=pass) smtp.mailfrom=a')).toEqual({ spf: 'fail' })
 })
 
-it('verifies only a pass with no DMARC failure', () => {
-  expect(mailAuthVerdict({ dmarc: 'pass' })).toBe('verified')
-  expect(mailAuthVerdict({ dmarc: 'none', spf: 'pass' })).toBe('verified')
-  expect(mailAuthVerdict({ dmarc: 'fail', spf: 'pass', dkim: 'pass' })).toBe('failed')
-  expect(mailAuthVerdict({ dmarc: 'none', spf: 'fail' })).toBe('unverified')
-  expect(mailAuthVerdict({})).toBe('unverified')
-  expect(mailAuthVerdict(null)).toBe('unverified')
+it('verifies a pass only for the domain in From', () => {
+  const from = 'ceo@partner.example'
+  expect(mailAuthVerdict({ dmarc: 'pass' }, from)).toBe('verified')
+  expect(mailAuthVerdict({ dmarc: 'none', spf: 'pass', spfDomain: 'partner.example' }, from)).toBe('verified')
+  expect(mailAuthVerdict({ dmarc: 'none', dkim: 'pass', dkimDomains: ['mail.partner.example'] }, from)).toBe('verified')
+  expect(mailAuthVerdict({ dmarc: 'none', spf: 'pass', spfDomain: 'evil.example' }, from)).toBe('unverified')
+  expect(mailAuthVerdict({ dkim: 'pass', dkimDomains: ['evilpartner.example'] }, from)).toBe('unverified')
+  expect(mailAuthVerdict({ spf: 'pass' }, from)).toBe('unverified')
+  expect(mailAuthVerdict({ dmarc: 'fail', spf: 'pass', spfDomain: 'partner.example' }, from)).toBe('failed')
+  expect(mailAuthVerdict({ dmarc: 'none', spf: 'fail' }, from)).toBe('unverified')
+  expect(mailAuthVerdict({}, from)).toBe('unverified')
+  expect(mailAuthVerdict(null, from)).toBe('unverified')
 })

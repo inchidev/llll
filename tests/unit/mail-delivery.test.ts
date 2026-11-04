@@ -410,6 +410,22 @@ describe('mail folders', () => {
       expect(threads.find(thread => thread.id !== message.thread)!.participants).not.toContain('attacker')
     })
 
+    it('lets an unverified reply from someone already in the conversation join it, and nothing more', async () => {
+      await receive(first(), 'support@example.com')
+      const reply = email({ id: '<known@example.net>', to: 'support@example.com', from: 'customer@example.net', replyTo: 'attacker@evil.example', cc: 'attacker@evil.example', inReplyTo: '<first@example.net>' })
+      await ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(reply) }, env)
+      expect(stored('<known@example.net>')).toMatchObject({ verdict: 'unverified', replyTo: '[]', thread: stored('<first@example.net>').thread })
+      expect(threadsIn('support')).toHaveLength(1)
+      expect(threadsIn('support')[0]!.participants).not.toContain('attacker')
+    })
+
+    it('never lets failing DMARC into a conversation, even from someone already in it', async () => {
+      await receive(first(), 'support@example.com')
+      const reply = email({ id: '<failed@example.net>', to: 'support@example.com', from: 'customer@example.net', inReplyTo: '<first@example.net>' })
+      await ingestServerEmail({ from: 'customer@example.net', to: 'support@example.com', raw: stream(reply), authResults: { dmarc: 'fail' } }, env)
+      expect(stored('<failed@example.net>').thread).not.toBe(stored('<first@example.net>').thread)
+    })
+
     it('reads Email Routing\'s verdict from its own header, not a sender\'s', async () => {
       await receive(first(), 'support@example.com')
       const delivered = (header: string) => ({ from: 'ceo@example.net', to: 'support@example.com', raw: stream(forged), rawSize: forged.length, headers: new Headers({ 'authentication-results': header }), setReject: vi.fn() }) as unknown as ForwardableEmailMessage

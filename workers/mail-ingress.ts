@@ -137,10 +137,10 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
   const cc = addressList(parsed.cc)
   const bcc = addressList(parsed.bcc)
   const refs = referenceIds(parsed.inReplyTo, parsed.references)
-  const authVerdict = mailAuthVerdict(message.authResults)
+  const authVerdict = mailAuthVerdict(message.authResults, from.address)
   const trusted = authVerdict === 'verified'
   let thread: { channelId: string; participantsJson: string } | null = null
-  if (refs.length && trusted) {
+  if (refs.length && authVerdict !== 'failed') {
     const placeholders = refs.map(() => '?').join(',')
     thread = await env.DB.prepare(
       `SELECT t.channel_id as channelId, t.participants_json as participantsJson
@@ -148,6 +148,9 @@ export async function ingestServerEmail(message: ServerEmailEnvelope, env: L4Env
        WHERE em.mailbox_channel_id = ? AND t.mailbox_channel_id = ? AND em.rfc_message_id IN (${placeholders})
        ORDER BY em.created_at DESC LIMIT 1`,
     ).bind(mailbox.channelId, mailbox.channelId, ...refs).first<{ channelId: string; participantsJson: string }>()
+    // Many paths can't say who sent a message. A reply from someone already in the conversation still
+    // threads, but naming a Message-ID alone must not let a stranger in.
+    if (thread && !trusted && !mailAddressList(thread.participantsJson).includes(from.address)) thread = null
   }
 
   const serverId = await getServerId(env.DB)
