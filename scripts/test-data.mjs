@@ -28,6 +28,16 @@ export async function testData({ api, ids }) {
   assert.ok((await api('alpha', '/api/data-search?q=Rare%20evidence')).payload.hits.some(hit => hit.id === doc.id))
   await api('alpha', '/api/data-references', { method: 'POST', body: { source: { type: 'item', id: recordId }, target: { type: 'item', id: doc.id } } })
   assert.equal((await api('alpha', `/api/data-references?type=item&id=${doc.id}`)).payload.incoming[0].id, recordId)
+  const child = (await api('alpha', `/api/servers/${ids.alpha}/items`, { method: 'POST', body: { title: 'Child page', parentId: doc.id } })).payload.item
+  const joined = (await api('alpha', `/api/items/${doc.id}/move`, { method: 'POST', body: { version: 3, databaseId: database.id } })).payload.item
+  assert.equal(joined.id, doc.id)
+  assert.match(joined.content, /Rare evidence/)
+  assert.equal(joined.children[0].id, child.id)
+  await api('alpha', `/api/items/${doc.id}/move`, { method: 'POST', expected: 409, body: { version: joined.version, databaseId: null } })
+  const detached = (await api('alpha', `/api/items/${doc.id}/move`, { method: 'POST', body: { version: joined.version, databaseId: null, discardProperties: true } })).payload.item
+  assert.equal(detached.databaseId, null)
+  await api('alpha', `/api/items/${recordId}`, { method: 'PATCH', body: { version: 1, content: '<p>A record is a page</p>' } })
+  assert.match((await api('alpha', `/api/items/${recordId}`)).payload.item.content, /A record is a page/)
   await api('alpha', `/api/items/${recordId}`, { method: 'DELETE' })
   assert.equal((await api('alpha', `/api/databases/${database.id}`)).payload.total, 0)
   assert.equal((await api('alpha', `/api/data-references?type=item&id=${doc.id}`)).payload.incoming.length, 0)

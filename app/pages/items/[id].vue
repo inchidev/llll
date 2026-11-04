@@ -121,7 +121,7 @@ async function removeDocument() {
     qc.removeQueries({ queryKey: ['item', document.id] })
     await qc.invalidateQueries({ queryKey: ['data-resources'] })
     await navigateTo('/data', { replace: true })
-    toast.add({ title: 'Document moved to Trash', color: 'success' })
+    toast.add({ title: 'Page moved to Trash', color: 'success' })
   } catch (error) {
     toast.add({ title: errorMessage(error), color: 'error' })
   } finally {
@@ -172,15 +172,15 @@ function retryLoad() {
           color="neutral"
           variant="ghost"
           icon="i-ph-trash"
-          aria-label="Delete document"
+          aria-label="Delete page"
           :disabled="saving || deleting"
           @click="showDelete = true"
         />
         <UButton
           v-if="can(Permission.writeData)"
           icon="i-ph-plus"
-          :label="isMobile ? undefined : 'Document'"
-          aria-label="New document"
+          :label="isMobile ? undefined : 'Page'"
+          aria-label="New page"
           :loading="nav.documentCreating.value"
           @click="nav.createDocumentOpen.value = true"
         />
@@ -198,7 +198,7 @@ function retryLoad() {
       <UButton
         v-if="can(Permission.writeData)"
         icon="i-ph-plus"
-        label="Create first document"
+        label="Create page"
         :loading="nav.documentCreating.value"
         @click="nav.createDocumentOpen.value = true"
       />
@@ -222,9 +222,6 @@ function retryLoad() {
           />
         </template>
       </UAlert>
-      <div v-if="activeDocument.kind === 'canvas'" class="h-[65vh] min-h-96">
-        <DataCanvasEditor :item-id="activeDocument.id" />
-      </div>
       <div class="mx-auto w-full max-w-4xl px-5 py-8 sm:px-10">
         <DataItemLocation :item="activeDocument" :save-draft="save" :disabled="busy" @updated="itemUpdated" />
         <DataItemAppearance
@@ -264,6 +261,13 @@ function retryLoad() {
             </dd>
           </div>
         </dl>
+        <div
+          v-if="activeDocument.kind === 'canvas'"
+          class="mb-8 h-[65vh] min-h-96 overflow-hidden rounded-lg border border-default"
+        >
+          <DataCanvasEditor :item-id="activeDocument.id" />
+        </div>
+        <h2 v-if="activeDocument.kind === 'canvas'" class="mb-3 text-sm font-medium text-muted">Notes</h2>
         <UEditor
           v-model="content"
           :editable="can(Permission.writeData) && !nav.documentCreating.value"
@@ -313,7 +317,7 @@ function retryLoad() {
     <UModal v-model:open="showReload" title="Discard unsaved changes?">
       <template #body
         ><p class="text-sm text-muted">
-          This replaces your draft with the latest saved document. Copy any text you want to keep first.
+          This replaces your draft with the latest saved page. Copy any text you want to keep first.
         </p></template
       >
       <template #footer>
@@ -326,7 +330,7 @@ function retryLoad() {
         />
       </template>
     </UModal>
-    <UModal v-model:open="showDelete" title="Move document to Trash?">
+    <UModal v-model:open="showDelete" title="Move page to Trash?">
       <template #body><p class="text-sm text-muted">You can restore this from Trash in Data.</p></template>
       <template #footer>
         <UButton color="neutral" variant="ghost" label="Cancel" @click="showDelete = false" />

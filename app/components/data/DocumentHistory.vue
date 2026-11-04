@@ -28,8 +28,8 @@ async function restore() {
 </script>
 
 <template>
-  <UButton icon="i-ph-clock-counter-clockwise" aria-label="Document history" color="neutral" variant="ghost" @click="open = true" />
-  <UModal v-model:open="open" title="Document history" description="The last 50 changed versions are kept. Restoring saves a new version and keeps your current one in history.">
+  <UButton icon="i-ph-clock-counter-clockwise" aria-label="Page history" color="neutral" variant="ghost" @click="open = true" />
+  <UModal v-model:open="open" title="Page history" description="The last 50 changed versions are kept. Restoring saves a new version and keeps your current one in history.">
     <template #body>
       <LayoutLoadError v-if="revisions.error.value" message="History did not load." :retry="revisions.refetch" />
       <UAlert v-if="error" :description="error" color="error" class="mb-3" />

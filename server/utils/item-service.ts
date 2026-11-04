@@ -31,11 +31,13 @@ import { documentInputHtml } from './document-content'
 import { writeAudit } from './messages'
 import { fail } from './cf'
 
-export async function listItems(env: L4Env, auth: AuthorizationContext): Promise<DataItemSummary[]> {
+export async function listItems(env: L4Env, auth: AuthorizationContext, parentId?: string): Promise<DataItemSummary[]> {
   const rows = (
     await env.DB.prepare(
-      `SELECT ${ITEM_COLUMNS.replace('title,content,', 'title,')} FROM data_items WHERE ${readableItemSql(auth)} ORDER BY position,created_at,id`,
-    ).all<DataItemSummary>()
+      `SELECT ${ITEM_COLUMNS.replace('title,content,', 'title,')} FROM data_items WHERE ${readableItemSql(auth)} ${parentId === undefined ? '' : 'AND parent_id=?'} ORDER BY position,created_at,id`,
+    )
+      .bind(...(parentId === undefined ? [] : [parentId]))
+      .all<DataItemSummary>()
   ).results
   return rows
 }
@@ -43,7 +45,7 @@ export async function getItem(env: L4Env, auth: AuthorizationContext, id: string
   const item = await requireItem(env, auth, id)
   const fields = item.databaseId ? await databaseFieldsFor(env, item.databaseId) : []
   const record = item.databaseId ? await loadDatabaseItem(env, id) : null
-  const children = (await listItems(env, auth)).filter((child) => child.parentId === id)
+  const children = await listItems(env, auth, id)
   const linked = item.databaseId
     ? await loadLinkedRecords(env, await loadItemLinks(env, [id]), (db) => resourceAllowed(auth, 'databases', db), auth)
     : {}
