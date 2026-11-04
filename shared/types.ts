@@ -94,6 +94,9 @@ export type TaskAttachmentDTO = AttachmentDTO & {
 }
 
 export type TaskDTO = {
+  parentTaskId: string | null
+  subtaskTotal: number
+  subtaskCompleted: number
   projectId?: string | null
   id: string
   number: number
@@ -128,7 +131,11 @@ export type TaskDTO = {
   attachmentCount: number
 }
 
+export type TaskRelationDTO = Pick<TaskDTO, 'id' | 'number' | 'title' | 'boardId' | 'projectId' | 'status' | 'priority' | 'assigneeId' | 'archivedAt'>
+
 export type TaskDetailDTO = TaskDTO & {
+  parent: TaskRelationDTO | null
+  subtasks: TaskRelationDTO[]
   checklist: TaskChecklistItemDTO[]
   attachments: TaskAttachmentDTO[]
   /** The chat message the task was created from, as this viewer may see it. */

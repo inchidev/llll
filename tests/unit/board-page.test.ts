@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 afterEach(() => { view?.unmount(); client.clear(); vi.unstubAllGlobals() })
 async function render() {
-  view = mount(Tasks, { global: { mocks: { useSessionStore: () => ({ health: { bindings: {} } }) }, plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, UModal: Modal, USlideover: Slideover, UFormField: { props: ['label'], template: '<label>{{ label }}<slot /></label>' }, USelect: Select, UInput: Input, UTextarea: true, UCheckbox: true, UBadge: true, UserAvatar: true, UIcon: true, UDropdownMenu: { template: '<div><slot /></div>' }, TasksDiscussion: true, LayoutSaveBar: true, LayoutSkeleton: true, LayoutLoadError: true, LayoutPageHeader: { template: '<header><slot name="actions" /></header>' }, LayoutEmptyState: true, UAlert: true, ULink: true } } })
+  view = mount(Tasks, { global: { mocks: { useSessionStore: () => ({ health: { bindings: {} } }) }, plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UButton: Button, UModal: Modal, USlideover: Slideover, UFormField: { props: ['label'], template: '<label>{{ label }}<slot /></label>' }, USelect: Select, UInput: Input, UTextarea: true, UCheckbox: true, UBadge: true, UserAvatar: true, UIcon: true, UDropdownMenu: { template: '<div><slot /></div>' }, TasksDiscussion: true, TasksHierarchy: { emits: ['create'], template: '<button aria-label="Create fixture subtask" @click="$emit(\'create\')">Create subtask</button>' }, LayoutSaveBar: true, LayoutSkeleton: true, LayoutLoadError: true, LayoutPageHeader: { template: '<header><slot name="actions" /></header>' }, LayoutEmptyState: true, UAlert: true, ULink: true } } })
   await flushPromises(); await flushPromises()
 }
 it('explains that agent assignment waits for an explicit start rather than looking queued', async () => {
@@ -148,4 +148,15 @@ it('opens Create task prefilled from a chat message and saves the source link', 
   expect(navigateTo).toHaveBeenCalledWith({ path: '/projects/board', query: { board: 'board', fromMessage: undefined } }, { replace: true })
   await modal.findAll('button').find(b => b.text() === 'Create task')!.trigger('click'); await flushPromises()
   expect(api).toHaveBeenCalledWith('/api/boards/board/tasks', expect.objectContaining({ body: expect.objectContaining({ title: 'Fix login', description: 'It fails on Safari.', sourceMessageId: 'source-message' }) }))
+})
+
+it('creates a subtask in the saved parent’s board and Project and opens it', async () => {
+  await render()
+  await view.get('[aria-label="Create fixture subtask"]').trigger('click')
+  const modal = view.findAll('section').find(s => s.find('h2').exists() && s.find('h2').text() === 'Create subtask')!
+  expect(modal.text()).toContain('Subtask of #1001 Say OK')
+  await modal.get('input').setValue('Child work')
+  await modal.findAll('button').find(b => b.text() === 'Create task')!.trigger('click'); await flushPromises()
+  expect(api).toHaveBeenCalledWith('/api/boards/board/tasks', expect.objectContaining({ body: expect.objectContaining({ parentTaskId: 'task', projectId: null, title: 'Child work' }) }))
+  expect(navigateTo).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ task: 'created-task' }) }))
 })

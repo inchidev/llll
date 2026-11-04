@@ -7,6 +7,7 @@ import { parseBody } from '../../../utils/validate'
 import { requireTaskSourceMessage } from '../../../utils/task-sources'
 
 const bodySchema = z.object({
+  parentTaskId: z.string().min(8).nullable().optional(),
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().max(12_000).default(''),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),

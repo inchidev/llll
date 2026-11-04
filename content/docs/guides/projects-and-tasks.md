@@ -1,18 +1,18 @@
 ---
 title: Projects and Tasks
-description: Organize work in L4 under Projects, with their Boards, Tasks and access, and hand Tasks to Agents.
+description: Organize work on Boards with Tasks and subtasks, connect Projects, and hand Tasks to Agents.
 order: 2
 ---
 
-A **Task** records a piece of work and who is responsible for it. Tasks live on **Boards**, and each Board belongs to a **Project**, which can also hold repository references and give people and Agents access for that Project only.
+A **Task** records a piece of work and who is responsible for it. Tasks live on **Boards** in a Space. A Task can name a **Project** for work with repositories and Project access; without a Project it follows Server Roles.
 
-Open **Projects** in the rail. Its list starts with **My tasks**, the Tasks assigned to you in this Space and yours waiting for review. Below come **Runs**, each Project with its Boards, and **Archived**.
+Open **Tasks** in the rail. Its list contains **My tasks**, the Tasks assigned to you in this Space and yours waiting for review, followed by Boards and **Archived**. Projects and Runs are in **Factory**.
 
 ## Boards
 
-Open a Project in the **Projects** list to see its Boards, and select one. A Board collects Tasks in columns: **Backlog**, **Ready**, **Review**, **Done** and **Failed**.
+Select a Board in the **Tasks** list. A Board collects Tasks in columns: **Backlog**, **Ready**, **Review**, **Done** and **Failed**.
 
-Members with **Manage tasks** create a Board with the **+** beside its Project, and rename, reorder, archive or delete it from the Board's menu. Archived Boards are listed under **Archived**.
+Members with **Manage tasks** create a Board with the **+** in the Tasks list, and rename, reorder, archive or delete it from the Board's menu. Archived Boards are listed under **Archived**.
 
 You need **Read tasks** to see Boards and **Create and update tasks** to add and edit Tasks. A Role can also be limited to specific Boards; see [Accounts, Members and Roles](../concepts/accounts-members-roles.md).
 
@@ -27,6 +27,16 @@ You need **Read tasks** to see Boards and **Create and update tasks** to add and
 ![The Create task dialog with Title, Description, Assignee, Project, Report channel, Priority and Due fields and the Create and run and Create task buttons](screenshot:guides-create-task "Create a Task")
 
 Open a Task to edit it, change its **Status** or **Board**, attach files, add **Checklist** items and set what it **Depends on**. **Archive task** hides it without deleting it.
+
+### Subtasks
+
+Open a Task and choose **Create subtask** to break it into separately assigned work. The new Task shares its parent's Board and Project; it has its own status, priority, due date, labels, checklist, files and discussion. Creating or completing a subtask does not start an agent or change the parent's status.
+
+Use **Link existing task** to attach a top-level Task, or **Parent task → Set parent** to move a Task under another parent. **Detach** removes only the relationship. Open the parent or any child directly from the Task's hierarchy panel. Nested subtasks are supported; cycles are rejected.
+
+The progress indicator counts direct, unarchived subtasks whose status is **Done**. A failed Task is not complete. Dependencies continue to describe work that must finish first; a parent relationship does not add a dependency. Checklist items remain small checks inside one Task.
+
+Parents and subtasks must stay on the same Board and in the same Project (including no Project). Detach children before moving their parent across either boundary. Archiving a Task leaves the others unchanged and preserves the links; restore a Task before changing its parent or adding subtasks to it. Deleting a parent keeps its children and makes them top-level Tasks. Deleting an entire Board still deletes all of its Tasks.
 
 ### Create a Task from a message
 
@@ -53,7 +63,7 @@ To repeat Task work on a timetable, see [Schedules](../agents/schedules.md).
 
 ## Projects
 
-Select a Project in the **Projects** list to open its page, with its Boards, your Runs on its Tasks, its access and its repositories. Selecting **Projects** in the rail lists them all, with a search and the archived ones. You need **Read projects** to see Projects and **Manage projects** to create and configure them. No existing Role gets **Manage projects** automatically; the Owner always has it.
+Select a Project in **Factory** to open its page, with its Tasks, Runs, access and repositories. The Projects page lists them all, with a search and the archived ones. You need **Read projects** to see Projects and **Manage projects** to create and configure them. No existing Role gets **Manage projects** automatically; the Owner always has it.
 
 ### Create a Project
 

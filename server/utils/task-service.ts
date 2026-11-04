@@ -1,3 +1,4 @@
+import { hierarchyWrite, validateTaskHierarchy } from './task-hierarchy'
 import { repositoryResourceId } from '../../shared/code-environments'
 import { requireEnvironmentProject, requireProject } from './project-service'
 import { Permission } from '../../shared/permissions'
@@ -55,6 +56,7 @@ async function taskProject(env: L4Env, auth: AuthorizationContext, requested: st
 type Schedule = (promise: Promise<unknown>) => void
 
 export type CreateTaskInput = {
+  parentTaskId?: string | null
   title: string
   description: string
   priority: TaskPriority
@@ -70,6 +72,7 @@ export type CreateTaskInput = {
 }
 
 export type UpdateTaskInput = {
+  parentTaskId?: string | null
   title?: string
   description?: string
   status?: TaskStatus
@@ -129,7 +132,7 @@ export async function findTasks(env: L4Env, authorization: AuthorizationContext,
     .filter(task => filter.hasRecording === undefined || task.hasRecording === filter.hasRecording)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number - a.number)
     .slice(0, filter.limit)
-  return { tasks: tasks.map(task => ({ id: task.id, number: task.number, title: task.title, description: task.description.slice(0, 2000), status: task.status, priority: task.priority, boardId: task.boardId, projectId: task.projectId ?? null, assigneeId: task.assigneeId, hasRecording: task.hasRecording, attachmentCount: task.attachmentCount, createdAt: task.createdAt })), ...(note ? { note } : {}) }
+  return { tasks: tasks.map(task => ({ id: task.id, number: task.number, title: task.title, description: task.description.slice(0, 2000), status: task.status, priority: task.priority, boardId: task.boardId, parentTaskId: task.parentTaskId, subtaskTotal: task.subtaskTotal, subtaskCompleted: task.subtaskCompleted, projectId: task.projectId ?? null, assigneeId: task.assigneeId, hasRecording: task.hasRecording, attachmentCount: task.attachmentCount, createdAt: task.createdAt })), ...(note ? { note } : {}) }
 }
 
 export async function getTask(
@@ -142,17 +145,22 @@ export async function getTask(
   if (task) {
     requireTaskPermission(authorization, task, Permission.readTasks)
     if (task.projectId) await requireProject(env, authorization, task.projectId)
-    await filterTaskDependencies(env, authorization, task)
+    await filterTaskRelations(env, authorization, task)
   }
   return task
 }
 
-async function filterTaskDependencies(env: L4Env, authorization: AuthorizationContext, task: TaskDetailDTO): Promise<TaskDetailDTO> {
+async function filterTaskRelations(env: L4Env, authorization: AuthorizationContext, task: TaskDetailDTO): Promise<TaskDetailDTO> {
   if (task.dependencyIds.length) {
       const dependencies = await env.DB.prepare(`SELECT id,board_id AS boardId,project_id AS projectId FROM tasks WHERE id IN (${task.dependencyIds.map(() => '?').join(',')})`).bind(...task.dependencyIds).all<{ id: string; boardId: string; projectId: string | null }>()
       const visible = new Set(dependencies.results.filter(row => taskPermissionAllowed(authorization, row, Permission.readTasks)).map(row => row.id))
       task.dependencyIds = task.dependencyIds.filter(id => visible.has(id))
     }
+  task.parent = task.parent && taskPermissionAllowed(authorization, task.parent, Permission.readTasks) ? task.parent : null
+  task.parentTaskId = task.parent?.id ?? null
+  task.subtasks = task.subtasks.filter(child => taskPermissionAllowed(authorization, child, Permission.readTasks))
+  task.subtaskTotal = task.subtasks.filter(child => !child.archivedAt).length
+  task.subtaskCompleted = task.subtasks.filter(child => !child.archivedAt && child.status === 'done').length
   return task
 }
 
@@ -164,7 +172,7 @@ export async function createTask(
   schedule: Schedule,
 ): Promise<TaskDetailDTO> {
   const id = await insertTask(env, authorization, boardId, input, schedule)
-  return filterTaskDependencies(env, authorization, (await loadTaskDetail(env, id))!)
+  return filterTaskRelations(env, authorization, (await loadTaskDetail(env, id))!)
 }
 
 /** Creates the Task and answers only its ID, for a caller that doesn't show it. */
@@ -177,7 +185,8 @@ export async function insertTask(
 ): Promise<string> {
   const actorId = authorization.principal.id
   const db = getDb(env.DB)
-  const projectId = await taskProject(env, authorization, input.projectId, input.environmentId)
+  const parent = input.parentTaskId ? await requireTask(env, input.parentTaskId, authorization, Permission.writeTasks) : null
+  const projectId = await taskProject(env, authorization, input.projectId === undefined && parent ? parent.projectId : input.projectId, input.environmentId)
   // Without the boundary here: the next line makes a board in another Space answer as missing.
   requireTaskPermission(authorization, { projectId, boardId }, Permission.writeTasks)
   const board = await requireBoardInBoundary(env, authorization, boardId)
@@ -192,10 +201,12 @@ export async function insertTask(
     validateTaskLabels(env, boardId, input.labelIds),
     validateTaskDependencies(env, null, boardId, input.dependencyIds),
   ])
+  await validateTaskHierarchy(env, authorization, { boardId, projectId, parentTaskId: input.parentTaskId ?? null }, true)
   const id = newId()
   const now = nowIso()
   const status = input.assigneeId ? 'ready' as const : 'backlog' as const
   const task = {
+    parentTaskId: input.parentTaskId ?? null,
     id,
     boardId,
     projectId,
@@ -224,7 +235,7 @@ export async function insertTask(
     ...[...new Set(input.labelIds)].map(labelId => db.insert(taskLabelLinks).values({ taskId: id, labelId })),
     ...[...new Set(input.dependencyIds)].map(dependsOnTaskId => db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId, createdAt: now })),
   ]
-  await db.batch(inserts as unknown as Parameters<typeof db.batch>[0])
+  await hierarchyWrite(() => db.batch(inserts as unknown as Parameters<typeof db.batch>[0]))
   await writeAudit(env, { serverId: (await getServerId(env.DB)), actorId, action: 'task.create', targetType: 'task', targetId: id, meta: { boardId, assigneeId: input.assigneeId, ...(input.source ? { sourceChannelId: input.source.channelId, sourceMessageId: input.source.messageId } : {}) }, authorization })
   schedule(signalTasksChanged(env, boardId, id))
   return id
@@ -257,6 +268,12 @@ export async function updateTask(
     validateTaskDependencies(env, id, boardId, input.dependencyIds),
   ])
 
+  const parentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
+  const changingParent = parentTaskId !== task.parentTaskId
+  if (changingParent && task.archivedAt) fail(400, 'task_hierarchy', 'Restore the task before changing its parent')
+  if (changingParent && task.parentTaskId) await requireTask(env, task.parentTaskId, authorization, Permission.writeTasks)
+  await validateTaskHierarchy(env, authorization, { id, boardId, projectId, parentTaskId }, changingParent)
+
   if (input.coverAttachmentId) {
     const cover = await env.DB.prepare("SELECT 1 AS ok FROM task_attachments WHERE id=? AND task_id=? AND content_type LIKE 'image/%'").bind(input.coverAttachmentId, id).first()
     if (!cover) fail(400, 'bad_request', 'A cover is an image attached to this Task')
@@ -270,6 +287,7 @@ export async function updateTask(
   const position = input.position ?? (input.boardId || input.status ? await nextTaskPosition(env, boardId, status as TaskStatus) : task.position)
   const updatedAt = nowIso()
   const patch: Partial<typeof tasks.$inferInsert> = {
+    parentTaskId,
     projectId,
     title: input.title ?? task.title,
     description: input.description ?? task.description,
@@ -294,17 +312,17 @@ export async function updateTask(
   if (authorization.credential.kind === 'agent_runtime' && authorization.credential.id) {
     // Advance only this Run's assigned-task cursor, and only across its own
     // uninterrupted edits. A human/other Run edit breaks the version chain.
-    const result = await env.DB.batch([
+    const result = await hierarchyWrite(() => env.DB.batch([
       statement,
       env.DB.prepare(`UPDATE agent_runs SET task_edit_at=?
         WHERE id=? AND agent_id=? AND task_id=? AND status='running'
         AND (task_edit_at=? OR (task_edit_at IS NULL AND created_at>=?))
         AND EXISTS (SELECT 1 FROM tasks WHERE id=? AND updated_at=?)`)
         .bind(updatedAt, authorization.credential.id, actorId, id, task.updatedAt, task.updatedAt, id, updatedAt),
-    ])
+    ]))
     changed = result[0]?.meta.changes
   } else {
-    changed = (await statement.run()).meta.changes
+    changed = (await hierarchyWrite(() => statement.run())).meta.changes
   }
   if (!changed) fail(409, 'stale_task', 'This task changed elsewhere. Reload and try again.')
   if (input.boardId && input.boardId !== task.boardId) {
@@ -334,5 +352,5 @@ export async function updateTask(
   })
   schedule(signalTasksChanged(env, boardId, id))
   if (boardId !== task.boardId) schedule(signalTasksChanged(env, task.boardId, id))
-  return filterTaskDependencies(env, authorization, (await loadTaskDetail(env, id))!)
+  return filterTaskRelations(env, authorization, (await loadTaskDetail(env, id))!)
 }
