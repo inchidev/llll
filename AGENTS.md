@@ -9,6 +9,8 @@ Source-available software under the Elastic License 2.0: one workspace for a tea
 | `inchidev/llll` (this one, source available) | The Server and its Client (`app`, `server`, `workers`, `shared`, `drizzle`), packages including `deployment-core`, native apps, the user docs text in `content` and `docs/release-notes` | Immutable releases only |
 | `inchidev/llll-cloud` (private) | One Worker for all of llll.gg: landing, pricing, blog, billing, accounts, `/create`, Docs, Changelog, Cloud provisioning and the fleet | From its own `main` |
 
+The Docs text lives here because it describes this code, and it reaches llll.gg/docs only through a release, pinned as `llllRelease` in `llll-cloud`. Prices and plans live only in `llll-cloud`: the Docs link to [Pricing](https://llll.gg/pricing) and never quote them. Say what works today plainly, and mark L4 Cloud and the native apps as coming.
+
 This repository deploys nothing of ours. See [one Server per tenant](docs/adr/0008-server-per-tenant.md).
 
 ## Working rules

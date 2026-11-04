@@ -43,7 +43,7 @@ Removing an entry does not delete the Server, your Account or your membership. Y
 
 ## In the iOS, Android and Mac apps
 
-These apps are local builds and are not published. The app keeps this device's list itself and shows it as a rail at the far left, on a phone together with the navigation drawer. **All Servers** in the Server menu opens the full list. A Server's page can't read it.
+These apps are in the works and not published yet: today they are local builds from the source. Use a Server in your browser, on a phone too. The app keeps this device's list itself and shows it as a rail at the far left, on a phone together with the navigation drawer. **All Servers** in the Server menu opens the full list. A Server's page can't read it.
 
 ## Related
 
