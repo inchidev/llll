@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { grant, ids, mcpFixture } from '../helpers/outbound-mcp'
 import { Permission } from '../../shared/permissions'
 import { authorize, ServerAction } from '../../shared/authorization'
@@ -130,4 +130,32 @@ it('keeps one Project Grant per subject, and a Server-wide Policy only as Agent 
   expect(() => db.exec("INSERT INTO grants(id,member_id,policy_id,project_id,created_by,created_at) VALUES('dup','u','project-policy-developer','p','u','x')")).toThrow()
   expect(() => db.exec("INSERT INTO grants(id,member_id,policy_id,created_by,created_at) VALUES('server','u','project-policy-developer','u','x')")).toThrow()
   db.close()
+})
+
+describe('a webhook Agent', () => {
+  const addWebhook = () => f.db.prepare("INSERT INTO agent_webhooks(agent_id,url,created_by,created_at,updated_at) VALUES(?,'https://bot.example/run',?,'2026-11-05','2026-11-05')").run(ids.agent, ids.owner)
+  beforeEach(() => {
+    addWebhook()
+  })
+
+  it('answers only the Owner and holders of its access, even if it was open before it got a webhook', async () => {
+    await expect(start(ids.member)).rejects.toMatchObject({ statusCode: 403 })
+    await give({})
+    await expect(start(ids.member)).resolves.toBeTruthy()
+    await expect(start(ids.owner)).resolves.toBeTruthy()
+    await expect(start(outsider)).rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('cannot be opened again, and says why it is locked', async () => {
+    const owner = await f.actor()
+    await expect(setAgentAccessMode(f.env, owner, ids.agent, { access: 'open' })).rejects.toMatchObject({ statusCode: 409 })
+    expect(await listAgentAccess(f.env, owner, ids.agent)).toMatchObject({ access: 'granted', external: true })
+  })
+
+  it('stops a running Run when the Agent gets a webhook after it started', async () => {
+    f.db.prepare('DELETE FROM agent_webhooks WHERE agent_id=?').run(ids.agent)
+    const { run } = await f.run(ids.member)
+    addWebhook()
+    await expect(runAuthorization(f.env, run)).rejects.toMatchObject({ statusCode: 403 })
+  })
 })

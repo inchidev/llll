@@ -11,7 +11,7 @@ import { cf, fail } from '../utils/cf'
 import { getDb } from '../utils/db'
 import { parseBody } from '../utils/validate'
 import { signalMembersChanged } from '../../workers/member-events'
-import { assertHumanNameAvailable } from '../utils/member-names'
+import { assertHumanNameAvailable, memberNameKey } from '../utils/member-names'
 
 const bodySchema = z.object({
   displayName: z.string().min(1).max(80).optional(),
@@ -44,7 +44,8 @@ export default defineEventHandler(async (event) => {
   if (body.displayName !== undefined) {
     displayName = body.displayName.trim()
     if (!displayName) fail(400, 'bad_request', 'Enter a display name')
-    if (displayName.toLowerCase() !== me.displayName.trim().toLowerCase()) await assertHumanNameAvailable(env, displayName, me.id)
+    // An unchanged name stays allowed even if an Agent has since taken a lookalike of it.
+    if (memberNameKey(displayName) !== memberNameKey(me.displayName)) await assertHumanNameAvailable(env, displayName, me.id)
     await db.update(users).set({ displayName }).where(eq(users.id, me.id))
     await db.update(authUsers).set({ name: displayName, updatedAt: new Date() }).where(eq(authUsers.id, me.id)).catch(() => undefined)
     waitUntil(signalMembersChanged(env, await getServerId(env.DB)))

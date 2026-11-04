@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { memberRemovalPath } from '~/utils/member-removal'
 import SettingsEditor from './SettingsEditor.vue'
 import { publicIconPath } from '~~/shared/server-appearance'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -163,7 +164,9 @@ watch([open, availableSections, mine, () => spacesQ.isPending.value], ([isOpen, 
 
 const inviteUrl = ref('')
 const inviting = ref(false)
-const kickId = ref<string | null>(null)
+const kickTarget = ref<{ id: string; kind?: string } | null>(null)
+const kickId = computed(() => kickTarget.value?.id ?? null)
+const kickingAgent = computed(() => kickTarget.value?.kind === 'agent')
 const assigningId = ref<string | null>(null)
 const serverIconInput = ref<HTMLInputElement | null>(null)
 const serverIconBusy = ref(false)
@@ -536,11 +539,12 @@ async function copyInvite(url?: string) {
 }
 
 async function confirmKick() {
-  if (!kickId.value) return
-  await api(`/api/servers/${props.serverId}/members/${kickId.value}`, { method: 'DELETE' })
+  if (!kickTarget.value) return
+  const agent = kickingAgent.value
+  await api(memberRemovalPath(props.serverId, kickTarget.value), { method: 'DELETE' })
   await qc.invalidateQueries({ queryKey: ['members', props.serverId] })
-  kickId.value = null
-  toast.add({ title: 'Member kicked', color: 'success' })
+  kickTarget.value = null
+  toast.add({ title: agent ? 'Agent deleted' : 'Member kicked', color: 'success' })
 }
 
 const resetLink = ref<{ userId: string; url: string } | null>(null)
@@ -790,7 +794,7 @@ v-if="rolesListVisible || section === 'project-policies'"
               <template #actions><UButton size="xs" color="neutral" variant="soft" label="Copy" @click="copyResetLink" /></template>
             </UAlert>
           </div>
-          <UButton v-if="can(Permission.kick) && selectedMember.role.key !== 'owner'" color="error" variant="soft" label="Remove member" @click="kickId = selectedMember!.user.id" />
+          <UButton v-if="can(selectedMember.user.kind === 'agent' ? Permission.manageAgents : Permission.kick) && selectedMember.role.key !== 'owner'" color="error" variant="soft" :label="selectedMember.user.kind === 'agent' ? 'Delete agent' : 'Remove member'" @click="kickTarget = selectedMember!.user" />
         </div></template>
       </SettingsEditor>
     </template>
@@ -876,10 +880,10 @@ v-if="rolesListVisible || section === 'project-policies'"
   </SettingsEditor>
   </SettingsOverlay>
 
-  <UModal :open="Boolean(kickId)" title="Kick this member?" @update:open="(v: boolean) => { if (!v) kickId = null }">
+  <UModal :open="Boolean(kickId)" :title="kickingAgent ? 'Delete this agent?' : 'Kick this member?'" @update:open="(v: boolean) => { if (!v) kickTarget = null }">
     <template #footer>
-      <UButton color="neutral" variant="outline" label="Cancel" @click="kickId = null" />
-      <UButton color="error" label="Kick" @click="confirmKick" />
+      <UButton color="neutral" variant="outline" label="Cancel" @click="kickTarget = null" />
+      <UButton color="error" :label="kickingAgent ? 'Delete' : 'Kick'" @click="confirmKick" />
     </template>
   </UModal>
 

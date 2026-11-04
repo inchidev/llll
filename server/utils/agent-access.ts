@@ -44,8 +44,15 @@ export function agentInvocationAllowed(mode: AgentAccessMode, delegation: NonNul
   return projectId ? projectSubjectPermissionAllowed(delegation, projectId, Permission.useAgents) : hasPermission(delegation.permissions ?? 0, Permission.useAgents)
 }
 
+/**
+ * A webhook Agent answers only the Owner and holders of its Agent access. It acts through its own MCP
+ * credential, which no Run binds, so "no higher than the person who asks" cannot hold for it: only who
+ * may ask can be limited. Decided here rather than stored, so it covers Agents that had a webhook first.
+ */
+export const EFFECTIVE_ACCESS_SQL = "CASE WHEN EXISTS(SELECT 1 FROM agent_webhooks w WHERE w.agent_id=a.user_id) THEN 'granted' ELSE a.access END"
+
 export async function agentAccessMode(env: L4Env, agentId: string): Promise<AgentAccessMode> {
-  const row = await env.DB.prepare('SELECT access FROM agents WHERE user_id=?').bind(agentId).first<{ access: AgentAccessMode }>()
+  const row = await env.DB.prepare(`SELECT ${EFFECTIVE_ACCESS_SQL} AS access FROM agents a WHERE a.user_id=?`).bind(agentId).first<{ access: AgentAccessMode }>()
   return row?.access ?? 'open'
 }
 
@@ -82,7 +89,8 @@ export async function listAgentAccess(env: L4Env, auth: AuthorizationContext, ag
       g.project_id AS projectId,j.name AS projectName,g.daily_runs AS dailyRuns,g.expires_at AS expiresAt,g.created_at AS createdAt
     FROM grants g JOIN project_policies p ON p.id=g.policy_id LEFT JOIN users u ON u.id=g.member_id LEFT JOIN roles r ON r.id=g.role_id LEFT JOIN projects j ON j.id=g.project_id
     WHERE g.agent_id=? ORDER BY name,j.name,p.name,g.id`).bind(agentId).all<AgentAccessGrant>()).results
-  return { access: await agentAccessMode(env, agentId), grants, canManage: true }
+  const external = Boolean(await env.DB.prepare('SELECT 1 AS found FROM agent_webhooks WHERE agent_id=?').bind(agentId).first())
+  return { access: await agentAccessMode(env, agentId), grants, canManage: true, external }
 }
 
 export async function grantAgentAccess(env: L4Env, auth: AuthorizationContext, agentId: string, request: unknown): Promise<AgentAccessGrant> {
@@ -132,6 +140,7 @@ export async function setAgentAccessMode(env: L4Env, auth: AuthorizationContext,
   requireAgentAccessManager(auth)
   await requireAgent(env, auth, agentId)
   const { access } = agentAccessModeSchema.parse(request)
+  if (access === 'open' && await env.DB.prepare('SELECT 1 AS found FROM agent_webhooks WHERE agent_id=?').bind(agentId).first()) fail(409, 'external_agent_granted', 'An external agent answers only people with access to it')
   if (access === 'open' && !auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.manageRoles)) fail(403, 'access_denied', 'Manage roles before opening an agent to everyone who uses agents')
   await env.DB.prepare('UPDATE agents SET access=?,updated_at=? WHERE user_id=?').bind(access, nowIso(), agentId).run()
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'agent.access.mode', targetType: 'agent', targetId: agentId, meta: { access }, authorization: auth })

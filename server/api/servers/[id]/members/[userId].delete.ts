@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { agents, roles, users } from '../../../../../drizzle/schema'
+import { roles, users } from '../../../../../drizzle/schema'
 import { nowIso } from '../../../../../shared/ids'
 import { Permission } from '../../../../../shared/permissions'
 import { requireMember } from '../../../../utils/guards'
@@ -18,21 +18,20 @@ export default defineEventHandler(async (event) => {
   if (userId === actor.user.id) fail(400, 'bad_request', 'Leave is not implemented; ask an admin')
   const { env, waitUntil } = cf(event)
   const db = getDb(env.DB)
-  const target = (await db.select({ role: roles }).from(users).innerJoin(roles, eq(roles.id, users.roleId))
+  const target = (await db.select({ role: roles, kind: users.kind }).from(users).innerJoin(roles, eq(roles.id, users.roleId))
     .where(and(eq(users.id, userId), eq(users.status, 'active'))).limit(1))[0]
   if (!target) fail(404, 'not_found', 'Member not found')
+  // Deleting an Agent checks Manage agents and stops its Runs, Schedules and tokens; this route would do neither.
+  if (target.kind === 'agent') fail(409, 'agent_member', 'Delete an Agent from its settings in Agents')
   assertRoleManageable(actor, target.role)
   const now = nowIso()
-  await db.batch([
-    db.update(users).set({
-      status: 'removed',
-      roleId: null,
-      nickname: null,
-      joinedAt: null,
-      updatedAt: now,
-    }).where(eq(users.id, userId)),
-    db.update(agents).set({ status: 'paused', updatedAt: now }).where(eq(agents.userId, userId)),
-  ])
+  await db.update(users).set({
+    status: 'removed',
+    roleId: null,
+    nickname: null,
+    joinedAt: null,
+    updatedAt: now,
+  }).where(eq(users.id, userId))
   await writeAudit(env, { serverId, actorId: actor.user.id, action: 'member.kick', targetType: 'user', targetId: userId })
   waitUntil(signalMembersChanged(env, serverId))
   // A removed member leaves every Live room they are in, and their tokens stop working.
