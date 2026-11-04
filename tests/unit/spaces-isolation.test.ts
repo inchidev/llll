@@ -136,6 +136,7 @@ describe('two Members in different Spaces', () => {
     expect(await gate('/api/channels/hq-general/messages', 'POST')).toBe(404)
     expect(await gate('/api/tasks/t-hq')).toBe(404)
     expect(await gate('/api/items/d-hq')).toBe(404)
+    await expect(enforceRoutePolicy({ path: '/api/items/d-hq', method: 'GET', context: {} } as never)).rejects.toMatchObject({ statusMessage: 'Item not found' })
     expect(await gate('/api/projects/p-hq')).toBe(404)
     expect(await gate('/api/gadgets/g-hq')).toBe(404)
     expect(await gate('/api/users/dana/avatar')).toBe(404)

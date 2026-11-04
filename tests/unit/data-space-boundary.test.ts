@@ -7,6 +7,7 @@ import { changeDataReference, listDataReferences } from '../../server/utils/data
 import { searchData } from '../../server/utils/data-search'
 import { changeDataTrash, listDataTrash } from '../../server/utils/data-trash'
 import { bulkCreateRecords } from '../../server/utils/data-transfer'
+import { getItem } from '../../server/utils/item-service'
 import { loadSpaceBoundary } from '../../server/utils/space-access'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { AuthorizationContext } from '../../shared/authorization'
@@ -38,6 +39,15 @@ beforeEach(() => {
   env = { DB: d1(db) } as L4Env
 })
 afterEach(() => { db.close(); vi.unstubAllGlobals() })
+
+describe('boundary', () => {
+  it('lists another Space\'s pages but not its records, which the Database entry already covers', async () => {
+    const denied = (await member('sam')).spaces!.denied
+    expect([...denied.documents ?? []]).toEqual(['legal-doc'])
+    expect([...denied.databases ?? []]).toEqual(['legal-db'])
+    await expect(getItem(env, await member('sam'), 'legal-item')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
 
 describe('search', () => {
   it('finds only what lives in the reachable Spaces', async () => {

@@ -81,6 +81,8 @@ export async function createItem(
   const body = createItemSchema.parse(input)
   const spaceId = creationSpaceId(auth)
   if (!spaceId) fail(403, 'forbidden', 'Choose a Space first')
+  // A Canvas takes what creating a resource takes; a page only takes write access.
+  if (body.kind === 'canvas') authorize(auth, ServerAction.manageData)
   const databaseId = body.databaseId ?? null,
     parentId = body.parentId ?? null
   await destination(env, auth, spaceId, parentId, databaseId)
@@ -94,8 +96,8 @@ export async function createItem(
   authorizeItem(auth, { id, kind: body.kind, databaseId })
   const content = documentInputHtml(body.content ?? '', body.format)
   await env.DB.prepare(
-    `INSERT INTO data_items(id,space_id,kind,parent_id,database_id,title,content,icon,cover,position,created_by,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(position),0)+1024 FROM data_items WHERE space_id=?),?,?,?)`,
+    `INSERT INTO data_items(id,space_id,kind,parent_id,database_id,title,content,icon,position,created_by,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(position),0)+1024 FROM data_items WHERE space_id=?),?,?,?)`,
   )
     .bind(
       id,
@@ -106,7 +108,6 @@ export async function createItem(
       body.title ?? 'Untitled',
       content,
       body.icon ?? null,
-      body.cover ?? null,
       spaceId,
       auth.principal.id,
       now,
@@ -134,7 +135,7 @@ export async function updateItem(
   await requireItem(env, auth, id, true)
   const assignments = ['version=version+1', 'updated_at=?'],
     values: (string | number | null)[] = [nowIso()]
-  for (const key of ['title', 'content', 'icon', 'cover'] as const)
+  for (const key of ['title', 'content', 'icon'] as const)
     if (body[key] !== undefined) {
       assignments.push(`${key}=?`)
       values.push(key === 'content' ? documentInputHtml(body.content!, body.format) : body[key]!)

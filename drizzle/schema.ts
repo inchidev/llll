@@ -850,7 +850,6 @@ export const dataItems = sqliteTable('data_items', {
   parentId: text('parent_id').references((): AnySQLiteColumn => dataItems.id, { onDelete: 'restrict' }),
   content: text('content').notNull().default(''),
   icon: text('icon'),
-  cover: text('cover'),
   deletedAt: text('deleted_at'),
   mutationId: text('mutation_id'),
   databaseId: text('database_id').references(() => databaseDefinitions.id, { onDelete: 'cascade' }),
@@ -909,6 +908,8 @@ export const dataItems = sqliteTable('data_items', {
   ...isoTimestamps(),
 }, table => [
   index('data_items_parent_idx').on(table.spaceId, table.parentId, table.position),
+  // parent_id's ON DELETE RESTRICT looks up children by this column on every deleted row.
+  index('data_items_parent_id_idx').on(table.parentId),
   check('data_items_kind_check', sql`${table.kind} in ('page', 'canvas')`),
   index('database_items_database_position_idx').on(table.databaseId, table.position),
   index('database_items_active_position_idx').on(table.databaseId, table.position, table.createdAt, table.id).where(sql`${table.deletedAt} is null`),

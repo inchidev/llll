@@ -8,13 +8,6 @@ export const itemContentSchema = {
   content: z.string().max(DOCUMENT_CONTENT_MAX).optional(),
   format: z.enum(['html', 'markdown']).default('html'),
   icon: z.string().max(80).nullable().optional(),
-  cover: z
-    .string()
-    .url()
-    .max(2048)
-    .refine((value) => value.startsWith('https://'), 'Use an HTTPS cover URL')
-    .nullable()
-    .optional(),
 }
 export const createItemSchema = z.object({
   ...itemContentSchema,
@@ -24,7 +17,7 @@ export const createItemSchema = z.object({
 })
 export const updateItemSchema = z
   .object({ ...itemContentSchema, version: z.number().int().positive() })
-  .refine((value) => ['title', 'content', 'icon', 'cover'].some((key) => key in value), 'No changes')
+  .refine((value) => ['title', 'content', 'icon'].some((key) => key in value), 'No changes')
 export const moveItemSchema = z
   .object({
     version: z.number().int().positive(),
@@ -42,7 +35,6 @@ export type DataItem = {
   title: string
   content: string
   icon: string | null
-  cover: string | null
   position: number
   version: number
   createdBy: string

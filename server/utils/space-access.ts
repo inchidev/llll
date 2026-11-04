@@ -12,7 +12,7 @@ export type LoadedSpaceBoundary = SpaceBoundary & { adminHere: boolean }
 
 const DENIED_SOURCES: Array<[SpaceDeniedKind, string]> = [
   ['projects', 'SELECT id FROM projects'], ['boards', 'SELECT id FROM task_boards'],
-  ['databases', 'SELECT id FROM database_definitions'], ['documents', "SELECT id FROM (SELECT id,space_id FROM data_items WHERE kind='page')"],
+  ['databases', 'SELECT id FROM database_definitions'], ['documents', "SELECT id FROM (SELECT id,space_id FROM data_items WHERE kind='page' AND database_id IS NULL)"],
   ['canvases', "SELECT id FROM (SELECT id,space_id FROM data_items WHERE kind='canvas')"], ['gadgets', 'SELECT id FROM gadgets'],
   ['connections', 'SELECT id FROM mcp_outbound_connections'], ['environments', 'SELECT id FROM agent_environments'],
 ]

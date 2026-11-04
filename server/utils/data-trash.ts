@@ -6,7 +6,7 @@ import {
   type AuthorizationContext,
 } from '../../shared/authorization'
 import type { DataTrashEntry, DataTrashType } from '../../shared/data-trash'
-import { requireItem } from './item-access'
+import { permittedItemSql, requireItem } from './item-access'
 import { newId, nowIso } from '../../shared/ids'
 import { spaceSql } from '../../shared/spaces'
 import type { L4Env } from '../../workers/env'
@@ -36,20 +36,11 @@ export async function listDataTrash(env: L4Env, auth: AuthorizationContext): Pro
   )
   const items = (
     await env.DB.prepare(
-      `SELECT 'item' AS type,id,title,COALESCE(database_id,id) AS resourceId,deleted_at AS deletedAt FROM data_items WHERE deleted_at IS NOT NULL AND space_id IN (${spaces})`,
+      `SELECT 'item' AS type,id,title,COALESCE(database_id,id) AS resourceId,deleted_at AS deletedAt FROM data_items WHERE deleted_at IS NOT NULL AND ${permittedItemSql(auth)}`,
     ).all<DataTrashEntry>()
   ).results
-  const visible: DataTrashEntry[] = []
-  for (const item of items) {
-    try {
-      await requireItem(env, auth, item.id, false, true)
-      visible.push(item)
-    } catch (error) {
-      if (![403, 404].includes(Number((error as { statusCode?: number }).statusCode))) throw error
-    }
-  }
   return [
-    ...visible,
+    ...items,
     ...results
       .flatMap((result) => result.results as DataTrashEntry[])
       .filter((entry) => resourceAllowed(auth, sources[entry.type as keyof typeof sources].resource, entry.resourceId)),
@@ -146,23 +137,27 @@ export async function changeDataTrash(
   return { ok: true }
 }
 
-/** The first statement claims an unchanged subtree; every deletion checks that transaction-local claim. */
+/**
+ * Set-based, so a Database's size never counts against D1's queries per invocation. The first
+ * statement checks access to the whole subtree and claims it unchanged (same rows, same versions);
+ * each delete only runs under that claim, in the same transaction. `parent_id` is ON DELETE RESTRICT,
+ * so deletion goes one depth at a time, deepest first: one statement per level, not per row.
+ */
 async function purgeItems(env: L4Env, auth: AuthorizationContext, kind: 'item' | 'database', id: string) {
-  const selection = kind === 'item' ? 'id=?' : 'database_id=?'
-  const tree = `WITH RECURSIVE tree(id,depth) AS (
-    SELECT id,0 FROM data_items WHERE ${selection}
-    UNION ALL SELECT c.id,t.depth+1 FROM data_items c JOIN tree t ON c.parent_id=t.id
-  )`
-  const rows = (
-    await env.DB.prepare(
-      `${tree} SELECT i.id,i.version,i.parent_id AS parentId,i.database_id AS databaseId,MAX(t.depth) AS depth FROM tree t JOIN data_items i ON i.id=t.id GROUP BY i.id ORDER BY depth DESC`,
-    )
-      .bind(id)
-      .all<{ id: string; version: number; parentId: string | null; databaseId: string | null }>()
-  ).results
-  for (const row of rows) await requireItem(env, auth, row.id, false, true)
   const table = kind === 'item' ? 'data_items' : 'database_definitions'
   const markerColumn = kind === 'item' ? 'mutation_id' : 'updated_at'
+  const tree = (anchor: string) => `WITH RECURSIVE tree(id,depth) AS (
+    SELECT id,0 FROM data_items WHERE ${kind === 'item' ? 'id=?' : 'database_id=?'}${anchor}
+    UNION SELECT c.id,t.depth+1 FROM data_items c JOIN tree t ON c.parent_id=t.id
+  )`
+  const permitted = permittedItemSql(auth, 'i')
+  const subtree = (await env.DB.prepare(
+    `${tree('')} SELECT COUNT(*) AS total,COALESCE(SUM(${permitted}),0) AS permitted,COALESCE(SUM(i.version),0) AS versions,COALESCE(MAX(t.depth),-1) AS depth
+    FROM (SELECT id,MAX(depth) AS depth FROM tree GROUP BY id) t JOIN data_items i ON i.id=t.id`,
+  )
+    .bind(id)
+    .first<{ total: number; permitted: number; versions: number; depth: number }>())!
+  if (subtree.permitted !== subtree.total) fail(403, 'forbidden', 'Something inside this is not available to you')
   const root = await env.DB.prepare(`SELECT deleted_at AS deletedAt,updated_at AS updatedAt FROM ${table} WHERE id=?`)
     .bind(id)
     .first<{ deletedAt: string | null; updatedAt: string }>()
@@ -171,14 +166,19 @@ async function purgeItems(env: L4Env, auth: AuthorizationContext, kind: 'item' |
   // updated_at is only a transaction-local claim for a Database that is deleted in the same batch.
   const claim = env.DB.prepare(
     `UPDATE ${table} SET ${markerColumn}=? WHERE id=? AND deleted_at=? AND updated_at=?
-    AND NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN data_items i ON i.id=json_extract(e.value,'$.id')
-      WHERE i.id IS NULL OR i.version<>json_extract(e.value,'$.version') OR i.parent_id IS NOT json_extract(e.value,'$.parentId') OR i.database_id IS NOT json_extract(e.value,'$.databaseId'))
-    AND (${tree} SELECT COUNT(DISTINCT id) FROM tree)=? RETURNING id`,
-  ).bind(marker, id, root.deletedAt, root.updatedAt, JSON.stringify(rows), id, rows.length)
-  const guard = `EXISTS(SELECT 1 FROM ${table} WHERE id=? AND ${markerColumn}=?)`
+    AND (${tree('')} SELECT COUNT(*)||':'||COALESCE(SUM(i.version),0) FROM (SELECT DISTINCT id FROM tree) t JOIN data_items i ON i.id=t.id WHERE ${permitted})=? RETURNING id`,
+  ).bind(marker, id, root.deletedAt, root.updatedAt, id, `${subtree.total}:${subtree.versions}`)
+  // The claim is on the root row, which the last level removes, so it is read in the anchor once per statement.
+  const claimed = kind === 'item' ? ' AND mutation_id=?' : ` AND EXISTS(SELECT 1 FROM ${table} WHERE id=? AND ${markerColumn}=?)`
+  const claimArgs = kind === 'item' ? [marker] : [id, marker]
+  const levels = Array.from({ length: subtree.depth + 1 }, (_, index) => subtree.depth - index)
   const result = await env.DB.batch([
     claim,
-    ...rows.map((row) => env.DB.prepare(`DELETE FROM data_items WHERE id=? AND ${guard}`).bind(row.id, id, marker)),
+    ...levels.map((depth) =>
+      env.DB.prepare(
+        `${tree(claimed)} DELETE FROM data_items WHERE id IN (SELECT id FROM tree GROUP BY id HAVING MAX(depth)=?)`,
+      ).bind(id, ...claimArgs, depth),
+    ),
     ...(kind === 'database'
       ? [env.DB.prepare(`DELETE FROM database_definitions WHERE id=? AND ${markerColumn}=?`).bind(id, marker)]
       : []),

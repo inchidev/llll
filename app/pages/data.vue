@@ -4,6 +4,7 @@ import { refDebounced } from '@vueuse/core'
 import type { DataSearchHit } from '~~/shared/data-search'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { Permission } from '~~/shared/permissions'
+import { itemPath } from '~~/shared/data-items'
 import { databasePath, documentPath, canvasPath } from '~~/shared/paths'
 import { formatMessageTime } from '~~/shared/format'
 import type { DataResourcesDTO } from '~~/shared/types'
@@ -111,7 +112,7 @@ const noMatches = computed(() => searching.value && !visibleGroups.value.length 
           <LayoutLoadError v-if="searchQ.error.value" message="Search did not load." :retry="searchQ.refetch" />
           <LayoutEmptyState v-if="noMatches" icon="i-ph-magnifying-glass" title="No matches" description="Try a different name." />
           <div v-else class="mt-8 space-y-8">
-            <section v-if="searching && recordMatches.length"><h3 class="mb-2 text-xs font-medium text-muted">Records</h3><NuxtLink v-for="record in recordMatches" :key="record.id" :to="databasePath(record.resourceId, false, null, record.id)" class="block rounded px-2 py-3 text-sm hover:bg-elevated">{{ record.title }}</NuxtLink></section>
+            <section v-if="searching && recordMatches.length"><h3 class="mb-2 text-xs font-medium text-muted">Records</h3><NuxtLink v-for="record in recordMatches" :key="record.id" :to="itemPath(record.id)" class="block rounded px-2 py-3 text-sm hover:bg-elevated">{{ record.title }}</NuxtLink></section>
             <section v-if="visibleBookmarks.length" aria-labelledby="data-bookmarks">
               <h3 id="data-bookmarks" class="mb-2 text-xs font-medium text-muted">Bookmarks</h3>
               <ul class="divide-y divide-default">

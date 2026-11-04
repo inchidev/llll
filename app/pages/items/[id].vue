@@ -46,6 +46,7 @@ async function patchProperty(fieldId: string, value: DatabaseValue) {
       body: { version: item.version, values: { [fieldId]: value } },
     })
     qc.setQueryData(['item', item.id], { item: { ...item, ...result.item } })
+    rebase(result.item)
     await documentQ.refetch()
     await invalidate()
   } catch (error) {
@@ -74,7 +75,12 @@ function itemUpdated(item: DataItem | DocumentDTO) {
   qc.setQueryData(['item', item.id], { item: { ...activeDocument.value, ...item } })
   void invalidate()
 }
-const { title, content, dirty, saving, saveError, save, discard, cancelScheduledSave, scheduleSave } = useDocumentDraft(
+/** Move and Appearance answer this Client's own request; a restored revision replaces the text, so it does not rebase. */
+function itemChanged(item: DataItem) {
+  rebase(item)
+  itemUpdated(item)
+}
+const { title, content, dirty, saving, saveError, save, discard, cancelScheduledSave, scheduleSave, rebase } = useDocumentDraft(
   activeDocument,
   async (id, patch) => {
     const result = await api<{ item: DataItem }>(`/api/items/${id}`, { method: 'PATCH', body: patch })
@@ -223,12 +229,12 @@ function retryLoad() {
         </template>
       </UAlert>
       <div class="mx-auto w-full max-w-4xl px-5 py-8 sm:px-10">
-        <DataItemLocation :item="activeDocument" :save-draft="save" :disabled="busy" @updated="itemUpdated" />
+        <DataItemLocation :item="activeDocument" :save-draft="save" :disabled="busy" @updated="itemChanged" />
         <DataItemAppearance
           :item="activeDocument"
           :save-draft="save"
           :writable="can(Permission.writeData)"
-          @updated="itemUpdated"
+          @updated="itemChanged"
         />
         <UInput
           v-model="title"

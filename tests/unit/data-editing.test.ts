@@ -38,6 +38,35 @@ describe('document drafts', () => {
     scope.stop()
   })
 
+  it('rebases on this Client\'s own property change so text typed meanwhile still saves', async () => {
+    const scope = effectScope()
+    const source = ref<DocumentDTO | null>(document('a'))
+    const persist = vi.fn().mockImplementation(async (_id, patch) => ({ ...document('a', patch.version + 1), ...patch, version: patch.version + 1 }))
+    const draft = scope.run(() => useDocumentDraft(source, persist, saved => { source.value = saved }))!
+    draft.content.value = 'Typed while the property saved'
+    source.value = document('a', 2) // The refetch alone leaves a dirty draft alone: it may be someone else's edit.
+    draft.rebase({ id: 'a', version: 2 })
+    expect(await draft.save()).toBe(true)
+    expect(persist).toHaveBeenCalledExactlyOnceWith('a', { title: 'a', content: 'Typed while the property saved', version: 2 })
+    draft.rebase({ id: 'a', version: 1 }) // A late, older response never moves it back.
+    draft.content.value = 'Next'
+    await draft.save()
+    expect(persist.mock.lastCall?.[1].version).toBe(3)
+    scope.stop()
+  })
+
+  it('still conflicts on someone else\'s edit when nothing rebased the draft', async () => {
+    const scope = effectScope()
+    const source = ref<DocumentDTO | null>(document('a'))
+    const persist = vi.fn().mockRejectedValue(new Error('stale'))
+    const draft = scope.run(() => useDocumentDraft(source, persist, saved => { source.value = saved }))!
+    draft.content.value = 'Mine'
+    source.value = document('a', 5)
+    expect(await draft.save()).toBe(false)
+    expect(persist.mock.calls[0]?.[1].version).toBe(1)
+    scope.stop()
+  })
+
   it('saves an empty title as Untitled without repeatedly persisting the same draft', async () => {
     const scope = effectScope()
     const source = ref<DocumentDTO | null>(document('a'))

@@ -6,7 +6,7 @@ import { sanitizeDocumentHtml } from './document-content'
 import { fail } from './cf'
 
 export const ITEM_COLUMNS = `id,space_id AS spaceId,kind,parent_id AS parentId,database_id AS databaseId,
-  title,content,icon,cover,position,version,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt`
+  title,content,icon,position,version,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt`
 
 /** Ancestor trash and collection trash hide every entry point, including search and relation chips. */
 export function liveItemSql(alias = 'data_items'): string {
@@ -77,7 +77,10 @@ export async function requireItem(
 
 /** SQL twin of authorizeItem for lists: filter before counts, pagination and title disclosure. */
 export function readableItemSql(auth?: AuthorizationContext, alias = 'data_items'): string {
-  if (!auth) return liveItemSql(alias)
+  return auth ? `${liveItemSql(alias)} AND ${permittedItemSql(auth, alias)}` : liveItemSql(alias)
+}
+/** requireItem's read check as SQL, live or in Trash: its Space, and it and every ancestor readable. */
+export function permittedItemSql(auth: AuthorizationContext, alias = 'data_items'): string {
   const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
   const allowed = (kind: 'databases' | 'documents' | 'canvases', column: string, action: ServerAction) => {
     try {
@@ -97,7 +100,7 @@ export function readableItemSql(auth?: AuthorizationContext, alias = 'data_items
   }
   const permitted = `CASE WHEN a.database_id IS NOT NULL THEN (${allowed('databases', 'a.database_id', ServerAction.readRecords)})
     WHEN a.kind='canvas' THEN (${allowed('canvases', 'a.id', ServerAction.readDocuments)}) ELSE (${allowed('documents', 'a.id', ServerAction.readDocuments)}) END`
-  return `${liveItemSql(alias)} AND ${alias}.space_id IN (${spaceSql(auth)}) AND NOT EXISTS (
+  return `${alias}.space_id IN (${spaceSql(auth)}) AND NOT EXISTS (
     WITH RECURSIVE ancestors(id,parent_id,database_id,kind) AS (SELECT ${alias}.id,${alias}.parent_id,${alias}.database_id,${alias}.kind
       UNION SELECT p.id,p.parent_id,p.database_id,p.kind FROM data_items p JOIN ancestors a ON p.id=a.parent_id)
     SELECT 1 FROM ancestors a WHERE NOT (${permitted}))`

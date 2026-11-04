@@ -75,6 +75,6 @@ Scopes never expand the acting Member's current Role or resource permissions. Ta
 
 `bulk_create_records` previews by default. Supply `databaseId` and up to 50 rows, each with a stable `requestId`, `title`, and `values` keyed by the field IDs returned by `list_tables`. Use `preview: false` to commit. Results identify each row by index/request ID and return either a record ID or `{ code, message, fields? }`. Retry with the same request IDs and values to avoid duplicates; a changed payload under an existing request ID fails.
 
-`search_data` searches authorized names and document content. `list_data_trash`, `trash_data`, and `restore_data` require `data:manage` plus resource access. Trash preserves contents; no MCP tool permanently purges data. `list_document_revisions` and `restore_document_revision` use the current document scopes; restoring requires the current optimistic `version`.
+`search_data` searches authorized names and document content. `list_data_trash`, `trash_data`, and `restore_data` require `data:manage` plus resource access. Trash preserves contents; no MCP tool permanently purges data. `list_item_revisions` and `restore_item_revision` use the current document scopes; restoring requires the current optimistic `version`.
 
-`create_document` and `update_document` accept `format: "html" | "markdown"` (HTML by default). Both share the HTTP limit of 1,000,000 characters and sanitize content to supported editor formatting.
+`create_item` and `update_item` accept `format: "html" | "markdown"` (HTML by default). Both share the HTTP limit of 1,000,000 characters and sanitize content to supported editor formatting.

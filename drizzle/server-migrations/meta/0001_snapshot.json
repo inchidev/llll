@@ -12428,13 +12428,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "cover": {
-          "name": "cover",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "text",
@@ -12846,6 +12839,13 @@
             "space_id",
             "parent_id",
             "position"
+          ],
+          "isUnique": false
+        },
+        "data_items_parent_id_idx": {
+          "name": "data_items_parent_id_idx",
+          "columns": [
+            "parent_id"
           ],
           "isUnique": false
         },

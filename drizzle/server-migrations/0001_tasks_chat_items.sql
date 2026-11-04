@@ -135,7 +135,6 @@ CREATE TABLE `data_items` (
 	`parent_id` text,
 	`content` text DEFAULT '' NOT NULL,
 	`icon` text,
-	`cover` text,
 	`deleted_at` text,
 	`mutation_id` text,
 	`database_id` text,
@@ -324,6 +323,8 @@ DROP TABLE documents;
 DROP TABLE canvases;
 --> statement-breakpoint
 CREATE INDEX `data_items_parent_idx` ON `data_items` (`space_id`,`parent_id`,`position`);
+--> statement-breakpoint
+CREATE INDEX `data_items_parent_id_idx` ON `data_items` (`parent_id`);
 --> statement-breakpoint
 CREATE INDEX `database_items_database_position_idx` ON `data_items` (`database_id`,`position`);
 --> statement-breakpoint

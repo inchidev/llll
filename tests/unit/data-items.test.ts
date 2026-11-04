@@ -6,11 +6,13 @@ import { INIT_SQL } from '../../server/utils/db'
 import { d1 } from '../helpers/sqlite-d1'
 import { createItem, getItem, listItems, moveItem, updateItem } from '../../server/utils/item-service'
 import { createRecord, readRecords, updateRecord } from '../../server/utils/record-service'
-import { changeDataTrash } from '../../server/utils/data-trash'
+import { changeDataTrash, listDataTrash } from '../../server/utils/data-trash'
+import { createItemSchema } from '../../shared/data-items'
+import { serverContentSecurityPolicy } from '../../server/utils/security-policy'
 import { changeDataReference, listDataReferences } from '../../server/utils/data-references'
 import { searchData } from '../../server/utils/data-search'
 import { requireCanvas, requireCanvasNode } from '../../server/utils/data-resources'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
+import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import { DEFAULT_SPACE_ID } from '../../shared/spaces'
 import type { AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
@@ -236,4 +238,69 @@ it('checks Canvas writable membership for existing nodes in an archived database
   db.exec("UPDATE database_definitions SET archived_at='now' WHERE id='a'")
   expect((await requireCanvas(env, canvas.id, auth)).id).toBe(canvas.id)
   await expect(requireCanvasNode(env, 'node', auth, true)).rejects.toMatchObject({ statusCode: 409 })
+})
+
+it('creating a Canvas takes Manage data; a page takes only write access', async () => {
+  const writer: AuthorizationContext = {
+    ...auth,
+    principal: { ...auth.principal, isOwner: false, permissions: Permission.readData | Permission.writeData },
+  }
+  expect((await createItem(env, writer, { title: 'Page' })).kind).toBe('page')
+  await expect(createItem(env, writer, { kind: 'canvas', title: 'Board' })).rejects.toMatchObject({ statusCode: 403 })
+  const manager = { ...writer, principal: { ...writer.principal, permissions: Permission.manageDatabases } }
+  expect((await createItem(env, manager, { kind: 'canvas', title: 'Board' })).kind).toBe('canvas')
+})
+it('stores no external cover URL: the Client loads images from this Server only', async () => {
+  const item = await createItem(env, auth, { title: 'Page' })
+  expect(item).not.toHaveProperty('cover')
+  expect(createItemSchema.parse({ cover: 'https://tracker.example/a.png' })).not.toHaveProperty('cover')
+  expect(serverContentSecurityPolicy("'self'")).toContain("img-src 'self' data: blob:;")
+})
+it('purges a large Database in a constant number of queries, children before parents', async () => {
+  const count = 300
+  db.exec("INSERT INTO data_items(id,database_id,title,created_by) VALUES('rec-root','a','Root','owner')")
+  const insert = db.prepare("INSERT INTO data_items(id,database_id,parent_id,title,created_by) VALUES(?,'a','rec-root','Record','owner')")
+  for (let index = 0; index < count; index++) insert.run(`rec-${index}`)
+  db.exec("INSERT INTO data_items(id,parent_id,title,created_by) VALUES('nested-page','rec-0','Nested','owner')")
+  let queries = 0
+  const prepare = env.DB.prepare.bind(env.DB)
+  env.DB.prepare = (sql) => {
+    queries++
+    return prepare(sql)
+  }
+  await changeDataTrash(env, auth, 'database', 'a', 'trash')
+  queries = 0
+  await changeDataTrash(env, auth, 'database', 'a', 'purge')
+  expect(queries).toBeLessThan(20)
+  expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+  expect(db.prepare("SELECT COUNT(*) AS n FROM data_items WHERE id LIKE 'rec-%' OR id='nested-page'").get()).toEqual({ n: 0 })
+  expect(db.prepare("SELECT id FROM database_definitions WHERE id='a'").get()).toBeUndefined()
+})
+it('lists Trash in one query for items, and purge refuses when something inside is not readable', async () => {
+  const root = await createItem(env, auth, { title: 'Root' }),
+    child = await createItem(env, auth, { parentId: root.id, title: 'Secret' })
+  for (let index = 0; index < 30; index++) {
+    const page = await createItem(env, auth, { title: `Page ${index}` })
+    await changeDataTrash(env, auth, 'item', page.id, 'trash')
+  }
+  await changeDataTrash(env, auth, 'item', root.id, 'trash')
+  let queries = 0
+  const prepare = env.DB.prepare.bind(env.DB)
+  env.DB.prepare = (sql) => {
+    queries++
+    return prepare(sql)
+  }
+  expect(await listDataTrash(env, auth)).toHaveLength(31)
+  expect(queries).toBeLessThan(6)
+  const limited: AuthorizationContext = {
+    ...auth,
+    principal: { ...auth.principal, isOwner: false, resourceAccess: { documents: [root.id] } },
+  }
+  await expect(changeDataTrash(env, limited, 'item', root.id, 'purge')).rejects.toMatchObject({ statusCode: 403 })
+  expect(db.prepare('SELECT id FROM data_items WHERE id=?').get(child.id)).toBeTruthy()
+})
+it('points every Records search hit at the Item, not at a Database URL built from its ID', () => {
+  const page = readFileSync('app/pages/data.vue', 'utf8')
+  expect(page).toContain(':to="itemPath(record.id)"')
+  expect(page).not.toContain('databasePath(record.resourceId')
 })

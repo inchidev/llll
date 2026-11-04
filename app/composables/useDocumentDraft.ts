@@ -78,6 +78,16 @@ export function useDocumentDraft(
     return promise
   }
 
+  /**
+   * This Client just changed something else on the page (a property, its location, its look), which
+   * bumps the version. A response to its own request is not someone else's edit, so text typed
+   * meanwhile still applies. Only pass responses to requests this Client made.
+   */
+  function rebase(saved: Pick<DocumentDTO, 'id' | 'version'>) {
+    const value = drafts.get(saved.id)
+    if (value && saved.version > value.version) value.version = saved.version
+  }
+
   function scheduleSave() {
     const value = draft.value
     if (!value) return
@@ -115,5 +125,6 @@ export function useDocumentDraft(
       })
     },
     scheduleSave,
+    rebase,
   }
 }
