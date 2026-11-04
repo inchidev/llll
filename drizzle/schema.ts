@@ -577,6 +577,19 @@ export const channelReads = sqliteTable('channel_reads', {
   index('channel_reads_user_id_idx').on(table.userId),
 ])
 
+/** Personal conversation state. It never grants access to the conversation. */
+export const channelAttention = sqliteTable('channel_attention', {
+  channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  following: integer('following', { mode: 'boolean' }).notNull().default(false),
+  notifications: text('notifications', { enum: ['default', 'all', 'mentions', 'muted'] }).notNull().default('default'),
+  readGeneration: integer('read_generation').notNull().default(0),
+}, table => [
+  primaryKey({ columns: [table.channelId, table.userId] }),
+  index('channel_attention_user_idx').on(table.userId, table.following),
+  check('channel_attention_notifications_check', sql`${table.notifications} in ('default', 'all', 'mentions', 'muted')`),
+])
+
 export const invites = sqliteTable('invites', {
   spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
   code: text('code').primaryKey(),
@@ -1748,6 +1761,7 @@ export const schema = {
   channelMembers,
   messages,
   channelReads,
+  channelAttention,
   invites,
   attachments,
   messageReactions,

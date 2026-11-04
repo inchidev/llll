@@ -63,6 +63,7 @@ export function useAttention() {
 
   function notifyActivity(event: ServerChannelActivityEvent) {
     const count = Math.max(1, sync())
+    if (event.notify === false) return
     if (delivered.has(event.messageId)) return
     delivered.add(event.messageId)
     if (delivered.size > 200) delivered.delete(delivered.values().next().value!)

@@ -1,3 +1,4 @@
+import { advanceChatRead, chatAttention } from './chat-attention'
 import { authorizedPublicationMessage } from '../server/utils/run-publication'
 import { retryDeletedFiles } from '../shared/file-cleanup'
 import { messageDeleteRole, messageSendRate, removeChannelMessage, takeRate } from '../server/utils/message-service'
@@ -504,9 +505,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
           active: (JSON.parse(raw) as { active?: boolean }).active !== false,
         }, ws)
         break
-      case 'read':
-        await this.onRead(sock, authz, (JSON.parse(raw) as { messageId: string }).messageId)
+      case 'read': {
+        const read = z.object({ messageId: z.string().min(1).max(100), generation: z.number().int().nonnegative().default(0) }).parse(parsed)
+        await this.onRead(sock, authz, read.messageId, read.generation)
         break
+      }
       default:
         this.send(ws, { t: 'error', code: 'unknown', message: `Unknown type ${parsed.t}` })
     }
@@ -767,19 +770,12 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     else await this.ctx.storage.put('idemCursor', last)
   }
 
-  private async onRead(sock: Sock, _authz: Authz, messageId: string) {
+  private async onRead(sock: Sock, _authz: Authz, messageId: string, generation: number) {
     const message = await this.env.DB.prepare(
       'SELECT id FROM messages WHERE id = ? AND channel_id = ?',
     ).bind(messageId, this.channelId()).first<{ id: string }>()
     if (!message) return
-    await this.env.DB.prepare(
-      `INSERT INTO channel_reads (channel_id, user_id, last_read_message_id, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(channel_id, user_id) DO UPDATE
-       SET last_read_message_id = excluded.last_read_message_id, updated_at = excluded.updated_at
-       WHERE channel_reads.last_read_message_id IS NULL
-          OR channel_reads.last_read_message_id < excluded.last_read_message_id`,
-    ).bind(this.channelId(), sock.userId, messageId, nowIso()).run()
+    await advanceChatRead(this.env.DB, this.channelId(), sock.userId, messageId, nowIso(), generation).run()
     const state = await this.env.DB.prepare(
       `SELECT last_read_message_id
        FROM channel_reads
@@ -787,9 +783,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     ).bind(this.channelId(), sock.userId).first<{
       last_read_message_id: string | null
     }>()
+    if ((await chatAttention(this.env.DB, this.channelId(), sock.userId)).readGeneration !== generation) return
     const cursor = state?.last_read_message_id ?? messageId
     await this.sendToUser(sock.userId, {
       t: 'read.ack',
+      generation,
       channelId: this.channelId(),
       messageId: cursor,
       unread: await channelHasUnread(this.env.DB, sock.userId, this.channelId()),

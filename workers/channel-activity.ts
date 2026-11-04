@@ -1,3 +1,5 @@
+import { chatAttention } from './chat-attention'
+import { chatAlertRecipients } from './chat-alerts'
 import { getServerId } from '../shared/server-id'
 import { notificationPreview } from '../shared/notifications'
 import { channelPath } from '../shared/paths'
@@ -101,7 +103,14 @@ export async function signalChannelActivity(
   const stub = asRpc<{
     notifyChannelActivity: (event: ServerChannelActivityEvent, recipientIds: string[]) => Promise<void>
   }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
-  await stub.notifyChannelActivity(event, audience.recipientIds)
+  const mentions = await env.DB.prepare('SELECT user_id AS id FROM message_mentions WHERE message_id = ?').bind(message.id).all<{ id: string }>()
+  const mentioned = mentions.results.map(row => row.id)
+  const alerts = new Set(await chatAlertRecipients(env, { rootId: audience.rootChannelId, channelId: message.channelId,
+    actorId: message.author.id, dm: audience.rootType === 'dm', mentioned, candidates: audience.recipientIds }))
+  await Promise.all([
+    stub.notifyChannelActivity({ ...event, notify: true }, audience.recipientIds.filter(id => alerts.has(id))),
+    stub.notifyChannelActivity({ ...event, notify: false }, audience.recipientIds.filter(id => !alerts.has(id))),
+  ])
 }
 
 export async function signalChannelRead(
@@ -112,15 +121,28 @@ export async function signalChannelRead(
 ): Promise<void> {
   const root = await resolveChannelRoot(env.DB, channelId)
   if (!root) return
+  const state = await env.DB.prepare(`SELECT r.last_read_message_id AS cursor, COALESCE(a.read_generation, 0) AS generation
+    FROM channels c LEFT JOIN channel_reads r ON r.channel_id = c.id AND r.user_id = ?2
+    LEFT JOIN channel_attention a ON a.channel_id = c.id AND a.user_id = ?2 WHERE c.id = ?1`)
+    .bind(channelId, userId).first<{ cursor: string | null; generation: number }>()
   const event: ServerChannelReadEvent = {
     t: 'channel.read',
+    generation: state?.generation ?? 0,
     sourceChannelId: channelId,
     rootChannelId: root.id,
-    messageId,
+    messageId: state ? state.cursor ?? '' : messageId,
     unread: await channelHasUnread(env.DB, userId, root.id),
   }
   const stub = asRpc<{
     notifyChannelRead: (event: ServerChannelReadEvent, userId: string) => Promise<void>
   }>(env.SERVER_DO.getByName(`server:${(await getServerId(env.DB))}`))
   await stub.notifyChannelRead(event, userId)
+}
+
+export async function signalChatAttention(env: L4Env, userId: string, channelId: string): Promise<void> {
+  const stub = asRpc<{
+    notifyChatAttention: (event: import('../shared/server-realtime').ServerChatAttentionEvent, userId: string) => Promise<void>
+  }>(env.SERVER_DO.getByName(`server:${await getServerId(env.DB)}`))
+  const state = await chatAttention(env.DB, channelId, userId)
+  await stub.notifyChatAttention({ t: 'chat.attention', channelId, readGeneration: state.readGeneration }, userId)
 }

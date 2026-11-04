@@ -37,6 +37,10 @@ beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec("CREATE TABLE server_identity(singleton INTEGER PRIMARY KEY, id TEXT); INSERT INTO server_identity VALUES(1,'00000000-0000-4000-8000-000000000001')")
   sqlite.exec(`
+    CREATE TABLE message_mentions (message_id TEXT, user_id TEXT);
+    CREATE TABLE channel_attention (channel_id TEXT, user_id TEXT, following INTEGER, notifications TEXT);
+    CREATE TABLE tasks (discussion_channel_id TEXT);
+    CREATE TABLE email_mailboxes (channel_id TEXT);
     CREATE TABLE users (id TEXT PRIMARY KEY, status TEXT NOT NULL);
     CREATE TABLE space_members (space_id TEXT NOT NULL DEFAULT 'space', user_id TEXT NOT NULL);
     CREATE TRIGGER users_in_space AFTER INSERT ON users BEGIN INSERT INTO space_members(user_id) VALUES (NEW.id); END;
@@ -137,6 +141,7 @@ describe('channel activity audience', () => {
       sourceChannelId: 'thread',
       rootChannelId: 'dm',
       messageId: 'message-1',
+      notify: true,
       notification: {
         title: 'Alice',
         body: 'hello from the thread',
@@ -174,7 +179,7 @@ describe('server event delivery', () => {
 })
 
 describe('server unread cache events', () => {
-  it('marks the root channel unread for newer opened-thread activity', () => {
+  it('opening a thread alone does not subscribe the parent to new replies', () => {
     const cache = new QueryClient()
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }] })
     cache.setQueryData(['readCursor', 'thread'], '01990000-0000-7000-8000-000000000001')
@@ -187,7 +192,7 @@ describe('server unread cache events', () => {
       notification: { title: 'Alice in #parent', body: 'hello', url: '/channels/parent/threads/thread' },
     })
 
-    expect(cache.getQueryData(['channels', 'main'])).toEqual({ channels: [{ id: 'parent', unread: true, unreadCount: 1, lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
+    expect(cache.getQueryData(['channels', 'main'])).toEqual({ channels: [{ id: 'parent', unread: false }] })
   })
 
   it('ignores activity at or behind a cursor already read in another delivery order', () => {
@@ -264,9 +269,9 @@ describe('server unread cache events', () => {
     expect(cache.getQueryState(['members', 'main'])?.isInvalidated).toBe(true)
   })
 
-  it('counts replies as unread only in threads the member has opened, and clears them on read', () => {
+  it('counts replies as unread only in threads the member follows, and clears them on read', () => {
     const cache = new QueryClient()
-    const thread = (id: string, opened: boolean) => ({ id, parentId: 'parent', title: id, lastMessageAt: '2026-09-27T10:00:00.000Z', opened, unread: false, unreadCount: 0 })
+    const thread = (id: string, opened: boolean) => ({ id, parentId: 'parent', title: id, lastMessageAt: '2026-09-27T10:00:00.000Z', following: opened, opened, unread: false, unreadCount: 0 })
     cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: false }], threads: [thread('opened', true), thread('new', false)] })
     cache.setQueryData(['dms'], { channels: [{ id: 'parent', unread: false }], threads: [thread('opened', true), thread('new', false)] })
     const activity = (sourceChannelId: string, n: number) => applyServerRealtimeEvent(cache, {
@@ -335,5 +340,18 @@ it('moves an old channel above a DM on realtime activity without refetching, and
   expect(cache.getQueryData(['channels', 'main'])).toMatchObject({ channels: [{ lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
   applyServerRealtimeEvent(cache, { ...event, messageId: '01980000-0000-7000-8000-000000000001' })
   expect(cache.getQueryData(['channels', 'main'])).toMatchObject({ channels: [{ lastMessageAt: '2025-08-31T12:00:24.064Z' }] })
+  cache.clear()
+})
+
+it('keeps a manual unread generation when older reads and state events arrive late', () => {
+  const cache = new QueryClient()
+  cache.setQueryData(['channels', 'main'], { channels: [{ id: 'parent', unread: true }] })
+  cache.setQueryData(['readCursor', 'parent'], 'm2')
+  applyServerRealtimeEvent(cache, { t: 'chat.attention', channelId: 'parent', readGeneration: 2 })
+  expect(cache.getQueryData(['readCursor', 'parent'])).toBeUndefined()
+  applyServerRealtimeEvent(cache, { t: 'chat.attention', channelId: 'parent', readGeneration: 1 })
+  expect(cache.getQueryData(['chat-read-generation', 'parent'])).toBe(2)
+  applyServerRealtimeEvent(cache, { t: 'channel.read', sourceChannelId: 'parent', rootChannelId: 'parent', messageId: 'm2', unread: false, generation: 1 })
+  expect(cache.getQueryData(['channels', 'main'])).toEqual({ channels: [{ id: 'parent', unread: true }] })
   cache.clear()
 })

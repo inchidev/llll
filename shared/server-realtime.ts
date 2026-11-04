@@ -1,10 +1,13 @@
 import type { LiveState } from './types'
 
+export type ServerChatAttentionEvent = { t: 'chat.attention'; channelId: string; readGeneration: number }
+
 export type ServerChannelActivityEvent = {
   t: 'channel.activity'
   sourceChannelId: string
   rootChannelId: string
   messageId: string
+  notify?: boolean
   notification: {
     title: string
     body: string
@@ -14,6 +17,7 @@ export type ServerChannelActivityEvent = {
 
 export type ServerChannelReadEvent = {
   t: 'channel.read'
+  generation?: number
   sourceChannelId: string
   rootChannelId: string
   messageId: string
@@ -79,6 +83,7 @@ export type ServerLiveChangedEvent = {
 }
 
 export type ServerRealtimeEvent =
+  | ServerChatAttentionEvent
   | ServerChannelAccessChangedEvent
   | ServerChannelsChangedEvent
   | ServerChannelActivityEvent

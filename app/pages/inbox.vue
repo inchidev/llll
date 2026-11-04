@@ -10,6 +10,7 @@ const route = useRoute()
 const { inbox, threads, unreadConversations, unreadMailboxes, pending, error, retryFailed, refresh, markRead } = useInbox(() => serverId.value || '')
 const toast = useToast()
 const marking = ref<string | null>(null)
+const previewId = ref<string | null>(null)
 async function clear(ids: string[], key: string) {
   marking.value = key
   try { await markRead(ids) }
@@ -45,9 +46,10 @@ const counts = computed(() => ({
   tasks: (inbox.value?.assigned.length ?? 0) + (inbox.value?.review.length ?? 0),
   mail: unreadMailboxes.value.length,
   chats: unreadConversations.value.length,
+  threads: 0,
 }))
 const empty = computed(() => section.value === 'all' ? Object.values(counts.value).every(count => !count) : !counts.value[section.value])
-const titles: Record<string, string> = { all: 'Needs you', approvals: 'Approvals', mentions: 'Mentions', agents: 'Agent work', tasks: 'My tasks', mail: 'Mail', chats: 'Unread chats' }
+const titles: Record<string, string> = { all: 'Needs you', approvals: 'Approvals', mentions: 'Mentions', agents: 'Agent work', tasks: 'My tasks', mail: 'Mail', chats: 'Unread chats', threads: 'My threads' }
 const emptyText: Record<string, string> = {
   all: 'No decisions, mentions or tasks are waiting on you.',
   approvals: 'Agent actions that need your decision will appear here.',
@@ -67,6 +69,8 @@ const emptyText: Record<string, string> = {
     <main class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
         <h2 class="text-xl font-semibold text-highlighted">{{ titles[section] }}</h2>
+        <ChatFollowedThreads v-if="section === 'threads'" :server-id="serverId || ''" />
+        <template v-else>
         <LayoutLoadError v-if="error" inline class="mt-6" message="Part of your inbox did not load. What loaded is shown below." :retry="retryFailed" />
         <LayoutSkeleton v-if="pending && !inbox && !unreadConversations.length" variant="nav" class="mt-6" :rows="5" />
         <LayoutEmptyState v-else-if="empty && !error && !pending" icon="i-ph-check-circle" title="You're all caught up" :description="emptyText[section]" class="mt-6" />
@@ -158,7 +162,8 @@ const emptyText: Record<string, string> = {
               <UButton label="Mark all as read" icon="i-ph-check" size="xs" color="neutral" variant="ghost" :loading="marking === 'all'" :disabled="Boolean(marking)" @click="clear(unreadConversations.map(channel => channel.id), 'all')" />
             </div>
             <ul class="divide-y divide-default">
-              <li v-for="{ channel, threadId, summary } in chats" :key="channel.id" class="group flex items-center gap-1">
+              <li v-for="{ channel, threadId, summary } in chats" :key="channel.id" class="group">
+                <div class="flex items-center gap-1">
                 <NuxtLink :to="channelPath(channel, threadId)" :title="conversationTitle(channel, session.user?.id || '')" class="flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary" @pointerenter="warm.intent(threadId ?? channel.id)" @pointerleave="warm.cancel()" @focus="warm.prefetch(threadId ?? channel.id)">
                   <UIcon :name="chatIcon(channel)" class="size-5 shrink-0 text-muted" />
                   <div class="min-w-0 flex-1">
@@ -166,11 +171,15 @@ const emptyText: Record<string, string> = {
                     <p class="mt-0.5 truncate text-xs text-muted">{{ summary }}</p>
                   </div>
                 </NuxtLink>
+                <UTooltip text="Preview unread messages"><UButton icon="i-ph-eye" :aria-label="`Preview unread messages in ${conversationTitle(channel, session.user?.id || '')}`" :aria-expanded="previewId === channel.id" size="sm" color="neutral" variant="ghost" @click="previewId = previewId === channel.id ? null : channel.id" /></UTooltip>
                 <UTooltip text="Mark as read"><UButton icon="i-ph-check" :aria-label="`Mark ${conversationTitle(channel, session.user?.id || '')} as read`" size="sm" color="neutral" variant="ghost" :loading="marking === channel.id" :disabled="Boolean(marking)" @click="clear([channel.id], channel.id)" /></UTooltip>
+                </div>
+                <ChatUnreadPreview v-if="previewId === channel.id" :channel="channel" />
               </li>
             </ul>
           </section>
         </div>
+        </template>
       </div>
     </main>
   </div>

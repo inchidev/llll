@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
+import { INIT_SQL } from '../../server/utils/db'
 import { DatabaseSync } from 'node:sqlite'
 import { getTableName, is, SQL } from 'drizzle-orm'
 import type { SQLiteColumn} from 'drizzle-orm/sqlite-core';
@@ -11,12 +11,11 @@ import * as declared from '../../drizzle/schema'
  * `drizzle/schema.ts` and the baseline SQL are written separately, and the runtime only
  * ever runs the SQL. This keeps them saying the same thing, table by table.
  */
-const BASELINE = new URL('../../drizzle/server-migrations/0000_baseline.sql', import.meta.url)
 /** The full-text index and SQLite's shadow tables behind it have no Drizzle form. */
 const FTS = /^message_search(_(config|content|data|docsize|idx))?$/u
 
 const sqlite = new DatabaseSync(':memory:')
-sqlite.exec(readFileSync(BASELINE, 'utf8').replaceAll('--> statement-breakpoint', ''))
+sqlite.exec(INIT_SQL)
 
 const tables = new Map(Object.values(declared)
   .filter((value): value is SQLiteTable => is(value, SQLiteTable))

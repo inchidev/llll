@@ -130,7 +130,7 @@ describe('notification recipients', () => {
     expect(fake.db.statements[1]!.sql).toContain('space_members')
   })
 
-  it('notifies other DM participants and deep-links through a DM thread parent', async () => {
+  it('preserves default DM alerts, including replies in threads', async () => {
     const fake = env([
       { id: 'thread', name: 'thread', type: 'thread', visibility: 'private', parent_id: 'dm' },
       { id: 'dm', name: 'dm', type: 'dm', visibility: 'private', parent_id: null },

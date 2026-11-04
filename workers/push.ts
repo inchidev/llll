@@ -2,6 +2,7 @@ import { buildPushPayload } from '@block65/webcrypto-web-push'
 import type { PushNotificationPayload } from '../shared/notifications'
 import { pushDeliveryDisposition, pushRetryDelayMs } from '../shared/notifications'
 import type { L4Env } from './env'
+import { chatPushStillWanted } from './chat-alerts'
 import { Permission } from '../shared/permissions'
 import { loadPushKeys } from './push-keys'
 import { unreadNavigationCount } from './unread'
@@ -58,6 +59,9 @@ export async function mailPushAccessAllowed(db: D1Database, threadId: string, us
 }
 
 async function deliverPush(env: L4Env, row: OutboxRow) {
+  if (row.event_id.startsWith('message:') && !await chatPushStillWanted(env.DB, row.event_id.slice('message:'.length), row.recipient_id)) {
+    return { disposition: 'failed' as const, error: 'notification_suppressed' }
+  }
   if (!await privatePushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   if (row.kind === 'mail' && !await mailPushAccessAllowed(env.DB, row.channel_id, row.recipient_id)) return { disposition: 'failed' as const, error: 'access_revoked' }
   const keys = await loadPushKeys(env)

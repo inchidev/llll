@@ -682,7 +682,8 @@ export type SidebarThreadDTO = {
   parentId: string
   title: string
   lastMessageAt: string
-  /** The member has opened this thread, so new replies count as unread for them. */
+  /** Explicitly follows replies; opening a thread only advances its read cursor. */
+  following?: boolean
   opened: boolean
   unread: boolean
   unreadCount: number
@@ -808,7 +809,7 @@ export type ClientMsg =
   | { t: 'message.update'; id: string; content: string }
   | { t: 'message.delete'; id: string }
   | { t: 'typing'; active: boolean }
-  | { t: 'read'; messageId: string }
+  | { t: 'read'; messageId: string; generation?: number }
   | { t: 'reaction.add'; messageId: string; emoji: string }
   | { t: 'reaction.remove'; messageId: string; emoji: string }
   | { t: 'agent.control'; agentId: string; action: 'stop' | 'approve' | 'reject'; executionId?: string }
@@ -829,7 +830,7 @@ export type ServerMsg =
   | { t: 'dm.update'; name: string | null }
   | { t: 'reaction'; messageId: string; emoji: string; userId: string; op: 'add' | 'remove' }
   | { t: 'pin'; messageId: string; pin: MessagePinDTO | null }
-  | { t: 'read.ack'; channelId: string; messageId: string; unread: boolean }
+  | { t: 'read.ack'; channelId: string; messageId: string; unread: boolean; generation?: number }
   | { t: 'error'; code: string; message: string; clientId?: string }
   | { t: 'ack'; clientId: string; id: string }
 
