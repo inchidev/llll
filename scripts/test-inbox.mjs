@@ -54,7 +54,7 @@ export async function testInbox({ api, ids, heldSocket }) {
     await read(threadTab, unreadReply, attention.readGeneration)
     assert.equal((await current()).unreadCount, 0)
     await api('alpha', `/api/channels/${thread.id}/attention`, { actor: 'alpha-member', method: 'PATCH', body: { following: false } })
-    await send(thread.id, 'Unfollowed reply')
+    const unfollowedReply = await send(thread.id, 'Unfollowed reply')
     assert.equal((await current()).unreadCount, 0)
     for (const notifications of ['all', 'mentions', 'muted', 'default']) {
       const changed = await api('alpha', `/api/channels/${channel.id}/attention`, { actor: 'alpha-member', method: 'PATCH', body: { notifications } })
@@ -63,7 +63,7 @@ export async function testInbox({ api, ids, heldSocket }) {
     const removed = await send(channel.id, 'Delete before reading')
     await api('alpha', `/api/messages/${removed.id}`, { method: 'DELETE' })
     assert.equal((await current()).unreadCount, 0)
-    assert.ok((await current()).lastMessageAt >= rootReply.createdAt)
+    assert.equal((await current()).lastMessageAt, unfollowedReply.createdAt)
     const privateChannel = (await api('alpha', root + '/channels', { method: 'POST', body: { name: 'inbox-private', visibility: 'private' } })).payload.channel
     await send(privateChannel.id, 'Private canary')
     assert.equal((await list()).channels.some(item => item.id === privateChannel.id), false)
