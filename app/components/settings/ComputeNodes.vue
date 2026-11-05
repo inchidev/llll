@@ -20,11 +20,11 @@ const items = computed(() => [
 const addOpen = ref(false)
 defineExpose({ openCreate: () => { addOpen.value = true } })
 // Three ways to get compute, one Node protocol. L4 Compute is a box per Task, started and stopped by llll.gg
-// and paid by the hour of agent work; it is not available yet, and no key, environment variable or price lives on the Server.
+// and paid by the hour of agent work, billed by the minute; it is not available yet, and no key, environment variable or price lives on the Server.
 const paths = [
   { id: 'vps', title: 'Your own VPS', text: 'The published Compute Node on a Linux Docker host you run. Free, with no limit on Nodes or parallel Runs.', action: 'Connect node' },
   { id: 'cloudflare', title: 'Your own Cloudflare', text: 'Containers in this Server\'s Cloudflare account. Free from L4; Cloudflare bills your account.', action: 'Server compute setup' },
-  { id: 'l4', title: 'L4 Compute', text: 'A box for each Task, started and stopped by llll.gg and paid by the hour of agent work, with no limit on how many Agents work at once. A self-hosted Server can use it too.', action: 'See pricing' },
+  { id: 'l4', title: 'L4 Compute', text: 'A box for each Task, started and stopped by llll.gg and paid by the hour of agent work and billed by the minute, with no limit on how many Agents work at once. A self-hosted Server can use it too.', action: 'See pricing' },
 ] as const
 function choose(id: (typeof paths)[number]['id']) {
   addOpen.value = false

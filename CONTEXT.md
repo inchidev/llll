@@ -88,7 +88,7 @@ A Provider supplies an optional capability such as email delivery, inference or 
 
 ## Compute Node and L4 Compute
 
-A Compute Node is where an Agent's repository work runs: it pairs with the Server and polls for work. It runs on the operator's own VPS, in their own Cloudflare account as Containers or, coming, as **L4 Compute**: a box per Task started and stopped by llll.gg and paid by the hour of agent work, the only thing L4 sells, with no cap on how many Agents work at once. The workspace is free; a Server holds no provider key. Prices live only on [Pricing](https://llll.gg/pricing).
+A Compute Node is where an Agent's repository work runs: it pairs with the Server and polls for work. It runs on the operator's own VPS, in their own Cloudflare account as Containers or, coming, as **L4 Compute**: a box per Task started and stopped by llll.gg and paid by the hour of agent work and billed by the minute, the only thing L4 sells, with no cap on how many Agents work at once. The workspace is free; a Server holds no provider key. Prices live only on [Pricing](https://llll.gg/pricing).
 
 ## Conversations
 

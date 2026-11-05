@@ -103,7 +103,7 @@ The full threat model and limits are in the [Compute Node guide](https://github.
 
 ## L4 Compute (coming)
 
-L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task's work is done. You pay by the hour of agent work, nothing while no Agent works, and there is no limit on how many Agents work at once. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
+L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task's work is done. You pay by the hour of agent work, billed by the minute (each box run rounds up to the next minute, one minute at least), nothing while no Agent works, and there is no limit on how many Agents work at once. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
 
 ## Check a Node
 
