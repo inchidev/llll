@@ -40,6 +40,7 @@ describe('metadata and bounded HTTP', () => {
   it('prefers social metadata, decodes entities and never returns active markup', () => {
     expect(pageMetadata('<title>Fallback</title><meta property="og:title" content="A &amp; B"><meta name="description" content="&lt;b&gt;Hello&lt;/b&gt;"><meta property="og:image" content="/image.png">')).toEqual({ title: 'A & B', description: 'Hello', image: '/image.png' })
     expect(pageMetadata('<title>Fallback &amp; title</title>').title).toBe('Fallback & title')
+    expect(pageMetadata('<title>&amp;lt;b&amp;gt;Literal&amp;lt;/b&amp;gt;</title>').title).toBe('&lt;b&gt;Literal&lt;/b&gt;')
   })
   it('bounds titles and strips scripts', () => {
     expect(pageMetadata(`<title>${'x'.repeat(300)}</title>`).title).toHaveLength(240)

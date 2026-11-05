@@ -21,8 +21,9 @@ export function pageMetadata(html: string): { title: string; description: string
     },
     textFilter(text, tag) { if (tag === 'title') title += text; return '' },
   })
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }
   const plain = (text: string, limit: number) => sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} })
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&(amp|lt|gt|quot|#39);/g, (_match, entity: string) => entities[entity]!)
     .replace(/\s+/g, ' ').trim().slice(0, limit)
   return {
     title: plain(metadata.get('og:title') || metadata.get('twitter:title') || title, 240),
