@@ -133,6 +133,7 @@ async function add() {
             <UFormField label="Domain" description="The domain itself or a subdomain, for example team.example.com. It must be Active in the same Cloudflare account.">
               <UInput v-model="hostname" placeholder="team.example.com" autocomplete="off" class="w-full" :disabled="busy" />
             </UFormField>
+            <p v-if="!domains.direct" class="text-xs text-muted">No domain yet? <a :href="CLOUDFLARE_DOMAINS_URL" target="_blank" rel="noopener" class="underline">Buy or add one in Cloudflare</a>.</p>
             <UCheckbox v-model="makePrimary" label="Make this the primary address" :disabled="busy" />
             <p class="text-xs text-muted">The current primary stays available as an alias. Background email and links use the primary.</p>
             <div class="flex flex-wrap gap-2">

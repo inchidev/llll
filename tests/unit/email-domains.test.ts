@@ -8,11 +8,11 @@ import EmailDomains from '../../app/components/settings/EmailDomains.vue'
 const mail = { configured: true, sendingBound: false, domains: [{ id: 'mail-domain', domain: 'example.com', appHostname: 'chat.example.com' }], mailboxes: [] }
 const Button = { props: ['label'], template: '<button>{{ label }}</button>' }
 const zone = { id: 'zone', name: 'example.com' }
-function render(isOwner: boolean, direct: boolean, domains: Record<string, unknown> = { zones: [zone] }) {
+function render(isOwner: boolean, direct: boolean, domains: Record<string, unknown> = { zones: [zone] }, shown: typeof mail = mail) {
   const api = vi.fn(async (_url: string, options?: { method?: string }) => options?.method === 'POST' ? { id: 'new-domain', domain: 'example.com' } : { direct, ...domains })
   for (const [name, value] of Object.entries({ computed, ref, watch, useApi: () => ({ api }), useToast: () => ({ add: vi.fn() }), errorMessage: String })) vi.stubGlobal(name, value)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return mount(EmailDomains, { props: { serverId: 'server', isOwner, mail }, global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UIcon: true, UButton: Button, UFormField: { template: '<div><slot /></div>' }, USelect: true, UInput: true } } })
+  return mount(EmailDomains, { props: { serverId: 'server', isOwner, mail: shown }, global: { plugins: [[VueQueryPlugin, { queryClient: client }]], stubs: { UIcon: true, UButton: Button, UFormField: { template: '<div><slot /></div>' }, USelect: true, UInput: true } } })
 }
 afterEach(() => vi.unstubAllGlobals())
 
@@ -31,6 +31,23 @@ describe('configured mail domains', () => {
     expect(view.text()).toContain('This Cloudflare account has no active domain')
     expect(view.findAll('button').map(button => button.text())).toEqual(['Open Cloudflare domains', 'Disconnect'])
     view.unmount()
+  })
+  it('shows one way forward when there is no domain at all', async () => {
+    const empty = { ...mail, configured: false, domains: [] }
+    const none = render(true, true, { zones: [] }, empty)
+    await flushPromises()
+    expect(none.text()).toContain('This Cloudflare account has no active domain')
+    expect(none.text()).not.toContain('No email domains yet')
+    none.unmount()
+    const owner = render(true, false, { zones: [] }, empty)
+    await flushPromises()
+    expect(owner.text().match(/Cloudflare access/gu)).toHaveLength(1)
+    owner.unmount()
+    const member = render(false, false, { zones: [] }, empty)
+    await flushPromises()
+    expect(member.text()).toContain('Ask the Owner')
+    expect(member.text()).not.toContain('Cloudflare access')
+    member.unmount()
   })
   it('offers to finish a domain that receives mail but cannot send', async () => {
     const view = render(true, true, { zones: [zone], emailDomains: [{ id: 'mail-domain', zoneId: 'zone', domain: 'example.com', zoneName: 'example.com', sendingEnabled: false }] })

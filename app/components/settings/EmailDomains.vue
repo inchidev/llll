@@ -19,6 +19,7 @@ const domainsQ = useQuery({
 })
 const direct = computed(() => props.isOwner && domainsQ.data.value?.direct === true)
 const zones = computed(() => domainsQ.data.value?.zones ?? [])
+const noDomainToConnect = computed(() => direct.value && !domainsQ.isPending.value && !zones.value.length)
 /** Cloudflare has not enabled sending for it yet; connecting it again finishes the job. */
 function sendingOff(id: string) {
   return domainsQ.data.value?.emailDomains?.find(item => item.id === id)?.sendingEnabled === false
@@ -66,21 +67,21 @@ async function remove(id: string) {
       <p class="text-sm text-muted">Domains this server sends and receives mail on.</p>
       <UButton v-if="direct && !adding && zones.length" label="Connect domain" icon="i-ph-plus" size="sm" @click="adding = true" />
     </div>
-    <div v-if="direct && !domainsQ.isPending.value && !zones.length" class="mt-3 rounded-lg border border-default p-4">
+    <div v-if="noDomainToConnect" class="mt-3 rounded-lg border border-default p-4">
       <p class="text-sm font-medium text-highlighted">This Cloudflare account has no active domain</p>
       <p class="mt-1 text-sm text-muted">Buy a domain in Cloudflare or add one you already own. It appears here once Cloudflare shows it as Active.</p>
       <UButton class="mt-3" label="Open Cloudflare domains" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="outline" :to="CLOUDFLARE_DOMAINS_URL" target="_blank" />
     </div>
     <form v-if="adding" class="mt-3 space-y-3 rounded-lg border border-default p-4" @submit.prevent="connect()">
-      <UFormField label="Cloudflare zone"><USelect v-model="zoneId" :items="zones.map(zone => ({ label: zone.name, value: zone.id }))" class="w-full" :disabled="Boolean(busy)" /></UFormField>
+      <UFormField label="Cloudflare domain"><USelect v-model="zoneId" :items="zones.map(zone => ({ label: zone.name, value: zone.id }))" class="w-full" :disabled="Boolean(busy)" /></UFormField>
       <UFormField label="Mail domain" description="The domain itself, or a subdomain such as mail.example.com if it already receives mail elsewhere."><UInput v-model="domain" autocomplete="off" class="w-full" :disabled="Boolean(busy)" /></UFormField>
       <p class="text-xs text-muted">Cloudflare will receive and send this domain's mail for this Server. The Server sets up the records itself.</p>
       <div class="flex gap-2"><UButton type="submit" label="Connect" :loading="busy === 'connect'" :disabled="!zoneId || !domain.trim()" /><UButton label="Cancel" color="neutral" variant="ghost" @click="adding = false" /></div>
     </form>
-    <div v-if="!mail.domains.length && !adding" class="mt-3 rounded-lg border border-dashed border-default px-4 py-8 text-center">
+    <div v-if="!mail.domains.length && !adding && !noDomainToConnect" class="mt-3 rounded-lg border border-dashed border-default px-4 py-8 text-center">
       <UIcon name="i-ph-globe-simple" class="size-6 text-dimmed" />
       <p class="mt-2 text-sm font-medium text-highlighted">No email domains yet</p>
-      <p class="mt-1 text-sm text-muted">{{ direct ? 'Connect a domain from this Cloudflare account.' : isOwner ? 'Keep Cloudflare access on this Server to connect a domain here.' : 'Ask the Owner to connect an email domain.' }}</p>
+      <p class="mt-1 text-sm text-muted">{{ direct ? 'Connect a domain from this Cloudflare account.' : isOwner ? 'Keep Cloudflare access on this Server to connect a domain here (Settings → Deployment → Updates).' : 'Ask the Owner to connect an email domain.' }}</p>
     </div>
     <ul v-else-if="mail.domains.length" class="mt-3 divide-y divide-default overflow-hidden rounded-lg border border-default">
       <li v-for="item in mail.domains" :key="item.id" class="flex items-center gap-3 px-4 py-3">
@@ -95,6 +96,6 @@ async function remove(id: string) {
         <UButton v-if="direct" label="Disconnect" size="sm" color="neutral" variant="ghost" :loading="busy === item.id" :disabled="Boolean(busy)" @click="remove(item.id)" />
       </li>
     </ul>
-    <p v-if="!direct" class="mt-3 text-sm text-muted">Connect email domains here once this Server keeps Cloudflare access (Settings → Deployment → Updates).</p>
+    <p v-if="!direct && isOwner && mail.domains.length" class="mt-3 text-sm text-muted">Connect email domains here once this Server keeps Cloudflare access (Settings → Deployment → Updates).</p>
   </div>
 </template>

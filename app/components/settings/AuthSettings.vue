@@ -148,7 +148,7 @@ onMounted(load)
           description="Members ask you for a one-time reset link from their Member page."
         />
         <div class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Sender address" description="Connecting a mail domain fills this in with no-reply at that domain.">
+          <UFormField label="Sender address">
             <UInput v-model="email.sender" type="email" class="w-full" :disabled="auth.email.senderManagedByDeployment" placeholder="login@example.com" />
           </UFormField>
           <UFormField label="Sender name">
@@ -156,6 +156,7 @@ onMounted(load)
           </UFormField>
         </div>
         <UBadge v-if="auth.email.senderManagedByDeployment" label="Sender managed by deployment" color="neutral" variant="subtle" />
+        <p v-else class="text-xs text-muted">Connecting a mail domain fills in the sender with no-reply at that domain.</p>
       </div>
 
       <h2 class="mt-10 text-xs font-bold uppercase tracking-wide text-muted">Login methods</h2>

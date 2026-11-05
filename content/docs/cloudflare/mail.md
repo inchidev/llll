@@ -24,11 +24,11 @@ Without kept access, the Domains tab asks you to keep it before you connect a do
 
 1. In your Server, open **Server settings → Mail** and choose the **Domains** tab.
 2. Select **Connect domain**.
-3. Choose the **Cloudflare zone**.
+3. Choose the **Cloudflare domain**.
 4. In **Mail domain**, keep the domain or enter a subdomain, for example `mail.example.com`.
 5. Select **Connect**. The form for your first Mailbox opens next.
 
-![The Domains tab in Mail settings with the Connect domain form showing the Cloudflare zone select, the Mail domain field and the Connect button](screenshot:cloudflare-mail-domain "Connect a mail domain")
+![The Domains tab in Mail settings with the Connect domain form showing the Cloudflare domain select, the Mail domain field and the Connect button](screenshot:cloudflare-mail-domain "Connect a mail domain")
 
 The Server then:
 
