@@ -55,6 +55,9 @@ export type ServerDomainRequestDTO = {
   updatedAt: string
 }
 
+/** Where an Owner buys a domain or brings one to Cloudflare. */
+export const CLOUDFLARE_DOMAINS_URL = 'https://dash.cloudflare.com/?to=/:account/domains/overview'
+
 export type ServerDomainSettingsDTO = {
   managed: boolean
   source: 'cloudflare' | 'operator'

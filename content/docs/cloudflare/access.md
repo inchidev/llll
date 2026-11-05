@@ -24,7 +24,7 @@ Cloudflare shows these on its consent screen. They fall into three groups.
 | Group | Permissions | Used for |
 | --- | --- | --- |
 | Provisioning | Account settings and memberships (read); Workers Scripts (admin, content read); D1 (read, write); Workers KV Storage (read, write); Workers R2 (read, write) | Finding your accounts, creating and updating the Worker, database, KV namespace and buckets. |
-| Domains and mail | Zone (read); DNS (read, write); Email Routing rules (read, write); Email Sending (read, write) | Server addresses and mail domains. |
+| Domains and mail | Zone (read); Zone settings (write); DNS (read, write); Email Routing rules (read, write); Email Sending (read, write) | Server addresses and mail domains. Zone settings is what turns Email Routing on for a domain. |
 | Optional providers | Browser Rendering (read); Containers (read, write); Artifacts (read, write); Realtime (read, write); Queues (read, write) | Compute nodes, Live and related features you may enable later. |
 
 The grant also includes offline access, so it can be refreshed while it is in use.
@@ -84,7 +84,7 @@ If you do not want to hand over the installer's grant, you can give the Server a
 The Server checks that the token reaches the account it runs in and refuses a token for another account.
 
 > [!NOTE]
-> The pre-filled token covers updates. It has no zone, DNS, Email Routing or Email Sending permissions, so adding addresses or mail domains from Settings needs a token with those permissions too, or the installer's grant.
+> The pre-filled token covers updates. It has no zone, zone settings, DNS, Email Routing or Email Sending permissions, so adding addresses or mail domains from Settings needs a token with those permissions too, or the installer's grant.
 
 To revoke a token, select **Disconnect** on the card and delete the token in your Cloudflare dashboard.
 
@@ -94,4 +94,4 @@ Nothing breaks. Without kept access:
 
 - updates continue on llll.gg with a fresh Cloudflare authorization for that one update;
 - an address change opens the official installer, which applies it with a one-time authorization. The Server receives only a single-use request, never an account-wide credential;
-- mail domains are managed by the Server operator.
+- mail domains cannot be connected from Settings until the Server keeps access again.

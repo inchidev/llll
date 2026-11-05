@@ -50,10 +50,11 @@ export function installedMailboxSender(env: L4Env): string | null {
   return localPart && domain ? `${localPart}@${domain}` : null
 }
 
+/** Connecting a mail domain is enough for reset and confirmation emails; the Owner may name another sender. */
 export async function installedMailboxSenderFromDb(env: L4Env): Promise<string | null> {
   const localPart = (await readServerSetting(env.DB, MAIL_DEFAULT_LOCAL_PART) || env.MAIL_DEFAULT_LOCAL_PART || '').trim().toLowerCase()
   const [domain] = await readServerMailDomains(env)
-  return localPart && domain ? `${localPart}@${domain.domain}` : null
+  return domain ? `${localPart || 'no-reply'}@${domain.domain}` : null
 }
 
 function envCredential(env: L4Env, provider: AuthCredentialProvider): Credential | null {

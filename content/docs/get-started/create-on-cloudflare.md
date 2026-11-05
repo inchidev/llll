@@ -74,5 +74,6 @@ Recovery works only while the Server has no Owner and no login Accounts. It neve
 
 - [Invite your team](invite-your-team.md)
 - [Add a custom domain](../cloudflare/custom-domain.md)
+- [Connect a mail domain](../cloudflare/mail.md)
 - [Create your first Agent](first-agent.md)
 - [Understand costs and limits](../cloudflare/costs-and-limits.md)

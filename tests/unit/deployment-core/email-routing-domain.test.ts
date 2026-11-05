@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ensureEmailRoutingDomain, ensureMailboxRoute, removeMailboxRoute } from '../../../packages/deployment-core/src/domains'
+import { emailSendingEnabled, ensureEmailRoutingDomain, ensureMailboxRoute, removeMailboxRoute } from '../../../packages/deployment-core/src/domains'
+import { CLOUDFLARE_SCOPES } from '../../../shared/cloudflare-oauth'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -38,12 +39,46 @@ describe('Email Routing onboarding', () => {
     expect(calls[1]?.body).toBe(JSON.stringify({ name: 'mail.example.com' }))
   })
 
+  it('asks Cloudflare for the permission that turns routing on', () => {
+    expect(CLOUDFLARE_SCOPES.split(' ')).toContain('zone-settings.write')
+  })
+
+  it('leaves a domain that receives mail elsewhere alone', async () => {
+    const calls = cloudflare(['aspmx.l.google.com'])
+    await expect(ensureEmailRoutingDomain('token', zone, 'example.com')).rejects.toMatchObject({
+      statusCode: 409,
+      statusMessage: 'example.com already receives mail through another provider. Choose a subdomain of example.com that has no mail yet.',
+    })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+  })
+
   it('says how to continue when the grant cannot turn routing on', async () => {
     cloudflare([], () => Response.json({ success: false, errors: [{ message: 'Authentication error' }] }, { status: 403 }))
     await expect(ensureEmailRoutingDomain('token', zone, 'example.com')).rejects.toMatchObject({
       statusCode: 403,
       statusMessage: 'Cloudflare did not turn on Email Routing for example.com: Authentication error. Turn it on for this domain in your Cloudflare dashboard, then connect again.',
     })
+  })
+})
+
+describe('Email Sending state', () => {
+  function subdomains(answer: () => Response) {
+    vi.stubGlobal('fetch', vi.fn(async () => answer()))
+  }
+
+  it('reports a domain Cloudflare has not enabled', async () => {
+    subdomains(() => Response.json({ success: true, result: [{ name: 'example.com', enabled: false, tag: 'a' }] }))
+    await expect(emailSendingEnabled('token', 'zone-id', 'example.com')).resolves.toBe(false)
+  })
+
+  it('reports an enabled domain', async () => {
+    subdomains(() => Response.json({ success: true, result: [{ name: 'Example.com', enabled: true, tag: 'a' }] }))
+    await expect(emailSendingEnabled('token', 'zone-id', 'example.com')).resolves.toBe(true)
+  })
+
+  it('does not guess when Cloudflare does not answer', async () => {
+    subdomains(() => Response.json({ success: false, errors: [{ message: 'Authentication error' }] }, { status: 403 }))
+    await expect(emailSendingEnabled('token', 'zone-id', 'example.com')).resolves.toBeUndefined()
   })
 })
 

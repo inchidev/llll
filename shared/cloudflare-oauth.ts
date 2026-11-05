@@ -5,7 +5,8 @@ export const CLOUDFLARE_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token'
 // Register every requested scope on the OAuth client before deploying the web
 // release. Unregistered scopes fail consent with invalid_scope.
 // Groups: provisioning (accounts, Workers, D1, KV, R2),
-// custom domains + mail (zones, DNS, Email Routing rules, Email Sending),
+// custom domains + mail (zones, zone settings to turn Email Routing on, DNS,
+// Email Routing rules, Email Sending),
 // and optional provider configuration (browser rendering, containers,
 // Artifacts, realtime, queues). Factory provisioning needs Artifacts Read
 // and Artifacts Write (`artifacts.read`, `artifacts.write`). The encrypted
@@ -23,7 +24,7 @@ export const CLOUDFLARE_SCOPES = [
   'd1.read', 'd1.write',
   'workers-kv-storage.read', 'workers-kv-storage.write',
   'workers-r2.read', 'workers-r2.write',
-  'zone.read', 'dns.read', 'dns.write',
+  'zone.read', 'zone-settings.write', 'dns.read', 'dns.write',
   'email-routing-rule.read', 'email-routing-rule.write',
   'email-sending.read', 'email-sending.write',
   'browser-rendering.read',

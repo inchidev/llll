@@ -11,7 +11,7 @@ import {
 } from './server-origins'
 import { serverDeployment, serverDomainLaunchUrl } from './server-updates'
 import { cloudflareAccessStatus, cloudflareAccessToken } from './cloudflare-account-access'
-import { connectAppDomain, connectEmailDomain, disconnectAppDomain, disconnectEmailDomain, ensureMailboxRoute, findAppDomain, findAppDomainZone, removeMailboxRoute, setPrimaryAppDomain } from '../../packages/deployment-core/src/domains'
+import { connectAppDomain, connectEmailDomain, disconnectAppDomain, disconnectEmailDomain, emailSendingEnabled, ensureMailboxRoute, findAppDomain, findAppDomainZone, removeMailboxRoute, setPrimaryAppDomain } from '../../packages/deployment-core/src/domains'
 import { listAccountZones } from '../../packages/deployment-core/src/servers'
 import { readServerMailDomains } from './server-mail'
 import { readServerSetting, writeServerSetting } from '../../shared/server-settings'
@@ -46,7 +46,13 @@ export async function readManagedServerDomains(env: L4Env, fallbackOrigin?: stri
     pending: managed ? await listServerDomainRequests(env) : [],
     zones: zones.map(zone => ({ id: zone.id, name: zone.name })),
     appDomain: null,
-    emailDomains: access ? (await readServerMailDomains(env)).map(domain => ({ ...domain, zoneName: zones.find(zone => zone.id === domain.zoneId)?.name ?? '' })) : [],
+    emailDomains: access
+      ? await Promise.all((await readServerMailDomains(env)).map(async domain => ({
+          ...domain,
+          zoneName: zones.find(zone => zone.id === domain.zoneId)?.name ?? '',
+          sendingEnabled: await emailSendingEnabled(access.token, domain.zoneId, domain.domain),
+        })))
+      : [],
   }
 }
 

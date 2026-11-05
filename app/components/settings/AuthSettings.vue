@@ -4,6 +4,7 @@ const { api } = useApi()
 
 const props = defineProps<{ serverId: string }>()
 const toast = useToast()
+const nav = useNavActions()
 const loading = ref(true)
 const saving = ref(false)
 const auth = ref<AuthSettingsAdminDTO | null>(null)
@@ -131,13 +132,20 @@ onMounted(load)
           </div>
           <USwitch v-model="passwordEnabled" aria-label="Enable username and password" />
         </div>
-        <UAlert v-if="!auth.email.binding" color="warning" variant="subtle" title="Cloudflare Email binding is not connected" />
+        <UAlert
+          v-if="!auth.email.binding"
+          color="warning"
+          variant="subtle"
+          title="Mail is not connected"
+          description="Connect a mail domain to send reset and confirmation emails."
+          :actions="[{ label: 'Open Mail', color: 'neutral', variant: 'outline', onClick: () => nav.openServerSettings('email') }]"
+        />
         <UAlert
           v-if="passwordEnabled && !auth.passwordResetEnabled"
           color="warning"
           variant="subtle"
           title="Reset emails are off"
-          description="Members ask you for a one-time reset link from their Member page. Connect the Email binding and configure a sender address to also confirm addresses and send reset emails."
+          description="Members ask you for a one-time reset link from their Member page."
         />
         <div class="grid gap-4 sm:grid-cols-2">
           <UFormField label="Sender address">
@@ -148,6 +156,7 @@ onMounted(load)
           </UFormField>
         </div>
         <UBadge v-if="auth.email.senderManagedByDeployment" label="Sender managed by deployment" color="neutral" variant="subtle" />
+        <p v-else class="text-xs text-muted">Connecting a mail domain fills in the sender with no-reply at that domain.</p>
       </div>
 
       <h2 class="mt-10 text-xs font-bold uppercase tracking-wide text-muted">Login methods</h2>

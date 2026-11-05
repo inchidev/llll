@@ -13,15 +13,24 @@ Every listed address works for login, sessions, links, uploads, MCP and realtime
 
 ## Before you start
 
-- The hostname must be in an **active zone in the same Cloudflare account** as the Server. Add the domain to Cloudflare first if it is not there yet.
+- The domain must be **active in the same Cloudflare account** as the Server. See [Get a domain](#get-a-domain).
 - The hostname must not already be attached to another Worker.
 - You must be the Owner.
+
+## Get a domain
+
+Open [Domains in your Cloudflare dashboard](https://dash.cloudflare.com/?to=/:account/domains/overview), using the account that holds the Server.
+
+- **To buy a new domain,** register it there. Cloudflare charges the payment method on the account, and registrations are not refundable. The domain is active straight away. Check that auto-renew is on.
+- **To use a domain you already own,** select **Onboard a domain** and follow the steps. They end with changing the nameservers at your current registrar. Wait until Cloudflare shows the domain as **Active**, usually a few minutes and up to a day.
+
+When the Server keeps Cloudflare access, the **Server address** page lists the active domains in the account and links to this page when there are none.
 
 ## Add an address
 
 1. In your Server, open **Server settings → Deployment → Domain**. The page is titled **Server address**.
 2. Select **Add address**.
-3. In **Domain**, enter the hostname, for example `chat.example.com`.
+3. If the page lists **Cloudflare domain**, choose the domain. In **Domain**, keep it or put a subdomain in front, for example `chat.example.com`.
 4. Optional: check **Make this the primary address**. The current primary stays available as an alias.
 5. Confirm:
    - If the Server keeps Cloudflare access, select **Add address**. The Server attaches the domain itself.

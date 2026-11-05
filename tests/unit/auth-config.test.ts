@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { forgetSessionAuthConfig, installedMailboxSender, loadSessionAuthConfig, publicAuthConfig, type AuthRuntimeConfig } from '../../server/utils/auth-config'
+import { forgetSessionAuthConfig, installedMailboxSender, installedMailboxSenderFromDb, loadSessionAuthConfig, publicAuthConfig, type AuthRuntimeConfig } from '../../server/utils/auth-config'
 import { authEmailAvailable } from '../../workers/mail-transport'
 
 function runtime(overrides: Partial<AuthRuntimeConfig> = {}): AuthRuntimeConfig {
@@ -17,6 +17,29 @@ function database(read: () => Promise<never>) {
   const statement = { bind: () => statement, all: read, first: read, raw: read, run: read }
   return { prepare: () => statement } as unknown as D1Database
 }
+
+describe('sender from a connected mail domain', () => {
+  function mailDatabase(domains: string[], localPart: string | null = null) {
+    const statement = (sql: string) => ({
+      bind: () => statement(sql),
+      first: async () => (sql.includes('server_settings') && localPart ? { value: localPart } : null),
+      all: async () => ({ results: sql.includes('email_domains') ? domains.map(domain => ({ id: domain, zoneId: 'zone', domain, appHostname: 'chat.example.com' })) : [] }),
+    })
+    return { prepare: statement } as unknown as D1Database
+  }
+
+  it('sends from no-reply at the domain without further setup', async () => {
+    await expect(installedMailboxSenderFromDb({ DB: mailDatabase(['example.com']) } as never)).resolves.toBe('no-reply@example.com')
+  })
+
+  it('keeps a default address the Server already has', async () => {
+    await expect(installedMailboxSenderFromDb({ DB: mailDatabase(['example.com'], 'Inbox') } as never)).resolves.toBe('inbox@example.com')
+  })
+
+  it('has no sender without a mail domain', async () => {
+    await expect(installedMailboxSenderFromDb({ DB: mailDatabase([]) } as never)).resolves.toBeNull()
+  })
+})
 
 describe('session auth config', () => {
   it('never waits on a read begun by another request, which may have ended', async () => {
