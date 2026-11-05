@@ -100,4 +100,15 @@ describe('public-only fetching', () => {
     expect(network).toHaveBeenCalledTimes(1) // Only the fixed DNS resolver; no hostname re-resolution.
     expect(socket.close).toHaveBeenCalled()
   })
+  it('honors the deadline even when a self-host TCP connection never opens', async () => {
+    const close = vi.fn().mockResolvedValue(undefined)
+    connect.mockReturnValue({ opened: new Promise(() => {}), close })
+    const controller = new AbortController()
+    const pending = fetchPreview('https://93.184.216.34/', [], 1000, controller.signal)
+    const rejected = expect(pending).rejects.toThrow('Preview deadline')
+    await vi.waitFor(() => expect(connect).toHaveBeenCalled())
+    controller.abort(new Error('Preview deadline'))
+    await rejected
+    expect(close).toHaveBeenCalled()
+  })
 })

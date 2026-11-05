@@ -4,6 +4,16 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const HEADER_LIMIT = 32_768
 
+/** Some self-host sockets cannot interrupt an opening TCP connection; the request still has a deadline. */
+function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => { signal.removeEventListener('abort', aborted); reject(signal.reason) }
+    pending.then(value => { signal.removeEventListener('abort', aborted); resolve(value) }, error => { signal.removeEventListener('abort', aborted); reject(error) })
+    if (signal.aborted) aborted()
+    else signal.addEventListener('abort', aborted, { once: true })
+  })
+}
+
 /** DNS is checked before connecting, then the socket uses that exact address with the original TLS name. */
 async function publicAddress(url: URL, signal: AbortSignal): Promise<string> {
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
@@ -101,15 +111,15 @@ async function pinnedFetch(url: URL, limit: number, signal: AbortSignal): Promis
   signal.addEventListener('abort', close, { once: true })
   try {
     signal.throwIfAborted()
-    await socket.opened
+    await abortable(socket.opened, signal)
     if (url.protocol === 'https:') {
       socket = socket.startTls({ expectedServerHostname: url.hostname.replace(/^\[|\]$/g, '') })
-      await socket.opened
+      await abortable(socket.opened, signal)
     }
     const writer = socket.writable.getWriter()
-    await writer.write(encoder.encode(`GET ${url.pathname}${url.search} HTTP/1.1\r\nHost: ${url.host}\r\nAccept: text/html,image/png,image/jpeg,image/webp,image/gif\r\nAccept-Encoding: identity\r\nUser-Agent: L4-LinkPreview/1.0\r\nConnection: close\r\n\r\n`))
+    await abortable(writer.write(encoder.encode(`GET ${url.pathname}${url.search} HTTP/1.1\r\nHost: ${url.host}\r\nAccept: text/html,image/png,image/jpeg,image/webp,image/gif\r\nAccept-Encoding: identity\r\nUser-Agent: L4-LinkPreview/1.0\r\nConnection: close\r\n\r\n`)), signal)
     writer.releaseLock()
-    const bytes = await boundedBytes(new Response(socket.readable), limit + HEADER_LIMIT)
+    const bytes = await abortable(boundedBytes(new Response(socket.readable), limit + HEADER_LIMIT), signal)
     return decodePreviewResponse(bytes, limit)
   } finally { signal.removeEventListener('abort', close); close() }
 }
