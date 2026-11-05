@@ -1,6 +1,6 @@
 ---
 title: Compute Nodes
-description: Give Agents an isolated place to work on repository Tasks, on your own VPS, in your own Cloudflare account or, coming, with L4 Compute.
+description: Give Agents an isolated place to work on repository Tasks, on your own VPS, in your own Cloudflare account or, coming, with L4 Compute by the hour.
 order: 4
 ---
 
@@ -17,7 +17,7 @@ Open **Server settings → Compute** (requires Manage server). **Add compute** o
 | VPS local executor | Docker on the same VPS as a [VPS installer](vps.md) Server | A single trusted VPS. |
 | Cloudflare Containers | Your Cloudflare account, next to a Cloudflare Server | Cloudflare Servers on Workers Paid. |
 | Remote Docker Node | Any Linux Docker host you pair | Advanced setups, and any machine you rent yourself. |
-| L4 Compute (coming) | Managed workers from llll.gg | Compute without running a machine yourself. |
+| L4 Compute (coming) | A box per Task from llll.gg, paid by the hour of agent work | Compute without running a machine yourself, however many Agents work at once. |
 
 The workspace is free wherever you run it. L4 sells only Managed Compute; see [Pricing](https://llll.gg/pricing).
 
@@ -103,7 +103,7 @@ The full threat model and limits are in the [Compute Node guide](https://github.
 
 ## L4 Compute (coming)
 
-L4 Compute is managed workers bought from llll.gg: L4 creates, isolates, updates and bills each worker, and pairs it with your Server automatically. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
+L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task's work is done. You pay by the hour of agent work, nothing while no Agent works, and there is no limit on how many Agents work at once. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
 
 ## Check a Node
 

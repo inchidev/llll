@@ -24,7 +24,7 @@ Each Server is an autonomous deployment. A community should not have to understa
 
 Preserve existing implementations while stabilizing the community core and operations. Optional capabilities must explain their configuration state instead of presenting a broken primary action. These are acceptance gates, not a new feature-switch implementation.
 
-Agents have the Server's local permission boundary: conversation, authorized tools and, with Use a computer and a connected Compute Node, repository work on the operator's own VPS or Cloudflare account. L4 Compute, managed workers from llll.gg, is coming. External email sending requires human approval. Mail delivery needs its own Provider configuration. Neither Mail nor Agents is required for the first community conversation.
+Agents have the Server's local permission boundary: conversation, authorized tools and, with Use a computer and a connected Compute Node, repository work on the operator's own VPS or Cloudflare account. L4 Compute, a box per Task from llll.gg paid by the hour of agent work, is coming. External email sending requires human approval. Mail delivery needs its own Provider configuration. Neither Mail nor Agents is required for the first community conversation.
 
 ## Inbox
 

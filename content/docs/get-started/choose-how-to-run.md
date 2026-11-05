@@ -39,7 +39,7 @@ Start here: [Install on a VPS](install-on-a-vps.md). Docker Compose and Coolify 
 
 ## L4 Cloud (coming)
 
-With L4 Cloud we host your Server, and there is nothing for you to run. It is not available yet. The workspace is free there as everywhere; L4 sells only managed compute for Agents. See [Pricing](https://llll.gg/pricing).
+With L4 Cloud we host your Server, and there is nothing for you to run. It is not available yet. The workspace is free there as everywhere; L4 sells only compute for Agents, by the hour of agent work. See [Pricing](https://llll.gg/pricing).
 
 ## You can run more than one
 
