@@ -94,6 +94,8 @@ In `vars` of `wrangler.celld.local.json`:
 
 `CLOUDFLARE_API_TOKEN`, `AI_API_KEY`, and the inbound mail secrets belong in that same `vars` object. Changing `vars` takes effect on the next deploy.
 
+The Owner can instead enter `EXA_API_KEY`, `BROWSER_CDP_URL`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, the mail gateway settings and the inbound mail secrets in **Server settings → Integrations**. They are stored in D1, encrypted with `AUTH_SECRET`, and take effect within 30 seconds. A variable of the same name wins. `workers/integrations.ts` fills them into `env` for API requests, Agent gateway calls and Live.
+
 ## Cloudflare API token
 
 A scoped API token lets this node call Cloudflare from outside Cloudflare's network. Bindings still win when they exist. After that, L4 uses this token. An OpenAI-compatible endpoint, an HTTP mail gateway, or a Chromium DevTools URL is used only when the token is absent. `/api/setup/health` reports which path it chose: `aiProvider`, `capabilities.browser`, `capabilities.emailProvider`, `capabilities.callsProvider`, and `capabilities.emailInbound`.

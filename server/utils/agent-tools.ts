@@ -17,6 +17,7 @@ import { mcpRunTools, type ExternalToolAdapter } from './outbound-mcp'
 import { listAuthorizedTables } from './table-catalog'
 import { agentTimeContext } from './agent-time'
 import { agentBrowserConfigured } from '../../workers/env'
+import { withIntegrations } from '../../workers/integrations'
 import { searchWeb, searchRunWeb } from './agent-search'
 import { createTable, createTableSchema } from './table-service'
 import { canManageGadgets, createGadget, getGadgetDetail, listGadgets, updateGadget, type GadgetActor } from './gadget-catalog'
@@ -282,7 +283,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
 }
 
 /** Only metadata crosses into Pi/DOs; external credentials are read inside the HTTP broker. */
-export async function toolsForRun(env: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal) {
+export async function toolsForRun(deployment: L4Env, authorization: AuthorizationContext, schedule: (promise: Promise<unknown>) => void, run?: AgentRun, signal?: AbortSignal) {
+  const env = await withIntegrations(deployment)
   const external = await mcpRunTools(env, authorization, run, signal, async () => {
     if (!run) fail(403, 'run_unavailable', 'An active Run is required')
     return runAuthorization(env, run)

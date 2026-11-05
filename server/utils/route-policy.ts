@@ -303,6 +303,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   'servers/[id]/channels/[channelId]/creator.put': inSpace('channel', 'channelId', 'channel-creator.update'),
   'servers/[id]/channels/archived.get': inActiveSpace('channels-archived.read'),
   'servers/[id]/channels/recovery.get': inActiveSpace('channels-recovery.read'),
+  'servers/[id]/integrations.get': onServer('integrations.read'),
+  'servers/[id]/integrations.put': onServer('integrations.update'),
   'servers/[id]/cloudflare-account.delete': onServer('cloudflare-account.delete'),
   'servers/[id]/cloudflare-account.get': onServer('cloudflare-account.read'),
   'servers/[id]/cloudflare-account.put': onServer('cloudflare-account.update'),
