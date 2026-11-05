@@ -30,6 +30,10 @@ The earlier plan of a flat Cloud price per Server (and before it a Business key 
 
 **Compute funds collaboration.** Each tenant's workspace costs on Cloud (D1, R2, Durable Object time, RealtimeKit minutes) are covered from a resource budget: a free base for every tenant plus a share of its Compute spend for the month, on the order of 10 to 15% as a starting hypothesis. The budget is computed monthly on our actual costs, not granted for life after one purchase. Its rules and the current usage are visible to the Owner; nothing is silently cut, deleted or blocked. Files and calls are the only costs large enough to need a ceiling for tenants who buy no Compute, and those ceilings are stated, not hidden.
 
+The ceilings take one shape: a free base per Cloud Server plus a fixed increment per dollar of Compute spent in the month, one for files in gigabytes and one for call participant-minutes. Over the files ceiling, new uploads pause and nothing is deleted; over the calls ceiling, new calls wait for the next month. The numbers live only in `llll-cloud`, next to the prices. A Server on its own infrastructure has no ceilings: the storage and the calls are the operator's.
+
+**Compute is prepaid credit in money, under a spend limit.** Paddle's metering does not bill overage, so Compute is bought as credit (a prepaid balance in cents, never per hour pack), and each box run draws minutes times its size's price from that balance. The Owner sets a monthly spend limit; a box is not started when the limit or the balance is reached. A balance belongs to one Server and does not expire; refunds take back the same share. Hours as the unit of the ledger go, because sizes have different prices.
+
 **Features stay off the strategy.** A feature enters the roadmap when it removes an obstacle for a real team using L4, not because Orbit shipped it, an announcement looked good, an agent could build it overnight or issues piled up.
 
 ## Unknowns to settle before building billing
