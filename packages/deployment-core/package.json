@@ -1,6 +1,6 @@
 {
   "name": "@llll/deployment-core",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Cloudflare server provisioning and updates for L4 servers",
   "type": "module",
   "license": "Elastic-2.0",
