@@ -11,13 +11,13 @@ import { extractMentionIds } from '../shared/mentions'
 import { canAccessAgentConversation, dmFrozen, isDmType } from '../shared/dm'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission } from '../shared/permissions'
 import { liveKindFor } from '../shared/live'
-import { CHANNEL_ROLE_OVERRIDE_SQL, resolveChannelPermissions } from '../shared/channel-permissions'
+import { channelRoleOverrideSql, resolveChannelPermissions } from '../shared/channel-permissions'
 import { newId, nowIso } from '../shared/ids'
 import { asRpc, callsProvider, type L4Env } from './env'
 import { withIntegrations } from './integrations'
 import type { RealtimeKitParticipant } from './realtimekit'
 import { liveMedia } from './live-media'
-import { sessionFromTicket, socketSessionActive } from './ticket'
+import { sessionFromTicket, socketSessionActive, socketSessionStatement, type SocketSession } from './ticket'
 import { channelHasUnread } from './unread'
 import { liveNotificationStatement, messageNotificationStatement, signalNotificationOutbox } from './notifications'
 import { signalLiveChanged } from './live-events'
@@ -171,11 +171,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
 
   /** Admission is rechecked even for idle, hibernating sockets after a membership change. */
   async revalidateAccess(): Promise<void> {
-    await authorizedSockets(this.ctx.getWebSockets(), async (userId, session) => {
-      if (!await socketSessionActive(this.env, session)) return false
-      const authz = await this.loadAuthz(userId)
-      return Boolean(authz && !authz.frozen)
-    })
+    await authorizedSockets(this.ctx.getWebSockets(), (userId, session) => this.socketMayReceive(userId, session))
     await this.revalidateLive()
   }
 
@@ -475,12 +471,12 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async handle(ws: WebSocket, sock: Sock, raw: string) {
-    if (!await socketSessionActive(this.env, sock)) {
+    const { sessionActive, authz } = await this.readAccess(sock.userId, sock)
+    if (!sessionActive) {
       ws.close(4403, 'session_revoked')
       return
     }
     const parsed = JSON.parse(raw) as { t: string }
-    const authz = await this.loadAuthz(sock.userId)
     if (!authz) {
       this.send(ws, { t: 'error', code: 'not_found', message: 'Channel not found' })
       return
@@ -631,7 +627,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     this.ctx.waitUntil(signalChannelRead(this.env, sock.userId, this.channelId(), id))
     await this.ctx.storage.put(idemKey, { id, at: Date.now() })
     await this.pruneIdempotency()
-    await this.broadcast({ t: 'message', message: dto })
+    await this.broadcast({ t: 'message', message: dto }, undefined, sock)
     this.send(ws, { t: 'ack', clientId: body.clientId, id })
     this.ctx.waitUntil(signalAgentsForMessage(this.env, {
       messageId: id,
@@ -1032,77 +1028,106 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
   }
 
   private async loadAuthz(userId: string): Promise<Authz | null> {
-    type Row = { id: string; type: string; visibility: string; parent_id: string | null; archived_at: string | null }
-    const ch = await this.env.DB.prepare(
-      'SELECT id, type, visibility, parent_id, archived_at FROM channels WHERE id = ?',
-    ).bind(this.channelId()).first<Row>()
-    if (!ch) return null
-    const type = ch.type
-    let accessRoot = ch
-    if (type === 'thread' && ch.parent_id) {
-      const parent = await this.env.DB.prepare('SELECT id, type, visibility, parent_id, archived_at FROM channels WHERE id = ?').bind(ch.parent_id).first<Row>()
-      if (!parent) return null
-      accessRoot = parent
-    }
+    return (await this.readAccess(userId)).authz
+  }
 
-    const membership = await this.env.DB.prepare(
-      `SELECT u.kind, r.permissions_bitmask as perms, r.resource_access_json as resourceAccessJson, r.id as roleId, w.owner_id as ownerId
+  private async socketMayReceive(userId: string, session: SocketSession): Promise<boolean> {
+    const { sessionActive, authz } = await this.readAccess(userId, session)
+    return sessionActive && Boolean(authz && !authz.frozen)
+  }
+
+  /** Everything access depends on, session included, in one trip to D1. A Thread answers through its parent. */
+  private async readAccess(userId: string, session?: SocketSession): Promise<{ sessionActive: boolean; authz: Authz | null }> {
+    const sessionCheck = session ? socketSessionStatement(this.env, session) : null
+    if (session && !sessionCheck) return { sessionActive: false, authz: null }
+    type Row = { id: string; type: string; visibility: string; parent_id: string | null; archived_at: string | null }
+    type Membership = { kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string; resourceAccessJson: string }
+    const db = this.env.DB, channelId = this.channelId()
+    const root = "(SELECT CASE WHEN type = 'thread' AND parent_id IS NOT NULL THEN parent_id ELSE id END FROM channels WHERE id = ?1)"
+    const results = await db.batch<unknown>([
+      db.prepare(`SELECT id, type, visibility, parent_id, archived_at FROM channels
+        WHERE id = ?1 OR id = (SELECT parent_id FROM channels WHERE id = ?1 AND type = 'thread')`).bind(channelId),
+      db.prepare(`SELECT u.kind, r.permissions_bitmask as perms, r.resource_access_json as resourceAccessJson, r.id as roleId, w.owner_id as ownerId
        FROM users u
        JOIN roles r ON r.id = u.role_id
        CROSS JOIN server w
-       WHERE u.id = ? AND u.status = 'active'`,
-    ).bind(userId).first<{ kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string; resourceAccessJson: string }>()
+       WHERE u.id = ?1 AND u.status = 'active'`).bind(userId),
+      db.prepare(`SELECT 1 AS ok FROM space_members m JOIN spaces s ON s.id = m.space_id
+        WHERE m.user_id = ?2 AND m.space_id = (SELECT space_id FROM channels WHERE id = ${root})
+          AND (s.suspended_at IS NULL OR m.user_id = (SELECT owner_id FROM server))`).bind(channelId, userId),
+      db.prepare(`SELECT board_id as boardId, project_id as projectId FROM tasks WHERE discussion_channel_id = ${root}`).bind(channelId),
+      db.prepare(`SELECT user_id FROM channel_members WHERE channel_id = ${root} AND user_id = ?2`).bind(channelId, userId),
+      db.prepare(channelRoleOverrideSql(root, '(SELECT role_id FROM users WHERE id = ?2)')).bind(channelId, userId),
+      db.prepare(`SELECT mb.enabled, CASE WHEN a.id IS NULL THEN NULL ELSE ${mailboxGrantPermissionSql('a')} END AS permission
+       FROM email_mailboxes mb
+       LEFT JOIN grants a ON a.mailbox_id = mb.channel_id AND a.member_id = ?2
+       WHERE mb.channel_id = ${root}`).bind(channelId, userId),
+      ...sessionCheck ? [sessionCheck] : [],
+    ])
+    const rows = <T>(index: number) => (results[index]?.results ?? []) as T[]
+    const sessionActive = !sessionCheck || rows(7).length > 0
+    if (!sessionActive) return { sessionActive, authz: null }
+    const channels = rows<Row>(0)
+    const ch = channels.find(row => row.id === channelId)
+    if (!ch) return { sessionActive, authz: null }
+    const type = ch.type
+    let accessRoot = ch
+    if (type === 'thread' && ch.parent_id) {
+      const parent = channels.find(row => row.id === ch.parent_id)
+      if (!parent) return { sessionActive, authz: null }
+      accessRoot = parent
+    }
+    const authz = await this.decideAccess(userId, ch, accessRoot, type, {
+      membership: rows<Membership>(1)[0],
+      inSpace: rows(2).length > 0,
+      discussion: rows<{ boardId: string; projectId: string | null }>(3)[0],
+      participant: rows(4).length > 0,
+      override: rows<{ allow: number | null; deny: number | null }>(5)[0] ?? null,
+      mailbox: rows<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>(6)[0],
+    })
+    return { sessionActive, authz }
+  }
+
+  private async decideAccess(
+    userId: string,
+    ch: { id: string },
+    accessRoot: { id: string; type: string; visibility: string; archived_at: string | null },
+    type: string,
+    facts: {
+      membership?: { kind: 'human' | 'agent'; perms: number; roleId: string; ownerId: string; resourceAccessJson: string }
+      inSpace: boolean
+      discussion?: { boardId: string; projectId: string | null }
+      participant: boolean
+      override: { allow: number | null; deny: number | null } | null
+      mailbox?: { enabled: number; permission: 'read' | 'send' | 'manage' | null }
+    },
+  ): Promise<Authz | null> {
+    const { membership, discussion, mailbox } = facts
     if (!membership) return null
     // The Space comes first: a held socket closes at the next fanout once its Member has left.
-    const inSpace = await this.env.DB.prepare(`SELECT 1 AS ok FROM space_members m JOIN spaces s ON s.id = m.space_id
-      WHERE m.user_id = ?1 AND m.space_id = (SELECT space_id FROM channels WHERE id = ?2) AND (s.suspended_at IS NULL OR m.user_id = ?3)`).bind(userId, accessRoot.id, membership.ownerId).first()
-    if (!inSpace) return null
-    const discussion = await this.env.DB.prepare('SELECT board_id as boardId, project_id as projectId FROM tasks WHERE discussion_channel_id = ?')
-      .bind(accessRoot.id).first<{ boardId: string; projectId: string | null }>()
+    if (!facts.inSpace) return null
     if (discussion?.projectId && membership.ownerId !== userId && (!hasPermission(membership.perms, Permission.readProjects) || !resourceAccessAllows(parseResourceAccess(membership.resourceAccessJson), 'projects', discussion.projectId))) return null
     if (discussion && membership.ownerId !== userId && (!hasPermission(membership.perms, Permission.readTasks)
       || !resourceAccessAllows(parseResourceAccess(membership.resourceAccessJson), 'boards', discussion.boardId))) return null
     const canManageAgents = membership.ownerId === userId || hasPermission(membership.perms, Permission.useAgents)
 
-    if (accessRoot.visibility === 'private') {
-      const part = await this.env.DB.prepare(
-        'SELECT user_id FROM channel_members WHERE channel_id = ? AND user_id = ?',
-      ).bind(accessRoot.id, userId).first()
-      if (!part) return null
-    }
+    if (accessRoot.visibility === 'private' && !facts.participant) return null
 
     if (isDmType(accessRoot.type)) {
-      const parts = await this.env.DB.prepare('SELECT user_id FROM channel_members WHERE channel_id = ?').bind(accessRoot.id).all<{ user_id: string }>()
-      const ids = (parts.results ?? []).map((p) => p.user_id)
-      let frozen = false
-      if (ids.length) {
-        const placeholders = ids.map(() => '?').join(',')
-        if (!canManageAgents) {
-          const agent = await this.env.DB.prepare(
-            `SELECT 1 FROM users WHERE id IN (${placeholders}) AND kind = 'agent' LIMIT 1`,
-          ).bind(...ids).first()
-          if (!canAccessAgentConversation(membership.kind, canManageAgents, Boolean(agent))) return null
-        }
-        const still = await this.env.DB.prepare(
-          `SELECT id FROM users WHERE id IN (${placeholders}) AND status = 'active' AND id IN (SELECT user_id FROM space_members WHERE space_id = (SELECT space_id FROM channels WHERE id = ?))`,
-        ).bind(...ids, accessRoot.id).all<{ id: string }>()
-        frozen = dmFrozen(ids.length, (still.results ?? []).length)
-      }
+      const participants = 'SELECT user_id FROM channel_members WHERE channel_id = ?1'
+      const [parts, agents, still] = await this.env.DB.batch<unknown>([
+        this.env.DB.prepare(participants).bind(accessRoot.id),
+        this.env.DB.prepare(`SELECT 1 AS ok FROM users WHERE id IN (${participants}) AND kind = 'agent' LIMIT 1`).bind(accessRoot.id),
+        this.env.DB.prepare(`SELECT id FROM users WHERE id IN (${participants}) AND status = 'active' AND id IN (SELECT user_id FROM space_members WHERE space_id = (SELECT space_id FROM channels WHERE id = ?1))`).bind(accessRoot.id),
+      ])
+      const count = parts?.results?.length ?? 0
+      if (count && !canManageAgents && !canAccessAgentConversation(membership.kind, canManageAgents, Boolean(agents?.results?.length))) return null
+      const frozen = count > 0 && dmFrozen(count, still?.results?.length ?? 0)
       const perms = directMessagePermissions(membership.perms, membership.ownerId === userId, frozen)
       return { serverId: (await getServerId(this.env.DB)), type: accessRoot.id === ch.id ? 'dm' : type, perms, ownerId: membership.ownerId, frozen, canManageAgents, mailbox: false, archived: false }
     }
     let perms = membership.ownerId === userId ? ALL_PERMISSIONS : membership.perms
-    if (membership.ownerId !== userId) {
-      const override = await this.env.DB.prepare(CHANNEL_ROLE_OVERRIDE_SQL)
-        .bind(accessRoot.id, membership.roleId).first<{ allow: number | null; deny: number | null }>()
-      perms = resolveChannelPermissions(perms, override)
-    }
-    const mailbox = await this.env.DB.prepare(
-      `SELECT mb.enabled, CASE WHEN a.id IS NULL THEN NULL ELSE ${mailboxGrantPermissionSql('a')} END AS permission
-       FROM email_mailboxes mb
-       LEFT JOIN grants a ON a.mailbox_id = mb.channel_id AND a.member_id = ?
-       WHERE mb.channel_id = ?`,
-    ).bind(userId, accessRoot.id).first<{ enabled: number; permission: 'read' | 'send' | 'manage' | null }>()
+    if (membership.ownerId !== userId) perms = resolveChannelPermissions(perms, facts.override)
     if (mailbox) {
       if (!mailbox.enabled || !mailbox.permission || (membership.ownerId !== userId && !hasPermission(membership.perms, Permission.readMail))) return null
       perms &= ~Permission.startLive
@@ -1337,13 +1362,11 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     return (this.ctx.id.name ?? '').replace(/^channel:/, '')
   }
 
-  private async broadcast(msg: ServerMsg, except?: WebSocket) {
+  /** `checked`: who this same message's handling has just found allowed, so they are not asked again. */
+  private async broadcast(msg: ServerMsg, except?: WebSocket, checked?: SocketSession) {
     const payload = JSON.stringify(msg)
-    const sockets = await authorizedSockets(this.ctx.getWebSockets(), async (userId, session) => {
-      if (!await socketSessionActive(this.env, session)) return false
-      const authz = await this.loadAuthz(userId)
-      return Boolean(authz && !authz.frozen)
-    })
+    const sockets = await authorizedSockets(this.ctx.getWebSockets(), async (userId, session) =>
+      (userId === checked?.userId && session.sessionId === checked.sessionId) || this.socketMayReceive(userId, session))
     for (const ws of sockets) {
       if (except && ws === except) continue
       try { ws.send(payload) }
