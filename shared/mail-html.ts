@@ -7,7 +7,8 @@ const TOKENS = /<!--[\s\S]*?(?:-->|$)|<(script|style|template)\b[\s\S]*?(?:<\/\1
 const LIST_ITEM = /^\s{0,3}(?:[-*+]|(\d{1,9})[.)])\s+(.*)$/u
 const MAX_QUOTE_DEPTH = 8
 
-const toText = compile({
+let toText: ReturnType<typeof compile> | undefined
+const textParser = () => toText ??= compile({
   wordwrap: false,
   limits: { maxInputLength: 400_000, maxDepth: 100, maxChildNodes: 10_000 },
   selectors: [
@@ -129,7 +130,7 @@ export function mailMarkdownHtml(markdown: string): string {
 
 /** The text/plain alternative for formatted mail, and how the conversation shows it. */
 export function mailHtmlText(html: string): string {
-  return toText(html).replace(/^\n+|\s+$/gu, '')
+  return textParser()(html).replace(/^\n+|\s+$/gu, '')
 }
 
 export function mailMarkdownText(markdown: string): string {
