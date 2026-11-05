@@ -25,8 +25,16 @@ export function internalLinkTarget(url: URL): { type: DataReferenceType; id: str
   return null
 }
 
-/** Links from our escaped Markdown output only. Code and unrevealed spoilers never trigger a fetch. */
-export function previewLinks(html: string): string[] {
+function isInternal(url: string, origin: string) {
+  try { return new URL(url, origin).origin === origin } catch { return false }
+}
+
+/**
+ * Links from our escaped Markdown output only. A website card makes this Server fetch the URL with no
+ * click, so `internalOnlyFor` (this Server's origin) limits a message to its own links. Use it for Agent
+ * messages: an injected Agent could otherwise carry private data out in a URL it writes.
+ * Code and unrevealed spoilers never trigger a fetch. */
+export function previewLinks(html: string, internalOnlyFor?: string): string[] {
   const links = new Set<string>()
   const stack: boolean[] = []
   for (const token of html.matchAll(/<(\/?)([a-z0-9]+)\b([^>]*)>/g)) {
@@ -36,7 +44,7 @@ export function previewLinks(html: string): string[] {
     if (tag === 'a' && !hidden) {
       const url = attributes.match(/\bhref="([^"]+)"/)?.[1]
         ?.replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
-      if (url && (/^https?:\/\//i.test(url) || /^\/(?!\/)/.test(url))) links.add(url)
+      if (url && (/^https?:\/\//i.test(url) || /^\/(?!\/)/.test(url)) && (internalOnlyFor === undefined || isInternal(url, internalOnlyFor))) links.add(url)
       if (links.size === 3) break
     }
     if (!['br', 'hr', 'img'].includes(tag!)) stack.push(hidden)

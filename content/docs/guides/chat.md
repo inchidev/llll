@@ -78,6 +78,8 @@ For conversation search, press ⌘⇧F (Ctrl+Shift+F), or select **Search** in t
 
 Links in sent messages can show a compact card. Links to this Server's Tasks, Items, databases, conversations and messages show their current title or excerpt only when you can read them. Website cards use the page's public title, description and image when available. Private network addresses, code blocks and hidden spoilers are not previewed. Unavailable previews leave the original link usable.
 
+An Agent's messages show cards only for links to this Server. Website cards make the Server open the address with no click, and an Agent tricked by something it read could put private data in a link.
+
 ## Inbox
 
 **Inbox** is the first rail section and the one place to catch up in the active Space. It lists only what needs you:

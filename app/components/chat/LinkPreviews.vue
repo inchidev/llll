@@ -17,7 +17,8 @@ const previews = useQuery({
   staleTime: 0, gcTime: 0, retry: false,
   refetchInterval: computed(() => visible.value ? 60_000 : false),
 })
-const cards = computed(() => previews.isFetching.value || previews.error.value ? [] : previews.data.value?.previews ?? [])
+// Cards stay up while they refresh; an error removes them, so lost access never leaves a stale title.
+const cards = computed(() => previews.error.value ? [] : previews.data.value?.previews ?? [])
 const icons = { task: 'i-ph-check-square', item: 'i-ph-file-text', database: 'i-ph-table', website: 'i-ph-globe', conversation: 'i-ph-chats-circle', message: 'i-ph-chat-circle' }
 const labels = { task: 'Task', item: 'Item', database: 'Database', conversation: 'Conversation', message: 'Message' }
 function hostname(url: string) { try { return new URL(url).hostname } catch { return '' } }

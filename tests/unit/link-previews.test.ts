@@ -20,6 +20,12 @@ describe('visible Markdown links', () => {
     const html = renderMarkdown('`https://code.test`\n```\nhttps://fence.test\n```\n||<!here> **secret** https://secret.test|| https://public.test')
     expect(previewLinks(html)).toEqual(['https://public.test'])
   })
+  it('gives an Agent message no website cards, so its words never make the Server fetch a URL', () => {
+    const origin = 'https://server.test'
+    const html = renderMarkdown('[page](/items/one) https://server.test/tasks?task=t https://evil.test/?data=secret [x](https://server.test.evil.test/a)')
+    expect(previewLinks(html, origin)).toEqual(['/items/one', 'https://server.test/tasks?task=t'])
+    expect(previewLinks(html)).toContain('https://evil.test/?data=secret')
+  })
   it('limits cards and excludes protocol-relative and non-HTTP links', () => {
     expect(previewLinks(renderMarkdown('[mail](mailto:a@b.com) [other](//example.com) https://a.test https://b.test https://c.test https://d.test'))).toEqual(['https://a.test', 'https://b.test', 'https://c.test'])
   })

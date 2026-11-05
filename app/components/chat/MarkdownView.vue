@@ -5,11 +5,12 @@ import { previewLinks } from '~~/shared/link-previews'
 const props = defineProps<{
   content: string
   names?: Record<string, string>
-  previews?: boolean
+  /** `internal` shows cards only for this Server's own links. */
+  previews?: boolean | 'internal'
 }>()
 
 const html = computed(() => renderMarkdown(props.content, props.names))
-const links = computed(() => props.previews ? previewLinks(html.value) : [])
+const links = computed(() => !props.previews ? [] : previewLinks(html.value, props.previews === 'internal' ? window.location.origin : undefined))
 
 function reveal(target: Element) {
   const spoiler = target.closest('.spoiler')
