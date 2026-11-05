@@ -1,3 +1,4 @@
+import { wrapsBinding } from '../../shared/binding-identity'
 import type { L4Env } from '../../workers/env'
 
 /**
@@ -12,24 +13,30 @@ export async function sequentialRoundTrips(env: L4Env, run: (env: L4Env) => Prom
     await new Promise(resolve => setTimeout(resolve, delayMs))
     inFlight--
   }
-  const statement = (target: object): object => new Proxy(target, {
-    get(object, key) {
-      const value = Reflect.get(object, key)
-      if (typeof value !== 'function') return value
-      if (key === 'bind') return (...args: unknown[]) => statement(value.apply(object, args))
-      if (key === 'first' || key === 'all' || key === 'run' || key === 'raw') return async (...args: unknown[]) => { await wait(); return value.apply(object, args) }
-      return value.bind(object)
-    },
-  })
-  const db = new Proxy(env.DB as object, {
+  // A batch takes the statements themselves: it is one round trip, however many it holds.
+  const originals = new WeakMap<object, object>()
+  const statement = (target: object): object => {
+    const wrapped = new Proxy(target, {
+      get(object, key) {
+        const value = Reflect.get(object, key)
+        if (typeof value !== 'function') return value
+        if (key === 'bind') return (...args: unknown[]) => statement(value.apply(object, args))
+        if (key === 'first' || key === 'all' || key === 'run' || key === 'raw') return async (...args: unknown[]) => { await wait(); return value.apply(object, args) }
+        return value.bind(object)
+      },
+    })
+    originals.set(wrapped, target)
+    return wrapped
+  }
+  const db = wrapsBinding(new Proxy(env.DB as object, {
     get(object, key) {
       const value = Reflect.get(object, key)
       if (typeof value !== 'function') return value
       if (key === 'prepare') return (sql: string) => statement(value.call(object, sql))
-      if (key === 'batch') return async (statements: unknown[]) => { await wait(); return value.call(object, statements) }
+      if (key === 'batch') return async (statements: object[]) => { await wait(); return value.call(object, statements.map(item => originals.get(item) ?? item)) }
       return value.bind(object)
     },
-  })
+  }), env.DB as object)
   await run({ ...env, DB: db } as L4Env)
   return chain
 }

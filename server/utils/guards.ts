@@ -26,5 +26,9 @@ export async function requireChannelMember(event: H3Event, channelId: string, fl
 export async function requireChannelAccess(event: H3Event, channelId: string, flag?: PermissionFlag) {
   await requireUser(event)
   const { env } = cf(event)
-  return requireChannelAccessForMember(env, requireMember(event, await getServerId(env.DB)), channelId, flag, event.method.toUpperCase())
+  // Usually the route check already read the Member, and then the channel's facts come with the channel.
+  const member = requireMember(event, await getServerId(env.DB))
+  const [settled] = await Promise.allSettled([member])
+  // A refused Member still answers after the channel: a channel that does not exist is reported first.
+  return requireChannelAccessForMember(env, settled.status === 'fulfilled' ? settled.value : member, channelId, flag, event.method.toUpperCase())
 }

@@ -17,7 +17,7 @@ function d1(database: DatabaseSync): D1Database {
         bind(...next: SQLInputValue[]) { values = next; return statement },
         async first<T>() { return (database.prepare(sql).get(...values) as T | undefined) ?? null },
         async all<T>() { return { results: database.prepare(sql).all(...values) as T[] } },
-        async run() { return { success: true, meta: database.prepare(sql).run(...values) } },
+        async run() { const query = database.prepare(sql); return query.columns().length ? { success: true, results: query.all(...values), meta: { changes: 0 } } : { success: true, meta: query.run(...values) } },
       }
       return statement
     },

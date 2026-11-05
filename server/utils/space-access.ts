@@ -1,5 +1,6 @@
 import { creationSpaceId, reachableSpaceIds, spaceSqlList, type SpaceBoundary, type SpaceDeniedKind, type SpaceRole } from '../../shared/spaces'
 import type { AuthorizationContext } from '../../shared/authorization'
+import type { ProjectPolicyGrant } from '../../shared/project-access'
 import type { L4Env } from '../../workers/env'
 
 export type SpaceRequest = {
@@ -7,7 +8,12 @@ export type SpaceRequest = {
   spaceScope?: string | null
   /** Set only by a route policy scoped to one Space: lets a Space admin's permissions apply. */
   spaceAdmin?: boolean
+  /** What the route check already read for this Member, so the request reads it once. */
+  memberRows?: MemberRows
 }
+export type SpaceRow = { spaceId: string; userId: string | null; role: SpaceRole | null; closed: number }
+export type MemberRow = { roleId: string; roleName: string; perms: number; resourceAccessJson: string; ownerId: string | null }
+export type MemberRows = { userId: string; member: MemberRow | null; spaces: SpaceRow[]; policies: ProjectPolicyGrant[] }
 export type LoadedSpaceBoundary = SpaceBoundary & { adminHere: boolean }
 
 const DENIED_SOURCES: Array<[SpaceDeniedKind, string]> = [
@@ -17,17 +23,45 @@ const DENIED_SOURCES: Array<[SpaceDeniedKind, string]> = [
   ['connections', 'SELECT id FROM mcp_outbound_connections'], ['environments', 'SELECT id FROM agent_environments'],
 ]
 
+/** Every Space, and this Member's (and any delegating Member's) place in it. */
+const spaceRowsStatement = (env: L4Env, userId: string, delegatedBy: string | null) => env.DB.prepare(`SELECT s.id AS spaceId, m.user_id AS userId, m.role AS role,
+      s.suspended_at IS NOT NULL AND ?1 <> (SELECT owner_id FROM server) AS closed FROM spaces s
+    LEFT JOIN space_members m ON m.space_id = s.id AND m.user_id IN (?1, ?2)`).bind(userId, delegatedBy ?? userId)
+
+/**
+ * Who a Member is here, in one round trip: their Role, the Owner, their Spaces and their Project
+ * policies. `also` adds statements the caller needs at the same moment, and its results come back too.
+ */
+export async function loadMemberRows(env: L4Env, userId: string, options: { delegatedBy?: string | null; also?: D1PreparedStatement[] } = {}): Promise<{ rows: MemberRows; also: D1Result<unknown>[] }> {
+  const [member, spaces, policies, ...also] = await env.DB.batch<unknown>([
+    env.DB.prepare(`SELECT u.role_id AS roleId, r.name AS roleName, r.permissions_bitmask AS perms, r.resource_access_json AS resourceAccessJson,
+        (SELECT owner_id FROM server) AS ownerId
+      FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.status = 'active' LIMIT 1`).bind(userId),
+    spaceRowsStatement(env, userId, options.delegatedBy ?? null),
+    env.DB.prepare(`SELECT a.id,a.project_id AS projectId,p.id AS policyId,p.version AS policyVersion,p.permissions_bitmask AS permissions
+      FROM grants a JOIN project_policies p ON p.id=a.policy_id JOIN projects j ON j.id=a.project_id
+      WHERE a.agent_id IS NULL AND (a.member_id=?1 OR a.role_id=(SELECT role_id FROM users WHERE id=?1)) AND j.archived_at IS NULL ORDER BY a.id`).bind(userId),
+    ...options.also ?? [],
+  ])
+  return {
+    rows: {
+      userId,
+      member: (member?.results?.[0] as MemberRow | undefined) ?? null,
+      spaces: (spaces?.results ?? []) as SpaceRow[],
+      policies: (policies?.results ?? []) as ProjectPolicyGrant[],
+    },
+    also,
+  }
+}
+
 /**
  * What one Member reaches, and through an Agent, what both reach together. A Server with one
  * Space costs one statement; only a Member outside some Space pays to list what it excludes.
  */
-export async function loadSpaceBoundary(env: L4Env, userId: string, options: { delegatedBy?: string | null; scope?: string | null } = {}): Promise<LoadedSpaceBoundary> {
+export async function loadSpaceBoundary(env: L4Env, userId: string, options: { delegatedBy?: string | null; scope?: string | null; rows?: SpaceRow[] } = {}): Promise<LoadedSpaceBoundary> {
   const delegatedBy = options.delegatedBy ?? null
   // A suspended Space is out of reach for everyone but the Owner, by every path that loads a boundary.
-  const rows = ((await env.DB.prepare(`SELECT s.id AS spaceId, m.user_id AS userId, m.role AS role,
-      s.suspended_at IS NOT NULL AND ?1 <> (SELECT owner_id FROM server) AS closed FROM spaces s
-    LEFT JOIN space_members m ON m.space_id = s.id AND m.user_id IN (?1, ?2)`).bind(userId, delegatedBy ?? userId)
-    .all<{ spaceId: string; userId: string | null; role: SpaceRole | null; closed: number }>()).results ?? []).map(row => row.closed ? { ...row, userId: null, role: null } : row)
+  const rows = (options.rows ?? (await spaceRowsStatement(env, userId, delegatedBy).all<SpaceRow>()).results ?? []).map(row => row.closed ? { ...row, userId: null, role: null } : row)
   const all = new Set(rows.map(row => row.spaceId))
   const of = (id: string) => new Set(rows.filter(row => row.userId === id).map(row => row.spaceId))
   const mine = of(userId), theirs = delegatedBy ? of(delegatedBy) : mine
@@ -79,9 +113,11 @@ const SPACE_OF = {
 } as const
 export type SpaceResourceKind = keyof typeof SPACE_OF
 
+export const spaceOfStatement = (env: L4Env, kind: SpaceResourceKind, id: string) => env.DB.prepare(SPACE_OF[kind]).bind(id)
+
 /** The Space a resource lives in, or null when the resource does not exist. */
 export async function spaceOfResource(env: L4Env, kind: SpaceResourceKind, id: string): Promise<string | null> {
-  return (await env.DB.prepare(SPACE_OF[kind]).bind(id).first<{ spaceId: string }>())?.spaceId ?? null
+  return (await spaceOfStatement(env, kind, id).first<{ spaceId: string }>())?.spaceId ?? null
 }
 
 /** Refuses people from outside a Space: only its Members can be named, invited to or assigned work in it. */

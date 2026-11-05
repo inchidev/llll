@@ -23,6 +23,7 @@ let receiveMessage: ReturnType<typeof vi.fn>
 let fanout: ReturnType<typeof vi.fn>
 
 function d1(database: DatabaseSync): D1Database {
+  let batches: Promise<unknown> = Promise.resolve()
   return {
     prepare(sql: string) {
       let values: SQLInputValue[] = []
@@ -31,14 +32,18 @@ function d1(database: DatabaseSync): D1Database {
         async first<T>() { return (database.prepare(sql).get(...values) as T | undefined) ?? null },
         async all<T>() { return { results: database.prepare(sql).all(...values) as T[] } },
         async raw() { const query = database.prepare(sql); query.setReturnArrays(true); return query.all(...values) },
-        async run() { return { success: true, meta: database.prepare(sql).run(...values) } },
+        async run() { const query = database.prepare(sql); return query.columns().length ? { success: true, results: query.all(...values), meta: { changes: 0 } } : { success: true, meta: query.run(...values) } },
       }
       return statement
     },
-    async batch(statements: Array<{ run: () => Promise<unknown> }>) {
-      database.exec('BEGIN')
-      try { const values = []; for (const statement of statements) values.push(await statement.run()); database.exec('COMMIT'); return values }
-      catch (error) { database.exec('ROLLBACK'); throw error }
+    batch(statements: Array<{ run: () => Promise<unknown> }>) {
+      const turn = batches.then(async () => {
+        database.exec('BEGIN')
+        try { const values = []; for (const statement of statements) values.push(await statement.run()); database.exec('COMMIT'); return values }
+        catch (error) { database.exec('ROLLBACK'); throw error }
+      })
+      batches = turn.catch(() => {})
+      return turn
     },
   } as unknown as D1Database
 }

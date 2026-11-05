@@ -137,6 +137,18 @@ export async function activateOpenMember(event: H3Event, userId: string) {
 }
 
 const CURRENT_USER = Symbol('llll.currentUser')
+const CURRENT_SESSION = Symbol('llll.currentSession')
+
+/** One lookup per request, however many checks ask for the session. */
+function currentSession(event: H3Event) {
+  const context = event.context as { [CURRENT_SESSION]?: ReturnType<typeof readSession> }
+  context[CURRENT_SESSION] ??= readSession(event)
+  return context[CURRENT_SESSION]
+}
+
+async function readSession(event: H3Event) {
+  return (await sessionAuthFromEvent(event)).api.getSession({ headers: event.headers })
+}
 
 /** Resolves the signed-in user once per request; guards call this repeatedly. */
 export function currentUser(event: H3Event): Promise<SessionUser | null> {
@@ -162,8 +174,7 @@ async function resolveCurrentUser(event: H3Event): Promise<SessionUser | null> {
       || await ensureDomainUser(event, identity)
     return sessionUser(event, row, { username: identity.username, displayUsername: identity.displayUsername, email: identity.email })
   }
-  const auth = await sessionAuthFromEvent(event)
-  const sess = await auth.api.getSession({ headers: event.headers })
+  const sess = await currentSession(event)
   if (sess?.user?.id) {
     const row = (await db.select().from(users).where(eq(users.id, sess.user.id)).limit(1))[0]
     // Conditional plugins in createAuth hide the username plugin's fields from Better Auth's types.
@@ -226,7 +237,7 @@ export async function requireUser(event: H3Event): Promise<SessionUser> {
 export async function issueWsTicket(event: H3Event, userId: string): Promise<string> {
   const { env } = cf(event)
   const token = bytesToHex(randomBytes(24))
-  const session = await (await sessionAuthFromEvent(event)).api.getSession({ headers: event.headers })
+  const session = await currentSession(event)
   await env.TICKETS.put(`wsticket:${token}`, session ? JSON.stringify({ userId, sessionId: session.session.id }) : userId, { expirationTtl: 120 })
   return token
 }

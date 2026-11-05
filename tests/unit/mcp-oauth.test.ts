@@ -31,11 +31,11 @@ function d1(database: DatabaseSync): D1Database {
           query.setReturnArrays(true)
           return query.all(...values)
         },
-        async run() { return { success: true, meta: database.prepare(sql).run(...values) } },
+        async run() { const query = database.prepare(sql); return query.columns().length ? { success: true, results: query.all(...values), meta: { changes: 0 } } : { success: true, meta: query.run(...values) } },
       }
       return statement
     },
-    async batch(statements: Array<{ all: () => Promise<unknown> }>) { return Promise.all(statements.map(statement => statement.all())) },
+    async batch(statements: Array<{ run: () => Promise<unknown> }>) { return Promise.all(statements.map(statement => statement.run())) },
   } as unknown as D1Database
 }
 

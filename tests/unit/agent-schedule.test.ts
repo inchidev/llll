@@ -47,7 +47,12 @@ describe('revocable schedules', () => {
       return { message: { id: id! } } as Awaited<ReturnType<typeof sendChannelMessage>>
     })
     const original = env.DB.batch.bind(env.DB)
-    env.DB.batch = vi.fn().mockRejectedValueOnce(new Error('Crash after delivery')).mockImplementation(original)
+    // Only the write after sending crashes: reading who may send also goes through a batch.
+    let crashed = false
+    env.DB.batch = vi.fn(async (statements: Parameters<typeof original>[0]) => {
+      if (delivered.size && !crashed) { crashed = true; throw new Error('Crash after delivery') }
+      return original(statements)
+    }) as typeof env.DB.batch
     await expect(executeScheduledOccurrence(env, item, () => {})).rejects.toThrow('Crash after delivery')
     await executeScheduledOccurrence(env, (await findSchedule(env, item.id))!, () => {})
     expect(delivered.size).toBe(1)
