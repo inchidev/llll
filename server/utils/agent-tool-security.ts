@@ -1,6 +1,8 @@
 import type { AgentRun, RunMandate } from '../../shared/agent-execution'
 import { autonomousExecution, type AgentExecutionMode } from '../../shared/agent-execution-policy'
+import { CUSTOM_MCP_PROVIDER } from '../../shared/outbound-mcp'
 import type { L4Env } from '../../workers/env'
+import { compatibleRunHistory } from './agent-context'
 import { fail } from './cf'
 
 export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
@@ -39,15 +41,34 @@ export async function markUntrustedContext(env: L4Env, run: AgentRun) {
   await env.DB.prepare('UPDATE agent_sessions SET untrusted_at=COALESCE(untrusted_at,?) WHERE id=?').bind(new Date().toISOString(), run.sessionId).run()
 }
 /**
- * A Session has private context once it carries Task content or has read a private source.
- * Any of that may contain injected instructions, and none of it may leave through egress.
+ * A Run has private context once it carries Task content or has read a private source, directly or
+ * through a transcript it inherits. A mixed Session starts clean (`previousRunTranscript`), so another
+ * person's reads in the same conversation do not count. Any of this may contain injected instructions,
+ * and none of it may leave through egress.
  */
-export async function privateContext(env: L4Env, run: AgentRun): Promise<boolean> {
+async function runLineage(env: L4Env, run: AgentRun) {
+  return await compatibleRunHistory(env, run) ? { where: 'r.session_id=?', value: run.sessionId } : { where: 'r.id=?', value: run.id }
+}
+async function readPrivateSource(env: L4Env, run: AgentRun): Promise<boolean> {
   const marks = privateSourceTools.map(() => '?').join(',')
-  const row = await env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM agent_runs WHERE session_id=? AND task_id IS NOT NULL)
-    OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE r.session_id=? AND t.name IN (${marks})) THEN 1 ELSE 0 END AS private`)
-    .bind(run.sessionId, run.sessionId, ...privateSourceTools).first<{ private: number }>()
+  const { where, value } = await runLineage(env, run)
+  const row = await env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM agent_runs r WHERE ${where} AND r.task_id IS NOT NULL)
+    OR EXISTS(SELECT 1 FROM agent_run_tools t JOIN agent_runs r ON r.id=t.run_id WHERE ${where} AND t.name IN (${marks})) THEN 1 ELSE 0 END AS private`)
+    .bind(value, value, ...privateSourceTools).first<{ private: number }>()
   return !row || Boolean(row.private)
+}
+/** Also counts the Owner's private external sources, whose data must stay away from the open internet. */
+export async function privateContext(env: L4Env, run: AgentRun): Promise<boolean> {
+  if (await readPrivateSource(env, run)) return true
+  const { where, value } = await runLineage(env, run)
+  return Boolean(await env.DB.prepare(`SELECT 1 AS found FROM agent_runs r WHERE ${where} AND r.private_at IS NOT NULL LIMIT 1`).bind(value).first())
+}
+/** A custom connection is a source the Owner trusts with this Server's data; a reviewed public one is not. */
+async function customConnectionTool(env: L4Env, name: string): Promise<boolean> {
+  if (!name.startsWith('mcp_')) return false
+  const row = await env.DB.prepare("SELECT 1 AS found FROM mcp_outbound_connections WHERE replace(id,'-','')=? AND provider_id=?")
+    .bind(name.slice(4, 36), CUSTOM_MCP_PROVIDER).first()
+  return Boolean(row)
 }
 export function toolSecurityReason(name: string, untrusted: boolean, mode: AgentExecutionMode = 'review', privateData = false): string | null {
   const effect = toolEffect(name)
@@ -66,9 +87,11 @@ export async function guardRunTool(env: L4Env, run: AgentRun, name: string, call
   const untrusted = await untrustedContext(env, run)
   const mandate = JSON.parse(run.mandateJson) as RunMandate
   const role = autonomousExecution(mandate.execution?.mode)
-  const reason = toolSecurityReason(name, untrusted, mandate.execution?.mode, role && arbitraryEgress(name) && await privateContext(env, run))
+  const custom = await customConnectionTool(env, name)
+  const reason = toolSecurityReason(name, untrusted, mandate.execution?.mode, role && arbitraryEgress(name) && !custom && await privateContext(env, run))
   // Mark before starting any read: concurrent calls, failed reads and process death cannot clear taint.
   if (!reason && (effect === 'read' || effect === 'external')) await markUntrustedContext(env, run)
+  if (!reason && custom) await env.DB.prepare('UPDATE agent_runs SET private_at=COALESCE(private_at,?) WHERE id=?').bind(new Date().toISOString(), run.id).run()
   if (callId) await env.DB.prepare(`INSERT INTO agent_tool_decisions(run_id,call_id,tool,effect,untrusted_context,decision,reason,created_at)
     SELECT ?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM agent_tool_decisions WHERE run_id=?)<?
     ON CONFLICT(run_id,call_id) DO NOTHING`)
@@ -96,7 +119,8 @@ export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: stri
   // The initiating Member chose this conversation as the destination for the answer. An answer
   // drawn from private sources may only be posted where the initiator is the only human reader.
   if (!run.taskId && run.status === 'completed' && run.resultText && autonomousExecution(mandate.execution?.mode)
-    && (!await privateContext(env, run) || await initiatorOnlyAudience(env, run))) {
+    // A custom connection's answer stays here: the Owner granted it to the person asking, for use where they ask.
+    && (!await readPrivateSource(env, run) || await initiatorOnlyAudience(env, run))) {
     return { restricted: false, text: run.resultText.slice(0, 12000) }
   }
   return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }

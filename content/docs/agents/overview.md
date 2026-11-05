@@ -58,7 +58,7 @@ More capabilities need explicit setup and permissions:
 | Working on a Task | **Read tasks**, **Execute assigned tasks** and **Send messages** for both the Agent and the person who starts it. |
 | Code work and draft pull requests | **Use a computer** for both, **Propose code changes** for the Agent, a Git connection, a repository environment and compute. See [Repositories](repositories.md). |
 | Reminders and recurring work | **Manage schedules**. See [Schedules](schedules.md). |
-| External read-only MCP tools | **Use external tools** for both. See [MCP](mcp.md#external-tools-for-agents). |
+| External read-only MCP tools, including your own MCP server | **Use external tools** for both. See [MCP](mcp.md#external-tools-for-agents). |
 | Images and voice messages | A model that accepts images, or the **Image descriptions** and **Voice transcription** AI functions. |
 
 Sending external email always needs a human. In this release Agents cannot send external email at all; only the Mail interface sends.

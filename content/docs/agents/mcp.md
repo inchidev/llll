@@ -126,13 +126,37 @@ The full reference is in [docs/mcp.md](https://github.com/inchidev/llll/blob/mai
 
 ## External tools for Agents
 
-The other direction, Agents on your Server calling outside MCP servers, is set up in **Server settings → Tools**. It supports only reviewed, public, read-only sources, currently Cloudflare documentation and DeepWiki. Custom URLs, local commands, external writes and automatic OAuth are not available.
+The other direction, Agents on your Server calling outside MCP servers, is set up in **Server settings → Tools**. There are two kinds of source, both read-only: reviewed public documentation (Cloudflare documentation and DeepWiki), and, for the Server Owner, your own HTTPS MCP server such as Coolify or DBHub. Local commands, external writes and automatic OAuth are not available.
 
-1. In **Tools**, choose **Discover / Connect** and **Connect source**.
-2. Choose the provider, its **Ownership** (**Server-owned**, or **Personal** for only you) and who may use it: **Allowed Agents**, **Allowed initiating Members** and **Allowed Roles**.
+### Connect your own MCP server
+
+1. In **Tools**, choose **Discover / Connect** and **Custom MCP server**.
+2. Enter the name, the HTTPS URL and **What it holds**, for example "Customers, subscriptions and payments". Agents read this to decide when to use it.
+3. Under **Credential change**, set a bearer token, a Cloudflare Access service token or an API key.
+4. Choose **Allowed Agents**, **Allowed initiating Members** and **Allowed Roles**, then save. L4 lists the tools the URL offers.
+5. Choose the tools Agents may use, save, and select **Enable**.
+
+A URL cannot change later: to use another address, create a new connection. L4 refuses IP addresses, names such as `localhost` or `.internal`, and your Server's own address. Tools that say they can change data are not offered.
+
+Before you connect one, know what it shares:
+
+- **Everyone you allow sees what the credential sees.** L4 decides who may use a connection, not which rows or records they get. Use a read-only credential with the narrowest access you can. For DBHub, turn on its `readonly` setting and use a read-only database user. Its HTTP endpoint has no sign-in of its own, so put it behind HTTPS and Cloudflare Access or a proxy that checks a token.
+- **Answers appear where the question was asked.** In a channel, everyone in that channel reads the answer. To keep one to yourself, ask in your Direct Message with the Agent.
+- **Agents may send Server data to this service** in their requests, so connect only services you trust with it. After reading from one, an Agent cannot read web pages or search the web in that conversation, which keeps the data away from the open internet.
+
+### Ask in chat
+
+You don't need a Task. Ask the Agent, for example "how many paid customers do we have?", and it finds the tool and answers. If you aren't allowed to use the connection, the Agent doesn't get the tool and says it can't answer.
+
+### Connect a reviewed source
+
+1. In **Tools**, choose **Discover / Connect** and the source.
+2. Choose its **Ownership** (**Server-owned**, or **Personal** for only you) and who may use it: **Allowed Agents**, **Allowed initiating Members** and **Allowed Roles**.
 3. Save, then select **Refresh tools** to check its tool list, and **Enable** it.
 
-Using a connection needs **Use external tools** for both the Agent and the person who starts the Run. No Role, including Admin, has it by default. The **Permissions** tab previews which tools an Agent would get, and **Audit** shows activity without prompts, arguments or results.
+### Who can use a connection
+
+Using a connection needs **Use external tools** for both the Agent and the person who starts the Run. No Role, including Admin, has it by default, so the Owner enables it in **Server settings → Roles** as well as granting the connection. The **Permissions** tab previews which tools an Agent would get, and **Audit** shows activity without prompts, arguments or results.
 
 ## Related
 
