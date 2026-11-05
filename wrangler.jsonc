@@ -16,7 +16,7 @@
     "redact_query_string": true
   },
   "placement": {
-    "region": "aws:ap-southeast-1"
+    "mode": "smart"
   },
   "triggers": {
     "crons": [
@@ -126,6 +126,7 @@
   // per Preview and deleted with it. Cron triggers and routes target only the
   // production instance.
   "previews": {
+    // Every Preview database is created in APAC, so Preview Workers run there too.
     "placement": {
       "region": "aws:ap-southeast-1"
     },

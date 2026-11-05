@@ -39,7 +39,7 @@ function fixture(upload: (attempt: number) => Response) {
       { name: 'DB', type: 'd1', database_id: databaseId },
       { name: 'CHANNEL_DO', type: 'durable_object_namespace', class_name: 'ChannelDurableObject' },
     ] }
-    else if (path.endsWith('/query')) result = [{ results: [] }]
+    else if (path.endsWith('/query')) result = [{ results: [], meta: { served_by_colo: 'KIX', served_by_region: 'APAC' } }]
     else if (path.endsWith('/assets-upload-session')) result = { jwt: 'asset-completion', buckets: [] }
     else if (path.endsWith('/workers/scripts/community') && init?.method === 'PUT') {
       const response = upload(++uploads)
@@ -71,8 +71,9 @@ it.each([408, 429, 500, 502, 503, 504])('retries HTTP %i without repeating D1 mi
     const form = request.body as FormData
     expect(await (form.get('llll-worker.mjs') as Blob).text()).toBe('export default {}')
     expect(JSON.parse(String(form.get('metadata'))).migrations).toEqual({ old_tag: 'v1', new_tag: 'v2', steps: [{ new_sqlite_classes: ['AgentRun'] }] })
+    expect(JSON.parse(String(form.get('metadata'))).placement).toEqual({ region: 'aws:ap-northeast-3' })
   }
-  expect(f.requests.filter(r => r.path.endsWith('/query'))).toHaveLength(4)
+  expect(f.requests.filter(r => r.path.endsWith('/query'))).toHaveLength(5)
   expect(f.requests.filter(r => r.path.endsWith('/assets-upload-session'))).toHaveLength(1)
 })
 
