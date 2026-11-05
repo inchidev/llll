@@ -1,5 +1,6 @@
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '../shared/encrypted-secret'
 import { integrationKeys, type IntegrationKey } from '../shared/integrations'
+import { bindingIdentity } from '../shared/binding-identity'
 import { readServerSetting, writeServerSetting } from '../shared/server-settings'
 import type { L4Env } from './env'
 
@@ -21,7 +22,7 @@ export async function saveIntegrations(env: L4Env, saved: Saved) {
   if (!env.AUTH_SECRET) throw new Error('AUTH_SECRET is required')
   if (Object.keys(saved).length) await writeServerSetting(env.DB, KEY, JSON.stringify(await encryptSecret(env.AUTH_SECRET, SCOPE, JSON.stringify(saved))))
   else await env.DB.prepare('DELETE FROM server_settings WHERE key=?').bind(KEY).run()
-  cache.delete(env.DB)
+  cache.delete(bindingIdentity(env.DB))
 }
 
 /**
@@ -29,11 +30,12 @@ export async function saveIntegrations(env: L4Env, saved: Saved) {
  * A deployment variable wins. Other isolates see a change within 30 seconds.
  */
 export async function withIntegrations<T extends L4Env>(env: T): Promise<T> {
-  const cached = cache.get(env.DB)
+  const key = bindingIdentity(env.DB)
+  const cached = cache.get(key)
   let saved = cached && Date.now() - cached.loadedAt < TTL_MS ? cached.saved : null
   if (!saved) {
     // Before the first migration there is no table yet, and that is not worth caching.
-    try { saved = await loadSavedIntegrations(env); cache.set(env.DB, { saved, loadedAt: Date.now() }) }
+    try { saved = await loadSavedIntegrations(env); cache.set(key, { saved, loadedAt: Date.now() }) }
     catch { return env }
   }
   return applyIntegrations(env, saved)

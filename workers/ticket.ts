@@ -3,15 +3,20 @@ import type { L4Env } from './env'
 
 export type SocketSession = { userId: string; sessionId?: string }
 
+/** The check that a socket's session still holds, or null when nothing could make it hold. */
+export function socketSessionStatement(env: L4Env, session: SocketSession): D1PreparedStatement | null {
+  if (!session.sessionId) {
+    if (env.AUTH_MODE?.trim().toLowerCase() !== 'access') return null
+    return env.DB.prepare("SELECT id FROM users WHERE id = ? AND status = 'active'").bind(session.userId)
+  }
+  return env.DB.prepare(
+    "SELECT s.id FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.user_id = ? AND s.expires_at > ? AND u.status = 'active'",
+  ).bind(session.sessionId, session.userId, Date.now())
+}
+
 /** Every use rechecks the local session; a held socket is not a session grant. */
 export async function socketSessionActive(env: L4Env, session: SocketSession): Promise<boolean> {
-  if (!session.sessionId) {
-    if (env.AUTH_MODE?.trim().toLowerCase() !== 'access') return false
-    return Boolean(await env.DB.prepare("SELECT id FROM users WHERE id = ? AND status = 'active'").bind(session.userId).first())
-  }
-  return Boolean(await env.DB.prepare(
-    "SELECT s.id FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.user_id = ? AND s.expires_at > ? AND u.status = 'active'",
-  ).bind(session.sessionId, session.userId, Date.now()).first())
+  return Boolean(await socketSessionStatement(env, session)?.first())
 }
 
 export async function sessionFromTicket(env: L4Env, token: string): Promise<{ user: PublicUser; sessionId?: string } | null> {

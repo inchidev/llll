@@ -27,7 +27,7 @@ function d1(): D1Database {
       async first() { return sqlite.prepare(sql).get(...values) ?? null },
       async all() { return { results: sqlite.prepare(sql).all(...values) } },
       async raw() { return sqlite.prepare(sql).all(...values).map(row => Object.values(row)) },
-      async run() { return { success: true, meta: sqlite.prepare(sql).run(...values) } },
+      async run() { const query = sqlite.prepare(sql); return query.columns().length ? { success: true, results: query.all(...values), meta: { changes: 0 } } : { success: true, meta: query.run(...values) } },
     }
     return statement
   }

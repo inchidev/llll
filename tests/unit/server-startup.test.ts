@@ -32,6 +32,20 @@ beforeEach(() => {
 })
 
 describe('Server startup', () => {
+  it('lets a request through a set-up Server after one round trip, and finishes in the background', async () => {
+    const db = database()
+    Object.assign(db, { batch: async () => { db.statements.push('check'); return [{ results: [{ version: 'server-v1' }] }, { results: [{ c: 1 }] }, { results: [{ c: 1 }] }] } })
+    const background: Promise<unknown>[] = []
+    const waitUntil = (work: Promise<unknown>) => void background.push(work)
+    const env = { DB: db, PUBLIC_ORIGIN: 'https://chat.example.com' }
+    const started = ensureServerStarted({ context: { cloudflare: { env, context: { waitUntil } } } } as never)
+    await expect(started).resolves.toBe(true)
+    expect(db.statements).toEqual(expect.arrayContaining(['check']))
+    expect(background).toHaveLength(1)
+    await Promise.all(background)
+    expect(calls).toEqual(['migrate', 'admin', 'owner'])
+  })
+
   it('initialises once per database from deployment configuration', async () => {
     const db = database()
     const env = { DB: db, PUBLIC_ORIGIN: 'https://chat.example.com' }

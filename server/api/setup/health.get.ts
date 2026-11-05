@@ -37,12 +37,13 @@ async function signedIn(event: H3Event): Promise<boolean> {
 }
 
 async function runtimeDetails(env: L4Env, migrated: boolean, users: number): Promise<SetupHealthDetails> {
+  const catalog = migrated ? await agentProviderCatalog(env) : null
   return {
     users,
     bindings: readBindings(env),
     aiProvider: aiProvider(env),
-    aiModel: (migrated ? (await agentProviderCatalog(env)).defaultModel : null) ?? serverAiModel(env),
-    capabilities: { ...serverCapabilities(env), containers: migrated ? await piConfigured(env) : false },
+    aiModel: catalog?.defaultModel ?? serverAiModel(env),
+    capabilities: { ...serverCapabilities(env), containers: catalog ? await piConfigured(env, catalog) : false },
     realtimekit: await liveAvailable(env),
     twitterAuth: Boolean(env.TWITTER_CLIENT_ID?.trim() && env.TWITTER_CLIENT_SECRET?.trim()),
   }

@@ -22,7 +22,7 @@ function d1(database: DatabaseSync): D1Database {
         async first() { return database.prepare(sql).get(...values) ?? null },
         async all() { return { results: database.prepare(sql).all(...values), success: true, meta: {} } },
         async raw() { const query = database.prepare(sql); query.setReturnArrays(true); return query.all(...values) },
-        async run() { return { success: true, meta: database.prepare(sql).run(...values) } },
+        async run() { const query = database.prepare(sql); return query.columns().length ? { success: true, results: query.all(...values), meta: { changes: 0 } } : { success: true, meta: query.run(...values) } },
       }
       return statement
     },

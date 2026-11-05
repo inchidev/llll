@@ -7,6 +7,7 @@ import { randomBase64Url } from './random.js'
 import { ensureCloudflareAccess, ensureWorkersHostname } from './access.js'
 import { factoryInstanceType, factoryScriptContainer } from './factory-bindings.js'
 import { workerObservability } from './observability.js'
+import { databasePlacement } from './placement.js'
 export { workerObservability } from './observability.js'
 
 export type ExistingWorkerBinding = {
@@ -553,6 +554,7 @@ async function uploadWorker(
     bindings,
     assets: { jwt: resources.assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
+    placement: await databasePlacement(accessToken, accountId, resources.databaseId),
     tags: [serverTag],
     annotations: {
       'workers/message': `L4 ${manifest.version} via installer`,
@@ -686,6 +688,7 @@ export async function deployL4Update(
     }),
     assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
     observability: workerObservability,
+    placement: await databasePlacement(accessToken, accountId, existing.databaseId),
     tags: [serverTag],
     annotations: {
       'workers/message': `L4 ${release.manifest.version} via installer update`,

@@ -38,14 +38,14 @@ type NotificationMessage = {
 }
 
 async function channelAndRoot(env: L4Env, channelId: string): Promise<{ channel: ChannelRow; root: ChannelRow } | null> {
-  const channel = await env.DB.prepare(
-    'SELECT id, name, type, visibility, parent_id FROM channels WHERE id = ?',
-  ).bind(channelId).first<ChannelRow>()
+  const rows = await env.DB.prepare(
+    `SELECT id, name, type, visibility, parent_id FROM channels
+     WHERE id = ?1 OR id = (SELECT parent_id FROM channels WHERE id = ?1 AND type = 'thread')`,
+  ).bind(channelId).all<ChannelRow>()
+  const channel = rows.results?.find(row => row.id === channelId)
   if (!channel) return null
   if (channel.type !== 'thread' || !channel.parent_id) return { channel, root: channel }
-  const root = await env.DB.prepare(
-    'SELECT id, name, type, visibility, parent_id FROM channels WHERE id = ?',
-  ).bind(channel.parent_id).first<ChannelRow>()
+  const root = rows.results?.find(row => row.id === channel.parent_id)
   return root ? { channel, root } : null
 }
 

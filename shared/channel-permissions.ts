@@ -48,6 +48,7 @@ export function channelPermissionMasks(modes: Partial<Record<ChannelPermissionGr
 }
 
 /** A Role's channel override: allows are grants, denies stay in channel_role_denies. Binds channel ID, then Role ID. */
-export const CHANNEL_ROLE_OVERRIDE_SQL = `SELECT
-  (SELECT permissions FROM grants WHERE channel_id = ?1 AND role_id = ?2) AS allow,
-  (SELECT deny_mask FROM channel_role_denies WHERE channel_id = ?1 AND role_id = ?2) AS deny`
+export const channelRoleOverrideSql = (channel: string, role: string) => `SELECT
+  (SELECT permissions FROM grants WHERE channel_id = ${channel} AND role_id = ${role}) AS allow,
+  (SELECT deny_mask FROM channel_role_denies WHERE channel_id = ${channel} AND role_id = ${role}) AS deny`
+export const CHANNEL_ROLE_OVERRIDE_SQL = channelRoleOverrideSql('?1', '?2')

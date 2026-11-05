@@ -9,38 +9,12 @@ import { MAIL_LIMITS } from '../../shared/mail'
 import type { L4Env } from '../../workers/env'
 import { ingestServerEmail, receiveServerEmail } from '../../workers/mail-ingress'
 import { mailboxGrantsSql } from '../helpers/grants'
+import { d1 } from '../helpers/sqlite-d1'
 
 let sqlite: DatabaseSync
 let files: Map<string, unknown>
 let notified: Array<{ mailboxId: string; threadId: string | null }>
 let env: L4Env
-
-function d1(database: DatabaseSync): D1Database {
-  const statement = (sql: string, values: unknown[] = []) => ({
-    sql,
-    values,
-    bind: (...next: unknown[]) => statement(sql, next),
-    async first<T>() { return (database.prepare(sql).get(...values as never[]) as T | undefined) ?? null },
-    async all<T>() { return { results: database.prepare(sql).all(...values as never[]) as T[] } },
-    async run() { return { meta: { changes: Number(database.prepare(sql).run(...values as never[]).changes) } } },
-    async raw() { return database.prepare(sql).all(...values as never[]).map(row => Object.values(row as object)) },
-  })
-  return {
-    prepare: (sql: string) => statement(sql),
-    async batch(statements: Array<ReturnType<typeof statement>>) {
-      database.exec('BEGIN')
-      try {
-        const results = statements.map(item => ({ meta: { changes: Number(database.prepare(item.sql).run(...item.values as never[]).changes) } }))
-        database.exec('COMMIT')
-        return results
-      }
-      catch (error) {
-        database.exec('ROLLBACK')
-        throw error
-      }
-    },
-  } as unknown as D1Database
-}
 
 function stream(text: string): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(text)

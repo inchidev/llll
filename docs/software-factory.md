@@ -4,7 +4,7 @@ A human assigns a repository-backed Task to a Pi Agent. The Agent requests works
 
 Real-provider fresh-install acceptance remains separate from local fixtures; see the reproducible procedure.
 
-A Server knows one kind of Node, the Compute Node described here, and three ways to get one: the operator's own VPS (this Docker Node), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task started and stopped by llll.gg and paid by the hour of agent work, which is coming. The Docker Node is the one open interface for running L4 work anywhere; nothing provider-specific lives in this repository, and provisioning and billing live only in `llll-cloud`. See [Compute is the business](adr/0009-compute-as-the-business.md).
+A Server knows one kind of Node, the Compute Node described here, and three ways to get one: the operator's own VPS (this Docker Node), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task started and stopped by llll.gg and paid by the hour of agent work, which is coming. The Docker Node is the one open interface for running L4 work anywhere; nothing provider-specific lives in this repository, and provisioning and billing live only in `llll-cloud`. Lizard provisioning moved to `llll-cloud` as L4 Compute. See [Compute is the business](adr/0009-compute-as-the-business.md).
 
 ## Recommended setup
 

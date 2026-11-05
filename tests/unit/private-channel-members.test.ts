@@ -25,11 +25,11 @@ function binding(): D1Database {
       },
       async all() { return { results: sqlite.prepare(sql).all(...args) } },
       async raw() { const query = sqlite.prepare(sql); query.setReturnArrays(true); return query.all(...args) },
-      async run() { return { success: true, meta: sqlite.prepare(sql).run(...args) } },
+      async run() { const query = sqlite.prepare(sql); return query.columns().length ? { success: true, results: query.all(...args), meta: { changes: 0 } } : { success: true, meta: query.run(...args) } },
     }
     return statement
   }
-  return { prepare } as unknown as D1Database
+  return { prepare, batch: (statements: Array<{ run: () => Promise<unknown> }>) => Promise.all(statements.map(statement => statement.run())) } as unknown as D1Database
 }
 beforeAll(() => {
   vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
