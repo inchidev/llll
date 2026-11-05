@@ -35,6 +35,11 @@ export async function testData({ api, ids }) {
   assert.deepEqual((await previews('alpha', [`/items/${doc.id}`, `/databases?database=${database.id}`])).payload.previews.map(card => card.title), ['Data integration brief', 'Data integration'])
   assert.deepEqual((await previews('beta', [`/items/${doc.id}`])).payload.previews, [])
   assert.deepEqual((await previews('alpha', ['http://169.254.169.254/latest/meta-data/', 'http://[::1]/', 'https://user:pass@example.com/'])).payload.previews, [])
+  const website = (await previews('alpha', ['https://preview.example.test/card'])).payload.previews[0]
+  assert.equal(website.title, 'Public reference')
+  assert.equal(website.description, 'A safe card')
+  assert.match(website.image, /^data:image\/png;base64,/)
+  assert.deepEqual((await previews('alpha', ['https://preview.example.test/redirect-private'])).payload.previews, [])
   await api('alpha', '/api/data-references', { method: 'POST', body: { source: { type: 'item', id: recordId }, target: { type: 'item', id: doc.id } } })
   assert.equal((await api('alpha', `/api/data-references?type=item&id=${doc.id}`)).payload.incoming[0].id, recordId)
   const child = (await api('alpha', `/api/servers/${ids.alpha}/items`, { method: 'POST', body: { title: 'Child page', parentId: doc.id } })).payload.item

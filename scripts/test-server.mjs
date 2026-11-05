@@ -150,11 +150,17 @@ try {
               const mcp = await outboundMcpFixture(request)
               if (mcp) return mcp
               const url = new URL(request.url)
+              if (url.hostname === 'preview.example.test') {
+                if (url.pathname === '/redirect-private') return new Response(null, { status: 302, headers: { Location: 'http://169.254.169.254/' } })
+                if (url.pathname === '/image.png') return new Response(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7foAAAAASUVORK5CYII=', 'base64'), { headers: { 'Content-Type': 'image/png' } })
+                return new Response('<title>Fallback</title><meta property="og:title" content="Public reference"><meta name="description" content="A safe card"><meta property="og:image" content="/image.png">', { headers: { 'Content-Type': 'text/html' } })
+              }
               if (url.hostname === 'api.github.com' && url.pathname === '/repos/inchidev/llll/releases') return Response.json([{
                 tag_name: 'v0.3.0', published_at: '2026-10-21T00:00:00Z', html_url: 'https://github.com/inchidev/llll/releases/tag/v0.3.0',
                 assets: ['llll-release.json', 'llll-cloudflare-manifest.json', 'llll-worker.mjs', 'llll-assets.json', 'SHA256SUMS'].map(name => ({ name })),
               }])
-              return fetch(request)
+              // Miniflare's Request is from its own undici; Node's fetch cannot consume it directly.
+              return fetch(request.url, { method: request.method, headers: Object.fromEntries(request.headers), redirect: 'manual', body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer() })
             },
             bindings: {
               PUBLIC_ORIGIN: origins[name],
