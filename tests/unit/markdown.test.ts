@@ -179,3 +179,22 @@ describe('discord formatting', () => {
     expect(renderMarkdown('2 * 3 * 4')).toBe('<p>2 * 3 * 4</p>')
   })
 })
+
+describe('tables', () => {
+  it('renders a table with alignment, inline formatting and missing cells', () => {
+    const html = renderMarkdown('| Plan | Customers |\n| --- | ---: |\n| **Paid** | 42 |\n| Free |\nAfter')
+    expect(html).toContain('<table><thead><tr><th>Plan</th><th class="right">Customers</th></tr></thead>')
+    expect(html).toContain('<tr><td><strong>Paid</strong></td><td class="right">42</td></tr>')
+    expect(html).toContain('<tr><td>Free</td><td class="right"></td></tr>')
+  })
+  it('escapes cells and keeps escaped or code pipes in one cell', () => {
+    const html = renderMarkdown('| a | b |\n|---|---|\n| <img src=x onerror=alert(1)> | x\\|y |\n| `p|q` | z |')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('<td>x|y</td>')
+    expect(html).toContain('<code>p|q</code>')
+  })
+  it('leaves a plain line with a pipe alone', () => {
+    expect(renderMarkdown('a | b')).toBe('<p>a | b</p>')
+    expect(renderMarkdown('| a | b |\nnot a rule')).not.toContain('<table')
+  })
+})

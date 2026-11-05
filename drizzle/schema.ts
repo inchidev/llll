@@ -1280,6 +1280,8 @@ export const mcpOutboundConnections = sqliteTable('mcp_outbound_connections', {
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(), providerId: text('provider_id').notNull(),
+  // Set only for provider `custom`: the exact URL is the connection's identity.
+  endpoint: text('endpoint'), description: text('description').notNull().default(''), authKind: text('auth_kind').notNull().default('none'),
   enabled: integer('enabled').notNull().default(0), revision: integer('revision').notNull().default(1),
   toolNamesJson: text('tool_names_json').notNull(), toolsJson: text('tools_json').notNull().default('[]'),
   credentialJson: text('credential_json'), credentialExpiresAt: text('credential_expires_at'),
@@ -1372,6 +1374,8 @@ export const agentSessions = sqliteTable('agent_sessions', {
 
 export const agentRuns = sqliteTable('agent_runs', {
   id: text('id').primaryKey(),
+  // First call to a private external source. Monotonic, and survives deleting the connection.
+  privateAt: text('private_at'),
   sessionId: text('session_id').notNull().references(() => agentSessions.id),
   agentId: text('agent_id').notNull().references(() => agents.userId),
   channelId: text('channel_id').notNull().references(() => channels.id),

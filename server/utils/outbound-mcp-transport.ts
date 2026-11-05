@@ -1,6 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/client/validators/cf-worker'
-import { outboundMcpProviders, type McpToolSnapshot } from '../../shared/outbound-mcp'
+import { CUSTOM_MCP_PROVIDER, mcpCredentialHeaders, mcpEndpointProblem, outboundMcpProviders, type McpToolSnapshot } from '../../shared/outbound-mcp'
 import { fail } from './cf'
 
 const baseValidator = new CfWorkerJsonSchemaValidator()
@@ -37,9 +37,13 @@ export function safeMcpSchema(schema: unknown): Record<string, unknown> {
   return schema as Record<string, unknown>
 }
 
-/** Exact reviewed HTTPS endpoints only. No redirects, OAuth discovery, GET streams or local commands. */
-export function mcpBoundedFetch(endpoint: string, token: string | null, signal: AbortSignal, rejected: () => void = () => {}): typeof fetch {
-  if (!outboundMcpProviders.some(provider => provider.endpoint === endpoint)) fail(403, 'mcp_destination', 'MCP destination is not in the reviewed catalog')
+/** A bearer token, or the header pair a service such as Cloudflare Access expects. */
+export type McpAuth = string | Record<string, string> | null
+export const mcpAuthSecrets = (auth: McpAuth): string[] => !auth ? [] : typeof auth === 'string' ? [auth] : Object.values(auth)
+
+/** One exact HTTPS endpoint: reviewed, or the Owner's saved URL. No redirects, OAuth discovery, GET streams or local commands. */
+export function mcpBoundedFetch(endpoint: string, auth: McpAuth, signal: AbortSignal, rejected: () => void = () => {}, custom = false): typeof fetch {
+  if (custom ? mcpEndpointProblem(endpoint) : !outboundMcpProviders.some(provider => provider.endpoint === endpoint)) fail(403, 'mcp_destination', 'MCP destination is not permitted')
   return async (input, init) => {
     const url = input instanceof Request ? input.url : String(input)
     if (new URL(url).href !== endpoint) fail(403, 'mcp_destination', 'MCP changed its authorized destination')
@@ -49,7 +53,9 @@ export function mcpBoundedFetch(endpoint: string, token: string | null, signal: 
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     // Overwrite rather than inherit any credential or cookies supplied by a transport.
     headers.delete('Cookie'); headers.delete('Authorization')
-    if (token) headers.set('Authorization', `Bearer ${token}`)
+    for (const name of mcpCredentialHeaders) headers.delete(name)
+    if (typeof auth === 'string') headers.set('Authorization', `Bearer ${auth}`)
+    else if (auth) for (const [name, value] of Object.entries(auth)) headers.set(name, value)
     signal.throwIfAborted()
     const response = await fetch(endpoint, { ...init, method: 'POST', headers, credentials: 'omit', redirect: 'manual',
       signal: AbortSignal.any([signal, ...(init?.signal ? [init.signal] : [])]) })
@@ -73,15 +79,18 @@ export function mcpBoundedFetch(endpoint: string, token: string | null, signal: 
   }
 }
 
-export async function withMcpClient<T>(providerId: string, token: string | null, signal: AbortSignal | undefined, action: (client: Client) => Promise<T>): Promise<T> {
-  const provider = outboundMcpProviders.find(provider => provider.id === providerId)
-  if (!provider) fail(409, 'mcp_unavailable', 'MCP provider is no longer available')
+export type McpTarget = { providerId: string; endpoint?: string | null }
+export async function withMcpClient<T>(target: string | McpTarget, auth: McpAuth, signal: AbortSignal | undefined, action: (client: Client) => Promise<T>): Promise<T> {
+  const { providerId, endpoint: saved } = typeof target === 'string' ? { providerId: target, endpoint: null } : target
+  const custom = providerId === CUSTOM_MCP_PROVIDER
+  const endpoint = custom ? saved : outboundMcpProviders.find(provider => provider.id === providerId)?.endpoint
+  if (!endpoint) fail(409, 'mcp_unavailable', 'MCP provider is no longer available')
   const bounded = AbortSignal.any([AbortSignal.timeout(15000), ...(signal ? [signal] : [])])
   // Each operation owns its client/session/request IDs. No shared transport across users or connections.
   const client = new Client({ name: 'L4 read-only tool broker', version: '1' }, { capabilities: {}, jsonSchemaValidator: mcpValidator })
   let credentialsRejected = false
-  const transport = new StreamableHTTPClientTransport(new URL(provider.endpoint), {
-    fetch: mcpBoundedFetch(provider.endpoint, token, bounded, () => { credentialsRejected = true }), requestInit: { redirect: 'manual', signal: bounded },
+  const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
+    fetch: mcpBoundedFetch(endpoint, auth, bounded, () => { credentialsRejected = true }, custom), requestInit: { redirect: 'manual', signal: bounded },
     onInsufficientScope: 'throw', reconnectionOptions: { maxRetries: 0, maxReconnectionDelay: 0, initialReconnectionDelay: 0, reconnectionDelayGrowFactor: 1 },
   })
   try {
@@ -93,19 +102,59 @@ export async function withMcpClient<T>(providerId: string, token: string | null,
   } finally { await client.close().catch(() => undefined) }
 }
 
+type RemoteTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
+async function snapshot(remote: RemoteTool, connectionId: string, custom: boolean): Promise<McpToolSnapshot> {
+  const parameters = safeMcpSchema(remote.inputSchema)
+  const description = String(remote.description ?? remote.name).slice(0, 700)
+  const outputSchema = remote.outputSchema ? safeMcpSchema(remote.outputSchema) : null
+  const declaredReadOnly = remote.annotations?.readOnlyHint === true
+  const hash = await mcpSchemaHash({ name: remote.name, description, parameters, outputSchema, ...(custom ? { declaredReadOnly } : {}) })
+  const slug = remote.name.toLowerCase().replace(/[^a-z0-9_]/gu, '_').slice(0, 18)
+  return { name: `mcp_${connectionId.replaceAll('-', '')}_${hash.slice(0, 8)}_${slug}`, remoteName: remote.name, description, parameters, hash, ...(custom ? { declaredReadOnly } : {}) }
+}
+
+const MAX_CUSTOM_TOOLS = 200, MAX_CUSTOM_PAGES = 5, MAX_CUSTOM_CATALOG_BYTES = 512_000
+const l4WriteTool = /^(send|create|update|delete|move|mark|add|remove|set)_/u
+/** External writes wait for exact human approval, which does not exist yet: a tool that says it writes stays out. */
+function declaresWrite(client: Client, remote: RemoteTool) {
+  return remote.annotations?.readOnlyHint === false || remote.annotations?.destructiveHint === true
+    // A self-reported name can only make this stricter. Another L4's writes must never run on a label.
+    || (client.getServerVersion()?.name === 'L4' && l4WriteTool.test(remote.name))
+}
+async function listCustomTools(client: Client) {
+  const tools: RemoteTool[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < MAX_CUSTOM_PAGES; page++) {
+    const listed = await client.listTools(cursor ? { cursor } : {}, { timeout: 10000 })
+    tools.push(...listed.tools)
+    if (tools.length > MAX_CUSTOM_TOOLS) fail(422, 'mcp_catalog_large', 'MCP tool list is too large')
+    cursor = listed.nextCursor
+    if (!cursor) break
+  }
+  if (cursor || new Set(tools.map(tool => tool.name)).size !== tools.length) fail(422, 'mcp_catalog_large', 'MCP tool list is too large or ambiguous')
+  return tools
+}
+/** Every tool an Owner may choose on a custom connection. Remote text is stored as data, never as authority. */
+export async function discoverMcpTools(client: Client, connectionId: string) {
+  const listed = await listCustomTools(client)
+  const readable = listed.filter(remote => !declaresWrite(client, remote))
+  const tools = await Promise.all(readable.map(remote => snapshot(remote, connectionId, true)))
+  if (new TextEncoder().encode(JSON.stringify(tools)).byteLength > MAX_CUSTOM_CATALOG_BYTES) fail(422, 'mcp_catalog_large', 'MCP tool list is too large')
+  return { tools, hiddenWriteTools: listed.filter(remote => declaresWrite(client, remote)).map(remote => remote.name).slice(0, 50) }
+}
+
 export async function readMcpTools(client: Client, connectionId: string, providerId: string, names: string[]): Promise<McpToolSnapshot[]> {
+  if (providerId === CUSTOM_MCP_PROVIDER) {
+    const listed = (await listCustomTools(client)).filter(remote => names.includes(remote.name) && !declaresWrite(client, remote))
+    return Promise.all(listed.map(remote => snapshot(remote, connectionId, true)))
+  }
   const provider = outboundMcpProviders.find(provider => provider.id === providerId)!
   const listed = await client.listTools({}, { timeout: 10000 })
   if (listed.nextCursor || listed.tools.length > 40 || new Set(listed.tools.map(tool => tool.name)).size !== listed.tools.length) fail(422, 'mcp_catalog_large', 'MCP tool list is too large or ambiguous')
   const result: McpToolSnapshot[] = []
   for (const remote of listed.tools) {
     if (!names.includes(remote.name) || !(provider.readTools as readonly string[]).includes(remote.name) || remote.annotations?.readOnlyHint === false) continue
-    const parameters = safeMcpSchema(remote.inputSchema)
-    const description = String(remote.description ?? remote.name).slice(0, 700)
-    const outputSchema = remote.outputSchema ? safeMcpSchema(remote.outputSchema) : null
-    const hash = await mcpSchemaHash({ name: remote.name, description, parameters, outputSchema })
-    const slug = remote.name.toLowerCase().replace(/[^a-z0-9_]/gu, '_').slice(0, 18)
-    result.push({ name: `mcp_${connectionId.replaceAll('-', '')}_${hash.slice(0, 8)}_${slug}`, remoteName: remote.name, description, parameters, hash })
+    result.push(await snapshot(remote, connectionId, false))
   }
   if (!result.length) fail(409, 'mcp_no_read_tools', 'MCP exposes none of the explicitly permitted read-only tools')
   return result
