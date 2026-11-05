@@ -3,6 +3,7 @@ import { SERVER_API_VERSION, uuidSchema } from '~~/shared/server'
 import { normalizeServerOrigin } from '~~/shared/client-router'
 import { appearanceFromSettings, serverAppearance } from '~~/shared/server-appearance'
 import type { ServerDTO } from '~~/shared/types'
+import { saveDiscovery } from '~/utils/boot-cache'
 
 export function useServers() {
   const servers = useState<ConnectedServer[]>('llll-servers', () => [])
@@ -86,6 +87,13 @@ export function useServers() {
   async function discover(address: string) {
     const origin = normalizeServerOrigin(address)
     const d = await request<ServerDiscovery>(origin, '/.well-known/llll')
+    const known = adopt(origin, d)
+    if (origin === normalizeServerOrigin(location.origin)) saveDiscovery(d)
+    return known
+  }
+  /** Checks what a Server said about itself and adds it to the list. */
+  function adopt(address: string, d: ServerDiscovery) {
+    const origin = normalizeServerOrigin(address)
     const aliases = Array.isArray(d.aliases)
       ? d.aliases.filter((item): item is string => typeof item === 'string')
       : []
@@ -156,6 +164,7 @@ export function useServers() {
     initialize,
     request,
     discover,
+    adopt,
     updateAppearance,
     refresh,
     select,
