@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
 import type { L4Env } from '../../workers/env'
+import { connectManagedAppDomain, connectManagedEmailDomain, disconnectManagedEmailDomain } from '../../server/utils/server-infrastructure'
 
 const cf = vi.hoisted(() => ({ connectAppDomain: vi.fn(), setPrimaryAppDomain: vi.fn(), disconnectAppDomain: vi.fn(), findAppDomain: vi.fn(), findAppDomainZone: vi.fn(async () => ({ id: 'zone', name: 'example.com', status: 'active' })), connectEmailDomain: vi.fn(), disconnectEmailDomain: vi.fn() }))
 vi.mock('../../packages/deployment-core/src/domains', () => cf)
@@ -24,7 +25,6 @@ beforeEach(() => {
 afterEach(() => db.close())
 
 it('adds and promotes an address with the kept access, without an installer link', async () => {
-  const { connectManagedAppDomain } = await import('../../server/utils/server-infrastructure')
   const result = await connectManagedAppDomain(env, { hostname: 'chat.example.com', makePrimary: true }, 'https://server.example')
   expect(result).toMatchObject({ applied: true, request: { status: 'complete' } })
   expect(cf.connectAppDomain).toHaveBeenCalledWith('kept', 'a'.repeat(32), 'llll-server', expect.objectContaining({ id: 'zone' }), 'chat.example.com')
@@ -33,14 +33,12 @@ it('adds and promotes an address with the kept access, without an installer link
 })
 
 it('records a failed change so Settings can show why', async () => {
-  const { connectManagedAppDomain } = await import('../../server/utils/server-infrastructure')
   cf.connectAppDomain.mockRejectedValueOnce(Object.assign(new Error('chat.example.com is already attached to Worker other'), { statusCode: 409 }))
   await expect(connectManagedAppDomain(env, { hostname: 'chat.example.com' }, 'https://server.example')).rejects.toThrow(/already attached/u)
   expect(db.prepare('SELECT status, error FROM server_domain_requests').get()).toEqual({ status: 'failed', error: 'chat.example.com is already attached to Worker other' })
 })
 
 it('connects a mail domain into D1 and disconnects it again', async () => {
-  const { connectManagedEmailDomain, disconnectManagedEmailDomain } = await import('../../server/utils/server-infrastructure')
   cf.connectEmailDomain.mockImplementation(async (_t, _a, _w, _z, value: { id: string, domain: string }) => ({ ...value, sendingEnabled: true }))
   const connected = await connectManagedEmailDomain(env, { zoneId: 'zone', domain: 'example.com' })
   expect(connected).toMatchObject({ domain: 'example.com', zoneName: 'example.com', sendingEnabled: true })
