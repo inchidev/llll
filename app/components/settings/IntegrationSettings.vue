@@ -52,7 +52,7 @@ async function save(id: string, keys: IntegrationKey[], values?: Partial<Record<
       url.password = postmark
       postmarkAddress.value = url.href
     }
-    for (const key of keys) delete draft[key]
+    for (const key of keys) draft[key] = undefined
     await query.refetch()
     // Mail and Live screens read what this Server can do from the session.
     session.health = await api<SetupHealth>('/api/setup/health')

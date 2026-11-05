@@ -30,19 +30,19 @@ const updateSchema = z.object({ values: z.record(z.string(), z.string().nullable
 export async function updateIntegrations(env: L4Env, body: unknown) {
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) fail(400, 'integration_invalid', 'These settings are not valid')
-  const saved = await loadSavedIntegrations(env)
+  const saved = new Map(Object.entries(await loadSavedIntegrations(env)) as Array<[IntegrationKey, string]>)
   const changed: IntegrationKey[] = []
   for (const [name, value] of Object.entries(parsed.data.values)) {
     if (!integrationKeys.includes(name as IntegrationKey)) fail(400, 'integration_invalid', 'Unknown setting')
     const key = name as IntegrationKey
     changed.push(key)
-    if (value === null || value.trim() === '') { delete saved[key]; continue }
+    if (value === null || value.trim() === '') { saved.delete(key); continue }
     const valid = integrationFields[key].schema.safeParse(value)
     if (!valid.success) fail(400, 'integration_invalid', `${key}: ${valid.error.issues[0]?.message ?? 'Not valid'}`)
-    saved[key] = valid.data
+    saved.set(key, valid.data)
   }
   if (!env.AUTH_SECRET) fail(503, 'integration_encryption', 'Server credential encryption is unavailable')
-  await saveIntegrations(env, saved)
+  await saveIntegrations(env, Object.fromEntries(saved))
   return changed
 }
 
