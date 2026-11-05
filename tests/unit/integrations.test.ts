@@ -13,6 +13,11 @@ let f: ReturnType<typeof mcpFixture>, env: L4Env
 const secret32 = 'x'.repeat(40)
 beforeEach(() => { f = mcpFixture(); env = { ...f.env, LLLL_RUNTIME: 'celld' } as L4Env })
 afterEach(() => { f.db.close(); vi.unstubAllGlobals() })
+/** Another isolate's save: this isolate's cache does not hear about it. */
+const saveOther = async () => {
+  const { encryptSecret } = await import('../../shared/encrypted-secret')
+  f.db.prepare("INSERT INTO server_settings(key,value,updated_at) VALUES('server.integrations',?,'2026-11-05')").run(JSON.stringify(await encryptSecret(env.AUTH_SECRET!, 'server-integrations', JSON.stringify({ EXA_API_KEY: 'exa-synthetic-key' }))))
+}
 const stored = () => (f.db.prepare("SELECT value FROM server_settings WHERE key='server.integrations'").get() as { value: string } | undefined)?.value
 
 it('leaves the env untouched when nothing is saved', async () => {
@@ -70,6 +75,13 @@ it('reports sources, and never returns a secret', async () => {
   expect(status.fields.CLOUDFLARE_API_TOKEN?.source).toBeNull()
   expect(status.status.search).toBe('exa')
   expect(status.webhooks.postmark).toBe('https://l4.example/api/email/inbound/postmark')
+})
+it('reports a value saved by another isolate at once, past the cache', async () => {
+  await withIntegrations(env)
+  await saveOther()
+  const status = await integrationsStatus(env, ids.owner, 'https://l4.example')
+  expect(status.status.search).toBe('exa')
+  expect(status.fields.EXA_API_KEY?.source).toBe('settings')
 })
 it('offers only web search on Cloudflare, where the rest comes from bindings', async () => {
   const status = await integrationsStatus({ ...f.env, LLLL_RUNTIME: 'workers' } as L4Env, ids.owner, 'https://l4.example')

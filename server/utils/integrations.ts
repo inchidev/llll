@@ -2,13 +2,14 @@ import { z } from 'zod'
 import { integrationFields, integrationKeys, offCloudflareKeys, type IntegrationKey, type IntegrationsDTO } from '../../shared/integrations'
 import { browserProvider, callsProvider, cloudflareNetwork, type L4Env } from '../../workers/env'
 import { emailInboundProvider } from '../../workers/inbound-email'
-import { loadSavedIntegrations, saveIntegrations, withIntegrations } from '../../workers/integrations'
+import { applyIntegrations, loadSavedIntegrations, saveIntegrations } from '../../workers/integrations'
 import { serverEmailProvider } from '../../workers/mail-transport'
 import { resolveAiFunction } from './ai-functions'
 import { fail } from './cf'
 
 export async function integrationsStatus(env: L4Env, actorId: string, origin: string): Promise<IntegrationsDTO> {
-  const saved = await loadSavedIntegrations(env), effective = await withIntegrations(env)
+  // Fresh, not the 30-second cache: this screen shows the result of a save at once.
+  const saved = await loadSavedIntegrations(env), effective = applyIntegrations(env, saved)
   const onCloudflare = cloudflareNetwork(effective)
   const shown = onCloudflare ? integrationKeys.filter(key => !offCloudflareKeys.includes(key)) : integrationKeys
   const fields: IntegrationsDTO['fields'] = {}

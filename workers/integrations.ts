@@ -36,7 +36,11 @@ export async function withIntegrations<T extends L4Env>(env: T): Promise<T> {
     try { saved = await loadSavedIntegrations(env); cache.set(env.DB, { saved, loadedAt: Date.now() }) }
     catch { return env }
   }
-  const missing = integrationKeys.filter(key => saved![key] && !(env as Record<string, unknown>)[key])
+  return applyIntegrations(env, saved)
+}
+
+export function applyIntegrations<T extends L4Env>(env: T, saved: Saved): T {
+  const missing = integrationKeys.filter(key => saved[key] && !(env as Record<string, unknown>)[key])
   if (!missing.length) return env
-  return { ...env, ...Object.fromEntries(missing.map(key => [key, saved![key]])) }
+  return { ...env, ...Object.fromEntries(missing.map(key => [key, saved[key]])) }
 }
