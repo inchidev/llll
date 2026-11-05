@@ -4,6 +4,8 @@ A human assigns a repository-backed Task to a Pi Agent. The Agent requests works
 
 Real-provider fresh-install acceptance remains separate from local fixtures; see the reproducible procedure.
 
+A Server knows one kind of Node, the Compute Node described here, and three ways to get one: the operator's own VPS (this Docker Node), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task started and stopped by llll.gg and paid by the hour of agent work, which is coming. The Docker Node is the one open interface for running L4 work anywhere; nothing provider-specific lives in this repository, and provisioning and billing live only in `llll-cloud`. Lizard provisioning moved to `llll-cloud` as L4 Compute. See [Compute is the business](adr/0009-compute-as-the-business.md).
+
 ## Recommended setup
 
 **Cloudflare:** install ordinary L4 on Workers Free with Basic KV and no R2 if desired. In Settings → Git choose Enable Factory, connect the owning Cloudflare account, review the optional Containers/Artifacts charges and choose compute size, timeout and process limits. Workers Paid and provider availability are required; the installer never upgrades a plan. The Cloudflare consent includes Artifacts Read and Artifacts Write (`artifacts.read`, `artifacts.write`). Provisioning stops with a reconnect message when that grant is missing. It uploads only checksum-verified released image layers, records the released image on the Server's container, and keeps the same immutable installed Server module, preserving original secrets, UUID, D1, files and Git connections. Return to Settings and activate after the provider probe succeeds. A failed activation stays on the card. R2 is independent.

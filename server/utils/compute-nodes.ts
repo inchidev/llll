@@ -50,12 +50,10 @@ export async function disableComputeNode(env: L4Env, auth: AuthorizationContext,
     env.DB.prepare("UPDATE factory_actions SET status=CASE WHEN status IN ('claimed','executing') THEN 'uncertain' ELSE 'cancelled' END WHERE workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND status IN ('pending','approved','claimed','executing')").bind(id),
   ])
 }
-export async function requireComputeNode(env: L4Env, credential: string, transport: 'direct' | 'lizard' = 'direct') {
-  // One round trip finds the Node and records that it was seen; a refused transport still counts as seen.
+export async function requireComputeNode(env: L4Env, credential: string) {
+  // One round trip finds the Node and records that it was seen.
   const node = await env.DB.prepare('UPDATE compute_nodes SET last_seen=? WHERE token_hash=? AND enabled=1 RETURNING id,capabilities_json AS capabilitiesJson').bind(nowIso(), await factoryHash(credential)).first<{ id: string; capabilitiesJson: string }>()
   if (!node) fail(403, 'compute_revoked', 'Compute Node authorization unavailable')
-  const provider = JSON.parse(node.capabilitiesJson).provider
-  if ((provider === 'lizard') !== (transport === 'lizard')) fail(403, 'compute_transport_denied', 'Compute Node transport does not match its provider')
   return node
 }
 export const computePollSchema = z.discriminatedUnion('operation', [
@@ -66,7 +64,7 @@ export const computePollSchema = z.discriminatedUnion('operation', [
     result: z.object({ ok: z.boolean(), exitCode: z.number().int().min(-1).max(255), output: z.string().max(64000), runtimeMs: z.number().int().min(0).max(900000), snapshot: factorySnapshot.optional() }).strict() }).strict(),
 ])
 /** A Done or archived Task's work is in its pull request. With nothing of it queued or running, its workspace
- * on this Node is released: the Node may drop that disk, and an Owner may delete Lizard's retained storage. */
+ * on this Node is released: the Node may drop that disk. */
 export async function releaseFinishedTaskWork(env: L4Env, nodeId: string) {
   await env.DB.prepare(`UPDATE factory_workspaces SET status='released',updated_at=? WHERE node_id=? AND status<>'released'
     AND task_id IN (SELECT id FROM tasks WHERE status='done' OR archived_at IS NOT NULL)

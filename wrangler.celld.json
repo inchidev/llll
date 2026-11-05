@@ -61,10 +61,6 @@
       {
         "name": "AGENT_SCHEDULE_DO",
         "class_name": "AgentScheduleDurableObject"
-      },
-      {
-        "name": "LIZARD_COMPUTE_DO",
-        "class_name": "LizardComputeDurableObject"
       }
     ]
   },
