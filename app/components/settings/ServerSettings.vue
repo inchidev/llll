@@ -126,7 +126,7 @@ const accessNav = computed(() => [
   ...(isOwner.value ? [{ id: 'onboarding' as const, label: 'Onboarding', icon: 'i-ph-flag-banner', keywords: ['welcome', 'first run', 'branding'] }] : []),
   ...(can(Permission.manageServer) ? [{ id: 'audit' as const, label: 'Audit Log', icon: 'i-ph-list-magnifying-glass', keywords: ['history', 'activity', 'log'] }] : []),
 ])
-const storageNav = computed(() => isOwner.value ? [{ id: 'storage' as const, label: 'Storage', icon: 'i-ph-database', keywords: ['files', 'kv', 'r2', 'quota'] }] : [])
+const storageNav = computed(() => isOwner.value ? [{ id: 'integrations' as const, label: 'Integrations', icon: 'i-ph-plugs', keywords: ['exa', 'search', 'browser', 'chromium', 'cloudflare', 'token', 'smtp', 'gateway', 'postmark', 'mailgun', 'ses', 'webhook', 'inbound', 'environment'] }, { id: 'storage' as const, label: 'Storage', icon: 'i-ph-database', keywords: ['files', 'kv', 'r2', 'quota'] }] : [])
 const deploymentSections = ['cloudflare', 'domains', 'backups', 'updates', 'danger']
 const deploymentNav = computed(() => isOwner.value
   ? [{
@@ -814,6 +814,7 @@ v-if="rolesListVisible || section === 'project-policies'"
       <SettingsEditor back="Invites" :open="Boolean(inviteUrl)" title="Invite link" @update:open="value => { if (!value) inviteUrl = '' }"><template #body><div class="flex gap-2"><UInput :model-value="serverUrl(inviteUrl)" readonly class="min-w-0 flex-1" /><UButton label="Copy" @click="copyInvite()" /></div></template></SettingsEditor>
     </template>
 
+    <template v-else-if="section === 'integrations'"><SettingsIntegrationSettings :server-id="serverId" /></template>
     <template v-else-if="section === 'storage'"><SettingsStorageSettings :server-id="serverId" /></template>
     <template v-else-if="section === 'live'">
       <SettingsRealtimeKitSettings :server-id="serverId" />

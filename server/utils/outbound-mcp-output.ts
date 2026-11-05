@@ -12,9 +12,9 @@ export const MCP_OUTPUT_BYTES = 64000
 export const mcpSecretForms = (token: string) => [token, encodeURIComponent(token), btoa(token)]
 
 /** Redact complete secrets before taking excerpts; retain a valid attributed envelope. */
-export function boundedMcpOutput(value: McpOutput, token: string | null): McpOutput {
+export function boundedMcpOutput(value: McpOutput, tokens: string | string[] | null): McpOutput {
   let encoded = JSON.stringify(value)
-  if (token) for (const secret of mcpSecretForms(token)) encoded = encoded.replaceAll(JSON.stringify(secret).slice(1, -1), '[redacted]')
+  for (const token of tokens ? [tokens].flat() : []) for (const secret of mcpSecretForms(token)) encoded = encoded.replaceAll(JSON.stringify(secret).slice(1, -1), '[redacted]')
   const output = JSON.parse(encoded) as McpOutput
   if (bytes(output) <= MCP_OUTPUT_BYTES) return output
 

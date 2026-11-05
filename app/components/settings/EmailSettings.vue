@@ -39,14 +39,7 @@ const { mine } = usePermissions(computed(() => membersQ.data.value?.members))
 const isOwner = computed(() => mine.value?.role.key === 'owner')
 const session = useSessionStore()
 const inboundUnavailable = computed(() => session.health?.capabilities?.emailInbound === null)
-const outboundDescription = computed(() => {
-  const provider = session.health?.capabilities?.emailProvider
-  const inbound = 'Mail from the internet does not arrive until you set INBOUND_EMAIL_SECRET, or a Postmark, Mailgun, or Amazon SES webhook secret.'
-  if (provider === 'cloudflare-rest') return `${inbound} Outbound mail uses Cloudflare Email Sending. The sender domain must be onboarded for Email Sending.`
-  if (provider === 'binding') return `${inbound} Outbound mail uses the email binding configured for this server.`
-  if (provider === 'gateway' || provider === 'smtp') return `${inbound} Outbound mail uses the configured HTTP gateway. An SMTP gateway is an HTTP service that relays the same JSON message over SMTP.`
-  return `${inbound} Outbound mail sends through Cloudflare Email Sending when CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are set, or through MAIL_GATEWAY_URL or SMTP_GATEWAY_URL with its token.`
-})
+const nav = useNavActions()
 // With no domain yet there is nothing to create a mailbox on, so start where the fix is.
 watch(() => mail.value?.configured, (configured) => {
   if (configured === false) tab.value = 'domains'
@@ -195,9 +188,10 @@ async function saveMailbox() {
           v-if="inboundUnavailable"
           color="neutral"
           variant="subtle"
-          title="Inbound email is not configured"
-          :description="outboundDescription"
+          title="Mail from the internet does not arrive yet"
+          description="Connect Postmark, Mailgun, Amazon SES or your own bridge under Integrations."
           class="mt-5"
+          :actions="isOwner ? [{ label: 'Open Integrations', color: 'neutral', variant: 'outline', onClick: () => nav.openServerSettings('integrations') }] : []"
         />
         <UAlert
           v-if="mail.configured && !mail.sendingBound"

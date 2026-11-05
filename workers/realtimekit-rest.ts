@@ -3,6 +3,7 @@ import { DEFAULT_APP_NAME } from '../shared/app-branding'
 import { readServerSetting, writeServerSetting } from '../shared/server-settings'
 import { cloudflareAccountId, cloudflareApiToken } from './cloudflare-rest'
 import { callsProvider, type L4Env } from './env'
+import { withIntegrations } from './integrations'
 import { createSerialQueue } from './serial-queue'
 import { ensureLivePresets, findOrCreateApp, LLLL_HOST_PRESET, LLLL_PARTICIPANT_PRESET, RealtimeKitHttpError } from './realtimekit'
 
@@ -30,9 +31,10 @@ export class RealtimeKitRestProvisioner {
   }
 
   async get(failedRevision?: string): Promise<RestRealtimeKitApp | null> {
-    const accountId = cloudflareAccountId(this.env)
-    const apiToken = cloudflareApiToken(this.env)
-    if (callsProvider(this.env) !== 'realtimekit-rest' || !accountId || !apiToken) return null
+    const env = await withIntegrations(this.env)
+    const accountId = cloudflareAccountId(env)
+    const apiToken = cloudflareApiToken(env)
+    if (callsProvider(env) !== 'realtimekit-rest' || !accountId || !apiToken) return null
     const ready = await this.saved(accountId)
     // Warm reads must not wait behind another room's remote repair.
     if (ready && ready.revision !== failedRevision) return ready

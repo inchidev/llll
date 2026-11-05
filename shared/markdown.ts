@@ -94,6 +94,26 @@ function inline(src: string): string {
 /** One line of inline formatting (emphasis, code, links), escaped. Used by mail composition. */
 export { inline as renderInlineMarkdown }
 
+/** Cells of one `| a | b |` row, keeping a pipe that is escaped or inside inline code. */
+function tableCells(line: string): string[] | null {
+  const row = line.trim()
+  if (!row.includes('|')) return null
+  const cells: string[] = []
+  let cell = '', code = false
+  for (let index = 0; index < row.length; index++) {
+    const char = row[index]!
+    if (char === '\\' && row[index + 1] === '|') { cell += '|'; index += 1; continue }
+    if (char === '`') code = !code
+    if (char === '|' && !code) { cells.push(cell); cell = ''; continue }
+    cell += char
+  }
+  cells.push(cell)
+  if (row.startsWith('|')) cells.shift()
+  if (row.endsWith('|')) cells.pop()
+  return cells.map(item => item.trim())
+}
+const TABLE_RULE = /^:?-+:?$/
+
 export function renderMarkdown(src: string, names?: Record<string, string>): string {
   const fences: string[] = []
   // `>>> ` quotes everything after it, like Discord.
@@ -126,6 +146,22 @@ export function renderMarkdown(src: string, names?: Record<string, string>): str
         i += 1
       }
       html.push(`<blockquote>${quote.map((q) => inline(q)).join('<br>')}</blockquote>`)
+      continue
+    }
+    const header = tableCells(line)
+    const rule = header && tableCells(lines[i + 1] ?? '')
+    if (header && rule && rule.length === header.length && rule.every(cell => TABLE_RULE.test(cell))) {
+      const align = rule.map(cell => cell.endsWith(':') ? (cell.startsWith(':') ? ' class="center"' : ' class="right"') : '')
+      const row = (cells: string[], tag: string) => `<tr>${header.map((_, column) => `<${tag}${align[column]}>${inline(cells[column] ?? '')}</${tag}>`).join('')}</tr>`
+      const rows: string[] = []
+      i += 2
+      while (i < lines.length) {
+        const cells = (lines[i] ?? '').trim() ? tableCells(lines[i] ?? '') : null
+        if (!cells) break
+        rows.push(row(cells, 'td'))
+        i += 1
+      }
+      html.push(`<div class="table-scroll"><table><thead>${row(header, 'th')}</thead><tbody>${rows.join('')}</tbody></table></div>`)
       continue
     }
     const heading = line.match(HEADING)
