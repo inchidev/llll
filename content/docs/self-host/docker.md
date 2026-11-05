@@ -158,6 +158,8 @@ Text chat, Tasks, files and backups work without any provider. Add these keys to
 | `INBOUND_EMAIL_SECRET`, `POSTMARK_INBOUND_SECRET`, `MAILGUN_WEBHOOK_SIGNING_KEY`, `SES_SNS_TOPIC_ARN` | Inbound mail through a signed webhook. Secrets must be at least 32 characters. |
 | `BROWSER_CDP_URL` | A private Chromium DevTools endpoint for page reading. Do not publish its port. |
 
+You don't need to set any of these by hand. The Owner can enter search, page reading, Cloudflare and mail settings in **Server settings → Integrations**. A variable set here wins over the same setting there, and the screen shows it as set by the deployment.
+
 `/api/setup/health` reports which provider the Server chose. The [celld reference](https://github.com/inchidev/llll/blob/main/docs/self-host/celld.md) documents each provider, the token permissions and the inbound mail setup in detail.
 
 Without a Cloudflare token, calls stay unavailable and the call button is disabled; text chat keeps working.

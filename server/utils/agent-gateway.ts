@@ -1,3 +1,4 @@
+import { withIntegrations } from '../../workers/integrations'
 import { markUntrustedContext } from './agent-tool-security'
 import { reserveRunInference } from './agent-inference-budget'
 import { agentTimeContext } from './agent-time'
@@ -123,7 +124,8 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
 /** The gateway operations a Run's executor calls back on this Server. */
 export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files)$/u
 
-export async function agentGateway(request: Request, env: L4Env, runId: string, operation: string, schedule: (promise: Promise<unknown>) => void): Promise<Response> {
+export async function agentGateway(request: Request, deployment: L4Env, runId: string, operation: string, schedule: (promise: Promise<unknown>) => void): Promise<Response> {
+  const env = await withIntegrations(deployment)
   const capability = request.headers.get('Authorization')?.replace(/^Bearer /u, '') || ''
   if (!await verifyRunCapability(env, runId, capability)) return new Response('Unauthorized', { status: 401 })
   const run = await findAgentRun(env, runId)

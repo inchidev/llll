@@ -2,7 +2,7 @@
 import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Permission } from '~~/shared/permissions'
-import { outboundMcpProviders, type McpConnectionDTO, type McpConnectionInput } from '~~/shared/outbound-mcp'
+import { CUSTOM_MCP_PROVIDER, mcpEndpointProblem, outboundMcpProviders, type McpConnectionDTO, type McpConnectionInput } from '~~/shared/outbound-mcp'
 import type { ToolsSettingsDTO, ToolAuditPage } from '~~/shared/agent-tools-settings'
 const props=defineProps<{serverId:string}>()
 const emit=defineEmits<{roles:[]}>()
@@ -27,38 +27,57 @@ const selectedTool=ref<NonNullable<ToolsSettingsDTO['preview']>['tools'][number]
 const selectedToolAudit=ref<ToolAuditPage['entries'][number]|null>(null)
 const tools=computed(()=>(settings.value?.preview?.tools??[]).filter(tool=>(tool.name+' '+tool.description+' '+(tool.provenance?.connectionName??'')).toLowerCase().includes(search.value.toLowerCase())))
 const editorOpen=ref(false), editing=ref<string|null>(null), busy=ref(''), error=ref(''), removeTarget=ref<McpConnectionDTO|null>(null)
-const fresh=():McpConnectionInput=>({name:'',providerId:'cloudflare-docs',ownership:settings.value?.mayManageServer?'server':'member',enabled:false,grants:{agentIds:[],memberIds:[],roleIds:[]},toolNames:['search_cloudflare_documentation'],credentialExpiresAt:null})
+const fresh=():McpConnectionInput=>({name:'',providerId:'cloudflare-docs',endpoint:undefined,description:'',ownership:settings.value?.mayManageServer?'server':'member',enabled:false,grants:{agentIds:[],memberIds:[],roleIds:[]},toolNames:['search_cloudflare_documentation'],credentialExpiresAt:null})
 const form=reactive(fresh())
-const credential=ref(''), credentialAction=ref('keep'), expiry=ref('')
-const provider=computed(()=>outboundMcpProviders.find(p=>p.id===form.providerId)!)
-watch(()=>form.providerId,()=>{if(!editing.value)form.toolNames=[provider.value.readTools[0]]})
+const credential=ref(''), credentialAction=ref('keep'), expiry=ref(''), accessId=ref(''), accessSecret=ref('')
+const custom=computed(()=>form.providerId===CUSTOM_MCP_PROVIDER)
+const provider=computed(()=>outboundMcpProviders.find(p=>p.id===form.providerId))
+const endpointProblem=computed(()=>custom.value&&form.endpoint?mcpEndpointProblem(form.endpoint,window.location.origin):null)
+const discovered=computed(()=>connections.value.find(c=>c.id===editing.value)?.tools??[])
+const credentialOptions=computed(()=>[{label:connections.value.find(c=>c.id===editing.value)?.hasCredential?'Keep saved credential':'No credential',value:'keep'},{label:'Set or replace bearer token',value:'replace'},...(custom.value?[{label:'Set Cloudflare Access service token',value:'access'},{label:'Set X-API-Key',value:'apikey'}]:[]),{label:'Remove credential',value:'remove'}])
+const sources=computed(()=>[...(settings.value?.mayManageServer?[{id:CUSTOM_MCP_PROVIDER as McpConnectionInput['providerId'],name:'Custom MCP server',endpoint:'Your own HTTPS URL, such as Coolify or DBHub'}]:[]),...outboundMcpProviders])
+watch(()=>form.providerId,()=>{if(!editing.value)form.toolNames=provider.value?[provider.value.readTools[0]]:[]})
 watch(()=>form.ownership,value=>{if(value==='member'){form.grants.memberIds=[];form.grants.roleIds=[]}})
 function openEditor(connection?:McpConnectionDTO, providerId?:McpConnectionInput['providerId']) {
   editing.value=connection?.id??null
-  Object.assign(form,connection?{name:connection.name,providerId:connection.providerId,ownership:connection.ownership,enabled:connection.enabled,grants:{agentIds:[...connection.grants.agentIds],memberIds:[...connection.grants.memberIds],roleIds:[...connection.grants.roleIds]},toolNames:[...connection.toolNames],credentialExpiresAt:connection.credentialExpiresAt}:fresh())
-  if(providerId&&!connection)form.providerId=providerId
-  credential.value='';credentialAction.value='keep';expiry.value=connection?.credentialExpiresAt??'';error.value='';editorOpen.value=true
+  Object.assign(form,connection?{name:connection.name,providerId:connection.providerId,endpoint:connection.endpoint??undefined,description:connection.description,ownership:connection.ownership,enabled:connection.enabled,grants:{agentIds:[...connection.grants.agentIds],memberIds:[...connection.grants.memberIds],roleIds:[...connection.grants.roleIds]},toolNames:[...connection.toolNames],credentialExpiresAt:connection.credentialExpiresAt}:fresh())
+  if(providerId&&!connection){form.providerId=providerId;if(providerId===CUSTOM_MCP_PROVIDER){form.ownership='server';form.grants.memberIds=[]}}
+  accessId.value='';accessSecret.value='';credential.value='';credentialAction.value='keep';expiry.value=connection?.credentialExpiresAt??'';error.value='';editorOpen.value=true
 }
-watch(editorOpen,open=>{if(!open){credential.value='';credentialAction.value='keep'}})
-const config=(c:McpConnectionDTO):McpConnectionInput=>({name:c.name,providerId:c.providerId as McpConnectionInput['providerId'],ownership:c.ownership,enabled:c.enabled,grants:c.grants,toolNames:c.toolNames,credentialExpiresAt:c.credentialExpiresAt})
+const clearSecrets=()=>{credential.value='';accessId.value='';accessSecret.value=''}
+watch(editorOpen,open=>{if(!open){clearSecrets();credentialAction.value='keep'}})
+const config=(c:McpConnectionDTO):McpConnectionInput=>({name:c.name,providerId:c.providerId as McpConnectionInput['providerId'],endpoint:c.endpoint??undefined,description:c.description,ownership:c.ownership,enabled:c.enabled,grants:c.grants,toolNames:c.toolNames,credentialExpiresAt:c.credentialExpiresAt})
 async function reload(){await qc.invalidateQueries({queryKey:['tool-connections',props.serverId]});await qc.invalidateQueries({queryKey:['tool-settings',props.serverId]});await qc.invalidateQueries({queryKey:['tool-audit',props.serverId]})}
 async function action(id:string,operation:()=>Promise<unknown>,success:string){if(busy.value)return;busy.value=id;error.value='';try{await operation();await reload();toast.add({title:success,color:'success'})}catch(cause){error.value=errorMessage(cause)}finally{busy.value=''}}
 async function save(){
   const body:McpConnectionInput={...form,enabled:false,grants:{agentIds:[...form.grants.agentIds],memberIds:[...form.grants.memberIds],roleIds:[...form.grants.roleIds]},toolNames:[...form.toolNames],credentialExpiresAt:expiry.value||null}
   if(credentialAction.value==='remove')body.credential=null
   if(credentialAction.value==='replace')body.credential=credential.value
-  await action('save',async()=>{await api(root.value+'/tool-connections'+(editing.value?'/'+editing.value:''),{method:editing.value?'PUT':'POST',body});editorOpen.value=false;credential.value=''},'Connection saved')
+  if(credentialAction.value==='access')body.credentialHeaders=[{name:'CF-Access-Client-Id',value:accessId.value},{name:'CF-Access-Client-Secret',value:accessSecret.value}]
+  if(credentialAction.value==='apikey')body.credentialHeaders=[{name:'X-API-Key',value:credential.value}]
+  const isNew=!editing.value, needsTools=custom.value&&(isNew||credentialAction.value!=='keep')
+  await action('save',async()=>{
+    const saved=await api<{connection:McpConnectionDTO}>(root.value+'/tool-connections'+(editing.value?'/'+editing.value:''),{method:editing.value?'PUT':'POST',body})
+    clearSecrets();credentialAction.value='keep'
+    if(!needsTools){editorOpen.value=false;return}
+    // A custom URL has no reviewed list: fetch what it offers, then stay here to choose.
+    editing.value=saved.connection.id
+    const found=await listTools(saved.connection.id)
+    if(!found.connection.tools.length)error.value='This connection lists no tools an Agent can read.'
+  },needsTools?'Connection saved. Choose its tools':'Connection saved')
   // Never retain submitted credentials after an error or a successful request.
-  credential.value=''
+  clearSecrets()
 }
+const hiddenTools=ref<string[]>([])
+async function listTools(id:string){const found=await api<{connection:McpConnectionDTO;hiddenWriteTools:string[]}>(root.value+'/tool-connections/'+id+'/refresh',{method:'POST',body:{}});hiddenTools.value=found.hiddenWriteTools;return found}
 const health=(c:McpConnectionDTO)=>c.credentialExpiresAt&&Date.parse(c.credentialExpiresAt)<=Date.now()?'Credentials expired':c.lastError?'Needs attention':!c.tools.length?'Refresh required':c.enabled?'Enabled':'Disabled'
 function toggle(c:McpConnectionDTO){void action(c.id,()=>api(root.value+'/tool-connections/'+c.id,{method:'PUT',body:{...config(c),enabled:!c.enabled}}),c.enabled?'Connection disabled':'Connection enabled')}
-function refresh(c:McpConnectionDTO){void action(c.id,()=>api(root.value+'/tool-connections/'+c.id+'/refresh',{method:'POST',body:{}}),'Reviewed tools refreshed; start a new Run')}
+function refresh(c:McpConnectionDTO){void action(c.id,()=>listTools(c.id),'Tools refreshed; start a new Run')}
 async function remove(){const c=removeTarget.value;if(!c)return;await action(c.id,async()=>{await api(root.value+'/tool-connections/'+c.id,{method:'DELETE'});removeTarget.value=null},'Connection revoked')}
 </script>
 <template>
   <div class="min-w-0 space-y-5">
-    <div><h1 class="text-xl font-semibold text-highlighted">Tools</h1><p class="mt-2 text-sm text-muted">Connect read-only sources, inspect Agent capabilities and review tool activity.</p></div>
+    <div><h1 class="text-xl font-semibold text-highlighted">Tools</h1><p class="mt-2 text-sm text-muted">Connect sources Agents can read, inspect Agent capabilities and review tool activity.</p></div>
     <LayoutSegmentedTabs v-model="tab" :items="tabs" label="Tools sections" />
     <LayoutSkeleton v-if="settingsQ.isPending.value" variant="form" />
     <LayoutLoadError v-else-if="settingsQ.error.value" message="Tools could not be loaded." :retry="settingsQ.refetch" />
@@ -70,24 +89,26 @@ async function remove(){const c=removeTarget.value;if(!c)return;await action(c.i
         <section class="space-y-3"><div class="flex flex-wrap items-center gap-3"><h2 class="flex-1 font-medium">MCP connections you manage</h2><UButton v-if="settings.mayConnect" label="Connect source" icon="i-ph-plus" @click="openEditor()" /></div>
           <p v-if="!settings.mayConnect" class="text-sm text-muted">Your Role needs Use external tools to manage connections. Restricted connections are not listed.</p>
           <LayoutLoadError v-else-if="connectionsQ.error.value" message="Connections could not be loaded." :retry="connectionsQ.refetch" />
-          <p v-else-if="connectionsQ.isPending.value" role="status">Loading connections…</p><p v-else-if="!connections.length" class="text-sm text-muted">No connections you can manage. Connect a reviewed public source to get started.</p>
+          <p v-else-if="connectionsQ.isPending.value" role="status">Loading connections…</p><p v-else-if="!connections.length" class="text-sm text-muted">No connections you can manage. Connect a source to get started.</p>
           <SettingsList v-if="settings.mayConnect && !connectionsQ.error.value" :items="connections" :item-key="connection => connection.id" :search-text="connection => connection.name" :noun="['connection', 'connections']" @select="selectedConnectionId = $event.id"><template #row="{ item: connection }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-plugs-connected" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium">{{ connection.name }}</span><span class="block text-xs text-muted">{{ health(connection) }}</span></span></template></SettingsList>
           <SettingsEditor back="Tools" :open="Boolean(selectedConnection)" :title="selectedConnection?.name || 'Connection'" @update:open="value => { if (!value) selectedConnectionId = null }"><template #body><article v-if="selectedConnection" class="min-w-0 space-y-3">
             <template v-for="connection in [selectedConnection]" :key="connection.id">
             <div class="flex flex-wrap items-center gap-2"><h3 class="min-w-0 flex-1 break-words font-medium">{{ connection.name }}</h3><UBadge :label="health(connection)" color="neutral" variant="subtle" /></div>
-            <p class="text-xs text-muted">{{ connection.ownership==='server'?'Server-owned':'Personal' }} · {{ connection.providerId }} · revision {{ connection.revision }}</p>
-            <p class="text-xs text-muted">{{ connection.checkedAt?'Last checked '+new Date(connection.checkedAt).toLocaleString():'Not checked yet' }} · {{ connection.hasCredential?'Credential saved (hidden)':'Public connection' }}</p>
+            <p class="text-xs text-muted">{{ connection.ownership==='server'?'Server-owned':'Personal' }} · {{ connection.endpoint ?? connection.providerId }} · revision {{ connection.revision }}</p>
+            <p class="text-xs text-muted">{{ connection.checkedAt?'Last checked '+new Date(connection.checkedAt).toLocaleString():'Not checked yet' }} · {{ connection.hasCredential?'Credential saved (hidden)':'No credential' }}</p>
+            <p v-if="connection.description" class="text-sm text-muted">{{ connection.description }}</p>
+            <p v-if="hiddenTools.length" class="text-sm text-warning">Not available, because they can change data: {{ hiddenTools.join(', ') }}. Agents cannot write through a connection yet.</p>
             <p v-if="connection.lastError" class="text-sm text-warning">Refresh or reconnect this source. Status: {{ connection.lastError }}</p>
             <p v-if="connection.credentialExpiresAt" class="text-xs text-muted">Credential expiry: {{ new Date(connection.credentialExpiresAt).toLocaleString() }}</p>
-            <div class="flex flex-wrap gap-2"><UButton label="Edit connection" color="neutral" variant="outline" :disabled="Boolean(busy)" @click="openEditor(connection); selectedConnectionId = null" /><UButton label="Refresh tools" color="neutral" variant="outline" :loading="busy===connection.id" @click="refresh(connection)" /><UButton :label="connection.enabled?'Disable':'Enable'" color="neutral" variant="outline" :disabled="Boolean(busy)||(!connection.enabled&&(!connection.tools.length||Boolean(connection.lastError)))" @click="toggle(connection)" /><UButton label="Revoke" color="error" variant="soft" :disabled="Boolean(busy)" @click="removeTarget=connection; selectedConnectionId = null" /></div>
-            <details v-for="tool in connection.tools" :key="tool.name" class="min-w-0 rounded border border-default p-3"><summary class="cursor-pointer break-all text-sm">{{ tool.remoteName }} · read-only</summary><p class="mt-2 break-words text-sm text-muted">{{ tool.description }}</p><p class="mt-2 break-all text-xs text-muted">{{ tool.name }} · {{ tool.hash }}</p><pre class="mt-2 max-h-64 overflow-auto text-xs">{{ JSON.stringify(tool.parameters,null,2) }}</pre></details>
+            <div class="flex flex-wrap gap-2"><UButton label="Edit connection" color="neutral" variant="outline" :disabled="Boolean(busy)" @click="openEditor(connection); selectedConnectionId = null" /><UButton label="Refresh tools" color="neutral" variant="outline" :loading="busy===connection.id" @click="refresh(connection)" /><UButton :label="connection.enabled?'Disable':'Enable'" color="neutral" variant="outline" :disabled="Boolean(busy)||(!connection.enabled&&(!connection.tools.length||!connection.toolNames.length||Boolean(connection.lastError)))" @click="toggle(connection)" /><UButton label="Revoke" color="error" variant="soft" :disabled="Boolean(busy)" @click="removeTarget=connection; selectedConnectionId = null" /></div>
+            <details v-for="tool in connection.tools.filter(tool=>connection.toolNames.includes(tool.remoteName))" :key="tool.name" class="min-w-0 rounded border border-default p-3"><summary class="cursor-pointer break-all text-sm">{{ tool.remoteName }} · read-only</summary><p class="mt-2 break-words text-sm text-muted">{{ tool.description }}</p><p class="mt-2 break-all text-xs text-muted">{{ tool.name }} · {{ tool.hash }}</p><pre class="mt-2 max-h-64 overflow-auto text-xs">{{ JSON.stringify(tool.parameters,null,2) }}</pre></details>
             </template>
           </article></template></SettingsEditor>
         </section>
       </template>
       <template v-else-if="tab==='connect'">
-        <p class="text-sm text-muted">Only reviewed public HTTPS providers are supported. External writes, custom endpoints, local commands and automatic OAuth authorization are unavailable.</p>
-        <SettingsList :items="[...outboundMcpProviders]" :item-key="source => source.id" :search-text="source => source.name" :noun="['source', 'sources']" @select="source => { if (settings?.mayConnect) openEditor(undefined, source.id) }"><template #row="{ item: source }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-plugs-connected" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium">{{ source.name }}</span><span class="block truncate text-xs text-muted">{{ source.endpoint }}</span></span></template></SettingsList>
+        <p class="text-sm text-muted">Connect a reviewed public source, or, as the Owner, your own HTTPS MCP server. External writes, local commands and automatic OAuth authorization are unavailable.</p>
+        <SettingsList :items="sources" :item-key="source => source.id" :search-text="source => source.name" :noun="['source', 'sources']" @select="source => { if (settings?.mayConnect) openEditor(undefined, source.id) }"><template #row="{ item: source }"><span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-elevated text-muted"><UIcon name="i-ph-plugs-connected" class="size-4" /></span><span class="min-w-0 flex-1"><span class="block text-sm font-medium">{{ source.name }}</span><span class="block truncate text-xs text-muted">{{ source.endpoint }}</span></span></template></SettingsList>
         <p v-if="!settings.mayConnect" class="text-sm text-muted">Ask an authorized Role manager for Use external tools. This grant does not share a connection.</p>
       </template>
       <template v-else-if="tab==='permissions'">
@@ -117,22 +138,34 @@ async function remove(){const c=removeTarget.value;if(!c)return;await action(c.i
       <template #body><form id="mcp-connection-form" class="space-y-4" @submit.prevent="save">
         <UAlert v-if="error" color="error" title="Connection was not saved" :description="error" />
         <UFormField label="Name" required><UInput v-model="form.name" aria-label="Connection name" maxlength="60" required class="w-full" /></UFormField>
-        <UFormField label="Provider"><USelect v-model="form.providerId" :items="outboundMcpProviders.map(p=>({label:p.name,value:p.id}))" value-key="value" :disabled="Boolean(editing)" aria-label="MCP provider" class="w-full" /></UFormField>
-        <UFormField label="Ownership"><USelect v-model="form.ownership" :items="settings?.mayManageServer?[{label:'Server-owned',value:'server'},{label:'Personal',value:'member'}]:[{label:'Personal',value:'member'}]" value-key="value" :disabled="Boolean(editing)" aria-label="Connection ownership" class="w-full" /></UFormField>
+        <UFormField label="Provider"><USelect v-model="form.providerId" :items="sources.map(p=>({label:p.name,value:p.id}))" value-key="value" :disabled="Boolean(editing)" aria-label="MCP provider" class="w-full" /></UFormField>
+        <template v-if="custom">
+          <UFormField label="MCP URL" required :error="endpointProblem ?? undefined" help="A URL cannot change later. To use another address, create a new connection."><UInput v-model="form.endpoint" type="url" aria-label="MCP URL" placeholder="https://coolify.example.com/mcp" :disabled="Boolean(editing)" required class="w-full" /></UFormField>
+          <UFormField label="What it holds" help="Agents read this to decide when to use the connection."><UInput v-model="form.description" aria-label="What this connection holds" maxlength="300" placeholder="Customers, subscriptions and payments" class="w-full" /></UFormField>
+          <UAlert color="warning" title="Agents use this connection with one shared credential" description="Everyone you allow sees what that credential sees, so make it read-only and narrow. An answer appears where the question was asked, for everyone in that conversation. Agents may also send Server data to this service in their requests. For DBHub, turn on its readonly setting." />
+        </template>
+        <UFormField v-if="!custom" label="Ownership"><USelect v-model="form.ownership" :items="settings?.mayManageServer?[{label:'Server-owned',value:'server'},{label:'Personal',value:'member'}]:[{label:'Personal',value:'member'}]" value-key="value" :disabled="Boolean(editing)" aria-label="Connection ownership" class="w-full" /></UFormField>
         <p class="text-sm text-muted">{{ form.ownership==='member'?'Only you can manage this connection. You must initiate its Runs; only explicitly selected Agents can use it.':'Select Agent and initiator grants. A selected Role can grant either side; both sides still need Use external tools.' }}</p>
         <UFormField label="Allowed Agents"><USelectMenu v-model="form.grants.agentIds" :items="agentOptions" value-key="value" multiple aria-label="Allowed Agents" class="w-full" /></UFormField>
         <template v-if="form.ownership==='server'">
           <UFormField label="Allowed initiating Members"><USelectMenu v-model="form.grants.memberIds" :items="memberOptions" value-key="value" multiple aria-label="Allowed initiating Members" class="w-full" /></UFormField>
           <UFormField label="Allowed Roles"><USelectMenu v-model="form.grants.roleIds" :items="roleOptions" value-key="value" multiple aria-label="Allowed Roles" class="w-full" /></UFormField>
         </template>
-        <fieldset class="space-y-2"><legend class="mb-2 text-sm font-medium">Reviewed read-only tools</legend><UCheckbox v-for="name in provider.readTools" :key="name" :model-value="form.toolNames.includes(name)" :label="name" @update:model-value="value=>{form.toolNames=value?[...form.toolNames,name]:form.toolNames.filter(t=>t!==name)}" /></fieldset>
+        <fieldset v-if="provider" class="space-y-2"><legend class="mb-2 text-sm font-medium">Reviewed read-only tools</legend><UCheckbox v-for="name in provider.readTools" :key="name" :model-value="form.toolNames.includes(name)" :label="name" @update:model-value="value=>{form.toolNames=value?[...form.toolNames,name]:form.toolNames.filter(t=>t!==name)}" /></fieldset>
+        <fieldset v-else-if="discovered.length" class="space-y-2"><legend class="mb-2 text-sm font-medium">Tools Agents may use</legend><UCheckbox v-for="tool in discovered" :key="tool.name" :model-value="form.toolNames.includes(tool.remoteName)" :label="tool.remoteName" :description="tool.declaredReadOnly?'The service says this only reads.':'The service does not say whether this only reads. Choose it only if the credential cannot change anything.'" @update:model-value="value=>{form.toolNames=value?[...form.toolNames,tool.remoteName]:form.toolNames.filter(t=>t!==tool.remoteName)}" /></fieldset>
+        <p v-if="custom && hiddenTools.length" class="text-sm text-warning">Not available, because they can change data: {{ hiddenTools.join(', ') }}.</p>
+        <p v-else-if="custom && !discovered.length" class="text-sm text-muted">Save to connect. L4 then lists the tools this URL offers and you choose which ones Agents may use.</p>
         <p class="text-sm text-muted">Saving disables the connection. Refresh tools, then enable it when ready. Saving, credential rotation or refreshing changes the revision: existing Runs must be restarted.</p>
-        <UFormField label="Credential change"><USelect v-model="credentialAction" :items="[{label:editing&&connections.find(c=>c.id===editing)?.hasCredential?'Keep saved credential':'Public / no credential',value:'keep'},{label:'Set or replace bearer token',value:'replace'},{label:'Remove credential',value:'remove'}]" value-key="value" aria-label="Credential change" class="w-full" /></UFormField>
-        <UFormField v-if="credentialAction==='replace'" label="Bearer token" required><UInput v-model="credential" type="password" autocomplete="new-password" aria-label="Bearer token" :required="credentialAction==='replace'" class="w-full" /></UFormField>
+        <UFormField label="Credential change"><USelect v-model="credentialAction" :items="credentialOptions" value-key="value" aria-label="Credential change" class="w-full" /></UFormField>
+        <UFormField v-if="credentialAction==='replace'||credentialAction==='apikey'" :label="credentialAction==='apikey'?'API key':'Bearer token'" required><UInput v-model="credential" type="password" autocomplete="new-password" :aria-label="credentialAction==='apikey'?'API key':'Bearer token'" required class="w-full" /></UFormField>
+        <template v-if="credentialAction==='access'">
+          <UFormField label="Client ID" required><UInput v-model="accessId" type="password" autocomplete="off" aria-label="Cloudflare Access client ID" required class="w-full" /></UFormField>
+          <UFormField label="Client secret" required><UInput v-model="accessSecret" type="password" autocomplete="new-password" aria-label="Cloudflare Access client secret" required class="w-full" /></UFormField>
+        </template>
         <UFormField label="Credential expiry (ISO date/time)"><UInput v-model="expiry" aria-label="Credential expiry" placeholder="2026-12-31T23:59:59Z" class="w-full" /></UFormField>
         <p class="text-xs text-muted">Saved credentials are never displayed. Changing expiry requires a new token. Expired/revoked OAuth tokens require manual replacement; automatic OAuth authorization/refresh is unavailable.</p>
       </form></template>
-      <template #footer><UButton label="Cancel" color="neutral" variant="outline" :disabled="Boolean(busy)" @click="editorOpen=false" /><UButton label="Save connection" type="submit" form="mcp-connection-form" :loading="busy==='save'" :disabled="!form.name.trim()||!form.toolNames.length" /></template>
+      <template #footer><UButton label="Cancel" color="neutral" variant="outline" :disabled="Boolean(busy)" @click="editorOpen=false" /><UButton label="Save connection" type="submit" form="mcp-connection-form" :loading="busy==='save'" :disabled="!form.name.trim()||(custom?!form.endpoint||Boolean(endpointProblem):!form.toolNames.length)" /></template>
     </SettingsEditor>
     <UModal :open="Boolean(removeTarget)" title="Revoke connection?" @update:open="value=>{if(!value)removeTarget=null}"><template #body><p class="text-sm text-muted">{{ removeTarget?.name }} will be removed. Active Runs lose access to subsequent calls and cached results.</p></template><template #footer><UButton label="Cancel" color="neutral" variant="outline" :disabled="Boolean(busy)" @click="removeTarget=null" /><UButton label="Revoke connection" color="error" :loading="Boolean(busy)" @click="remove" /></template></UModal>
   </div>

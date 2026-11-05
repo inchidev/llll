@@ -14,6 +14,7 @@ import { liveKindFor } from '../shared/live'
 import { CHANNEL_ROLE_OVERRIDE_SQL, resolveChannelPermissions } from '../shared/channel-permissions'
 import { newId, nowIso } from '../shared/ids'
 import { asRpc, callsProvider, type L4Env } from './env'
+import { withIntegrations } from './integrations'
 import type { RealtimeKitParticipant } from './realtimekit'
 import { liveMedia } from './live-media'
 import { sessionFromTicket, socketSessionActive } from './ticket'
@@ -802,7 +803,7 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     if (authz.archived) return liveFailure('channel_archived', CHANNEL_ARCHIVED_MESSAGE)
     if (authz.type === 'thread') return liveFailure('forbidden', 'Join the live session in the parent conversation')
     if (authz.frozen) return liveFailure('frozen', 'You can no longer call in this Direct Message')
-    if (!callsProvider(this.env)) {
+    if (!callsProvider(await withIntegrations(this.env))) {
       return liveFailure('calls_unavailable', 'Calls use Cloudflare RealtimeKit and are unavailable on this runtime')
     }
     const media = await liveMedia(this.env)

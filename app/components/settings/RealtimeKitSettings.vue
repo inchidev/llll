@@ -147,7 +147,7 @@ onMounted(load)
       color="neutral"
       variant="subtle"
       title="Calls are unavailable on this runtime"
-      description="Live sessions and calls use Cloudflare RealtimeKit. This Server is not on Cloudflare's network, so they stay off. Text chat is unaffected."
+      description="Live sessions and calls use Cloudflare RealtimeKit. To turn them on, add a Cloudflare account under Integrations. Text chat is unaffected."
     />
     <UAlert
       v-else-if="restCalls && !connected"
@@ -155,7 +155,7 @@ onMounted(load)
       color="neutral"
       variant="subtle"
       title="Calls use your Cloudflare API token"
-      description="The first call creates a RealtimeKit app with CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN. A separate Realtime token is optional."
+      description="The first call creates a RealtimeKit app with the Cloudflare account under Integrations. A separate Realtime token is optional."
     />
 
     <LayoutSkeleton v-if="loading" variant="form" class="mt-6" />

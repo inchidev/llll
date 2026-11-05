@@ -37,6 +37,10 @@ Models listed for a connection appear in Agent and conversation model pickers. M
 > [!TIP]
 > Models chosen before L4 recorded model capabilities may show none. Open the Provider and select **Save** once to refresh them.
 
+### Exa web search
+
+An Exa key is the other way to search. Enter it in **Server settings → Integrations → Web search**. It takes precedence over OpenRouter.
+
 ### OpenRouter web search
 
 An OpenRouter connection has a **Web search** switch. It lets Agents with **Research the web** search through OpenRouter. Additional OpenRouter charges apply. To use it, also assign a model to the **Web search** AI function (see below).
@@ -77,7 +81,7 @@ AI functions are small Server jobs that use a model directly, without an Agent. 
 | --- | --- |
 | Help with Apps | Drafts Apps from Database Views. Apps are paused in this release. |
 | Thread titles | Names new Threads from their first message. Existing titles stay. |
-| Web search | Search for Agents. Choose an OpenRouter model with web search enabled. An Exa key configured by the operator takes precedence. |
+| Web search | Search for Agents. Choose an OpenRouter model with web search enabled. An Exa key under **Server settings → Integrations** takes precedence. |
 | Avatars | Draws profile pictures for Members and Agents. Needs an OpenRouter model that outputs images, such as Nano Banana. |
 | Image descriptions | Describes attached images for Agents whose model cannot see them. |
 | Voice transcription | Turns voice messages into text for Agents. |
