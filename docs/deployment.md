@@ -29,6 +29,8 @@ The Cloudflare tab lists Workers carrying the current L4 Server marker. Server s
 Our own deployments live in the private `inchidev/llll-cloud`: one Worker for all of llll.gg, deployed only by Workers Builds from its `main`. This repository deploys nothing of ours. See [one Server per tenant](adr/0008-server-per-tenant.md).
 
 
+A Server's Worker runs beside its database, wherever a request enters Cloudflare, because a request makes several trips to D1 and only one to the browser. Each install and update asks D1 where it is and uploads the matching `placement.region`, or Smart Placement if D1 does not say. A Server gets this with its next update.
+
 ## VPS / celld
 
 `self-host/docker-compose.yml` is the common celld/RustFS/Caddy stack. It runs an already loaded portable image; `compose.build.yml` adds a local source build and `compose.dev.yml` adds source watching and Client HMR. See [self-host setup](../self-host/README.md) and [local development](local-development.md). The release-pinned [VPS installer](vps-installer.md) adds public HTTPS, repeatable setup and backup/restore/upgrade commands through `compose.vps.yml`. It becomes available only when a release containing it is published. The [Coolify template](../self-host/coolify/README.md) uses the published `ghcr.io/inchidev/llll` image and Coolify's own proxy; its updates are an image tag.

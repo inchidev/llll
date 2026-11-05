@@ -126,6 +126,10 @@
   // per Preview and deleted with it. Cron triggers and routes target only the
   // production instance.
   "previews": {
+    // Every Preview database is created in APAC, so Preview Workers run there too.
+    "placement": {
+      "region": "aws:ap-southeast-1"
+    },
     "vars": {
       "PUBLIC_ORIGIN": "https://server-preview.dev.llll.gg",
       "ADMIN_USERNAME": "owner",

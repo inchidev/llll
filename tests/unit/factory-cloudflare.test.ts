@@ -207,6 +207,7 @@ async function provisioningFixture() {
   })
   const settings = vi.fn(async () => ({
     observability: state.observability,
+    placement: { region: 'aws:ap-northeast-3' },
     bindings: [
       { type: 'd1', name: 'DB', database_id: 'existing-database' }, { type: 'secret_text', name: 'AUTH_SECRET' },
       { type: 'kv_namespace', name: 'TICKETS', namespace_id: 'existing-kv' }, { type: 'secret_text', name: 'GITHUB_AGENT_APP_PRIVATE_KEY' },
@@ -245,6 +246,7 @@ it.each([undefined, { enabled: false }])('preserves Factory provisioning observa
   const uploaded = fixture.calls.find(call => call.path.includes('/workers/scripts/'))!
   const metadata = JSON.parse(String((uploaded.init!.body as FormData).get('metadata')))
   expect(metadata.observability).toMatchObject(observability ?? { enabled: true, redact_query_string: true })
+  expect(metadata.placement).toEqual({ region: 'aws:ap-northeast-3' })
 })
 
 it('repairs an old image only when Factory has never admitted a Node or Task source', async () => {
