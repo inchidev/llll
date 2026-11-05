@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1'
 import baselineSql from '../../drizzle/server-migrations/0000_baseline.sql?raw'
 import tasksChatItemsSql from '../../drizzle/server-migrations/0001_tasks_chat_items.sql?raw'
 import customMcpConnectionsSql from '../../drizzle/server-migrations/0002_custom_mcp_connections.sql?raw'
+import messagesByChannelSql from '../../drizzle/server-migrations/0003_messages_by_channel.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 
@@ -29,6 +30,7 @@ export const INIT_SQL = d1ExecSql([
   baselineSql,
   tasksChatItemsSql,
   customMcpConnectionsSql,
+  messagesByChannelSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

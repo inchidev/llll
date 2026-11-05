@@ -1,10 +1,9 @@
 import { requireProject } from './project-service'
-import { loadProjectPolicies } from './project-policies'
 import { taskPermissionAllowed } from './task-policy'
 import { parseResourceAccess } from '../../shared/resource-access'
 import { getServerId } from '../../shared/server-id'
-import { and, eq, inArray } from 'drizzle-orm'
-import { channels, channelMembers, emailMailboxes, roles, spaceMembers, tasks, users, server } from '../../drizzle/schema'
+import { eq, getTableColumns, inArray } from 'drizzle-orm'
+import { channels, channelMembers, spaceMembers, users } from '../../drizzle/schema'
 import { CHANNEL_ROLE_OVERRIDE_SQL, resolveChannelPermissions } from '../../shared/channel-permissions'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission, type PermissionFlag } from '../../shared/permissions'
 import { mailboxGrantPermissionSql, mailPermissionAllows } from '../../shared/mail'
@@ -15,7 +14,7 @@ import type { AuthorizationContext } from '../../shared/authorization'
 import type { L4Env } from '../../workers/env'
 import { SpaceAdminPermissions, spaceAllowed } from '../../shared/spaces'
 import { fail } from './cf'
-import { loadSpaceBoundary, type SpaceRequest } from './space-access'
+import { loadMemberRows, loadSpaceBoundary, type SpaceRequest } from './space-access'
 import { getDb } from './db'
 import { toPublicUser } from './messages'
 
@@ -48,26 +47,16 @@ export function requireActiveChannel(access: Pick<ServerChannelAccess, 'archived
 
 export async function requireMemberForUser(env: L4Env, user: PublicUser, serverId: string, flag?: PermissionFlag, source?: Partial<Pick<AuthorizationContext, 'credential' | 'delegation' | 'spaces'>> & SpaceRequest): Promise<ServerMembership> {
   if (serverId !== (await getServerId(env.DB))) fail(404, 'not_found', 'Server not found')
-  const db = getDb(env.DB)
-  const [rows, homes, boundary] = await Promise.all([
-    db.select({
-      roleId: users.roleId,
-      roleName: roles.name,
-      perms: roles.permissionsBitmask,
-      resourceAccessJson: roles.resourceAccessJson,
-    }).from(users)
-      .innerJoin(roles, eq(roles.id, users.roleId))
-      .where(and(eq(users.id, user.id), eq(users.status, 'active')))
-      .limit(1),
-    db.select({ ownerId: server.ownerId }).from(server).where(eq(server.id, (await getServerId(env.DB)))).limit(1),
-    source?.spaces ? { ...source.spaces, adminHere: false } : loadSpaceBoundary(env, user.id, { delegatedBy: source?.delegation?.by, scope: source?.spaceScope }),
-  ])
-
-  const row = rows[0]
+  const delegatedBy = source?.delegation?.by ?? null
+  // The route check read this Member's rows already. A delegated request also needs its delegator's Spaces.
+  const { member: row, spaces, policies } = source?.memberRows?.userId === user.id && !delegatedBy
+    ? source.memberRows
+    : (await loadMemberRows(env, user.id, { delegatedBy })).rows
   if (!row) fail(403, 'forbidden', 'Not a member of this server')
-  const home = homes[0]
-  if (!home) fail(404, 'not_found', 'Server not found')
-  const isOwner = home.ownerId === user.id
+  if (!row.ownerId) fail(404, 'not_found', 'Server not found')
+  const ownerId = row.ownerId
+  const isOwner = ownerId === user.id
+  const boundary = source?.spaces ? { ...source.spaces, adminHere: false } : await loadSpaceBoundary(env, user.id, { delegatedBy, scope: source?.spaceScope, rows: spaces })
   // A Space admin's extra permissions exist only on a request the route policy scoped to their Space.
   const perms = isOwner ? ALL_PERMISSIONS : row.perms | (source?.spaceAdmin && boundary.adminHere ? SpaceAdminPermissions : 0)
   if (flag !== undefined && !hasPermission(perms, flag)) {
@@ -83,7 +72,7 @@ export async function requireMemberForUser(env: L4Env, user: PublicUser, serverI
       permissions: perms,
       isOwner,
       resourceAccess: parseResourceAccess(row.resourceAccessJson),
-      projectPolicies: await loadProjectPolicies(env, user.id, row.roleId!),
+      projectPolicies: policies,
     },
     spaces: { ids: boundary.ids, active: boundary.active, denied: boundary.denied },
     credential: source?.credential ?? { kind: 'session' },
@@ -95,28 +84,47 @@ export async function requireMemberForUser(env: L4Env, user: PublicUser, serverI
     roleId: row.roleId!,
     roleName: row.roleName,
     perms,
-    ownerId: home.ownerId,
+    ownerId,
     isOwner,
     authorization,
   }
 }
 
+const CHANNEL_SELECT = Object.entries(getTableColumns(channels)).map(([key, column]) => `${column.name} AS ${key}`).join(',')
+
+/** What decides a Member's access to one channel, in this order. The Owner has no Role override to read. */
+function accessFactStatements(env: L4Env, rootId: string, member: ServerMembership) {
+  return [
+    env.DB.prepare('SELECT 1 AS ok FROM channel_members WHERE channel_id = ? AND user_id = ? LIMIT 1').bind(rootId, member.user.id),
+    env.DB.prepare('SELECT enabled FROM email_mailboxes WHERE channel_id = ? LIMIT 1').bind(rootId),
+    env.DB.prepare(`SELECT ${mailboxGrantPermissionSql('g')} AS permission FROM grants g WHERE g.mailbox_id = ? AND g.member_id = ?`).bind(rootId, member.user.id),
+    env.DB.prepare('SELECT id, board_id AS boardId, project_id AS projectId FROM tasks WHERE discussion_channel_id = ? LIMIT 1').bind(rootId),
+    ...member.isOwner ? [] : [env.DB.prepare(CHANNEL_ROLE_OVERRIDE_SQL).bind(rootId, member.roleId)],
+  ]
+}
+
 export async function requireChannelAccessForMember(env: L4Env, member: ServerMembership | Promise<ServerMembership>, channelId: string, flag?: PermissionFlag, method = 'GET'): Promise<ServerChannelAccess> {
   const db = getDb(env.DB)
-  // Membership does not depend on the channel, so both lookups share one round trip.
+  // A Member already known shares one round trip with the channel. One still loading runs alongside it.
+  const known = member instanceof Promise ? null : member
   // Settle both and report failures in the original order: missing channel first.
   const [channelResult, memberResult] = await Promise.allSettled([
-    db.select().from(channels).where(eq(channels.id, channelId)).limit(1),
+    env.DB.batch<unknown>([
+      env.DB.prepare(`SELECT ${CHANNEL_SELECT} FROM channels WHERE id = ?1 OR id = (SELECT parent_id FROM channels WHERE id = ?1 AND type = 'thread')`).bind(channelId),
+      ...known ? accessFactStatements(env, channelId, known) : [],
+    ]),
     Promise.resolve(member),
   ])
   if (channelResult.status === 'rejected') throw channelResult.reason
-  const channel = channelResult.value[0]
+  const [found, ...firstFacts] = channelResult.value
+  const candidates = (found?.results ?? []) as Array<typeof channels.$inferSelect>
+  const channel = candidates.find(row => row.id === channelId)
   if (!channel) fail(404, 'not_found', 'Channel not found')
 
   const type = channel.type
   let accessRoot = channel
   if (type === 'thread' && channel.parentId) {
-    const parent = (await db.select().from(channels).where(eq(channels.id, channel.parentId)).limit(1))[0]
+    const parent = candidates.find(row => row.id === channel.parentId)
     if (!parent) fail(404, 'not_found', 'Parent channel not found')
     accessRoot = parent
   }
@@ -134,17 +142,12 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
     await requireChannelAccessForMember(env, requireMemberForUser(env, toPublicUser(delegator), baseMember.serverId), channelId, flag, method)
   }
 
-  const [privateParts, mailboxes, grants, discussions] = await Promise.all([
-    accessRoot.visibility === 'private'
-      ? db.select().from(channelMembers).where(and(eq(channelMembers.channelId, accessRoot.id), eq(channelMembers.userId, baseMember.user.id))).limit(1)
-      : null,
-    db.select({ enabled: emailMailboxes.enabled }).from(emailMailboxes)
-      .where(eq(emailMailboxes.channelId, accessRoot.id)).limit(1),
-    env.DB.prepare(`SELECT ${mailboxGrantPermissionSql('g')} AS permission FROM grants g WHERE g.mailbox_id = ? AND g.member_id = ?`)
-      .bind(accessRoot.id, user.id).all<{ permission: MailboxPermission }>().then(rows => rows.results),
-    db.select({ id: tasks.id, boardId: tasks.boardId, projectId: tasks.projectId }).from(tasks).where(eq(tasks.discussionChannelId, accessRoot.id)).limit(1),
-  ])
-  if (privateParts && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
+  // A Thread is authorized by its parent, so it needs the parent's facts.
+  const facts = known && accessRoot.id === channelId ? firstFacts : await env.DB.batch<unknown>(accessFactStatements(env, accessRoot.id, baseMember))
+  const [privateParts, mailboxes, grants, discussions, overrides] = facts.map(fact => fact.results ?? []) as [
+    unknown[], Array<{ enabled: number }>, Array<{ permission: MailboxPermission }>, Array<{ id: string; boardId: string; projectId: string | null }>, Array<{ allow: number | null; deny: number | null }> | undefined,
+  ]
+  if (accessRoot.visibility === 'private' && !privateParts[0]) fail(404, 'not_found', 'Channel not found')
   // A task's discussion is part of the task: only people who can work with tasks may open it.
   if (discussions[0] && !taskPermissionAllowed(baseMember.authorization, discussions[0], Permission.readTasks)) {
     fail(404, 'not_found', 'Channel not found')
@@ -169,14 +172,16 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
   }
 
   if (rootType === 'dm') {
-    const parts = await db.select().from(channelMembers).where(eq(channelMembers.channelId, accessRoot.id))
-    const userRows = await db.select().from(users).where(inArray(users.id, parts.map((p) => p.userId)))
+    const [parts, userRows, inSpace] = await db.batch([
+      db.select().from(channelMembers).where(eq(channelMembers.channelId, accessRoot.id)),
+      db.select().from(users).where(inArray(users.id, db.select({ id: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, accessRoot.id)))),
+      db.select({ userId: spaceMembers.userId }).from(spaceMembers).where(eq(spaceMembers.spaceId, accessRoot.spaceId)),
+    ])
     const participants = userRows.map(toPublicUser)
     const canManageAgents = baseMember.isOwner || hasPermission(baseMember.perms, Permission.useAgents)
     if (user.kind !== 'agent' && participants.some(participant => participant.kind === 'agent') && !canManageAgents) {
       fail(404, 'not_found', 'Channel not found')
     }
-    const inSpace = await db.select({ userId: spaceMembers.userId }).from(spaceMembers).where(eq(spaceMembers.spaceId, accessRoot.spaceId))
     const spaceIds = new Set(inSpace.map(row => row.userId))
     const stillIn = new Set(userRows.filter(row => row.status === 'active' && spaceIds.has(row.id)).map(row => row.id))
     const frozen = dmFrozen(parts.length, parts.filter(p => stillIn.has(p.userId)).length)
@@ -205,10 +210,7 @@ export async function requireChannelAccessForMember(env: L4Env, member: ServerMe
   }
 
   let perms = baseMember.perms
-  if (!baseMember.isOwner) {
-    const override = await env.DB.prepare(CHANNEL_ROLE_OVERRIDE_SQL).bind(accessRoot.id, baseMember.roleId).first<{ allow: number | null; deny: number | null }>()
-    perms = resolveChannelPermissions(perms, override)
-  }
+  if (!baseMember.isOwner) perms = resolveChannelPermissions(perms, overrides?.[0] ?? null)
   if (mailbox && mailPermissionAllows(grants[0]!.permission, 'send') && (baseMember.isOwner || hasPermission(baseMember.perms, Permission.sendMail))) {
     perms |= Permission.sendMessages | Permission.attachFiles
   }

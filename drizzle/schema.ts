@@ -1,6 +1,6 @@
 import { DEFAULT_SPACE_ID } from '../shared/spaces'
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
-import { sql } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, real, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { CHANNEL_PERMISSION_MASK } from '../shared/channel-permissions'
 
@@ -47,6 +47,9 @@ export const authSessions = sqliteTable('auth_sessions', {
   index('auth_sessions_user_id_idx').on(table.userId),
 ])
 
+export const authUserRelations = relations(authUsers, ({ many }) => ({ sessions: many(authSessions), accounts: many(authAccounts) }))
+export const authSessionRelations = relations(authSessions, ({ one }) => ({ user: one(authUsers, { fields: [authSessions.userId], references: [authUsers.id] }) }))
+
 export const authAccounts = sqliteTable('auth_accounts', {
   id: text('id').primaryKey(),
   accountId: text('account_id').notNull(),
@@ -73,6 +76,7 @@ export const authVerifications = sqliteTable('auth_verifications', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).default(sql`(cast(unixepoch() * 1000 as integer))`),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).default(sql`(cast(unixepoch() * 1000 as integer))`),
 })
+export const authAccountRelations = relations(authAccounts, ({ one }) => ({ user: one(authUsers, { fields: [authAccounts.userId], references: [authUsers.id] }) }))
 
 /** Better Auth OAuth Provider storage. Token values are SHA-256 digests. */
 
@@ -563,6 +567,8 @@ export const messages = sqliteTable('messages', {
   createdAt: text('created_at').notNull(),
 }, table => [
   index('messages_channel_created_idx').on(table.channelId, table.createdAt, table.id),
+  // A page of a channel, deleted messages included, without sorting the whole channel.
+  index('messages_channel_id_idx').on(table.channelId, table.id),
   index('messages_author_id_idx').on(table.authorId),
   index('messages_live_channel_id_idx').on(table.channelId, table.id).where(sql`${table.deletedAt} is null`),
 ])
@@ -1707,6 +1713,9 @@ export const serverDomainRequests = sqliteTable('server_domain_requests', {
 ])
 
 export const schema = {
+  authUserRelations,
+  authSessionRelations,
+  authAccountRelations,
   projectPolicies,
   grants,
   mcpOutboundConnections,

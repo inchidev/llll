@@ -192,7 +192,7 @@ describe('two Members in different Spaces', () => {
     state.current = { ...person('sam'), status: 'active' }
     const event = { path: '/api/channels/sales-general', method: 'GET', context: {} } as never
     await enforceRoutePolicy(event)
-    expect(requestSpace(event)).toEqual({ spaceScope: SALES, spaceAdmin: true })
+    expect(requestSpace(event)).toMatchObject({ spaceScope: SALES, spaceAdmin: true })
     const schedule = { path: '/api/schedules', method: 'POST', context: {} } as never
     await enforceRoutePolicy(schedule)
     expect(requestSpace(schedule).spaceAdmin).toBe(false)

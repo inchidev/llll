@@ -49,14 +49,39 @@ export async function ensureServerStarted(event: H3Event): Promise<boolean> {
   return true
 }
 
+/** One round trip: a Server that already has its schema and people has nothing a request must wait for. */
+async function alreadySetUp(db: D1Database) {
+  try {
+    const [schema, home, people] = await db.batch<{ version?: string, c?: number }>([
+      db.prepare('SELECT version FROM server_schema WHERE id = 1'),
+      db.prepare('SELECT 1 AS c FROM server LIMIT 1'),
+      db.prepare("SELECT 1 AS c FROM users WHERE status = 'active' LIMIT 1"),
+    ])
+    return schema?.results?.[0]?.version === 'server-v1' && Boolean(home?.results?.[0]) && Boolean(people?.results?.[0])
+  }
+  catch { return false } // A database before its first migration has no such tables.
+}
+
 function startServer(event: H3Event, db: D1Database, env: ReturnType<typeof cf>['env'], key: D1Database): Promise<boolean> {
   const startedAt = Date.now()
   running.set(key, startedAt)
-  return (async () => {
+  const initialise = async () => {
     await ensureMigrated(db, env)
     await ensureAdminFromEnv(event)
     await readOwnerSetup(db, env)
     await ensurePrimaryServerOrigin(env)
+  }
+  return (async () => {
+    // Every new isolate comes here, and Cloudflare starts them often. The checks and
+    // deployment settings still run for each one, only no longer in front of the person.
+    if (await alreadySetUp(db)) {
+      finished.add(key)
+      cf(event).waitUntil(initialise().catch((error: unknown) => {
+        console.warn('Server startup did not complete', error instanceof Error ? error.message : error)
+      }))
+      return true
+    }
+    await initialise()
     finished.add(key)
     return true
   })().catch((error: unknown) => {

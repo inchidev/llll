@@ -5,9 +5,9 @@ import { cf, fail } from './cf'
 import { requireRateLimit } from './rate-limit'
 import { recordingKeyOf } from './recording-keys'
 import { matchRoutePolicy, type RoutePolicy } from './route-policy'
-import { spaceOfResource, type SpaceRequest, type SpaceResourceKind } from './space-access'
+import { loadMemberRows, spaceOfStatement, type MemberRows, type SpaceRequest, type SpaceResourceKind } from './space-access'
 
-type GateContext = { routePolicy?: RoutePolicy; spaceScope?: string | null }
+type GateContext = { routePolicy?: RoutePolicy; spaceScope?: string | null; memberRows?: MemberRows }
 const context = (event: H3Event) => (event.context ?? {}) as GateContext
 
 /** What each handler answers for a missing resource, so a foreign one is indistinguishable. */
@@ -19,10 +19,10 @@ const MISSING: Partial<Record<SpaceResourceKind, string>> = {
 
 /** The Space this request works in, for loading a Member's authority. */
 export function requestSpace(event: H3Event): SpaceRequest {
-  const { routePolicy, spaceScope } = context(event)
+  const { routePolicy, spaceScope, memberRows } = context(event)
   const scoped = routePolicy?.scope === 'space' || routePolicy?.scope === 'active'
   // Runs, Schedules and tokens save the authority they start with and recheck it against the Role later.
-  return { spaceScope: scoped ? spaceScope ?? null : null, spaceAdmin: scoped && !/^(?:run|schedule|mcp-tokens)\./u.test(routePolicy.action) }
+  return { spaceScope: scoped ? spaceScope ?? null : null, spaceAdmin: scoped && !/^(?:run|schedule|mcp-tokens)\./u.test(routePolicy.action), memberRows }
 }
 
 /**
@@ -45,8 +45,10 @@ export async function enforceRoutePolicy(event: H3Event): Promise<void> {
   // Without an active Member the handler answers 401 or 403 as it always has.
   if (!user || user.status !== 'active') return
   const { env } = cf(event)
-  const memberships = (await env.DB.prepare(`SELECT m.space_id AS spaceId, s.suspended_at IS NOT NULL AND m.user_id <> (SELECT owner_id FROM server) AS closed
-    FROM space_members m JOIN spaces s ON s.id = m.space_id WHERE m.user_id = ?`).bind(user.id).all<{ spaceId: string; closed: number }>()).results ?? []
+  // The handler's permission check needs these same rows, so they are read once, with the resource's Space.
+  const { rows, also: [resource] } = await loadMemberRows(env, user.id, { also: policy.scope === 'space' ? [spaceOfStatement(env, policy.resource, params[policy.param]!)] : [] })
+  context(event).memberRows = rows
+  const memberships = rows.spaces.filter(row => row.userId === user.id)
   const mine = new Set(memberships.map(row => row.spaceId))
   // Said plainly, once the caller is known to belong: the Space has not gone anywhere.
   const refuseSuspended = (id: string | null) => {
@@ -54,7 +56,7 @@ export async function enforceRoutePolicy(event: H3Event): Promise<void> {
   }
   let spaceId: string | null
   if (policy.scope === 'space') {
-    spaceId = await spaceOfResource(env, policy.resource, params[policy.param]!)
+    spaceId = (resource?.results?.[0] as { spaceId: string } | undefined)?.spaceId ?? null
     // A Task number means something only inside a Space, so it takes the request's own.
     if (!spaceId && policy.resource === 'task' && /^[1-9]\d*$/u.test(params[policy.param]!)) {
       const requested = getHeader(event, SPACE_HEADER)?.trim()

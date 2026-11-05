@@ -159,6 +159,8 @@ export async function createAuth(
     advanced: {
       cookiePrefix: `llll-server${new URL(baseURL).port ? '-' + new URL(baseURL).port : ''}`,
       useSecureCookies: baseURL.startsWith('https://'),
+      // Every signed-in request reads the session with its user: one statement, not two.
+      database: { joins: true },
     },
   })
 }

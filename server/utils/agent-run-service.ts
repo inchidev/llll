@@ -29,8 +29,8 @@ const runColumns = `id, session_id as sessionId, agent_id as agentId, channel_id
  last_error as lastError, model_calls as modelCalls, total_tokens as totalTokens, event_cursor as eventCursor,
  deadline, created_at as createdAt, updated_at as updatedAt`
 
-export async function piConfigured(env: L4Env): Promise<boolean> {
-  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && (env.FILES || env.TICKETS) && (await agentProviderCatalog(env)).models.length)
+export async function piConfigured(env: L4Env, catalog?: { models: unknown[] }): Promise<boolean> {
+  return piRuntimeConfigured(env) || Boolean(env.AGENT_RUN_DO && (env.FILES || env.TICKETS) && (catalog ?? await agentProviderCatalog(env)).models.length)
 }
 export async function findAgentRun(env: L4Env, id: string): Promise<AgentRun | null> {
   return env.DB.prepare(`SELECT ${runColumns} FROM agent_runs WHERE id = ?`).bind(id).first<AgentRun>()
