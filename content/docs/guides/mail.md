@@ -15,7 +15,7 @@ Two things decide access:
 - a **grant on the Mailbox** itself, and
 - **Read email** or **Send email** in the Member's Role.
 
-Members with **Manage server** set grants in **Server settings → Mail → Mailboxes**: open a Mailbox and, under **Access**, choose for each person **No access**, **Read only**, **Read and send** or **Manage**. Even the Owner needs a grant to see a Mailbox.
+Members with **Manage server** set grants in **Server settings → Mail → Mailboxes**: open a Mailbox and, under **Access**, choose for each person **No access**, **Read only**, **Read and send** or **Manage**. The Owner and the person who creates a Mailbox start with **Manage**; everyone else needs a grant.
 
 ![A Mailbox in Server settings → Mail with the Display name field, the Receive email switch and the Access list with per-member access levels](screenshot:guides-mail-access "Mailbox access")
 

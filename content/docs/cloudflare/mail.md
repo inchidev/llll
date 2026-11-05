@@ -10,23 +10,23 @@ For using Mail day to day, see the [Mail guide](../guides/mail.md).
 
 ## Before you start
 
-- The Server must **keep Cloudflare access** with permission for zones, DNS, Email Routing and Email Sending. The installer's OAuth grant has these. The pre-filled API token for updates does not. See [Cloudflare access](access.md).
-- The domain must be in an active zone in the same Cloudflare account as the Server.
-- If the domain has no Cloudflare MX records yet, turn on **Email Routing** for it in your Cloudflare dashboard first. The installer's OAuth grant cannot turn it on; an API token with **Zone Settings: Edit** can.
+- The Server must **keep Cloudflare access**. The installer's OAuth grant has every permission mail needs. The pre-filled API token for updates does not. See [Cloudflare access](access.md).
+- The domain must be active in the same Cloudflare account as the Server. See [Get a domain](custom-domain.md#get-a-domain).
+- To send email to anyone outside your Cloudflare account, the account needs the **Workers Paid** plan. See [Costs and limits](costs-and-limits.md#free-and-paid-workers-plans).
 - You must be the Owner.
 
-Without kept access, the Domains tab says email domains are managed by the Server operator.
+Without kept access, the Domains tab asks you to keep it before you connect a domain.
 
 > [!WARNING]
-> Connecting a domain turns on Cloudflare Email Routing for it and routes its mail to this Server. If the domain already receives mail through another provider, use a subdomain such as `mail.example.com` instead, so existing mail keeps working.
+> Connecting a domain routes its mail to this Server. If the domain already receives mail through another provider, L4 refuses it and leaves that mail alone. Use a subdomain such as `mail.example.com` instead.
 
 ## Connect a mail domain
 
 1. In your Server, open **Server settings → Mail** and choose the **Domains** tab.
 2. Select **Connect domain**.
 3. Choose the **Cloudflare zone**.
-4. In **Mail domain**, enter the zone itself or a subdomain, for example `mail.example.com`.
-5. Select **Connect**.
+4. In **Mail domain**, keep the domain or enter a subdomain, for example `mail.example.com`.
+5. Select **Connect**. The form for your first Mailbox opens next.
 
 ![The Domains tab in Mail settings with the Connect domain form showing the Cloudflare zone select, the Mail domain field and the Connect button](screenshot:cloudflare-mail-domain "Connect a mail domain")
 
@@ -34,20 +34,32 @@ The Server then:
 
 - enables Cloudflare Email Routing for the domain, unless it already routes through Cloudflare;
 - onboards the domain for Cloudflare Email Sending, or re-enables it if it was turned off;
-- adds the Email Sending binding to its Worker.
+- adds the Email Sending binding to its Worker;
+- starts sending reset and confirmation emails from `no-reply` at the domain. To use another address, change **Sender address** in **Server settings → Authentication**.
 
-If the page shows **Sending is not set up yet**, mail can be received but the Server cannot send until the domain finishes connecting in Cloudflare. Check the domain's status under Email in your Cloudflare dashboard.
+You do not add any DNS records yourself.
+
+If a domain shows **Receives mail, sending is off**, Cloudflare has not enabled sending yet. Select **Finish connecting** to try again. **Sending is not set up yet** at the top of the page means the same until the domain finishes connecting.
+
+### If Cloudflare did not turn on Email Routing
+
+Access kept from an older release lacks the permission to turn Email Routing on, so **Connect** stops with this message. Do one of these, then select **Connect** again:
+
+- Update the Server through the [official installer](updates.md) with **Keep Cloudflare access on this Server** checked, which replaces the kept access.
+- In your Cloudflare dashboard, go to **Compute → Email Service → Email Routing**, select **Onboard Domain** and choose the domain.
 
 ## Create a Mailbox
 
 1. In **Server settings → Mail**, choose the **Mailboxes** tab.
 2. Select **New mailbox**.
-3. Enter the address and choose the domain, then select **Create mailbox**.
-4. Open the Mailbox to set its **Display name** and choose who has access.
+3. Enter the address and choose the domain, then select **Create mailbox**. The Owner and the person who created it get **Manage**.
+4. Open the Mailbox to set its **Display name** and choose who else has access.
 
 The Server creates a Cloudflare Email Routing rule that sends the address to it. If the address already has a rule for something else, the Mailbox is not created until you remove that rule. Deleting a Mailbox removes its rule.
 
 Each Mailbox has its own access rules. People need a grant on the Mailbox plus **Read email** or **Send email**.
+
+To check it works, send an email to the new address from your personal mail, then reply to it from **Mail** in L4.
 
 ## Disconnect a mail domain
 
@@ -61,8 +73,10 @@ On the **Domains** tab, select **Disconnect** next to the domain.
 
 - Up to 10 attachments, 3 MB in total, per email. This keeps a message within Cloudflare Email Sending's 5 MiB limit once encoded.
 - Sending external email from an Agent always needs human approval.
+- Mailboxes are read and answered in L4. There is no IMAP access for mail apps.
+- A new Cloudflare account starts with a low daily sending limit, and mail from a new domain may land in spam until the domain builds a reputation.
 
-Cloudflare's own Email Routing and Email Sending limits and pricing apply. See [Email Routing](https://developers.cloudflare.com/email-routing/) in the Cloudflare docs.
+Cloudflare's own limits and pricing apply. See [Email Service limits](https://developers.cloudflare.com/email-service/platform/limits/) and [pricing](https://developers.cloudflare.com/email-service/platform/pricing/) in the Cloudflare docs.
 
 ## Related
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import type { ServerDomainSettingsDTO, ServerManagementStatusDTO } from '~~/shared/releases'
+import { CLOUDFLARE_DOMAINS_URL, type ServerDomainSettingsDTO, type ServerManagementStatusDTO } from '~~/shared/releases'
 
 const props = withDefaults(defineProps<{ serverId: string, view?: 'overview' | 'domains' }>(), { view: 'overview' })
 const { api } = useApi()
@@ -17,9 +17,14 @@ const domainsQ = useQuery({
 const status = computed(() => managementQ.data.value)
 const domains = computed(() => domainsQ.data.value)
 const hostname = ref('')
+const addOpen = ref(false)
+const zoneOptions = computed(() => domains.value?.zones.map(zone => zone.name) ?? [])
+const zoneName = ref('')
+watch(zoneOptions, names => { zoneName.value ||= names[0] ?? '' }, { immediate: true })
+// Start from the chosen domain; the Owner can put a subdomain in front of it.
+watch([zoneName, () => addOpen.value], ([name, open]) => { if (open && name && !hostname.value.trim().endsWith(name)) hostname.value = name })
 const makePrimary = ref(false)
 const busy = ref(false)
-const addOpen = ref(false)
 const pending = computed(() => domains.value?.pending.filter(item => item.status === 'pending' || item.status === 'running') ?? [])
 const recent = computed(() => domains.value?.pending.filter(item => item.status === 'complete' || item.status === 'failed').slice(0, 3) ?? [])
 let poll: ReturnType<typeof setInterval> | undefined
@@ -117,8 +122,16 @@ async function add() {
           </ul>
 
           <form v-if="addOpen && domains.managed" class="space-y-4 rounded-lg border border-default p-4" @submit.prevent="add">
-            <UFormField label="Domain" description="A hostname in a Cloudflare zone you control, for example inchi.example.com.">
-              <UInput v-model="hostname" placeholder="inchi.example.com" autocomplete="off" class="w-full" :disabled="busy" />
+            <UFormField v-if="domains.direct && zoneOptions.length" label="Cloudflare domain">
+              <USelect v-model="zoneName" :items="zoneOptions" class="w-full" :disabled="busy" />
+            </UFormField>
+            <div v-else-if="domains.direct" class="rounded-lg border border-default p-3">
+              <p class="text-sm font-medium text-highlighted">This Cloudflare account has no active domain</p>
+              <p class="mt-1 text-sm text-muted">Buy a domain in Cloudflare or add one you already own. It appears here once Cloudflare shows it as Active.</p>
+              <UButton class="mt-2" label="Open Cloudflare domains" icon="i-ph-arrow-square-out" size="sm" color="neutral" variant="outline" :to="CLOUDFLARE_DOMAINS_URL" target="_blank" />
+            </div>
+            <UFormField label="Domain" description="The domain itself or a subdomain, for example team.example.com. It must be Active in the same Cloudflare account.">
+              <UInput v-model="hostname" placeholder="team.example.com" autocomplete="off" class="w-full" :disabled="busy" />
             </UFormField>
             <UCheckbox v-model="makePrimary" label="Make this the primary address" :disabled="busy" />
             <p class="text-xs text-muted">The current primary stays available as an alias. Background email and links use the primary.</p>

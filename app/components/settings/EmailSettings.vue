@@ -100,6 +100,12 @@ function accessPayload() {
     .map(([userId, permission]) => ({ userId, permission }))
 }
 
+function startFirstMailbox(id: string) {
+  tab.value = 'mailboxes'
+  domainId.value = id
+  createOpen.value = true
+}
+
 async function createMailbox() {
   if (!localPart.value.trim() || !domainId.value) return
   creating.value = true
@@ -239,7 +245,7 @@ async function saveMailbox() {
           </template>
         </SettingsList>
 
-        <SettingsEmailDomains v-else class="mt-5" :server-id="serverId" :is-owner="isOwner" :mail="mail" />
+        <SettingsEmailDomains v-else class="mt-5" :server-id="serverId" :is-owner="isOwner" :mail="mail" @connected="startFirstMailbox" />
       </template>
     </template>
 

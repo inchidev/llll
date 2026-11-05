@@ -17,7 +17,7 @@ L4 is free, source-available software when you run it on your own infrastructure
 | R2 | When R2 is enabled: the files bucket and the separate backups bucket | [R2 pricing](https://developers.cloudflare.com/r2/pricing/) |
 | Workers AI | When an Agent or AI function uses a Workers AI model | [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) |
 | Browser Rendering | When a feature reads a web page through it | [Browser Rendering](https://developers.cloudflare.com/browser-rendering/) |
-| Email Routing and Email Sending | When you connect a mail domain | [Email Routing](https://developers.cloudflare.com/email-routing/) |
+| Email Routing and Email Sending | When you connect a mail domain | [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/) |
 | Realtime (RealtimeKit) | When you connect Live | [Realtime](https://developers.cloudflare.com/realtime/) |
 | Containers and Artifacts | When you enable a compute node for Agents | [Containers](https://developers.cloudflare.com/containers/) |
 
@@ -33,6 +33,7 @@ With R2, the Server writes a backup to its backups bucket every week and before 
 
 A Server can start on a free Cloudflare account. Some limits are tighter on the Workers Free plan:
 
+- Sending email to anyone outside your Cloudflare account needs Workers Paid. This covers Mailboxes and reset and confirmation emails.
 - A self-update from Settings runs in one Durable Object alarm. On Workers Free its subrequest budget is tight for releases with large asset changes. If an update stops, use **Retry update** or run the update through the official installer.
 - Cloudflare's daily and per-request quotas for Workers, D1, KV and Durable Objects apply to the whole account. If you run several Servers in one account, they share those quotas.
 
@@ -49,7 +50,7 @@ See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
 ## Keep costs predictable
 
-- Give each Server its own Cloudflare account. Usage and quotas then stay separate, and kept access reaches only that Server. A free account is enough.
+- Give each Server its own Cloudflare account. Usage and quotas then stay separate, and kept access reaches only that Server. A free account is enough unless the Server sends email.
 - Enable optional products only when you need them.
 - Set usage notifications in your Cloudflare account.
 - Prune old backups in the backups bucket.

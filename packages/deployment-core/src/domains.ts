@@ -127,12 +127,19 @@ export function emailRoutingEnableBody(zone: CloudflareZone, domain: string) {
 }
 
 /**
- * Turning routing on needs Zone Settings Write, which the installer's grant does
- * not have. A domain whose MX records already point at Cloudflare needs no change.
+ * Turning routing on needs Zone Settings Write, which grants kept by older releases
+ * do not have. A domain whose MX records already point at Cloudflare needs no change,
+ * and one that receives mail elsewhere is left alone.
  */
 export async function ensureEmailRoutingDomain(accessToken: string, zone: CloudflareZone, domain: string) {
   const mxRecords = await cloudflareApi<Array<{ content?: string }>>(accessToken, `/zones/${zone.id}/dns_records?type=MX&name=${encodeURIComponent(domain)}&per_page=100`)
   if (mxRecords.some(record => String(record.content || '').toLowerCase().endsWith('.mx.cloudflare.net'))) return
+  if (mxRecords.length) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: `${domain} already receives mail through another provider. Choose a subdomain of ${zone.name} that has no mail yet.`,
+    })
+  }
   const body = emailRoutingEnableBody(zone, domain)
   try {
     await cloudflareApi(accessToken, `/zones/${zone.id}/email/routing/dns`, { method: 'POST', ...(body ? { body } : {}) })
@@ -173,6 +180,12 @@ export async function ensureEmailSendingDomain(accessToken: string, zone: Cloudf
       statusMessage: `Cloudflare did not enable Email Sending for ${domain}: ${publicErrorMessage(error)}`,
     })
   }
+}
+
+/** Whether Cloudflare can send for this domain; unknown when Cloudflare does not say. */
+export async function emailSendingEnabled(accessToken: string, zoneId: string, domain: string): Promise<boolean | undefined> {
+  const domains = await cloudflareApi<SendingSubdomain[]>(accessToken, `/zones/${zoneId}/email/sending/subdomains`).catch(() => null)
+  return domains ? domains.some(item => item.name.toLowerCase() === domain && item.enabled !== false) : undefined
 }
 
 export async function connectAppDomain(
