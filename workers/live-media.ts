@@ -1,6 +1,7 @@
 import { getServerId } from '../shared/server-id'
 import { cloudflareApiToken } from './cloudflare-rest'
 import { asRpc, callsProvider, type L4Env } from './env'
+import { withIntegrations } from './integrations'
 import type { RestRealtimeKitApp } from './realtimekit-rest'
 import {
   addParticipant,
@@ -76,7 +77,8 @@ async function restMedia(env: L4Env): Promise<LiveMedia | null> {
   }
 }
 
-export async function liveMedia(env: L4Env): Promise<LiveMedia | null> {
+export async function liveMedia(deployment: L4Env): Promise<LiveMedia | null> {
+  const env = await withIntegrations(deployment)
   const config = await loadRealtimeKitConfig(env)
   if (realtimekitConfigured(config)) return mediaFor(config)
   if (callsProvider(env) !== 'realtimekit-rest') return null
