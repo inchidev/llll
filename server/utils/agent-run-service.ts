@@ -1,6 +1,5 @@
 import { consumeSpaceQuota } from './space-quota'
 import { requireProject } from './project-service'
-import { admitMcpConnections } from './outbound-mcp'
 import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
 import { agentConversationModel } from './agent-conversation-model'
 import { newId, nowIso } from '../../shared/ids'
@@ -255,6 +254,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
   // Admission checks source conversation access before creating an executable record.
   const pending = { id, agentId: input.agentId, channelId: input.channelId, initiatedBy: actor.principal.id, mandateJson: JSON.stringify(mandate) }
   const execution = await runAuthorization(env, pending)
+  const { admitMcpConnections } = await import('./outbound-mcp')
   mandate.toolConnections = await admitMcpConnections(env, execution, input.toolConnectionIds, ceiling ? ceiling.toolConnections ?? [] : undefined)
   let environment: RunEnvironment | null = null
   if (ceiling && environmentId !== (ceiling.environmentId ?? null)) fail(403, 'code_denied', 'Subtasks and scheduled work cannot change repository environments')

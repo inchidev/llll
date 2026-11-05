@@ -8,7 +8,6 @@ import { streamText, jsonSchema, tool, type ModelMessage } from 'ai'
 import { createWorkersAI } from 'workers-ai-provider'
 import { z } from 'zod'
 import { findAgentRun, runAuthorization, verifyRunCapability } from './agent-run-service'
-import { executeRunTool } from './agent-tools'
 import { runtimeFiles } from './agent-files'
 import { codeRepositoryArchive } from './agent-code-service'
 import type { L4Env } from '../../workers/env'
@@ -150,6 +149,7 @@ export async function agentGateway(request: Request, deployment: L4Env, runId: s
     if (operation === 'tools') {
       // executeRunTool authorizes the Run itself, once per call.
       const call = z.object({ callId: z.string().min(1).max(200), name: z.string().min(1).max(64), arguments: z.unknown() }).parse(input)
+      const { executeRunTool } = await import('./agent-tools')
       return Response.json(await executeRunTool(env, run.id, call, schedule, request.signal))
     }
     return new Response('Unknown operation', { status: 404 })
