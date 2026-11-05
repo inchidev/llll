@@ -196,19 +196,24 @@ export async function readChannelMessages(env: L4Env, member: Membership, channe
   const limit = Math.max(1, Math.min(Math.floor(input.limit || 50), 50))
   const db = getDb(env.DB)
   const filters = input.cursor ? and(eq(messages.channelId, channelId), lt(messages.id, input.cursor)) : eq(messages.channelId, channelId)
-  const rows = await db.select().from(messages).where(filters).orderBy(desc(messages.id)).limit(limit + 1)
-  const hasMore = rows.length > limit
-  const page = hasMore ? rows.slice(0, limit) : rows
-  const dtos = await hydrateMessages(env, [...page].reverse(), member.user.id)
   const thread = access.channel
-  const rootRows = thread.type === 'thread' && thread.parentId && thread.parentMessageId
-    ? await db.select().from(messages).where(and(eq(messages.id, thread.parentMessageId), eq(messages.channelId, thread.parentId))).limit(1)
-    : []
-  const [rootMessage] = await hydrateMessages(env, rootRows, member.user.id)
-  const read = await env.DB.prepare(`SELECT r.last_read_message_id AS lastReadMessageId, COALESCE(a.read_generation, 0) AS readGeneration
+  // The page, a Thread's root and the read marker do not depend on each other, nor do their details.
+  const [rows, rootRows, read] = await Promise.all([
+    db.select().from(messages).where(filters).orderBy(desc(messages.id)).limit(limit + 1),
+    thread.type === 'thread' && thread.parentId && thread.parentMessageId
+      ? db.select().from(messages).where(and(eq(messages.id, thread.parentMessageId), eq(messages.channelId, thread.parentId))).limit(1)
+      : [],
+    env.DB.prepare(`SELECT r.last_read_message_id AS lastReadMessageId, COALESCE(a.read_generation, 0) AS readGeneration
     FROM channels c LEFT JOIN channel_reads r ON r.channel_id = c.id AND r.user_id = ?2
     LEFT JOIN channel_attention a ON a.channel_id = c.id AND a.user_id = ?2 WHERE c.id = ?1`)
-    .bind(channelId, member.user.id).first<{ lastReadMessageId: string | null; readGeneration: number }>()
+      .bind(channelId, member.user.id).first<{ lastReadMessageId: string | null; readGeneration: number }>(),
+  ])
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const [dtos, [rootMessage]] = await Promise.all([
+    hydrateMessages(env, [...page].reverse(), member.user.id),
+    hydrateMessages(env, rootRows, member.user.id),
+  ])
   return { readGeneration: read?.readGeneration ?? 0, frozen: access.frozen, messages: dtos, rootMessage: rootMessage ?? null, nextCursor: hasMore ? page.at(-1)?.id ?? null : null, lastReadMessageId: read?.lastReadMessageId ?? null }
 }
 

@@ -7,8 +7,18 @@ import type { L4Env } from '../../workers/env'
  * lengthens the chain. Counting rather than timing keeps the answer the same on a busy machine.
  */
 export async function sequentialRoundTrips(env: L4Env, run: (env: L4Env) => Promise<unknown>, delayMs = 10) {
-  let inFlight = 0, chain = 0
+  return (await measure(env, run, delayMs)).chain
+}
+
+/** Counts the requests a call makes to D1, parallel or not: a batch is one, however many statements it holds. */
+export async function databaseRequests(env: L4Env, run: (env: L4Env) => Promise<unknown>) {
+  return (await measure(env, run, 0)).requests
+}
+
+async function measure(env: L4Env, run: (env: L4Env) => Promise<unknown>, delayMs: number) {
+  let inFlight = 0, chain = 0, requests = 0
   const wait = async () => {
+    requests++
     if (inFlight++ === 0) chain++
     await new Promise(resolve => setTimeout(resolve, delayMs))
     inFlight--
@@ -38,5 +48,5 @@ export async function sequentialRoundTrips(env: L4Env, run: (env: L4Env) => Prom
     },
   }), env.DB as object)
   await run({ ...env, DB: db } as L4Env)
-  return chain
+  return { chain, requests }
 }

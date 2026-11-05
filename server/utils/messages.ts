@@ -34,8 +34,8 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
   const authorIds = [...new Set(rows.map((r) => r.authorId))]
   const replyIds = rows.map((r) => r.replyToId).filter((x): x is string => Boolean(x))
 
-  // Every lookup depends only on the page's ids, so they share one round trip.
-  const [pinRows, authorRows, mentionRows, roleMentionRows, attRows, replyRows, reactionRows, threadRows] = await Promise.all([
+  // Every lookup depends only on the page's ids, so they travel together as one request to D1.
+  const [pinRows, authorRows, mentionRows, roleMentionRows, attRows, replyRows, reactionRows, threadRows] = await db.batch([
     db.select().from(messagePins).where(inArray(messagePins.messageId, ids)),
     db.select().from(users).where(inArray(users.id, authorIds)),
     db.select().from(messageMentions).where(and(inArray(messageMentions.messageId, ids), isNull(messageMentions.roleId))),
@@ -43,7 +43,7 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     db.selectDistinct({ messageId: messageMentions.messageId, roleId: messageMentions.roleId }).from(messageMentions)
       .where(and(inArray(messageMentions.messageId, ids), isNotNull(messageMentions.roleId))),
     db.select().from(attachments).where(inArray(attachments.messageId, [...new Set([...ids, ...replyIds])])),
-    replyIds.length ? db.select().from(messages).where(inArray(messages.id, replyIds)) : Promise.resolve([]),
+    db.select().from(messages).where(inArray(messages.id, replyIds)),
     db.select().from(messageReactions).where(inArray(messageReactions.messageId, ids)),
     db.select({ id: channels.id, parentMessageId: channels.parentMessageId }).from(channels).where(inArray(channels.parentMessageId, ids)),
   ])

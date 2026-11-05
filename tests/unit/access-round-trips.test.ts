@@ -1,11 +1,14 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { INIT_SQL } from '../../server/utils/db'
+import { getDb, INIT_SQL } from '../../server/utils/db'
 import { requireChannelAccessForMember, requireMemberForUser } from '../../server/utils/channel-access'
+import { readChannelMessages } from '../../server/utils/message-service'
+import { hydrateMessages } from '../../server/utils/messages'
+import { messages } from '../../drizzle/schema'
 import { loadMemberRows } from '../../server/utils/space-access'
 import { Permission } from '../../shared/permissions'
 import type { L4Env } from '../../workers/env'
-import { sequentialRoundTrips } from '../helpers/round-trips'
+import { databaseRequests, sequentialRoundTrips } from '../helpers/round-trips'
 import { d1 } from '../helpers/sqlite-d1'
 
 const serverId = '00000000-0000-4000-8000-000000000001'
@@ -38,7 +41,7 @@ it('reads who a Member is in one round trip, and not at all when the route check
   expect(await sequentialRoundTrips(env, env => requireMemberForUser(env, person('me'), serverId, undefined, { memberRows: rows }))).toBe(0)
 })
 
-it('takes one more round trip only for a Member outside some Space, to list what it excludes', async () => {
+it('takes one more round trip for someone who does not reach every Space, to list what it excludes', async () => {
   await member()
   sqlite.exec("DELETE FROM space_members WHERE user_id='me'")
   expect(await sequentialRoundTrips(env, env => requireMemberForUser(env, person('me'), serverId))).toBe(2)
@@ -76,4 +79,34 @@ it('lifts a Role denial for the Owner, and keeps a private channel to its member
   const owner = await member('owner')
   await expect(requireChannelAccessForMember(env, owner, 'walled', Permission.sendMessages)).resolves.toMatchObject({ channel: { id: 'walled' } })
   await expect(requireChannelAccessForMember(env, owner, 'secret')).rejects.toMatchObject({ statusCode: 404 })
+})
+
+it('reads a page of messages in three round trips, and its details in one request', async () => {
+  const known = await member()
+  const rows = await getDb(env.DB).select().from(messages)
+  expect(await databaseRequests(env, env => hydrateMessages(env, rows, 'me'))).toBe(1)
+  expect(await sequentialRoundTrips(env, env => readChannelMessages(env, known, 'open'))).toBe(3)
+  expect(await sequentialRoundTrips(env, env => readChannelMessages(env, known, 'thread'))).toBe(4)
+})
+
+it('keeps every detail of a message when they are read together', async () => {
+  sqlite.exec(`INSERT INTO messages(id,channel_id,author_id,content,reply_to_id,created_at) VALUES('m3','open','me','c','m1','2026-01-02');
+    INSERT INTO message_pins(message_id,pinned_by,pinned_at) VALUES('m3','gone','2026-01-03');
+    INSERT INTO message_reactions(message_id,user_id,emoji,created_at) VALUES('m3','me','+1','2026-01-03'),('m3','owner','+1','2026-01-03');
+    INSERT INTO message_mentions(message_id,user_id) VALUES('m3','owner');
+    INSERT INTO attachments(id,message_id,channel_id,uploader_id,r2_key,filename,content_type,size_bytes,created_at) VALUES('a3','m3','open','me','k3','c.txt','text/plain',1,'2026-01-03'),('a1','m1','open','owner','k1','a.txt','text/plain',1,'2026-01-03');`)
+  const rows = await getDb(env.DB).select().from(messages)
+  const hydrated = await hydrateMessages(env, rows, 'me')
+  expect(hydrated.find(message => message.id === 'm3')).toMatchObject({
+    author: { id: 'me' },
+    replyTo: { id: 'm1', content: 'a', attachmentCount: 1 },
+    pin: { pinnedBy: { id: 'gone' } },
+    reactions: [{ emoji: '+1', count: 2, me: true }],
+    mentions: ['owner'],
+    attachments: [{ id: 'a3' }],
+    threadId: null,
+  })
+  expect(hydrated.find(message => message.id === 'm1')).toMatchObject({ replyTo: null, threadId: 'thread' })
+  const [alone] = await hydrateMessages(env, rows.filter(row => row.id === 'm1'), 'me')
+  expect(alone).toMatchObject({ id: 'm1', replyTo: null, attachments: [{ id: 'a1' }] })
 })
