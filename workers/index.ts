@@ -37,5 +37,4 @@ export default {
 }
 
 export { FactoryComputeDurableObject } from '../workers/factory-compute'
-export { LizardComputeDurableObject } from './lizard-compute-do'
 export { FactoryOutbound } from '../workers/factory-outbound'

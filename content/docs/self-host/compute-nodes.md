@@ -1,6 +1,6 @@
 ---
 title: Compute Nodes
-description: Give Agents an isolated place to work on repository Tasks, on your VPS, on Cloudflare Containers, on Lizard or on your own Docker host.
+description: Give Agents an isolated place to work on repository Tasks, on your own VPS, in your own Cloudflare account or, coming, with L4 Compute by the hour.
 order: 4
 ---
 
@@ -10,14 +10,16 @@ This page covers setting up compute. For how Agents use it, see [Repositories](.
 
 ## Choose a kind of compute
 
-Open **Server settings → Compute** (requires Manage server). **Add compute** offers **Connect node** and **Connect Lizard**. The **Server compute setup** entry shows the option that fits where your Server runs.
+Open **Server settings → Compute** (requires Manage server). **Add compute** offers three paths: **Your own VPS** (Connect node), **Your own Cloudflare** (Server compute setup) and **L4 Compute**, which is coming. The **Server compute setup** entry shows the option that fits where your Server runs. The Server speaks one Node protocol to all of them; only where the Node runs differs.
 
 | Option | Where it runs | Good for |
 | --- | --- | --- |
 | VPS local executor | Docker on the same VPS as a [VPS installer](vps.md) Server | A single trusted VPS. |
 | Cloudflare Containers | Your Cloudflare account, next to a Cloudflare Server | Cloudflare Servers on Workers Paid. |
-| Lizard | A Lizard VM created by the Server | Compute without running a machine yourself. |
-| Remote Docker Node | Any Linux Docker host you pair | Advanced setups. |
+| Remote Docker Node | Any Linux Docker host you pair | Advanced setups, and any machine you rent yourself. |
+| L4 Compute (coming) | A box per Task from llll.gg, paid by the hour of agent work | Compute without running a machine yourself, however many Agents work at once. |
+
+The workspace is free wherever you run it. L4 sells only Managed Compute; see [Pricing](https://llll.gg/pricing).
 
 > [!WARNING]
 > Docker workspaces share the host's kernel. Use them only for code and people you trust. They are not a boundary against hostile tenants.
@@ -70,14 +72,6 @@ A Cloudflare Server can run compute in the same Cloudflare account. Open **Serve
 
 Each Task gets its own code repository. Compute stops after each checkpoint, one operation runs at a time and there is no nested Docker. **Pause compute node and retain source** stops new work and keeps source. See [Costs and limits](../cloudflare/costs-and-limits.md) and Cloudflare's [Containers pricing](https://developers.cloudflare.com/containers/pricing/).
 
-## Lizard
-
-1. Open **Server settings → Compute → Add compute → Connect Lizard**.
-2. Enter your Lizard API key and choose **Check connection**.
-3. Choose a project and **Save connection**.
-
-Saving starts a temporary compute VM. The VM stops after two minutes without an active Run and starts again on demand. **Stop VM** stops it and prevents automatic restart until you choose **Start compute**. Task workspaces stay on the Lizard disk after the VM stops, so storage charges may continue. Release workspaces before choosing **Delete unused storage**.
-
 ## Remote Docker Node
 
 You can pair any trusted Linux Docker host with the Server. The Node connects out to the Server; the Server needs no inbound route to it. This works for both Cloudflare and VPS Servers.
@@ -106,6 +100,10 @@ You can pair any trusted Linux Docker host with the Server. The Node connects ou
 The Node needs Node.js 24, Docker and the loop/mount tools listed above, and runs as root. A remote Server must use HTTPS. Later starts reuse the stored connection and need no pairing code; keep `LLLL_SERVER_ORIGIN` set on every start. No public port is opened.
 
 The full threat model and limits are in the [Compute Node guide](https://github.com/inchidev/llll/blob/main/docs/software-factory.md).
+
+## L4 Compute (coming)
+
+L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task's work is done. You pay by the hour of agent work, billed by the minute (each box run rounds up to the next minute, one minute at least), nothing while no Agent works, and there is no limit on how many Agents work at once. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
 
 ## Check a Node
 
