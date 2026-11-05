@@ -77,7 +77,7 @@ Saving changes to an environment stops Runs and Schedules that use its earlier v
 
 ## 3. Add compute
 
-Code runs on a Compute Node, never on the Server itself. In **Server settings → Compute**, select **Add compute** to pair a Docker host or connect Lizard, or use **Server compute setup** for the option that fits where your Server runs. See [Compute Nodes](../self-host/compute-nodes.md).
+Code runs on a Compute Node, never on the Server itself. In **Server settings → Compute**, select **Add compute** to pair a Docker host on your own VPS or set up Containers in your own Cloudflare account, or use **Server compute setup** for the option that fits where your Server runs. L4 Compute, managed workers from llll.gg, is coming. See [Compute Nodes](../self-host/compute-nodes.md).
 
 ## 4. Give the Agent and people the right permissions
 

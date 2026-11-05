@@ -15,10 +15,9 @@ const codingWorkspaceSources = new Set([
   'server/utils/factory-status.ts', 'server/utils/factory-gitea.ts', 'server/utils/github-agent-client.ts',
   'shared/software-factory.ts', 'shared/workspace-provider.ts', 'workers/agent-pi-durable.ts',
   'drizzle/server-migrations/0000_baseline.sql', 'drizzle/schema.ts',
-  // Task workspaces on Lizard and Cloudflare compute, their execution limits, and the
+  // Task workspaces on Cloudflare compute, their execution limits, and the
   // Inbox approvals that review workspace actions.
-  'server/utils/lizard-control.ts', 'server/utils/lizard-sandboxes.ts', 'server/utils/lizard-transport.ts', 'server/utils/lizard-volumes.ts',
-  'workers/lizard-compute-assets.ts', 'workers/lizard-compute-do.ts', 'server/shims.d.ts',
+  'server/shims.d.ts',
   'shared/agent-execution-policy.ts', 'app/components/settings/AgentExecutionSettings.vue', 'server/utils/agent-tools-settings.ts', 'shared/agent-templates.ts',
   'server/utils/inbox-service.ts', 'shared/inbox.ts', 'app/pages/inbox.vue',
 ])

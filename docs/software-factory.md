@@ -4,7 +4,7 @@ A human assigns a repository-backed Task to a Pi Agent. The Agent requests works
 
 Real-provider fresh-install acceptance remains separate from local fixtures; see the reproducible procedure.
 
-The Docker Node described here is the one open interface for running L4 work anywhere; Lizard provisioning moves to `llll-cloud` as L4 Compute. See [Compute is the business](adr/0009-compute-as-the-business.md).
+A Server knows one kind of worker, the Compute Node described here, and three ways to get one: the operator's own VPS (this Docker Node), the operator's own Cloudflare account (Containers, below) and L4 Compute, managed workers sold from llll.gg, which is coming. The Docker Node is the one open interface for running L4 work anywhere; nothing provider-specific lives in this repository, and provisioning and billing live only in `llll-cloud`. See [Compute is the business](adr/0009-compute-as-the-business.md).
 
 ## Recommended setup
 

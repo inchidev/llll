@@ -24,7 +24,7 @@ Each Server is an autonomous deployment. A community should not have to understa
 
 Preserve existing implementations while stabilizing the community core and operations. Optional capabilities must explain their configuration state instead of presenting a broken primary action. These are acceptance gates, not a new feature-switch implementation.
 
-Agents have the Server's local permission boundary. Their current scope is conversation and authorized tools, not a computer, shell or repository worker. External email sending requires human approval. Mail delivery needs its own Provider configuration. Neither Mail nor Agents is required for the first community conversation.
+Agents have the Server's local permission boundary: conversation, authorized tools and, with Use a computer and a connected Compute Node, repository work on the operator's own VPS or Cloudflare account. L4 Compute, managed workers from llll.gg, is coming. External email sending requires human approval. Mail delivery needs its own Provider configuration. Neither Mail nor Agents is required for the first community conversation.
 
 ## Inbox
 
@@ -70,7 +70,7 @@ The public guide should lead with one complete path per target, from a pinned re
 - Group creators can remove other participants, and any participant can leave. Historical groups without a recorded creator allow self-leave only; when a creator leaves, the group becomes unowned. Adding an Agent requires Use agents. People added to a group can read its existing group history.
 - Backups remain separate from live files. Recovery includes the Server identity, accounts, secrets and content; server deletion never deletes Backup buckets.
 - Append migrations within the current schema lineage; merged SQL and published assets are immutable.
-- L4 remains source-available software. Each Server is autonomous. This stabilization adds no managed-hosting marketplace, billing or OEM business.
+- L4 remains source-available software. Each Server is autonomous. The workspace is free; the only thing sold, Managed Compute, is provisioned and billed from `llll-cloud`, never from this repository. See [Compute is the business](adr/0009-compute-as-the-business.md).
 
 ## Deferred work
 

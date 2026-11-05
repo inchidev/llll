@@ -104,7 +104,7 @@ const manifest = {
     sha256: digest('sha256', assetsPayload),
     size: assetsPayload.byteLength,
   },
-  removedBindings: ['AGENT_THINK'],
+  removedBindings: ['AGENT_THINK', 'LIZARD_COMPUTE_DO'],
   durableObjectMigrations: [
     { tag: 'v1', new_sqlite_classes: ['ChannelDurableObject', 'ServerDurableObject', 'RateLimitDurableObject', 'NotificationDurableObject', 'L4Agent', 'L4Think'] },
     { tag: 'v2-agent-runs', new_sqlite_classes: ['AgentRunDurableObject'] },
@@ -112,6 +112,7 @@ const manifest = {
     { tag: 'v4-retire-think', deleted_classes: ['L4Think'] },
     { tag: 'v5-factory-executor', new_sqlite_classes: ['FactoryComputeDurableObject'] },
     { tag: 'v6-lizard-compute', new_sqlite_classes: ['LizardComputeDurableObject'] },
+    { tag: 'v7-retire-lizard-compute', deleted_classes: ['LizardComputeDurableObject'] },
   ],
   durableObjects: [
     { binding: 'CHANNEL_DO', className: 'ChannelDurableObject', migration: 'v1' },
@@ -121,7 +122,6 @@ const manifest = {
     { binding: 'AGENT_DO', className: 'L4Agent', migration: 'v1' },
     { binding: 'AGENT_RUN_DO', className: 'AgentRunDurableObject', migration: 'v2-agent-runs' },
     { binding: 'AGENT_SCHEDULE_DO', className: 'AgentScheduleDurableObject', migration: 'v3-agent-schedules' },
-    { binding: 'LIZARD_COMPUTE_DO', className: 'LizardComputeDurableObject', migration: 'v6-lizard-compute' },
   ],
 
 }

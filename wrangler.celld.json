@@ -61,10 +61,6 @@
       {
         "name": "AGENT_SCHEDULE_DO",
         "class_name": "AgentScheduleDurableObject"
-      },
-      {
-        "name": "LIZARD_COMPUTE_DO",
-        "class_name": "LizardComputeDurableObject"
       }
     ]
   },
@@ -95,6 +91,10 @@
     {
       "tag": "v6-lizard-compute",
       "new_sqlite_classes": ["LizardComputeDurableObject"]
+    },
+    {
+      "tag": "v7-retire-lizard-compute",
+      "deleted_classes": ["LizardComputeDurableObject"]
     }
   ],
   "vars": {

@@ -86,6 +86,10 @@ A Server can answer at several public **addresses**. The **primary address** is 
 
 A Provider supplies an optional capability such as email delivery, inference or calls. A Backup is a recovery copy stored separately from live files; it is not a second running Server.
 
+## Compute Node and L4 Compute
+
+A Compute Node is where an Agent's repository work runs: it pairs with the Server and polls for work. It runs on the operator's own VPS, in their own Cloudflare account as Containers or, coming, as **L4 Compute**: managed workers sold from llll.gg, the only thing L4 sells. The workspace is free; a Server holds no provider key. Prices live only on [Pricing](https://llll.gg/pricing).
+
 ## Conversations
 
 A DM has two participants inside one Server. Larger conversations use channels, which are open or private. Changing a private channel's members preserves its ID, threads and history. Only its creator can add or remove members; existing groups without recorded creators receive no guessed administrator. The Server Owner can explicitly assign a current human participant as creator of such a channel; assignment is audited and grants no membership. Adding a member grants the whole history, with the previous messages treated as read. New messages after the grant remain unread. Agent replies use threads in every conversation. An archived channel leaves Chat navigation and the Inbox and is read-only for everyone, its Threads included: no messages, edits, reactions, pins, new Threads, Live rooms or Agent Runs. Its history stays readable at its links and in search. Members with Manage channels archive and restore it; a private channel, like its visibility, only by its creator. The last active channel cannot be archived.
