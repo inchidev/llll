@@ -165,7 +165,9 @@ const serverItems = computed<DropdownMenuItem[][]>(() => {
   if (canOpenServerSettings.value) {
     manage.push({ label: 'Server settings', icon: 'i-ph-gear', onSelect: () => { nextTick(() => { nav.serverSettingsOpen.value = true }) } })
   }
-  return [servers, invite, manage].filter(group => group.length)
+  // A page with no menu pane has no header to hold the search button.
+  const search: DropdownMenuItem[] = [{ label: 'Search and commands', icon: 'i-ph-magnifying-glass', kbds: ['meta', 'k'], onSelect: () => { nextTick(() => { commands.show() }) } }]
+  return [search, servers, invite, manage].filter(group => group.length)
 })
 
 async function createChannel() {
@@ -261,7 +263,6 @@ watch(nav.inviteOpen, (open) => {
           </button>
         </UDropdownMenu>
         <LayoutSpaceSwitcher :server-id="serverId" />
-        <UButton icon="i-ph-magnifying-glass" color="neutral" variant="ghost" aria-label="Search and commands (Ctrl or Command K)" title="Search and commands" class="mx-auto my-1" @click="commands.show()" />
 
         <nav aria-label="Server views" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-2">
           <div v-if="membersQ.isPending.value" class="space-y-1" aria-label="Loading views" aria-busy="true">
@@ -294,6 +295,7 @@ watch(nav.inviteOpen, (open) => {
       <div v-if="hasMenu" class="flex min-h-0 min-w-0 flex-1 flex-col bg-muted pb-[var(--df-safe-area-bottom)] dark:bg-black" @click.capture="selectResource">
         <header class="df-top-row flex shrink-0 items-center gap-2 px-3 shadow-[0_1px_0_var(--ui-border)]">
           <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted">{{ menuTitle }}</h2>
+          <UButton icon="i-ph-magnifying-glass" color="neutral" variant="ghost" class="size-9 justify-center" aria-label="Search and commands (Ctrl or Command K)" title="Search and commands" @click="commands.show()" />
           <UButton icon="i-ph-x" color="neutral" variant="ghost" class="size-9 justify-center md:hidden" aria-label="Close navigation" @click="ui.mobilePane = 'chat'" />
         </header>
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
