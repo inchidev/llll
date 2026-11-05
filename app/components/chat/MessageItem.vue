@@ -207,7 +207,7 @@ function taskLinkState(link: TaskSourceLinkDTO) {
         :class="[jumbo ? 'jumbo' : '', message.deliveryState === 'sending' || message.deliveryState === 'uploading' ? 'opacity-50' : '']"
         :aria-busy="message.deliveryState === 'sending' || undefined"
       >
-        <ChatMarkdownView :content="message.content" :names="names" />
+        <ChatMarkdownView :content="message.content" :names="names" :previews="message.author.kind === 'human' ? true : 'internal'" />
         <span v-if="streaming" class="inline-block h-4 w-0.5 animate-pulse bg-primary align-text-bottom" aria-label="Streaming" />
         <span v-if="message.editedAt" class="ms-1 select-none text-[11px] text-muted" :title="formatFullDateTime(message.editedAt)">(edited)</span>
       </div>

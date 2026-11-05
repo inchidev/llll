@@ -141,6 +141,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   'data-references.get': inActiveSpace('data-reference.read'),
   'data-references.post': inActiveSpace('data-reference.update'),
   'data-search.get': inActiveSpace('data-search.read'),
+  'link-previews.post': inActiveSpace('link-preview.read'),
+  'search.get': inActiveSpace('search.read'),
   'data-trash.get': inActiveSpace('data-trash.read'),
   'data-trash.post': inActiveSpace('data-trash.update'),
   'database-fields/[id].delete': inSpace('field', 'id', 'field.delete'),

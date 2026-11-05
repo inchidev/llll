@@ -12,6 +12,7 @@ import { loadAuthorizationContext } from '../../server/utils/authorization'
 import { resolveMcpPrincipal } from '../../server/utils/mcp-principal'
 import { listMentionRoles, listMessageChannels, listMessageMembers, openDirectMessage, sendChannelMessage } from '../../server/utils/message-service'
 import { searchServerMessages } from '../../server/utils/message-search'
+import { linkPreview } from '../../server/utils/link-previews'
 import { searchDmMembers } from '../../server/utils/dm-search'
 import { loadInbox } from '../../server/utils/inbox-service'
 import { loadSpaceAttention } from '../../server/utils/space-attention'
@@ -94,6 +95,44 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('two Members in different Spaces', () => {
+  it('global search returns only authorized Data, Tasks and messages', async () => {
+    state.actor = 'sam'
+    let q = 'budget'
+    vi.stubGlobal('getQuery', () => ({ q }))
+    vi.stubGlobal('setHeader', vi.fn())
+    const search = (await import('../../server/api/search.get')).default
+    const event = {} as Parameters<typeof search>[0]
+    expect((await search(event)).hits.map(hit => hit.id)).toEqual(['m-sales'])
+    q = 'Plan'
+    expect((await search(event)).hits).toEqual([])
+    q = 'Call'
+    expect((await search(event)).hits).toEqual([expect.objectContaining({ id: 't-sales', kind: 'task', path: '/projects/board?board=b-sales&task=t-sales' })])
+    q = 'Pitch'
+    expect((await search(event)).hits.map(hit => hit.id)).toEqual(['d-sales'])
+    q = '!!!'
+    expect((await search(event)).hits).toEqual([])
+  })
+
+  it('internal previews withhold other Spaces and resolve current access on every request', async () => {
+    const sam = await member('sam')
+    const preview = (path: string) => linkPreview(env, sam, path, 'https://server.test')
+    expect(await preview('/channels/hq-general?message=m-hq')).toBeNull()
+    expect(await preview('/channels/sales-general?message=m-hq')).toBeNull()
+    expect(await preview('/channels/sales-general?message=m-sales')).toMatchObject({ kind: 'message', description: 'budget pipeline' })
+    db.exec("UPDATE channels SET visibility='private' WHERE id='sales-general'")
+    expect(await preview('/channels/sales-general?message=m-sales')).toBeNull()
+    expect(await preview('/items/d-hq')).toBeNull()
+    expect(await preview('/databases?database=db-hq')).toBeNull()
+    expect(await preview('/projects/board?task=t-hq')).toBeNull()
+    expect(await preview('/items/d-sales')).toMatchObject({ kind: 'item', title: 'Pitch' })
+    expect(await preview('/projects/board?task=t-sales')).toMatchObject({ kind: 'task', status: 'ready' })
+    db.exec("UPDATE data_items SET deleted_at='2026-11-05' WHERE id='d-sales'")
+    expect(await preview('/items/d-sales')).toBeNull()
+    db.exec("UPDATE roles SET permissions_bitmask=0 WHERE id='wide'")
+    const revoked = await member('sam')
+    expect(await linkPreview(env, revoked, '/databases?database=db-sales', 'https://server.test')).toBeNull()
+  })
+
   it('loads only the Member’s own Space into their authority', async () => {
     const sam = await member('sam')
     expect(sam.authorization.spaces?.ids).toEqual([SALES])

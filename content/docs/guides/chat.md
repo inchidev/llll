@@ -70,7 +70,15 @@ Anyone can mention a Role whose settings allow it (**Allow anyone to mention thi
 
 ## Search
 
-Press ⌘K (Ctrl+K on Windows and Linux), or select **Search** in the conversation header. Choose **This conversation** or **Whole server**. Results include archived channels.
+Press ⌘K (Ctrl+K on Windows and Linux) anywhere in the Server to open **Search and commands**. Jump to a section or conversation, find Tasks, Items, databases and messages in the active Space, or create a Task or page. Search starts after two characters and shows only results you can read. Use the arrow keys and Enter to open a result.
+
+For conversation search, press ⌘⇧F (Ctrl+Shift+F), or select **Search** in the conversation header. Choose **This conversation** or **Whole server**. Results include archived channels.
+
+## Link previews
+
+Links in sent messages can show a compact card. Links to this Server's Tasks, Items, databases, conversations and messages show their current title or excerpt only when you can read them. Website cards use the page's public title, description and image when available. Private network addresses, code blocks and hidden spoilers are not previewed. Unavailable previews leave the original link usable.
+
+An Agent's messages show cards only for links to this Server. Website cards make the Server open the address with no click, and an Agent tricked by something it read could put private data in a link.
 
 ## Inbox
 

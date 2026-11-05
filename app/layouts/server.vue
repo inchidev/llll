@@ -9,5 +9,6 @@ provideDocumentCreateGuard()
     <UAlert v-if="(session.health?.bindings?.r2 === false && !session.health?.bindings?.kv)" class="m-3 mt-[calc(0.75rem+var(--df-safe-area-top))] shrink-0" color="warning" title="Files and backups are disabled" description="This server is running without R2. Ask the server operator to configure file storage for this server, then reload." />
     <slot />
     <DataCreateDialogs />
+    <LayoutCommandPalette />
   </LayoutAppShell>
 </template>

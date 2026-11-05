@@ -466,6 +466,11 @@ function openCreateTask() {
 
 /** "Create task" on a chat message opens the board with `?fromMessage=<id>`: the form is prefilled from it. */
 const sourceDraft = shallowRef<TaskMessageDraftDTO | null>(null)
+watch([() => route.query.create, activeBoard], ([create, board]) => {
+  if (create !== '1' || !board || !canAnyProject(Permission.writeTasks)) return
+  openCreateTask()
+  void navigateTo({ path: BOARD_ROUTE, query: { ...route.query, create: undefined } }, { replace: true })
+}, { immediate: true })
 watch(() => route.query.fromMessage, async (messageId) => {
   if (typeof messageId !== 'string' || !messageId) return
   try {
