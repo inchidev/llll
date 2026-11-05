@@ -16,7 +16,7 @@
     "redact_query_string": true
   },
   "placement": {
-    "mode": "smart"
+    "region": "aws:ap-southeast-1"
   },
   "triggers": {
     "crons": [
@@ -126,6 +126,9 @@
   // per Preview and deleted with it. Cron triggers and routes target only the
   // production instance.
   "previews": {
+    "placement": {
+      "region": "aws:ap-southeast-1"
+    },
     "vars": {
       "PUBLIC_ORIGIN": "https://server-preview.dev.llll.gg",
       "ADMIN_USERNAME": "owner",
