@@ -122,7 +122,6 @@ async function copy(text: string) {
           <template v-if="inbound === 'postmark'">
             <p class="text-sm text-muted">Generate a secret and save it. L4 then gives you the webhook address to paste into your Postmark server's inbound settings.</p>
             <SettingsIntegrationField v-model="draft.POSTMARK_INBOUND_SECRET" label="Webhook secret" plain :status="field('POSTMARK_INBOUND_SECRET')" :busy="busy === 'remove-POSTMARK_INBOUND_SECRET'" @remove="remove('POSTMARK_INBOUND_SECRET')" />
-            <UButton v-if="!managed('POSTMARK_INBOUND_SECRET')" label="Generate secret" color="neutral" variant="outline" @click="generate('POSTMARK_INBOUND_SECRET')" />
             <UAlert v-if="postmarkAddress" color="warning" title="Copy this address now" description="It contains the secret and is shown only once. Paste it into Postmark as the inbound webhook." :actions="[{ label: 'Copy address', color: 'neutral', variant: 'outline', onClick: () => copy(postmarkAddress) }]" />
           </template>
           <template v-else-if="inbound === 'mailgun'">
@@ -139,9 +138,11 @@ async function copy(text: string) {
             <p class="text-sm text-muted">For your own service that signs each message with this secret, such as the Cloudflare Email Routing bridge.</p>
             <SettingsIntegrationWebhook :url="data.webhooks.bridge" @copy="copy" />
             <SettingsIntegrationField v-model="draft.INBOUND_EMAIL_SECRET" label="Signing secret" plain :status="field('INBOUND_EMAIL_SECRET')" :busy="busy === 'remove-INBOUND_EMAIL_SECRET'" @remove="remove('INBOUND_EMAIL_SECRET')" />
-            <UButton v-if="!managed('INBOUND_EMAIL_SECRET')" label="Generate secret" color="neutral" variant="outline" @click="generate('INBOUND_EMAIL_SECRET')" />
           </template>
-          <UButton label="Save" :loading="busy === 'inbound'" :disabled="!draft[inboundKey[inbound]]?.trim()" @click="save('inbound', [inboundKey[inbound]])" />
+          <div class="flex flex-wrap gap-2">
+            <UButton v-if="(inbound === 'postmark' || inbound === 'bridge') && !managed(inboundKey[inbound])" label="Generate secret" color="neutral" variant="outline" @click="generate(inboundKey[inbound])" />
+            <UButton label="Save" :loading="busy === 'inbound'" :disabled="!draft[inboundKey[inbound]]?.trim()" @click="save('inbound', [inboundKey[inbound]])" />
+          </div>
           <p v-if="saved(inboundKey[inbound])" class="text-xs text-muted">A saved value stays hidden. Saving a new one replaces it, and your service must then use the new one.</p>
         </article>
       </template>
