@@ -29,7 +29,7 @@ class FakeStatement {
   }
 
   async all<T>() {
-    return { results: (Array.isArray(this.result) ? this.result : []) as T[] }
+    return { results: (Array.isArray(this.result) ? this.result : this.result ? [this.result] : []) as T[] }
   }
 }
 
@@ -132,8 +132,7 @@ describe('notification recipients', () => {
 
   it('preserves default DM alerts, including replies in threads', async () => {
     const fake = env([
-      { id: 'thread', name: 'thread', type: 'thread', visibility: 'private', parent_id: 'dm' },
-      { id: 'dm', name: 'dm', type: 'dm', visibility: 'private', parent_id: null },
+      [{ id: 'thread', name: 'thread', type: 'thread', visibility: 'private', parent_id: 'dm' }, { id: 'dm', name: 'dm', type: 'dm', visibility: 'private', parent_id: null }],
       [{ user_id: 'other-a' }, { user_id: 'other-b' }],
     ])
     const statement = await messageNotificationStatement(fake.env, {
