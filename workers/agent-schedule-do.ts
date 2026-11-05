@@ -1,17 +1,18 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { L4Env } from './env'
-import { findSchedule, executeScheduledOccurrence, recordScheduleFailure } from '../server/utils/schedule-service'
 
 /** One durable alarm per mandate; occurrence identity survives retries and code updates. */
 export class AgentScheduleDurableObject extends DurableObject<L4Env> {
   async wake(id: string): Promise<void> {
     await this.ctx.storage.put('scheduleId', id)
+    const { findSchedule } = await import('../server/utils/schedule-service')
     const item = await findSchedule(this.env, id)
     if (item?.status === 'active' && item.nextAt) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1, Date.parse(item.nextAt)))
     else await this.ctx.storage.deleteAlarm()
   }
   override async alarm(): Promise<void> {
     const id = await this.ctx.storage.get<string>('scheduleId')
+    const { findSchedule, executeScheduledOccurrence, recordScheduleFailure } = await import('../server/utils/schedule-service')
     const item = id ? await findSchedule(this.env, id) : null
     if (!item || item.status !== 'active' || !item.nextAt) return
     if (Date.parse(item.nextAt) > Date.now()) { await this.wake(item.id); return }

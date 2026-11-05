@@ -2,7 +2,8 @@ import { compile } from 'html-to-text'
 
 const MAX_BODY_LENGTH = 200_000
 const TRUNCATED = '\n\n[Message truncated by L4]'
-const htmlToText = compile({
+let htmlToText: ReturnType<typeof compile> | undefined
+const parser = () => htmlToText ??= compile({
   wordwrap: false,
   limits: { maxInputLength: MAX_BODY_LENGTH, maxDepth: 100, maxChildNodes: 10_000 },
   selectors: [
@@ -20,7 +21,7 @@ function isHtmlLayout(content: string): boolean {
 }
 
 function convertHtml(content: string): string {
-  const text = htmlToText(content.slice(0, MAX_BODY_LENGTH)).trim()
+  const text = parser()(content.slice(0, MAX_BODY_LENGTH)).trim()
   return text.slice(0, MAX_BODY_LENGTH) + (content.length > MAX_BODY_LENGTH || text.length > MAX_BODY_LENGTH ? TRUNCATED : '')
 }
 
