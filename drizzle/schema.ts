@@ -567,6 +567,8 @@ export const messages = sqliteTable('messages', {
   createdAt: text('created_at').notNull(),
 }, table => [
   index('messages_channel_created_idx').on(table.channelId, table.createdAt, table.id),
+  // A page of a channel, deleted messages included, without sorting the whole channel.
+  index('messages_channel_id_idx').on(table.channelId, table.id),
   index('messages_author_id_idx').on(table.authorId),
   index('messages_live_channel_id_idx').on(table.channelId, table.id).where(sql`${table.deletedAt} is null`),
 ])

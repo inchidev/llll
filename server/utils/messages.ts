@@ -1,6 +1,6 @@
 import { getServerId } from '../../shared/server-id'
 import { isGroupMentionMarker } from '../../shared/mentions'
-import { and, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { attachments, channels, messageMentions, messagePins, messageReactions, messages, users } from '../../drizzle/schema'
 import type { AttachmentDTO, MessageDTO, MessagePinDTO, PublicUser, ReactionDTO } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
@@ -45,7 +45,8 @@ export async function hydrateMessages(env: L4Env, rows: Array<typeof messages.$i
     db.select().from(attachments).where(inArray(attachments.messageId, [...new Set([...ids, ...replyIds])])),
     db.select().from(messages).where(inArray(messages.id, replyIds)),
     db.select().from(messageReactions).where(inArray(messageReactions.messageId, ids)),
-    db.select({ id: channels.id, parentMessageId: channels.parentMessageId }).from(channels).where(inArray(channels.parentMessageId, ids)),
+    // Written out, not bound: the partial index on a Thread's root message needs to see the value.
+    db.select({ id: channels.id, parentMessageId: channels.parentMessageId }).from(channels).where(and(sql`${channels.type} = 'thread'`, inArray(channels.parentMessageId, ids))),
   ])
   const authors = new Map(authorRows.map((u) => [u.id, toPublicUser(u)]))
   // Whoever pinned a message is usually one of its authors; look up the rest.

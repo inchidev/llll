@@ -110,3 +110,22 @@ it('keeps every detail of a message when they are read together', async () => {
   const [alone] = await hydrateMessages(env, rows.filter(row => row.id === 'm1'), 'me')
   expect(alone).toMatchObject({ id: 'm1', replyTo: null, attachments: [{ id: 'a1' }] })
 })
+
+it('seeks a page of messages and its Threads without scanning or sorting the channel', async () => {
+  sqlite.exec("INSERT INTO messages(id,channel_id,author_id,content,reply_to_id,created_at) VALUES('m3','open','me','c','m1','2026-01-02')")
+  const known = await member()
+  const seen = new Set<string>()
+  const prepare = sqlite.prepare.bind(sqlite)
+  vi.spyOn(sqlite, 'prepare').mockImplementation((sql: string) => { seen.add(sql); return prepare(sql) })
+  await readChannelMessages(env, known, 'open')
+  await readChannelMessages(env, known, 'open', { cursor: 'm9' })
+  const plans = [...seen].map(sql => prepare(`EXPLAIN QUERY PLAN ${sql}`).all().map(row => (row as { detail: string }).detail).join(' | '))
+  expect(plans.filter(plan => /SCAN (messages|channels)\b|TEMP B-TREE FOR ORDER BY/.test(plan))).toEqual([])
+  expect(plans.some(plan => plan.includes('messages_channel_id_idx'))).toBe(true)
+  expect(plans.some(plan => plan.includes('channels_thread_root_unique'))).toBe(true)
+})
+
+it('still counts unread through the index of live messages', () => {
+  const plan = sqlite.prepare("EXPLAIN QUERY PLAN SELECT 1 FROM messages m WHERE m.channel_id = 'open' AND m.deleted_at IS NULL AND m.id > '' LIMIT 100").all()
+  expect(JSON.stringify(plan)).toContain('messages_live_channel_id_idx')
+})
