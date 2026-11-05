@@ -27,7 +27,7 @@ This repository deploys nothing of ours. See [one Server per tenant](docs/adr/00
 - Keep personal targets and credentials in ignored files. Verify the target checkout and Git remote before mutations.
 - Changes go through focused PRs to `main`. Only a merged PR labelled `release` that raises the shared version publishes artifacts.
 - **Server installation and updates** upload only a published, checksum-verified release, never unreleased or locally built code: from `/create` through the customer's own browser-bound OAuth grant, from a Server with its Owner's consent, or from L4 Cloud to its own namespace. Customers need neither Git nor GitHub. Recommend, never require, a separate Cloudflare account per Server.
-- **The workspace is free; L4 sells Managed Compute.** A Server runs work on one kind of Compute Node: on the operator's VPS or Cloudflare account today, or as a managed worker from `llll-cloud` (L4 Compute, coming); provisioning and billing live only there, and the Server holds no provider key. Never add a price per Server, Space, person, message or feature. See [Compute is the business](docs/adr/0009-compute-as-the-business.md).
+- **The workspace is free; L4 sells Managed Compute.** A Server runs work on one kind of Compute Node: on the operator's VPS or Cloudflare account today, or as a managed box per Task from `llll-cloud`, paid by the hour of agent work (L4 Compute, coming); provisioning and billing live only there, and the Server holds no provider key. Never add a price per Server, Space, person, message or feature, and never cap how many Agents work at once. See [Compute is the business](docs/adr/0009-compute-as-the-business.md).
 
 ## Guides
 
