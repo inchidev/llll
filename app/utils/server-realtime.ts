@@ -77,6 +77,10 @@ function applyThreadActivity(cache: ServerQueryCache, threadId: string, parentId
 type MessagePages = { pages: Array<{ messages: Array<{ threadId?: string | null }> }> }
 
 export function applyServerRealtimeEvent(cache: ServerQueryCache, event: ServerRealtimeEvent) {
+  if (['members.changed', 'channel.access.changed', 'channels.changed', 'tasks.changed'].includes(event.t)) {
+    void cache.invalidateQueries({ queryKey: ['global-search'] })
+    void cache.invalidateQueries({ queryKey: ['link-previews'] })
+  }
   if (['chat.attention', 'channel.activity', 'channel.read', 'channels.changed', 'channel.access.changed'].includes(event.t)) {
     void cache.invalidateQueries({ queryKey: ['followed-threads'] })
     void cache.invalidateQueries({ queryKey: ['unread-preview'] })

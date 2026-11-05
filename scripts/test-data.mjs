@@ -26,6 +26,15 @@ export async function testData({ api, ids }) {
   await api('alpha', `/api/items/${doc.id}/restore`, { method: 'POST', expected: 409, body: { version: 1, revision: 1 } })
   await api('alpha', `/api/items/${doc.id}/restore`, { method: 'POST', body: { version: 2, revision: 1 } })
   assert.ok((await api('alpha', '/api/data-search?q=Rare%20evidence')).payload.hits.some(hit => hit.id === doc.id))
+  const globalSearch = await api('alpha', '/api/search?q=Rare%20evidence')
+  assert.ok(globalSearch.payload.hits.some(hit => hit.id === doc.id && hit.path === `/items/${doc.id}`))
+  assert.match(globalSearch.response.headers.get('cache-control'), /no-store/)
+  assert.deepEqual((await api('beta', '/api/search?q=Rare%20evidence')).payload.hits, [])
+  assert.deepEqual((await api('alpha', '/api/search?q=%21%21')).payload.hits, [])
+  const previews = (server, urls) => api(server, '/api/link-previews', { method: 'POST', body: { urls } })
+  assert.deepEqual((await previews('alpha', [`/items/${doc.id}`, `/databases?database=${database.id}`])).payload.previews.map(card => card.title), ['Data integration brief', 'Data integration'])
+  assert.deepEqual((await previews('beta', [`/items/${doc.id}`])).payload.previews, [])
+  assert.deepEqual((await previews('alpha', ['http://169.254.169.254/latest/meta-data/', 'http://[::1]/', 'https://user:pass@example.com/'])).payload.previews, [])
   await api('alpha', '/api/data-references', { method: 'POST', body: { source: { type: 'item', id: recordId }, target: { type: 'item', id: doc.id } } })
   assert.equal((await api('alpha', `/api/data-references?type=item&id=${doc.id}`)).payload.incoming[0].id, recordId)
   const child = (await api('alpha', `/api/servers/${ids.alpha}/items`, { method: 'POST', body: { title: 'Child page', parentId: doc.id } })).payload.item
@@ -44,6 +53,7 @@ export async function testData({ api, ids }) {
   await api('alpha', '/api/data-trash', { method: 'POST', body: { type: 'item', id: recordId, action: 'restore' } })
   assert.equal((await api('alpha', `/api/databases/${database.id}`)).payload.items[0].values[field.id], 1)
   await api('alpha', `/api/items/${doc.id}`, { method: 'DELETE' })
+  assert.deepEqual((await previews('alpha', [`/items/${doc.id}`])).payload.previews, [])
   await api('alpha', `/api/items/${doc.id}`, { expected: 404 })
   await api('alpha', '/api/data-trash', { method: 'POST', body: { type: 'item', id: doc.id, action: 'restore' } })
   for (const [type, id, route] of [['item', doc.id, 'items'], ['database', database.id, 'databases']]) {

@@ -4,7 +4,7 @@ const LIST_ITEM = /^\s{0,3}(?:[-*]|(\d{1,9})[.)])\s+(.*)$/
 const HEADING = /^(#{1,3})\s+(.+)$/
 const SUBTEXT = /^-#\s+(.+)$/
 /** A bare URL in escaped text; stops before escaped angle brackets and quotes. */
-const BARE_URL = /\bhttps?:\/\/(?:(?!&lt;|&gt;|&quot;)\S)+/g
+const BARE_URL = /\bhttps?:\/\/(?:(?!&lt;|&gt;|&quot;)[^\s|])+/g
 /** Placeholders are wrapped in NUL, which escaped user text never contains. */
 const SLOT = /\0(\d+)\0/g
 

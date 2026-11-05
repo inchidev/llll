@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { renderMarkdown } from '~~/shared/markdown'
+import { previewLinks } from '~~/shared/link-previews'
 
 const props = defineProps<{
   content: string
   names?: Record<string, string>
+  previews?: boolean
 }>()
 
 const html = computed(() => renderMarkdown(props.content, props.names))
+const links = computed(() => props.previews ? previewLinks(html.value) : [])
 
 function reveal(target: Element) {
   const spoiler = target.closest('.spoiler')
@@ -41,7 +44,10 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <!-- markdown.ts escapes HTML and drops javascript: URLs -->
-  <!-- eslint-disable-next-line vue/no-v-html -->
-  <div class="md break-words" @click="onClick" @keydown="onKey" v-html="html" />
+  <div class="min-w-0">
+    <!-- markdown.ts escapes HTML and drops javascript: URLs -->
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div class="md break-words" @click="onClick" @keydown="onKey" v-html="html" />
+    <ChatLinkPreviews v-if="links.length" :urls="links" />
+  </div>
 </template>

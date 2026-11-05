@@ -20,6 +20,7 @@ const toast = useToast()
 const session = useSessionStore()
 const live = useLiveStore()
 const nav = useNavActions()
+const commands = useCommandPalette()
 const { copy } = useClipboard()
 const { api, serverUrl } = useApi()
 
@@ -260,6 +261,7 @@ watch(nav.inviteOpen, (open) => {
           </button>
         </UDropdownMenu>
         <LayoutSpaceSwitcher :server-id="serverId" />
+        <UButton icon="i-ph-magnifying-glass" color="neutral" variant="ghost" aria-label="Search and commands (Ctrl or Command K)" title="Search and commands" class="mx-auto my-1" @click="commands.show()" />
 
         <nav aria-label="Server views" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-2">
           <div v-if="membersQ.isPending.value" class="space-y-1" aria-label="Loading views" aria-busy="true">

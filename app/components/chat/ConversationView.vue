@@ -8,7 +8,7 @@ import { serverConnectionKey } from '../../composables/useServerSocket'
 import { dmTitle, isDmType } from '~~/shared/dm'
 import { channelPath } from '~~/shared/paths'
 import { hasPermission, Permission } from '~~/shared/permissions'
-import { isSearchShortcut } from '~~/shared/shortcuts'
+import { isConversationSearchShortcut } from '~~/shared/shortcuts'
 import { liveJoinLabel, liveKindFor, liveStartLabel } from '~~/shared/live'
 import { threadTitle } from '~~/shared/threads'
 import { PENDING_THREAD_PREFIX } from '~/stores/ui'
@@ -27,7 +27,7 @@ const channelId = computed(() => String(route.params.channel || route.params.cha
 
 
 onKeyStroke(
-  isSearchShortcut,
+  isConversationSearchShortcut,
   (event) => {
     event.preventDefault()
     ui.searchOpen = true
@@ -422,7 +422,7 @@ defineShortcuts({
           >
             <UIcon name="i-ph-magnifying-glass" class="size-3.5" />
             <span class="flex-1 text-start">Search</span>
-            <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[11px] text-toned">⌘ K</kbd>
+            <kbd class="inline-flex h-5 items-center rounded border border-default bg-default/40 px-1.5 font-sans text-[11px] text-toned">⌘ ⇧ F</kbd>
           </button>
           <UTooltip
             v-if="isConversation && !directAgentId"
@@ -479,8 +479,8 @@ defineShortcuts({
         @end="endLive"
       />
       <ChatMessageList
-        can-mark-unread
         v-else
+        can-mark-unread
         :channel-id="channelId"
         :members="members"
         :channel-name="headerName"

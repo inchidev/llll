@@ -187,11 +187,13 @@ describe('the local Chromium path', () => {
       '127.0.0.1.nip.io': [{ type: 1, data: '127.0.0.1' }],
       'mixed.example.com': [{ type: 1, data: '93.184.216.34' }, { type: 28, data: 'fd00::1' }],
       'mapped.example.com': [{ type: 28, data: '::ffff:10.0.0.1' }],
+      'invalid.example.com': [{ type: 1, data: 'another.example.com' }],
       'www.example.com': [{ type: 5, data: 'cdn.example.net.' }, { type: 1, data: '93.184.216.34' }],
     })
     await expect(assertPublicDestination('http://127.0.0.1.nip.io/', [], fetcher)).rejects.toThrow('not a public website')
     await expect(assertPublicDestination('https://mixed.example.com/', [], fetcher)).rejects.toThrow('not a public website')
     await expect(assertPublicDestination('https://mapped.example.com/', [], fetcher)).rejects.toThrow('not a public website')
+    await expect(assertPublicDestination('https://invalid.example.com/', [], fetcher)).rejects.toThrow('not a public website')
     await expect(assertPublicDestination('https://nothing.example.com/', [], fetcher)).rejects.toThrow('not a public website')
     await expect(assertPublicDestination('https://www.example.com/', [], fetcher)).resolves.toBeUndefined()
   })
