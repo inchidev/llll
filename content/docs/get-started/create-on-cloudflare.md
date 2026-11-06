@@ -38,7 +38,7 @@ The card shows how long the Cloudflare access and the installer session last. Th
 
 ## 3. Wait for the deployment
 
-The installer shows its phases: **Configure your Server**, **Start deployment**, **Wait for Cloudflare verification** and **Ready**, with details for each step.
+The form and the deployment fill the whole screen until the Server is deployed. The installer shows its phases: **Configure your Server**, **Start deployment**, **Wait for Cloudflare verification** and **Ready**, with details for each step.
 
 Before it creates anything, the installer downloads the selected release and verifies its checksums. A missing or mismatched checksum stops the installation without creating a Server.
 
@@ -48,7 +48,7 @@ A new Server starts on your account's `workers.dev` hostname. Its status may sho
 
 ## 4. Claim the Server as Owner
 
-When the Server is ready for setup, its row under **Your Servers** shows **Setup required** and a **Finish setup on your Server** button.
+When the deployment ends, the installer shows a **Finish setup on your Server** button. If you select **Done** instead, the Server's row under **Your Servers** shows **Setup required** and the same button.
 
 1. Select **Finish setup on your Server**. It opens the Server's `/setup` page in a new tab, on the Server's own address, so your browser can save the password for that site.
 2. Choose a **Username** and a **Password**. **Your name** and **Email** are optional, and you can add an email later.
