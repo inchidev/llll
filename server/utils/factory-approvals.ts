@@ -353,6 +353,8 @@ export async function publishedApproval(env: L4Env, nodeId: string, approvalId: 
       .bind(JSON.stringify({ message: 'The push finished, but the branch or its pull request could not be confirmed. Ask the person to look at the branch before publishing again.' }), row.id).run()
     throw error
   }
+  // When the provider had this head: checks it has not registered yet are pending until a while after it.
+  receipt = { ...receipt, pushedAt: nowIso() }
   const result = { published: true, sha: request.sha, branch: request.ref, pull: receipt }
   await env.DB.batch([
     env.DB.prepare("UPDATE factory_approvals SET status='completed',result_json=? WHERE id=? AND status='publishing'").bind(JSON.stringify(result), row.id),

@@ -111,6 +111,9 @@ describe('factory_publish', () => {
     expect(done).toMatchObject({ published: true, sha, branch: `l4-agent/${boxId}`, pull: { number: 77, commit: sha, url: 'https://github.com/inchidev/afterprompt/pull/77' } })
     expect(f.db.prepare('SELECT status FROM agent_run_tools WHERE run_id=? AND call_id=?').get(run.id, 'publish-one')).toMatchObject({ status: 'completed' })
     expect(f.db.prepare('SELECT publication_count AS n,pull_json AS pull FROM factory_boxes WHERE id=?').get(boxId)).toMatchObject({ n: 1, pull: expect.stringContaining('"number":77') })
+    // The receipt records when the provider had this head, which the merge's grace for checks counts from.
+    const receipt = JSON.parse((f.db.prepare('SELECT pull_json AS pull FROM factory_boxes WHERE id=?').get(boxId) as { pull: string }).pull)
+    expect(Math.abs(Date.parse(receipt.pushedAt) - Date.now())).toBeLessThan(60000)
     expect(f.db.prepare('SELECT factory_state AS state,pull_url AS url FROM tasks WHERE id=?').get('factory-task')).toMatchObject({ state: 'pr_published', url: 'https://github.com/inchidev/afterprompt/pull/77' })
     expect(github.writes.filter(write => write.path.endsWith('/pulls'))).toHaveLength(1)
     // The Server never writes Git content through the API.

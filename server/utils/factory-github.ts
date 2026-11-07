@@ -11,7 +11,8 @@ import { fail } from './cf'
 const pullSchema = z.object({ number: z.number().int().positive(), state: z.string(), merged: z.boolean().optional(), draft: z.boolean().optional(), html_url: z.string().optional(), node_id: z.string().optional(),
   mergeable_state: z.string().optional(), head: z.object({ sha: factorySha, ref: z.string(), repo: z.object({ id: z.number() }) }), base: z.object({ ref: z.string(), repo: z.object({ id: z.number() }) }) })
 /** The Task's pull request: its number, the approved head and branch, and once merged from L4, the merge. */
-export type PullReceipt = { number: number; commit: string; branch: string; url: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
+/** `pushedAt` is when the Server confirmed the push of `commit`: the provider has had the head since then. */
+export type PullReceipt = { number: number; commit: string; branch: string; url: string; pushedAt?: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
 const branchPath = (branch: string) => branch.split('/').map(encodeURIComponent).join('/')
 const notFound = (error: unknown) => Boolean(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404)
 

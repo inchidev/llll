@@ -2,13 +2,20 @@
 import { useQuery } from '@tanstack/vue-query'
 import type { ProjectGitFlow } from '~~/shared/project-factory'
 import { GIT_METHOD_LABELS } from '~~/shared/project-factory'
-type Pull = { number: number; commit: string; branch: string; url: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
+type Pull = { number: number; commit: string; branch: string; url: string; pushedAt?: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
 type MergeState = { box: { id: string; repository: string; baseBranch: string; branch: string; pushedSha: string | null; pull: Pull | null } | null
-  gitFlow: ProjectGitFlow | null; canMerge: boolean; ready: boolean; unchecked: boolean; reason: string | null; message?: string }
+  gitFlow: ProjectGitFlow | null; canMerge: boolean; ready: boolean; unchecked: boolean; reason: string | null; message?: string
+  /** Set while a head with no checks reported is too new to tell: CI may not have registered them yet. */
+  checksRegisterUntil?: string | null }
 /** The Task's code where its pull request is shown: the pull request and its Merge, or the commit a direct push sent. */
 const props = defineProps<{ taskId: string }>()
 const { api } = useApi(), toast = useToast()
-const query = useQuery({ queryKey: computed(() => ['task-merge', props.taskId]), queryFn: () => api<MergeState>(`/api/tasks/${props.taskId}/merge`) })
+// Right after a push, "no checks" may only mean CI has not registered them: read again once the grace ends.
+const query = useQuery({ queryKey: computed(() => ['task-merge', props.taskId]), queryFn: () => api<MergeState>(`/api/tasks/${props.taskId}/merge`),
+  refetchInterval: current => {
+    const until = Date.parse(current.state.data?.checksRegisterUntil ?? '')
+    return Number.isFinite(until) ? Math.min(Math.max(until - Date.now() + 1000, 5000), 30000) : false
+  } })
 const state = computed(() => query.data.value)
 const pull = computed(() => state.value?.box?.pull ?? null)
 const busy = ref(false), confirmed = ref(false)

@@ -8,7 +8,7 @@ Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 and 
 - **No Git server on the VPS Node.** The daemon copies the approved commit out of the box with hardened Git in a throwaway container without network, and pushes from that copy with a short token. Git LFS is not built.
 - **The Agent's branch** is `<prefix><box id>`, `l4-agent/` by default, not `l4-agent/<task>`. The target is always the repository's base branch.
 - **TLS termination on a VPS** happens only for hosts with a bound Project secret; every other open host stays a plain CONNECT tunnel, so pinned certificates keep working there.
-- **A person may merge a head with no reported checks** (no check, status or Actions job, and no required check in the repository environment), and L4 says so. The Agent's merge always needs a passing check and none failed or pending.
+- **A person may merge a head with no reported checks** (no check, status or Actions job, and no required check in the repository environment) two minutes after its push, and L4 says so. The Agent's merge always needs a passing check and none failed or pending.
 
 Destinations stay deferred, as decided below. The acceptance runs below are not recorded yet. See [Software Factory](../software-factory.md) for what works today.
 

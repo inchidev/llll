@@ -130,7 +130,7 @@ After a push, the Agent reads the pull request's checks, CI logs and deployments
 
 ## 8. Merge
 
-The Task shows its pull request and a **Merge** button, on the board and on the Run's page. You can merge when you may approve Agent actions in the Project and every check of the pull request's head passed. If the repository reports no checks at all, you can still merge, and L4 says plainly that nothing tested it. L4 merges exactly the commit you saw, with the Project's merge method, and marks the Task's code **Merged**. The Task's own status stays yours to change.
+The Task shows its pull request and a **Merge** button, on the board and on the Run's page. You can merge when you may approve Agent actions in the Project and every check of the pull request's head passed. If the repository reports no checks at all, you can still merge, and L4 says plainly that nothing tested it. For the first two minutes after a push the Task shows **Waiting for checks to register…** instead, because CI may not have reported the new head yet. L4 merges exactly the commit you saw, with the Project's merge method, and marks the Task's code **Merged**. The Task's own status stays yours to change.
 
 Under **the Agent once checks pass**, the Agent can merge too, but only after at least one check passed and none failed or is pending.
 

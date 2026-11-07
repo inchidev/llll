@@ -6,7 +6,7 @@ import { DEFAULT_GIT_FLOW, projectGitFlowSchema, type ProjectGitFlow } from '../
 import { factoryHash } from '../../server/utils/factory-authority'
 import { computePoll } from '../../server/utils/compute-nodes'
 import { ensureBox } from '../../server/utils/factory-boxes'
-import { personMerge, taskMergeState } from '../../server/utils/factory-merge'
+import { CHECKS_GRACE_MS, CHECKS_REGISTERING_REASON, mergeBlocker, personMerge, taskMergeState } from '../../server/utils/factory-merge'
 import { getProjectGitFlow, saveProjectGitFlow } from '../../server/utils/project-git-flow'
 import { factoryStatus } from '../../server/utils/factory-status'
 import { connectGitea } from '../../server/utils/gitea'
@@ -57,8 +57,8 @@ function githubFixture() {
   return state
 }
 const flow = (gitFlow: Partial<ProjectGitFlow>) => f.db.prepare('UPDATE projects SET factory_json=? WHERE id=?').run(JSON.stringify({ gitFlow: { ...DEFAULT_GIT_FLOW, ...gitFlow } }), 'proj')
-const withPull = (commit = sha) => f.db.prepare('UPDATE factory_boxes SET pull_json=? WHERE id=?')
-  .run(JSON.stringify({ number: 77, commit, branch: `l4-agent/${boxId}`, url: 'https://github.com/inchidev/afterprompt/pull/77' }), boxId)
+const withPull = (commit = sha, pushedAt?: string) => f.db.prepare('UPDATE factory_boxes SET pull_json=? WHERE id=?')
+  .run(JSON.stringify({ number: 77, commit, branch: `l4-agent/${boxId}`, url: 'https://github.com/inchidev/afterprompt/pull/77', ...(pushedAt ? { pushedAt } : {}) }), boxId)
 /** The repository environment names no required check, as a repository without CI does. */
 function noRequiredChecks() {
   for (const [table, id] of [['factory_boxes', boxId], ['agent_runs', run.id]] as const) {
@@ -237,6 +237,38 @@ describe('a person’s merge', () => {
     expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ canMerge: true, ready: true, unchecked: true, reason: expect.stringContaining('No checks or statuses were reported') })
     expect(await personMerge(f.env, owner, 'factory-task', { sha })).toMatchObject({ box: { pull: { merged: { sha: mergeSha } } }, message: expect.stringContaining('No checks were reported for its head') })
     expect(JSON.parse(merges()[0]!.request)).toEqual({ sha, number: 77, method: 'squash', by: 'person', checks: 'none' })
+  })
+
+  it('counts no checks as pending for two minutes after the push of that head, then may merge without them', async () => {
+    noRequiredChecks()
+    const github = githubFixture()
+    github.check = 'none'
+    const pushedAt = new Date(Date.now() - 30000).toISOString()
+    withPull(sha, pushedAt)
+    const owner = await f.actor()
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ canMerge: true, ready: false, unchecked: false, reason: CHECKS_REGISTERING_REASON,
+      checksRegisterUntil: new Date(Date.parse(pushedAt) + CHECKS_GRACE_MS).toISOString() })
+    await expect(personMerge(f.env, owner, 'factory-task', { sha })).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('less than two minutes ago') })
+    expect(github.merges).toEqual([])
+    // A check that registers within the grace is waited on as any other.
+    github.check = 'in_progress'
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ ready: false, reason: expect.stringContaining('still running'), checksRegisterUntil: null })
+    github.check = 'none'
+    withPull(sha, new Date(Date.now() - CHECKS_GRACE_MS - 1000).toISOString())
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ ready: true, unchecked: true, checksRegisterUntil: null })
+    expect(await personMerge(f.env, owner, 'factory-task', { sha })).toMatchObject({ message: expect.stringContaining('No checks were reported for its head') })
+  })
+
+  it('bases the grace on the recorded push of the head, never on anything else', () => {
+    const none = { complete: true, state: 'absent', checks: [], jobs: [], required: [] }
+    const pushed = Date.parse('2026-11-07T10:00:00Z'), until = pushed + CHECKS_GRACE_MS
+    expect(mergeBlocker(none, 'person', until, pushed + CHECKS_GRACE_MS - 1)).toBe(CHECKS_REGISTERING_REASON)
+    expect(mergeBlocker(none, 'person', until, until)).toBeNull()
+    // A receipt with no recorded push gets no grace; the Agent never merges a head without checks.
+    expect(mergeBlocker(none, 'person', null, pushed)).toBeNull()
+    expect(mergeBlocker(none, 'agent', null, until + 1)).toContain('No checks have run')
+    // Incomplete feedback is not "no checks reported".
+    expect(mergeBlocker({ ...none, complete: false }, 'person', null, until + 1)).not.toBeNull()
   })
 
   it('still waits on any check or status that exists, and on a required check nobody reported', async () => {

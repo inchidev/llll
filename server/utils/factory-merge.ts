@@ -23,7 +23,8 @@ import { fail } from './cf'
  * `agent_after_checks`. Both wait for the readiness `factory_feedback` reports: every check of the approved head
  * passed, and there was at least one. A person may also merge a head for which the provider reports no checks,
  * no statuses and no Actions jobs at all, so that a repository without CI can be merged from L4; the answer
- * says so. The Agent never merges unchecked code. The provider merges exactly that head (`sha`), so a head that moved is refused, with
+ * says so. Right after a push CI may simply not have registered its checks, so for two minutes after the push
+ * of that head (recorded on its receipt) no checks counts as pending: "Waiting for checks to register…". The Agent never merges unchecked code. The provider merges exactly that head (`sha`), so a head that moved is refused, with
  * the Project's merge method. The provider's branch protection stays the ceiling: a merge it refuses is
  * reported with its reason and never retried around it.
  *
@@ -45,6 +46,18 @@ async function taskPullBox(env: L4Env, taskId: string) {
 
 type Feedback = { state?: string; complete?: boolean; readyForReview?: boolean; checks?: unknown[]; jobs?: unknown[]; required?: Array<{ name: string; state: string }> }
 export const NO_CHECKS_REASON = 'No checks or statuses were reported for this head, so nothing has tested it. Merge only if that is what you want.'
+export const CHECKS_REGISTERING_REASON = 'Waiting for checks to register…'
+/** Right after a push, CI may not have registered its checks for the head yet. */
+export const CHECKS_GRACE_MS = 2 * 60000
+
+/**
+ * Until when "no checks reported" still means pending: two minutes after the Server confirmed the push of that
+ * head, from the time recorded on its receipt. A receipt without one gets no grace.
+ */
+export function checksRegisterUntil(receipt: Pick<PullReceipt, 'pushedAt'>) {
+  const at = Date.parse(receipt.pushedAt ?? '')
+  return Number.isFinite(at) ? at + CHECKS_GRACE_MS : null
+}
 
 /**
  * True when the provider reported nothing at all for the head: no check, no commit status, no Actions job, and
@@ -56,11 +69,12 @@ export function noChecksReported(feedback: Feedback) {
 
 /**
  * Why a pull request cannot be merged yet, from its feedback, or null once every check of its head passed. For a
- * person, also null when no checks were reported at all; any check or status that exists must still pass.
+ * person, also null when no checks were reported at all once the head is past its grace (`registerUntil`); any
+ * check or status that exists must still pass.
  */
-export function mergeBlocker(feedback: Feedback, by: MergeBy['kind'] = 'agent') {
+export function mergeBlocker(feedback: Feedback, by: MergeBy['kind'] = 'agent', registerUntil: number | null = null, now = Date.now()) {
   if (feedback.readyForReview) return null
-  if (by === 'person' && noChecksReported(feedback)) return null
+  if (by === 'person' && noChecksReported(feedback)) return registerUntil !== null && now < registerUntil ? CHECKS_REGISTERING_REASON : null
   const missing = (feedback.required ?? []).filter(check => check.state !== 'success').map(check => check.name)
   if (feedback.state === 'failure') return 'A check of the pull request’s head failed.'
   if (feedback.state === 'running') return 'Checks of the pull request’s head are still running.'
@@ -139,7 +153,8 @@ async function mergePull(env: L4Env, input: MergeInput) {
   if (receipt.commit !== sha) fail(409, 'merge_head_moved', `The pull request’s approved head is ${receipt.commit}, not ${sha}. Read its checks again.`)
   // The same readiness factory_feedback reports, read now at exactly the approved head.
   const feedback = await pullFeedback(env, environment, receipt, undefined, input.ensure)
-  const blocker = mergeBlocker(feedback, by.kind)
+  const blocker = mergeBlocker(feedback, by.kind, checksRegisterUntil(receipt))
+  if (blocker === CHECKS_REGISTERING_REASON) fail(409, 'merge_not_ready', 'No checks were reported for the pull request’s head yet, but it was pushed less than two minutes ago and CI may not have registered them. Check again in a moment.')
   if (blocker) fail(409, 'merge_not_ready', `${blocker} The pull request can be merged from L4 once every check of its head passed.`)
   const unchecked = !feedback.readyForReview
   const id = newId(), now = nowIso(), request = JSON.stringify({ sha, number: receipt.number, method: gitFlow.method, by: by.kind, ...(unchecked ? { checks: 'none' } : {}) })
@@ -178,25 +193,27 @@ function mayMerge(auth: AuthorizationContext, task: { projectId?: string | null;
 export async function taskMergeState(env: L4Env, auth: AuthorizationContext, taskId: string) {
   const task = await requireTask(env, taskId, auth)
   const box = await taskPullBox(env, task.id)
-  if (!box) return { box: null, gitFlow: null, canMerge: false, ready: false, unchecked: false, reason: null }
+  if (!box) return { box: null, gitFlow: null, canMerge: false, ready: false, unchecked: false, reason: null, checksRegisterUntil: null }
   const environment = JSON.parse(box.environmentJson) as RunEnvironment
   const { projectId, gitFlow } = await repositoryGitFlow(env, environment.id)
   const pull = box.pullJson ? JSON.parse(box.pullJson) as PullReceipt : null
   const canMerge = mayMerge(auth, task, projectId) && gitFlow.merge !== 'direct_push'
-  let ready = false, unchecked = false, reason: string | null
+  let ready = false, unchecked = false, reason: string | null, registering: string | null = null
   if (!pull) reason = gitFlow.merge === 'direct_push' ? null : 'No pull request yet.'
   else if (pull.merged) reason = 'Merged.'
   else if (gitFlow.merge === 'direct_push') reason = `This Project’s Git flow now pushes straight to ${environment.baseBranch}; merge this pull request in ${environment.provider === 'gitea' ? 'Gitea' : 'GitHub'}.`
   else {
     try {
       const feedback = await pullFeedback(env, environment, pull, undefined, async () => {})
-      reason = mergeBlocker(feedback, 'person'); ready = !reason
+      const until = checksRegisterUntil(pull)
+      reason = mergeBlocker(feedback, 'person', until); ready = !reason
+      if (reason === CHECKS_REGISTERING_REASON) registering = new Date(until!).toISOString()
       if (ready && !feedback.readyForReview) { unchecked = true; reason = NO_CHECKS_REASON }
     }
     catch (error) { reason = `The checks could not be read: ${error && typeof error === 'object' && 'message' in error ? String(error.message).slice(0, 200) : 'unknown error'}` }
   }
   return { box: { id: box.id, repository: environment.sourceRepo, baseBranch: environment.baseBranch, branch: publishTarget(gitFlow, box.id, environment).ref, pushedSha: box.pushedSha, pull },
-    gitFlow, canMerge, ready, unchecked, reason }
+    gitFlow, canMerge, ready, unchecked, reason, checksRegisterUntil: registering }
 }
 
 /** `POST /api/tasks/:id/merge`: a person merges the Task's pull request at the head they saw. */
