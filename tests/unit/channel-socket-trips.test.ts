@@ -198,3 +198,16 @@ it("streams an Agent's answer to who may watch it, narrows it after a private re
   expect(streamed(member).at(-1)).toMatchObject({ t: 'agent.stream.end', runId })
   expect(streamed(other).filter(message => message.t === 'agent.stream')).toHaveLength(3)
 })
+
+it("posts an Agent's long answer whole, while a person's message keeps its limit", async () => {
+  sqlite.exec("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('pi-agent','agent','Pi','active','member-role','2026-01-01'); INSERT INTO agents(user_id,created_by) VALUES('pi-agent','owner')")
+  const reader = socket('other')
+  const object = channelObject('open', [reader])
+  const answer = 'A long answer. '.repeat(300)
+  await object.postAgentMessage({ agentId: 'pi-agent', content: answer })
+  expect(reader.sent.find(message => message.t === 'message')?.message?.content).toBe(answer.trim())
+  await expect(object.postAgentMessage({ agentId: 'pi-agent', content: 'x'.repeat(12_001) })).rejects.toThrow()
+  const person = socket('member')
+  await sendOn(channelObject('open', [person]), person, 'y'.repeat(2001))
+  expect(person.sent.some(message => message.t === 'message')).toBe(false)
+})

@@ -50,6 +50,9 @@ export type AgentRun = {
   resultText: string | null; lastError: string | null; modelCalls: number; totalTokens: number
   eventCursor: number; deadline: string; createdAt: string; updatedAt: string
 }
+/** The longest answer an Agent posts in a conversation. People write at most 2,000 characters. */
+export const AGENT_ANSWER_MAX = 12_000
+
 export type RuntimeEvent = { type: 'text'; text: string } | { type: 'tool'; name: string; purpose?: string }
   | { type: 'result'; text: string; steps: number } | { type: 'error'; message: string }
 /** A runtime event as an executor reports it; an executor is untrusted, so every report is parsed. */

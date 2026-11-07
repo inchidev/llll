@@ -1,4 +1,5 @@
 import { advanceChatRead, chatAttention } from './chat-attention'
+import { AGENT_ANSWER_MAX } from '../shared/agent-execution'
 import { authorizedPublicationMessage } from '../server/utils/run-publication'
 import { retryDeletedFiles } from '../shared/file-cleanup'
 import { messageDeleteRole, messageSendRate, removeChannelMessage, takeRate } from '../server/utils/message-service'
@@ -79,7 +80,8 @@ const agentPostSchema = z.object({
   sourceRunId: z.string().uuid().optional(),
   sourcePublicationId: z.string().uuid().optional(),
   agentId: z.string().min(8),
-  content: z.string().trim().min(1).max(2000),
+  // A Run's answer can be long; a person's message stays at 2,000 characters.
+  content: z.string().trim().min(1).max(AGENT_ANSWER_MAX),
 })
 
 const agentStreamSchema = z.object({

@@ -1,4 +1,4 @@
-import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import { AGENT_ANSWER_MAX, type AgentRun, type RunMandate } from '../../shared/agent-execution'
 import { autonomousExecution, type AgentExecutionMode } from '../../shared/agent-execution-policy'
 import { CUSTOM_MCP_PROVIDER } from '../../shared/outbound-mcp'
 import type { L4Env } from '../../workers/env'
@@ -121,7 +121,7 @@ export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: stri
   if (!run.taskId && run.status === 'completed' && run.resultText && autonomousExecution(mandate.execution?.mode)
     // A custom connection's answer stays here: the Owner granted it to the person asking, for use where they ask.
     && (!await readPrivateSource(env, run) || await initiatorOnlyAudience(env, run))) {
-    return { restricted: false, text: run.resultText.slice(0, 12000) }
+    return { restricted: false, text: run.resultText.slice(0, AGENT_ANSWER_MAX) }
   }
   return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
 }
