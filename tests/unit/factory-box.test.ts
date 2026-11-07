@@ -12,6 +12,10 @@ import type { AgentRun, RuntimeEvent } from '../../shared/agent-execution'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class { constructor(protected ctx: unknown, protected env: unknown) {} } }))
 vi.mock('../../workers/agent-pi-durable', () => ({ runEmbeddedPi: vi.fn() }))
+// GitHub issues the box's source token; this test sees only what the Server asks it for.
+const sourceGrants = vi.hoisted(() => [] as Array<{ installationId: number; repositoryId: number }>)
+vi.mock('../../server/utils/github-agent-client', async original => ({ ...await original<typeof import('../../server/utils/github-agent-client')>(),
+  githubSourceGrant: async (_env: unknown, input: { installationId: number; repositoryId: number }, ensure: () => Promise<void>) => { await ensure(); sourceGrants.push(input); return 'ghs_single_repository_read' } }))
 const { AgentRunDurableObject } = await import('../../workers/agent-run-do')
 
 const nodeId = '00000000-0000-4000-8000-000000000099', image = 'registry.example/l4@sha256:' + 'a'.repeat(64)
@@ -234,3 +238,22 @@ describe('a box reporting its turn', () => {
     expect((await agentGateway(new Request(`https://server.example/api/agent-runs/${t.run.id}/gateway/events`, { method: 'POST', headers: { Authorization: 'Bearer ' + 'f'.repeat(64) }, body: '{}' }), f.env, t.run.id, 'events', () => {})).status).toBe(401)
   })
 })
+
+describe('a box’s source', () => {
+  it('goes to the Node holding the box’s lease for a running turn, pinned to the Run’s snapshot', async () => {
+    sourceGrants.length = 0
+    const run = await taskRun('factory-task-a')
+    const id = await ensureBox(f.env, run, nodeId)
+    const [granted] = (await sync()).boxes
+    expect(await computePoll(f.env, nodeId, { operation: 'source', boxId: id, lease: granted!.lease }))
+      .toEqual({ id, repository: 'inchidev/afterprompt', baseSha: 'a'.repeat(40), sourceToken: 'ghs_single_repository_read' })
+    expect(sourceGrants).toEqual([expect.objectContaining({ installationId: 101, repositoryId: 11 })])
+    await expect(computePoll(f.env, nodeId, { operation: 'source', boxId: id, lease: 'f'.repeat(64) })).rejects.toMatchObject({ statusCode: 403 })
+    await expect(computePoll(f.env, '00000000-0000-4000-8000-000000000098', { operation: 'source', boxId: id, lease: granted!.lease })).rejects.toMatchObject({ statusCode: 403 })
+    // A cancelled turn has nothing to fetch for.
+    f.db.prepare("UPDATE agent_runs SET status='cancelled' WHERE id=?").run(run.id)
+    await expect(computePoll(f.env, nodeId, { operation: 'source', boxId: id, lease: granted!.lease })).rejects.toMatchObject({ statusCode: 403 })
+    expect(sourceGrants).toHaveLength(1)
+  })
+})
+

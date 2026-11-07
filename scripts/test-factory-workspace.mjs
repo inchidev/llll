@@ -14,7 +14,7 @@ async function operation(volume,request){
   const result=await docker(['run','--rm','-i','--name',`l4-test-${suffix}`,'--network','none','--dns','127.0.0.1','--read-only','--user','1000:1000','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','128','--memory','1g','--cpus','1',
     '--tmpfs','/tmp:rw,noexec,nosuid,size=128m,uid=1000,gid=1000','--mount',`type=volume,src=${volume},dst=/workspace`,
     ...(request.operation==='bootstrap'?['--mount',`type=bind,src=${join(directory,'source.bundle')},dst=/bootstrap/source.bundle,readonly`]:[]),
-    '--env','HTTP_PROXY=','--env','HTTPS_PROXY=','--env','ALL_PROXY=','--env','http_proxy=','--env','https_proxy=',image],
+    '--env','HTTP_PROXY=','--env','HTTPS_PROXY=','--env','ALL_PROXY=','--env','http_proxy=','--env','https_proxy=',image,'node','/opt/l4/operate.mjs'],
     {input:JSON.stringify({request,baseSha:base}),timeoutMs:150000,limit:400000})
   return JSON.parse(result)
 }

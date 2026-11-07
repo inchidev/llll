@@ -39,6 +39,17 @@ export const boxSyncInput = z.object({ operation: z.literal('sync'),
   boxes: z.array(z.object({ id: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), state: z.enum(['starting', 'running', 'idle', 'stopped', 'failed']),
     runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12) }).strict()).max(64) }).strict()
 export const boxTurnInput = z.object({ operation: z.literal('turn'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), runId: z.string().uuid() }).strict()
+export const boxSourceInput = z.object({ operation: z.literal('source'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
+
+/**
+ * A box its Node holds under a live lease, while its Run's turn is running: what a source fetch needs.
+ * Without a Node, any Node holding the box may ask, as the Server's own source address does.
+ */
+export async function leasedBox(env: L4Env, boxId: string, lease: string, nodeId?: string) {
+  return await env.DB.prepare(`SELECT b.id,b.node_id AS nodeId,b.environment_json AS environmentJson FROM factory_boxes b JOIN agent_runs r ON r.id=b.run_id
+    WHERE b.id=? AND (? IS NULL OR b.node_id=?) AND b.lease_token=? AND b.lease_until>? AND b.status IN ${ACTIVE} AND r.status='running'`)
+    .bind(boxId, nodeId ?? null, nodeId ?? null, lease, nowIso()).first<{ id: string; nodeId: string; environmentJson: string }>()
+}
 
 /**
  * The Node a Run's box lives on: a Task Run with computer access whose repository names a Node that syncs

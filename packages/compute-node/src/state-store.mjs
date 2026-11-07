@@ -43,7 +43,8 @@ export async function openNodeState(directory) {
   db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA max_page_count=16384;
     CREATE TABLE IF NOT EXISTS connection(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,server_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
     CREATE TABLE IF NOT EXISTS local_pairing(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
-    CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,lease TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL) STRICT;`)
+    CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,lease TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL) STRICT;
+    CREATE TABLE IF NOT EXISTS boxes(id TEXT PRIMARY KEY,lease TEXT NOT NULL,task_id TEXT NOT NULL,ready INTEGER NOT NULL,runtime_ms INTEGER NOT NULL) STRICT;`)
   return {
     connection(server) {
       const row = db.prepare('SELECT server,node_id AS nodeId,server_id AS serverId,token FROM connection WHERE singleton=1').get()
@@ -89,6 +90,19 @@ export async function openNodeState(directory) {
         .map(row => receiptRecord({ operation:'result',id:row.id,lease:row.lease,result:JSON.parse(row.result_json) }))
     },
     acknowledge(id,lease) { db.prepare('DELETE FROM receipts WHERE id=? AND lease=?').run(id,lease) },
+    /** The boxes whose disks this Node holds, with the lease each last held and how long it has run. */
+    boxes: {
+      list() {
+        return db.prepare('SELECT id,lease,task_id AS taskId,ready,runtime_ms AS runtimeMs FROM boxes ORDER BY id LIMIT 512').all()
+          .filter(row => uuid(row.id) && capability(row.lease) && uuid(row.taskId)).map(row => ({ ...row, ready: row.ready === 1 }))
+      },
+      save(box) {
+        if (!uuid(box.id) || !capability(box.lease) || !uuid(box.taskId) || !Number.isSafeInteger(box.runtimeMs) || box.runtimeMs < 0) throw new Error('Invalid box record')
+        db.prepare('INSERT INTO boxes(id,lease,task_id,ready,runtime_ms) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET lease=excluded.lease,ready=excluded.ready,runtime_ms=excluded.runtime_ms')
+          .run(box.id,box.lease,box.taskId,box.ready?1:0,box.runtimeMs)
+      },
+      forget(id) { db.prepare('DELETE FROM boxes WHERE id=?').run(id) },
+    },
     close() { db.close() },
   }
 }

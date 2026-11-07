@@ -9,7 +9,8 @@ import { actionColumns, authorizeFactoryAction, expireFactoryActions, type Actio
 import { githubSourceGrant } from './github-agent-client'
 import { giteaCredentials } from './gitea'
 import { fail } from './cf'
-import { boxSyncInput, boxTurnInput, computeSync, computeTurn } from './factory-boxes'
+import { boxSourceInput, boxSyncInput, boxTurnInput, computeSync, computeTurn, leasedBox } from './factory-boxes'
+import type { RunEnvironment } from '../../shared/code-environments'
 
 /** A Gitea token never reaches a Node. The Node fetches through this Server with a capability bound to
  * one executing bootstrap and its lease, so it ends with the lease. */
@@ -61,6 +62,7 @@ export const computePollSchema = z.discriminatedUnion('operation', [
   // Protocol 2: a Node syncs its boxes and fetches their turns. The per-operation jobs below go with the old Factory.
   boxSyncInput,
   boxTurnInput,
+  boxSourceInput,
   z.object({ operation: z.literal('claim') }).strict(),
   z.object({ operation: z.literal('workspaces') }).strict(),
   z.object({ operation: z.enum(['begin', 'heartbeat']), id: z.string().uuid(), lease: z.string().min(32).max(100) }).strict(),
@@ -74,9 +76,31 @@ export async function releaseFinishedTaskWork(env: L4Env, nodeId: string) {
     AND task_id IN (SELECT id FROM tasks WHERE status='done' OR archived_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM factory_actions a WHERE a.workspace_id=factory_workspaces.id AND a.status IN ('pending','approved','claimed','executing'))`).bind(nowIso(), nodeId).run()
 }
+/**
+ * A box's first start fetches the Task's pinned source, as a bootstrap did: GitHub gives the Node's trusted
+ * fetch broker a single-repository read token, which it revokes after use; for Gitea the Node fetches through
+ * this Server with a capability bound to the box and its lease. Either ends with the lease.
+ */
+export async function computeBoxSource(env: L4Env, nodeId: string, input: z.infer<typeof boxSourceInput>) {
+  const box = await leasedBox(env, input.boxId, input.lease, nodeId)
+  if (!box) fail(403, 'box_source_denied', 'This box holds no lease for a running turn')
+  const environment = JSON.parse(box.environmentJson) as RunEnvironment
+  const pinned = { id: box.id, repository: environment.sourceRepo, baseSha: environment.baseSha }
+  if (environment.provider === 'gitea') {
+    await giteaCredentials(env, environment.gitConnectionId)
+    let origin: string
+    try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_source', 'Configure this Server’s public origin before fetching Gitea source') }
+    return { ...pinned, source: { remote: `${origin}/api/compute-agent/source/${box.id}.git`, authorization: `Bearer ${await computeSourceCapability(env, box.id, input.lease)}` } }
+  }
+  const sourceToken = await githubSourceGrant(env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, async () => {
+    if (!await leasedBox(env, input.boxId, input.lease, nodeId)) fail(403, 'box_source_denied', 'This box holds no lease for a running turn')
+  })
+  return { ...pinned, sourceToken }
+}
 export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typeof computePollSchema>, scopedActionId: string | null = null) {
   if (input.operation === 'sync') return computeSync(env, nodeId, input)
   if (input.operation === 'turn') return computeTurn(env, nodeId, input)
+  if (input.operation === 'source') return computeBoxSource(env, nodeId, input)
   await expireFactoryActions(env)
   if (input.operation === 'workspaces') {
     // A Node keeps one disk per Task workspace and has room for only a few. It removes every disk

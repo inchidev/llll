@@ -164,3 +164,18 @@ test('a failed intent finalization rolls back its connection and leaves the same
     assert.equal(inspectState(directory, db => db.prepare('SELECT count(*) AS total FROM local_pairing').get()).total, 0)
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }) }
 })
+test('box records survive a restart with their lease and runtime, and only valid ones are kept',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'l4-boxes-'))
+  const box={id:randomUUID(),lease:'c'.repeat(64),taskId:randomUUID(),ready:false,runtimeMs:0}
+  let store
+  try {
+    store=await openNodeState(directory)
+    for(const invalid of [{...box,id:'../escape'},{...box,lease:'short'},{...box,taskId:'task'},{...box,runtimeMs:-1}])assert.throws(()=>store.boxes.save(invalid),/Invalid box record/u)
+    store.boxes.save(box)
+    store.boxes.save({...box,lease:'d'.repeat(64),ready:true,runtimeMs:4000})
+    store.close();store=await openNodeState(directory)
+    assert.deepEqual(store.boxes.list(),[{...box,lease:'d'.repeat(64),ready:true,runtimeMs:4000}])
+    store.boxes.forget(box.id)
+    assert.deepEqual(store.boxes.list(),[])
+  } finally {store?.close();await rm(directory,{recursive:true,force:true})}
+})

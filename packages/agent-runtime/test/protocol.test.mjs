@@ -3,13 +3,25 @@ import { test } from 'node:test'
 import { randomUUID } from 'node:crypto'
 import { runtimeInput } from '../src/protocol.mjs'
 
-test('runtime admission rejects native computer authority before starting a Run', () => {
+test('runtime admission allows native computer tools only on a box', () => {
   const input = { runId: randomUUID(), sessionId: randomUUID(), prompt: 'Inspect the Task', instructions: '',
     modelGateway: { url: 'http://gateway/v1', token: 'fixture-token-32-characters-long', model: 'fixture' },
     toolEndpoint: 'http://gateway/tools', tools: [] }
-  assert.equal(runtimeInput.parse(input).computer, false)
+  assert.deepEqual([runtimeInput.parse(input).computer, runtimeInput.parse(input).box], [false, false])
   assert.equal(runtimeInput.parse({ ...input, computer: false }).computer, false)
-  for (const computer of [true, 'true', 1, {}]) assert.equal(runtimeInput.safeParse({ ...input, computer }).success, false)
+  const box = runtimeInput.parse({ ...input, computer: true, box: true })
+  assert.deepEqual([box.computer, box.box], [true, true])
+  // Native tools without a box, or a box without them, are refused before a Run starts.
+  for (const mode of [{ computer: true }, { computer: true, box: false }, { box: true }, { computer: false, box: true }]) assert.equal(runtimeInput.safeParse({ ...input, ...mode }).success, false, JSON.stringify(mode))
+  for (const computer of ['true', 1, {}]) assert.equal(runtimeInput.safeParse({ ...input, computer, box: true }).success, false)
+})
+
+test('a box turn carries the steering sent so far, bounded', () => {
+  const input = { runId: randomUUID(), sessionId: randomUUID(), prompt: 'Inspect the Task', instructions: '', computer: true, box: true,
+    modelGateway: { url: 'http://gateway/v1', token: 'fixture-token-32-characters-long', model: 'fixture' }, toolEndpoint: 'http://gateway/tools', tools: [] }
+  assert.deepEqual(runtimeInput.parse({ ...input, steering: [{ messageId: 'm1', content: 'Also the docs' }] }).steering, [{ messageId: 'm1', content: 'Also the docs' }])
+  assert.equal(runtimeInput.safeParse({ ...input, steering: [{ messageId: 'm1', content: '' }] }).success, false)
+  assert.equal(runtimeInput.safeParse({ ...input, steering: Array.from({ length: 21 }, (_, index) => ({ messageId: `m${index}`, content: 'x' })) }).success, false)
 })
 
 test('runtime admission takes the model limits the Server derived, and defaults older submissions', () => {

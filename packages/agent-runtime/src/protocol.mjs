@@ -10,7 +10,11 @@ export const runtimeInput = z.object({
   tools: z.array(z.object({ name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u), description: z.string().max(2000), parameters: z.record(z.string(), z.unknown()), deferred: z.boolean().optional() })).max(40),
   toolEndpoint: z.string().url(), transcript: z.string().max(2000000).nullable().optional(),
   repository: z.object({ archiveUrl: z.string().url() }).optional(), filesUrl: z.string().url().optional(),
-  // Commands must use the Server broker once exact-action approval is available.
-  computer: z.literal(false).default(false), maxSteps: z.number().int().min(1).max(100).default(20),
+  // Pi's own shell, file and edit tools. They bypass the Server's per-call policy, so they run only on the
+  // Task's box, whose boundary is the box and its egress layer (ADR 0010); anywhere else they are refused.
+  computer: z.boolean().default(false), box: z.boolean().default(false),
+  // Messages the person sent while the turn waited or ran; a box hears later ones from the Server.
+  steering: z.array(z.object({ messageId: z.string().min(1).max(100), content: z.string().min(1).max(48000) }).strict()).max(20).optional(),
+  maxSteps: z.number().int().min(1).max(100).default(20),
   timeoutMs: z.number().int().min(1000).max(1800000).default(300000),
-}).strict()
+}).strict().refine(input => input.computer === input.box, 'Native computer tools run only on the Task’s box')

@@ -64,7 +64,7 @@ it.each(['tar', 'gzip'])('builds a portable Node payload and valid OCI layers fr
     writeFileSync(join(dockerArchive, 'manifest.json'), JSON.stringify([{ Config: 'config.json', RepoTags: [`llll-workspace:${version}`], Layers: layers.map(layer => layer.name) }]))
     // The production build script still creates all tar/gzip/OCI assets. Only its
     // trusted Docker boundary is deterministic; no registry or cloud calls occur.
-    writeFileSync(join(bin, 'docker'), `#!${process.execPath}\nconst {execFileSync}=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='build')process.exit(0);if(args[0]==='image'&&args[1]==='inspect'){process.stdout.write(${JSON.stringify(imageId)});process.exit(0)}if(args[0]==='save'){execFileSync('tar',['-cf',args[args.indexOf('-o')+1],'-C',${JSON.stringify(dockerArchive)},'.']);process.exit(0)}process.exit(1)\n`, { mode: 0o755 })
+    writeFileSync(join(bin, 'docker'), `#!${process.execPath}\nconst {execFileSync}=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='build')process.exit(0);if(args[0]==='run'&&args[args.indexOf('--network')+1]==='none')process.exit(0);if(args[0]==='image'&&args[1]==='inspect'){process.stdout.write(${JSON.stringify(imageId)});process.exit(0)}if(args[0]==='save'){execFileSync('tar',['-cf',args[args.indexOf('-o')+1],'-C',${JSON.stringify(dockerArchive)},'.']);process.exit(0)}process.exit(1)\n`, { mode: 0o755 })
     execFileSync(process.execPath, [script], { cwd: directory, env: { ...process.env, PATH: bin + ':' + process.env.PATH }, timeout: 30000, stdio: 'pipe' })
     const output = join(directory, '.installer/factory')
     const manifest = JSON.parse(readFileSync(join(output, 'llll-factory.json'), 'utf8'))
