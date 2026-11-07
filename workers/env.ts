@@ -72,10 +72,12 @@ export type L4Env = {
   /** Amazon SNS topic ARN allowed to call `POST /api/email/inbound/ses`. */
   SES_SNS_TOPIC_ARN?: string
   /**
-   * `cloudflare` or `workers` keeps Cloudflare-network features.
-   * Any other value, including `celld`, turns them off.
+   * `cloudflare` or `workers` keeps Cloudflare-network features. `celld` is a VPS; `cloud` is L4 Cloud, where the
+   * control plane manages the Server (shared/server-runtime.ts).
    */
   LLLL_RUNTIME?: string
+  /** On L4 Cloud: the bearer token the control plane presents under `/.llll/cloud/` (server/utils/cloud-relay.ts). */
+  CLOUD_SECRET?: string
   /** Legacy installer binding; the updater removes it after moving to D1. */
   LLLL_EMAIL_DOMAINS?: string
   /** The Server's own Cloudflare account, for update and domain launch URLs. */

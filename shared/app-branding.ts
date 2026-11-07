@@ -9,7 +9,7 @@ type AppBrandingEnv = {
 
 function cloudflareBranding(runtime: string | undefined) {
   const value = runtime?.trim().toLowerCase()
-  return !value || value === 'cloudflare' || value === 'workers'
+  return !value || value === 'cloudflare' || value === 'workers' || value === 'cloud'
 }
 
 function normalizedSubtitle(value: string | undefined, runtime: string | undefined) {

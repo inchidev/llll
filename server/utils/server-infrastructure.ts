@@ -1,3 +1,4 @@
+import { isOperatorManaged } from '../../shared/server-runtime'
 import type { L4Env } from '../../workers/env'
 import type { ServerDomainSettingsDTO } from '../../shared/releases'
 import { normalizeHostname } from '../../shared/server-origins'
@@ -27,7 +28,7 @@ async function keptAccess(env: L4Env) {
 
 /** A Server manages its own Cloudflare domains only through the official installer grant. */
 async function cloudflareManaged(env: L4Env): Promise<boolean> {
-  if (env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return false
+  if (isOperatorManaged(env)) return false
   return Boolean(env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim())
 }
 

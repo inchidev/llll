@@ -6,6 +6,7 @@ import customMcpConnectionsSql from '../../drizzle/server-migrations/0002_custom
 import messagesByChannelSql from '../../drizzle/server-migrations/0003_messages_by_channel.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
+import { isOperatorManaged } from '../../shared/server-runtime'
 
 export function getDb(d1: D1Database) {
   return drizzle(d1, { schema })
@@ -39,9 +40,8 @@ export const INIT_SQL = d1ExecSql([
 // trips on every public request.
 const migratedDatabases = new WeakSet<D1Database>()
 
-function celldRuntime(env?: { LLLL_RUNTIME?: string }): boolean {
-  return env?.LLLL_RUNTIME?.trim().toLowerCase() === 'celld'
-}
+// On a VPS the CLI, and on L4 Cloud the control plane, applies migrations before the Server starts: an empty database is a fault, not a first start.
+const celldRuntime = (env?: { LLLL_RUNTIME?: string }): boolean => isOperatorManaged(env)
 
 export async function ensureMigrated(db: D1Database, env?: { LLLL_RUNTIME?: string, SERVER_ID?: string }): Promise<boolean> {
   if (migratedDatabases.has(db)) return true
