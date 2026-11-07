@@ -1,6 +1,6 @@
 # The Agent works on its box
 
-Proposed on 2026-11-07. Nothing here is built. It is one plan for a fast Software Factory, landed as focused PRs and released together. It builds on [Compute is the business](0009-compute-as-the-business.md): Factory is what spends Compute, so a slow Factory is a small business.
+Proposed on 2026-11-07. Items 1 and 2 are built; the rest is not. It is one plan for a fast Software Factory, built in one pull request with this decision and released together. It builds on [Compute is the business](0009-compute-as-the-business.md): Factory is what spends Compute, so a slow Factory is a small business.
 
 ## Problem
 
@@ -78,7 +78,7 @@ The Agent keeps Pi's tools and gets a few L4 tools: `factory_status`, `factory_p
 
 ## Work, in order
 
-Each item is a focused PR to `main`; the release ships when items 1 to 7 are merged and the acceptance runs pass. No baseline is measured first: the current path is slow by construction.
+All items land in one pull request with this decision, one commit or more per item; the release ships when items 1 to 7 are in it and the acceptance runs pass. No baseline is measured first: the current path is slow by construction.
 
 1. **Model limits from the model.** Window, output, reasoning, images, compaction share; Server settings for custom models.
 2. **Native streaming** in conversations, embedded Pi first, then boxes. This is not optional and not deferred: it ships in the same release.
