@@ -291,9 +291,11 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       const output = await docker(['run', '--rm', '-i', '--name', names(box.id).push, ...labels(box), '--network', 'bridge', ...hardened,
         '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/push-branch.mjs'],
       { input: JSON.stringify({ remote: grant.remote, ref: grant.ref, sha: grant.sha, expectedOld: grant.expectedOld ?? null, ...(grant.token ? { token: grant.token } : { authorization: grant.authorization }) }), timeoutMs: 600000, limit: 10000 })
-        .catch(() => '')
-      ok = lines(output).at(-1)?.ok === true
-      if (!ok) message = 'The repository refused the push'
+        .catch(error => String(error?.output ?? ''))
+      const answer = lines(output).at(-1)
+      ok = answer?.ok === true
+      // The helper's reason is Git's, with the credential taken out.
+      if (!ok) message = typeof answer?.message === 'string' && answer.message ? answer.message.slice(0, 300) : 'The repository refused the push'
     } catch (error) {
       // No grant: the Server did not let this push go ahead (already claimed, or the branch moved).
       if (!grant) { log('compute.box_publish_refused', { boxId: box.id, status: error?.status }); return }

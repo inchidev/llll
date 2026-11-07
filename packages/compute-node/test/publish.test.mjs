@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { copyCommit } from '../src/review-diff.mjs'
-import { pushBranch } from '../src/push-branch.mjs'
+import { pushBranch, pushFailure } from '../src/push-branch.mjs'
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }).trim()
 async function boxRepository() {
@@ -75,4 +75,17 @@ test('a push names only a box’s own branch, one commit and a known remote with
     { remote: 'file:///tmp/repo.git', ref, sha, expectedOld: null, token },
     { remote: 'https://server.example/api/compute-agent/publish/00000000-0000-4000-8000-0000000000f1.git', ref, sha, expectedOld: null, authorization: 'Bearer short' },
   ]) await assert.rejects(pushBranch({ mirror: '/nonexistent', ...input }), /Invalid push/u, JSON.stringify(input))
+})
+
+test('a failed push says what Git said, never its credential', () => {
+  const token = 'ghs_' + 'y'.repeat(36), basic = Buffer.from('x-access-token:' + token).toString('base64'), capability = 'd'.repeat(64)
+  const reason = pushFailure({
+    stdout: `To https://github.com/inchidev/afterprompt.git\n!\t${'c'.repeat(40)}:refs/heads/l4-agent/x\t[rejected] (stale info)\nDone\n`,
+    stderr: `remote: token ${token} is not allowed\nerror: AUTHORIZATION: basic ${basic}\nfatal: unable to access 'https://x:${capability}@server.example/': 403\nhint: retry\n`,
+  }, [token, basic, capability])
+  assert.match(reason, /\[rejected\] \(stale info\)/u)
+  assert.match(reason, /fatal: unable to access/u)
+  for (const secret of [token, basic, capability, 'hint:', 'Done', 'To https']) assert.equal(reason.includes(secret), false, secret)
+  assert.equal(pushFailure({ stderr: `Authorization: Bearer ${'e'.repeat(64)}` }, []).includes('e'.repeat(64)), false)
+  assert.ok(pushFailure({ stderr: 'x'.repeat(1000) }, []).length <= 300)
 })

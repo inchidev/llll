@@ -30,7 +30,8 @@ try { await probe.cleanup(); await probe.ensure(probeId,true) } finally { await 
 const capabilities = { diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,capacity:nodeCapacity(),protocol:2 }
 const docker = async (args,options={}) => {
   const result = await runProcess('docker',args,options)
-  if (result.code !== 0) throw new Error('Docker operation failed')
+  // A helper that failed still answers on stdout; its stderr, which could hold anything, stays here.
+  if (result.code !== 0) throw Object.assign(new Error('Docker operation failed'),{output:result.stdout.toString()})
   return result.stdout.toString()
 }
 async function request(server,path,body,token,limit=420000) {

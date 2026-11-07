@@ -31,6 +31,7 @@ const git = async (cwd, ...args) => (await run('git', ['-C', cwd, ...args])).std
 const json = output => { const line = output.trim().split('\n').filter(Boolean).at(-1); if (!line) throw new Error('No answer'); return JSON.parse(line) }
 const hardened = ['--read-only', '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '64', '--memory', '1g', '--cpus', '1',
   '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000']
+const serverLogs = async () => { const { stdout, stderr } = await run('docker', ['logs', names.server], { allowFailure: true }); return stdout + stderr }
 const inBox = command => docker(['exec', names.box, 'sh', '-c', command])
 /** A scratch disk as the daemon gives one to each copy: a fresh directory the copy's uid may write. */
 async function scratch(name) { const path = join(directory, name); await mkdir(path); await chmod(path, 0o777); return path }
@@ -101,11 +102,13 @@ try {
 
   // The stand-in repository: Git's own HTTP backend behind the Server's receive-pack check for this approval.
   const remote = join(directory, 'remote')
-  await mkdir(remote); await chmod(remote, 0o777)
+  await mkdir(remote)
   await run('git', ['clone', '-q', '--bare', source, join(remote, 'repo.git')])
   await git(join(remote, 'repo.git'), 'config', 'http.receivepack', 'true')
-  await run('chmod', ['-R', 'a+rwX', remote])
-  await docker(['run', '-d', '--name', names.server, '--network', 'none', '--user', '1000:1000', '--read-only', '--tmpfs', '/tmp:rw,size=64m',
+  // Git serves only a repository its own user owns, so the stand-in runs as whoever made it: on a Linux host
+  // a bind mount keeps the host's uid, which need not be the box's 1000.
+  const owner = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid()}` : '1000:1000'
+  await docker(['run', '-d', '--name', names.server, '--network', 'none', '--user', owner, '--read-only', '--tmpfs', '/tmp:rw,size=64m',
     '--mount', `type=bind,src=${join(root, 'shared')},dst=/opt/shared,readonly`, '--mount', `type=bind,src=${join(root, 'scripts')},dst=/opt/scripts,readonly`,
     '--mount', `type=bind,src=${remote},dst=/remote`, '--env', `EXPECTED_REF=${ref}`, '--env', `EXPECTED_SHA=${sha}`, '--env', `CAPABILITY=${capability}`, '--env', `APPROVAL=${approvalId}`,
     image, 'node', '/opt/scripts/test-factory-git-server.mjs'])
@@ -115,8 +118,12 @@ try {
   const pushMirror = await scratch('push')
   assert.equal((await copy(pushMirror, sha, baseSha, false)).ok, true)
   await assert.rejects(stat(join(pushMirror, 'box-config-ran')), { code: 'ENOENT' })
-  assert.equal((await push(pushMirror, sha, 'e'.repeat(40))).ok, false, 'a branch that moved is never overwritten')
-  assert.deepEqual(await push(pushMirror, sha, null), { ok: true })
+  const moved = await push(pushMirror, sha, 'e'.repeat(40))
+  assert.equal(moved.ok, false, 'a branch that moved is never overwritten')
+  assert.match(moved.message, /stale info/u, 'a refused push says why')
+  assert.equal(moved.message.includes(capability), false)
+  const pushed = await push(pushMirror, sha, null)
+  assert.deepEqual(pushed, { ok: true }, `${pushed.message}\n${await serverLogs()}`)
   assert.equal(await git(join(remote, 'repo.git'), 'rev-parse', ref), sha)
   assert.equal(await git(join(remote, 'repo.git'), 'rev-parse', 'main'), baseSha)
   assert.equal(await git(join(remote, 'repo.git'), 'show', `${sha}:package-lock.json`).then(text => text.length > 500000), true)
@@ -126,7 +133,9 @@ try {
   const unapproved = await inBox('cd /work/repo && git rev-parse HEAD')
   const otherMirror = await scratch('other')
   assert.equal((await copy(otherMirror, unapproved, baseSha, false)).ok, true)
-  assert.equal((await push(otherMirror, unapproved, sha)).ok, false, 'another commit is refused')
+  const other = await push(otherMirror, unapproved, sha)
+  assert.equal(other.ok, false, 'another commit is refused')
+  assert.equal(other.message.includes(capability), false)
   assert.equal(await git(join(remote, 'repo.git'), 'rev-parse', ref), sha)
   const refused = (await docker(['logs', names.server])).split('\n').filter(line => line.startsWith('refused'))
   assert.ok(refused.some(line => line.includes('approved commit')), refused.join('\n'))

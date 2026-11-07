@@ -30,12 +30,17 @@ export function hardenedEnv(extra = []) {
     GIT_ATTR_NOSYSTEM: '1', GIT_CONFIG_COUNT: String(entries.length), ...Object.fromEntries(entries.flatMap(([key, value], index) => [[`GIT_CONFIG_KEY_${index}`, key], [`GIT_CONFIG_VALUE_${index}`, value]])) }
 }
 
-/** One Git command; output past `limit` characters is cut off and reported, never read further. */
+/**
+ * One Git command; output past `limit` characters is cut off and reported, never read further. A failure
+ * carries the end of what Git said, on `stdout` and `stderr`, for a caller to report what went wrong.
+ */
 export function git(cwd, args, { limit = 100000, timeoutMs = 120000, env = hardenedEnv() } = {}) {
   return new Promise((done, reject) => {
-    const child = spawn('git', args, { cwd, env, stdio: ['ignore', 'pipe', 'ignore'], shell: false })
-    let text = '', truncated = false
+    const child = spawn('git', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false })
+    let text = '', truncated = false, stderr = ''
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000) })
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', chunk => {
       if (truncated) return
@@ -45,7 +50,7 @@ export function git(cwd, args, { limit = 100000, timeoutMs = 120000, env = harde
     child.on('error', error => { clearTimeout(timer); reject(error) })
     child.on('close', code => {
       clearTimeout(timer)
-      if (code !== 0 && !truncated) reject(new Error(`git ${args[0]} failed`)); else done({ text, truncated })
+      if (code !== 0 && !truncated) reject(Object.assign(new Error(`git ${args[0]} failed`), { stdout: text.slice(-4000), stderr })); else done({ text, truncated })
     })
   })
 }

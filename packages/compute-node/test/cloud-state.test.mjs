@@ -40,7 +40,8 @@ test('Cloudflare code checkpoints retain exact history, staged/dirty/untracked s
   const source = join(directory, 'source'), repositories = join(directory, 'repositories')
   await mkdir(source); await mkdir(repositories)
   const git = (cwd, ...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  const root = '/workspace/repo'
+  // The checkout is where the box runtime works: the image's box root.
+  const root = join(process.env.LLLL_BOX_ROOT || '/workspace', 'repo')
   git(source, 'init', '-b', 'main'); git(source, 'config', 'user.name', 'Upstream author'); git(source, 'config', 'user.email', 'upstream@example.invalid')
   await writeFile(join(source, 'answer.txt'), 'original\n')
   await writeFile(join(source, 'asset.bin'), Buffer.from([0, 1, 2, 255]))
