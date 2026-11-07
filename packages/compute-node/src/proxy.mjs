@@ -172,13 +172,13 @@ export function createEgressProxy({ policyPath, resolver = lookup, isPublic = pu
     upstream.on('error', () => deny(response, 502, 'The host could not be reached.'))
     upstream.on('response', answer => {
       // Only a header this proxy knows reaches the box, under the name it knows it by; the host chooses none.
-      const out = {}
-      for (const [lower, name] of RESPONSE_HEADERS) {
-        const value = answer.headers[lower]
-        if (value === undefined) continue
-        out[name] = Array.isArray(value) ? value.map(item => scrubText(item, values)) : scrubText(value, values)
-      }
-      try { response.writeHead(answer.statusCode ?? 502, out) } catch { answer.destroy(); return deny(response, 502, 'The host answered badly.') }
+      try {
+        for (const [lower, name] of RESPONSE_HEADERS) {
+          const value = answer.headers[lower]
+          if (value !== undefined) response.setHeader(name, Array.isArray(value) ? value.map(item => scrubText(item, values)) : scrubText(value, values))
+        }
+        response.writeHead(answer.statusCode ?? 502)
+      } catch { answer.destroy(); return deny(response, 502, 'The host answered badly.') }
       answer.pipe(scrubber(values)).pipe(response)
     })
     if (overflow) { upstream.write(body); request.pipe(upstream) } else upstream.end(body)
