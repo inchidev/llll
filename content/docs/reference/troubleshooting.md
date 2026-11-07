@@ -154,7 +154,7 @@ Add compute in **Server settings → Compute**. See [Compute Nodes](../self-host
 
 | Message | Fix |
 | --- | --- |
-| "Compute Node needs 17 GiB free disk capacity for a 10 GiB Task workspace, its image and reserve for the Server." | Free disk space or use a larger disk. |
+| "Compute Node needs 17 GiB free disk capacity for a 10 GiB Task disk, its image and reserve for the Server." | Free disk space or use a larger disk. |
 | "Factory needs 2 GiB available RAM, including reserve for the Server." | Use a larger VPS. |
 | "Factory needs systemd as PID 1 (/run/systemd/system) before it writes executor files." | Add `--no-systemd` and start the Node yourself. |
 | "Docker shares the host kernel. Run llll factory enable --trust-shared-kernel only for trusted code/users." | Add `--trust-shared-kernel` if you trust the code and people on this VPS. |

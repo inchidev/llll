@@ -1,6 +1,18 @@
 # The Agent works on its box
 
-Proposed on 2026-11-07. Items 1 and 2 are built; the rest is not. It is one plan for a fast Software Factory, built in one pull request with this decision and released together. It builds on [Compute is the business](0009-compute-as-the-business.md): Factory is what spends Compute, so a slow Factory is a small business.
+Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 and Destinations are not. Built differently from the text below, or not yet:
+
+- **Model limits:** the window and answer limit come from what the provider reported, then Pi's catalog, then a default, capped at 200,000 and 32,000 tokens. Reasoning and image input for Pi, and Server settings for a custom model's limits, are not built: Pi is still told the model takes text and does not reason.
+- **Streaming from a box:** the box pushes HTTP batches of events to the gateway, about every 150 ms while text flows, instead of holding a WebSocket to the Run's Durable Object. The answers carry cancellation and steering.
+- **Cloudflare checkpoints** at the end of each turn and before a box stops after 10 minutes without a turn, not on every operation. A VPS box stops after 15 minutes; its disk stays.
+- **No Git server on the VPS Node.** The daemon copies the approved commit out of the box with hardened Git in a throwaway container without network, and pushes from that copy with a short token. Git LFS is not built.
+- **The Agent's branch** is `<prefix><box id>`, `l4-agent/` by default, not `l4-agent/<task>`. The target is always the repository's base branch.
+- **TLS termination on a VPS** happens only for hosts with a bound Project secret; every other open host stays a plain CONNECT tunnel, so pinned certificates keep working there.
+- **A person may merge a head with no reported checks** (no check, status or Actions job, and no required check in the repository environment), and L4 says so. The Agent's merge always needs a passing check and none failed or pending.
+
+Destinations stay deferred, as decided below. The acceptance runs below are not recorded yet. See [Software Factory](../software-factory.md) for what works today.
+
+It is one plan for a fast Software Factory, built in one pull request with this decision and released together. It builds on [Compute is the business](0009-compute-as-the-business.md): Factory is what spends Compute, so a slow Factory is a small business.
 
 ## Problem
 
@@ -117,7 +129,7 @@ All items land in one pull request with this decision, one commit or more per it
 - Factory becomes as fast as the box it runs on, and its Compute hours are spent working instead of waiting on queues.
 - Per-command review goes away for everyone; review moves to pushes, merges, windows and secrets. An operator who wants every command reviewed has no such mode any more.
 - The security boundary is the box plus its egress layer, as on exe.dev and for Claude Code on a developer's machine. The tests for "nothing in the box" become the most important tests of Factory.
-- `docs/software-factory.md` and `docs/agents.md` are rewritten with item 5; until then they describe the per-command Factory.
+- `docs/software-factory.md` and `docs/agents.md` describe the box; nothing of the per-command Factory is documented any more.
 - Codex CLI and Claude Code do not run in the box: the L4 Agent is Pi. A ChatGPT plan keeps working through the gateway; using a Claude subscription inside the product stays out under Anthropic's terms. An external Agent can still work through the Server's MCP.
 - The game flow from #43 is covered by items 5, 6 and 8 except publishing to AfterPrompt, which waits for Destinations; that issue is closed in favour of this plan.
 - L4 does not learn how a team deploys. A team on Coolify, Fly, Vercel or Cloudflare keeps its own pipeline and sees its result in the Task.

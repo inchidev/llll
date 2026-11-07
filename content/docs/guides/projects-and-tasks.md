@@ -88,7 +88,7 @@ Built-in policies include **Developer**, **Reviewer**, **Coordinator** and **Tas
 
 Use **Attach repository** to record a repository by its **Git provider**, **Provider origin** (for example `https://github.com`) and **Repository path** (`organization/repository`). A reference alone connects no credentials and enables no work. To let Agents work on a GitHub repository, set it up in **Server settings → Git** and link the matching **Coding environment**; see [Repositories and code work](../agents/repositories.md).
 
-Project access never grants Git credentials, merging or releases. Archiving a Project stops Agent work in it.
+Under the repositories, whoever may manage the Project sets its **Network**, **Secrets** and **Git flow** for Agents' boxes; see [Repositories and code work](../agents/repositories.md#5-open-the-network-and-add-secrets). Project access never grants Git credentials or releases, and merging from L4 needs Approve agent actions in the Project. Archiving a Project stops Agent work in it.
 
 ## Tasks from MCP clients
 

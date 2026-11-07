@@ -23,6 +23,15 @@ L4 is free, source-available software when you run it on your own infrastructure
 
 Cloudflare bills the optional products by usage, so they matter only once you set them up and use them. A compute node uses paid Containers and Artifacts; the installer asks you to confirm those charges before it provisions one.
 
+### Box hours
+
+Each Task an Agent works on gets one container, its **box**. Containers are billed while they run, so the cost is box hours, not Tasks:
+
+- A box runs while its Agent works and stops after 10 minutes without a turn. A Task waiting for a merge or its next message costs nothing for its container. A turn waiting for your approval of a push or window keeps its box running until you decide or the Run ends.
+- At setup you choose a box size (small, standard or large) and how many boxes may run at once (4 by default, at most 64). That number is the container application's `max_instances`, so it caps how many boxes, and their hours, can add up at the same moment. A Task whose box does not fit waits until one stops.
+- Each box keeps its work in its own Artifacts repository, checkpointed when a turn ends. Artifacts are billed for storage and operations; a Task's repository is deleted when the Task is Done.
+- Each Run also has its own limits in **Server settings → Agents → Execution**, including box runtime per Task (six hours by default).
+
 Model Providers you connect, such as OpenRouter, Anthropic or ChatGPT, bill you separately.
 
 ### Backups take storage
@@ -47,6 +56,8 @@ See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 | Mail attachments | Up to 10 attachments, 3 MB in total, per email. |
 | Server name | Up to 80 characters. |
 | Installer session | One hour, renewed only by connecting Cloudflare again. |
+| Boxes at once | Chosen at setup, 4 by default, at most 64. |
+| Box size | Small 0.25 CPU, 1 GiB memory, 4 GB disk; standard 0.5 CPU, 4 GiB, 8 GB; large 1 CPU, 6 GiB, 12 GB. The disk is temporary. |
 
 ## Keep costs predictable
 

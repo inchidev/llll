@@ -39,7 +39,8 @@ export const CLOSED_NETWORK: ProjectNetwork = { presets: [], hosts: [] }
  * The target branch is always the repository's base branch. GitHub or Gitea branch protection stays the
  * ceiling: a push or merge it refuses is reported with its reason, never worked around.
  *
- * - person: the Agent pushes `<prefix><box id>` and opens a draft pull request; a person merges it.
+ * - person: the Agent pushes `<prefix><box id>` and opens a draft pull request; a person merges it once its
+ *   checks pass, or when the provider reports none at all.
  * - agent_after_checks: as person, and the Agent may also merge once every check of the head passed.
  * - direct_push: the approved commit goes straight to the base branch, as a fast-forward only. No pull request.
  */

@@ -83,11 +83,11 @@ The Owner can see usage metadata in **Server settings → Agents → Audit**: wh
 
 The Owner sets limits for new Runs in **Server settings → Agents → Execution**:
 
-- **Execution mode**: **Autonomous within granted permissions** (the default) or **Review writes and outbound calls**, which pauses workspace operations for approval and blocks other writes and outbound calls.
+- **Execution mode**: **Autonomous within granted permissions** (the default), **Approve a plan, then autonomous**, or **Review every push and outbound call**, which waits for your approval of each push and secret from a Task's box and blocks other writes and outbound calls. See [Repositories](repositories.md#7-run-a-task).
 - Limits per Run, such as steps, model calls, tool calls, tokens and duration. The defaults are six hours, 256 steps and model calls, 4,096 tool calls and two million tokens.
 - Limits per Agent over 24 hours. The defaults are 500 Runs and 20 million tokens.
 
-Existing Runs keep the limits they started with. Merge and release tools are never available to Agents.
+Existing Runs keep the limits they started with. An Agent merges only where its Project's Git flow allows it, after checks pass. Release tools are never available to Agents.
 
 ## Pause or delete an Agent
 

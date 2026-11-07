@@ -42,8 +42,8 @@ Some abilities are always explicit opt-ins on a Role, never implied by an admini
 | Permission | Lets an Agent |
 | --- | --- |
 | Execute assigned tasks | Work on Tasks assigned to it. |
-| Use a computer | Use isolated workspace tools on a Compute Node. |
-| Propose code changes | Push to a working branch and open draft pull requests. It cannot merge or release. |
+| Use a computer | Work on a Task's box on a Compute Node. |
+| Propose code changes | Push to a working branch and open draft pull requests, and merge where the Project's Git flow allows it. It cannot release. |
 | Manage schedules | Create reminders and recurring work. |
 | Research the web | Search and read public web pages through configured providers. |
 

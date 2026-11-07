@@ -4,7 +4,7 @@ description: Give Agents an isolated place to work on repository Tasks, on your 
 order: 4
 ---
 
-A Compute Node is where an Agent's repository work runs. When an Agent works on a repository-backed Task, the Server sends workspace operations (read files, run commands, commit) to a connected Compute Node. The Agent's model and tools stay on the Server; the Node only runs the workspace. Without a connected Node, repository metadata is still available, but Agents cannot write code.
+A Compute Node is where an Agent's repository work runs. Each repository-backed Task gets one **box** on a Node: a container with a Git checkout where the Agent edits, runs commands and commits on its own, without asking the Server for each command. The model's keys stay on the Server; the box reaches the model through it. Without a connected Node, repository metadata is still available, but Agents cannot run code.
 
 This page covers setting up compute. For how Agents use it, see [Repositories](../agents/repositories.md).
 
@@ -22,7 +22,7 @@ Open **Server settings → Compute** (requires Manage server). **Add compute** o
 The workspace is free wherever you run it. L4 sells only Managed Compute; see [Pricing](https://llll.gg/pricing).
 
 > [!WARNING]
-> Docker workspaces share the host's kernel. Use them only for code and people you trust. They are not a boundary against hostile tenants.
+> Docker boxes share the host's kernel. Use them only for code and people you trust. They are not a boundary against hostile tenants.
 
 ## VPS local executor
 
@@ -32,12 +32,12 @@ On a VPS installer Server, add the executor during install with `LLLL_FACTORY=tr
 sudo llll compute enable --trust-shared-kernel
 ```
 
-`llll factory` is the same command. The CLI downloads the verified Compute Node and workspace image from the release, checks the host, installs a root systemd service and pairs it with the Server automatically after the Owner is claimed. No Git clone, source build or registry is needed.
+`llll factory` is the same command. The CLI downloads the verified Compute Node and box image from the release, checks the host, installs a root systemd service and pairs it with the Server automatically after the Owner is claimed. No Git clone, source build or registry is needed.
 
 The host needs:
 
 - Linux amd64 with local Docker.
-- At least 17 GiB free disk and 2 GiB available RAM beyond what the Server uses. Each new Task workspace gets a 10 GiB disk.
+- At least 17 GiB free disk and 2 GiB available RAM beyond what the Server uses. Each Task's box gets a 10 GiB disk, kept until the Task is Done.
 - Loop-device and mount support (`fallocate`, `mkfs.ext4`, `mount`, `umount`, `findmnt`, `losetup`).
 - systemd as process 1.
 
@@ -52,7 +52,7 @@ sudo llll compute backup
 sudo llll compute remove --keep-source
 ```
 
-`disable` and `remove --keep-source` keep Task disks and receipts. Compute backups are separate from the Server backup made by `llll backup`; copy them encrypted off the host.
+`disable` and `remove --keep-source` keep Task disks. Compute backups are separate from the Server backup made by `llll backup`; copy them encrypted off the host.
 
 ### Hosts without systemd
 
@@ -68,16 +68,20 @@ In that mode `status` and `logs` fail with an explanation instead.
 
 ## Cloudflare Containers
 
-A Cloudflare Server can run compute in the same Cloudflare account. Open **Server settings → Compute → Server compute setup** and choose **Enable compute node in Cloudflare**, which opens the official installer with a fresh Cloudflare consent. This needs Workers Paid and available Containers and Artifacts access; the installer never changes your plan. Review the charges, choose compute size, command time and process limits, then return to Settings, confirm the authorization and choose **Activate compute node**.
+A Cloudflare Server can run compute in the same Cloudflare account. Open **Server settings → Compute → Server compute setup** and choose **Enable compute node in Cloudflare**, which opens the official installer with a fresh Cloudflare consent. This needs Workers Paid and available Containers and Artifacts access; the installer never changes your plan. Review the charges, choose the box size, how many boxes may run at once (4 by default) and the process limit, then return to Settings, confirm the authorization and choose **Activate compute node**.
 
-Each Task gets its own code repository. Compute stops after each checkpoint, one operation runs at a time and there is no nested Docker. **Pause compute node and retain source** stops new work and keeps source. See [Costs and limits](../cloudflare/costs-and-limits.md) and Cloudflare's [Containers pricing](https://developers.cloudflare.com/containers/pricing/).
+Each Task's box is one container with its own code repository in Artifacts. Its work is checkpointed there when a turn ends, and the box stops after 10 minutes without a turn; dependencies and build output are not kept between starts. There is no nested Docker. **Pause compute node and retain source** stops the boxes and keeps their checkpoints. See [Costs and limits](../cloudflare/costs-and-limits.md) and Cloudflare's [Containers pricing](https://developers.cloudflare.com/containers/pricing/).
+
+## How many boxes run at once
+
+A Node announces its capacity, and the Server runs as many boxes as fit. A VPS Node runs one box per CPU while each still gets 1 GiB of memory, with an equal share of CPU and memory each; set `LLLL_NODE_BOXES` (1 to 64) in its environment to run fewer, for a host that also does other work. A Cloudflare Node runs the number of boxes chosen at setup. A Task whose box does not fit waits and shows **Waiting for a free box**. On a VPS a box stops after 15 minutes without work; its disk stays until the Task is Done.
 
 ## Remote Docker Node
 
 You can pair any trusted Linux Docker host with the Server. The Node connects out to the Server; the Server needs no inbound route to it. This works for both Cloudflare and VPS Servers.
 
 1. In **Server settings → Compute → Add compute → Connect node**, name the node and choose **Create pairing code**. The code works once and expires after ten minutes.
-2. On the host, build the workspace image from the release you run, push it to your own registry and note its immutable digest. The Node refuses mutable tags.
+2. On the host, build the box image from the release you run, push it to your own registry and note its immutable digest. The Node refuses mutable tags.
 
    ```bash
    docker build -f packages/compute-node/Dockerfile.workspace -t YOUR_REGISTRY/l4-workspace:VERSION .
@@ -107,7 +111,7 @@ L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs o
 
 ## Check a Node
 
-Select a Node in **Server settings → Compute** to see whether it is **Connected**, **Offline** or **Disabled**, when it was last seen, its disk, parallel operations and image. **Disable and revoke** stops it from taking new work.
+Select a Node in **Server settings → Compute** to see whether it is **Connected**, **Offline** or **Disabled**, when it was last seen, its disk per box, how many boxes it runs at once and its image. **Disable and revoke** stops it from taking new work.
 
 ![Server settings → Compute with the Server compute setup entry and one connected Docker Node](screenshot:self-host-compute-list "Compute in Server settings")
 

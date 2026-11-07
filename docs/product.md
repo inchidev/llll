@@ -30,7 +30,7 @@ Agents have the Server's local permission boundary: conversation, authorized too
 
 Inbox is the first rail section and the one place to catch up in the active Space; the Space switcher marks another Space with something new. It lists only what needs the signed-in Member, each with one next step:
 
-- **Approvals:** pending review-mode workspace actions and sharing reviews from Runs they started.
+- **Approvals:** pushes, plans and network windows waiting on them, and sharing reviews, from Runs they started.
 - **Mentions:** unread messages that mention them, directly, through their Role or through `@channel` or `@here`, in conversations they can still open.
 - **Agent work:** their Runs while queued or running and for three days after, with the draft pull request when one was opened.
 - **My tasks:** Tasks assigned to them, and Tasks they created that wait for review.
