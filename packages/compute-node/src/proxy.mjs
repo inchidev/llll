@@ -177,7 +177,8 @@ export function createEgressProxy({ policyPath, resolver = lookup, isPublic = pu
           const value = answer.headers[lower]
           if (value !== undefined) response.setHeader(name, Array.isArray(value) ? value.map(item => scrubText(item, values)) : scrubText(value, values))
         }
-        response.writeHead(answer.statusCode ?? 502)
+        response.statusCode = answer.statusCode ?? 502
+        response.flushHeaders()
       } catch { answer.destroy(); return deny(response, 502, 'The host answered badly.') }
       answer.pipe(scrubber(values)).pipe(response)
     })
