@@ -58,6 +58,17 @@ export type AgentTurnDTO = {
   updatedAt: string
 }
 
+/**
+ * An Agent's answer while it is being written. It lives only in the conversation's memory and on the
+ * socket; the finished message replaces it. `text` is the current turn: a tool call starts a new one.
+ */
+export type AgentStreamDTO = {
+  runId: string
+  author: PublicUser
+  text: string
+  startedAt: string
+}
+
 export type TaskStatus = 'backlog' | 'ready' | 'review' | 'done' | 'failed'
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
 
@@ -825,7 +836,7 @@ export type ClientMsg =
   | { t: 'agent.control'; agentId: string; action: 'stop' | 'approve' | 'reject'; executionId?: string }
 
 export type ServerMsg =
-  | { t: 'hello'; channelId: string; you: PublicUser; live?: LiveState; frozen?: boolean; participants?: PublicUser[]; agentTurns?: AgentTurnDTO[] }
+  | { t: 'hello'; channelId: string; you: PublicUser; live?: LiveState; frozen?: boolean; participants?: PublicUser[]; agentTurns?: AgentTurnDTO[]; agentStreams?: AgentStreamDTO[] }
   | { t: 'message'; message: MessageDTO }
   | { t: 'message.update'; message: MessageDTO; streaming?: boolean }
   | { t: 'thread.created'; messageId: string; threadId: string }
@@ -834,6 +845,9 @@ export type ServerMsg =
   | { t: 'typing'; userId: string; active: boolean }
   | { t: 'agent.start_failed'; agentId: string; initiatedBy: string; message: string }
   | { t: 'agent.state'; agentId: string; runs: AgentTurnDTO[] }
+  /** `at` is the length of the text the delta follows; 0 replaces it, as when a new turn starts. */
+  | { t: 'agent.stream'; stream: Omit<AgentStreamDTO, 'text'>; at: number; text: string }
+  | { t: 'agent.stream.end'; runId: string }
   | { t: 'presence'; users: Array<{ userId: string; status: PresenceStatus }> }
   | { t: 'live'; live: LiveState }
   | { t: 'dm.participants'; participants: PublicUser[] }

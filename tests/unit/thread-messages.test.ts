@@ -33,7 +33,7 @@ beforeEach(() => {
     refDebounced: (source: unknown) => source,
     useApi: () => ({ api: vi.fn(async () => ({ messages: [reply], rootMessage: root, nextCursor: null })) }),
     useSessionStore: () => ({ user: { id: 'human' } }),
-    usePresenceStore: () => ({ agentTurnsIn: () => [] }),
+    usePresenceStore: () => ({ agentTurnsIn: () => [], agentStreamsIn: () => [] }),
     usePermissions: () => ({ mine: ref(null), can: () => false }),
     useUiStore: () => ({ searchQuery: '', searchOpen: false, threadId: 'thread', composerState: () => ({ editingId: null }) }),
     usePrefsStore: () => ({ compact: false, recentEmoji: [] }),

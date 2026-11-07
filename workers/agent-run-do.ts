@@ -13,6 +13,7 @@ import { RUN_QUEUE_WAIT_MS, type AgentRun, type RunMandate, type RuntimeEvent } 
 import { findAgentRun, runAuthorization, runCapability } from '../server/utils/agent-run-service'
 import { AGENT_GATEWAY_PATH, agentGateway } from '../server/utils/agent-gateway'
 import type { EmbeddedPiSubmission } from './agent-pi-durable'
+import { agentReplyStream, channelStreams } from './agent-reply-stream'
 import { deliverAgentRun } from '../server/utils/agent-run-delivery'
 import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook, type AgentWebhook } from '../server/utils/agent-webhooks'
 import { newId, nowIso } from '../shared/ids'
@@ -32,6 +33,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   private embeddedResume: (() => void) | null = null
   private embeddedSteer: ((messageId: string, content: string) => Promise<void>) | null = null
   private embeddedAbort: AbortController | null = null
+  /** The answer as Pi writes it, sent to the conversation; memory only, like the stream it feeds. */
+  private replyStream: ReturnType<typeof agentReplyStream> | null = null
 
   private startEmbedded(input: EmbeddedPiSubmission): void {
     if (this.embeddedTask) { this.embeddedResume?.(); return }
@@ -55,6 +58,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       alarmDriven: true,
       ready: async (steer, resume) => { this.embeddedSteer = steer; this.embeddedResume = resume },
       event: async event => {
+        this.replyStreamFor(input.runId!).event(event)
         const events = await getRunBlob<RuntimeEvent[]>(this.ctx.storage, 'pi-embedded-events') ?? []
         if (events.length < 2000 && JSON.stringify(events).length < 256000) {
           await putRunBlob(this.ctx.storage, 'pi-embedded-events', [...events, event])
@@ -87,6 +91,18 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
     }
     await this.embeddedSteer(messageId, content)
     return true
+  }
+
+  private replyStreamFor(runId: string) {
+    this.replyStream ??= agentReplyStream(this.env, runId)
+    return this.replyStream
+  }
+
+  /** Before the finished message: no update of the stream may arrive after it. */
+  private async closeReplyStream() {
+    const stream = this.replyStream
+    this.replyStream = null
+    await stream?.close()
   }
 
   async wake(id: string): Promise<void> {
@@ -165,6 +181,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
   private async release(run: AgentRun): Promise<void> {
     // Release admission before cleanup: a slow executor must not hold the conversation queue.
     this.ctx.waitUntil(this.runtime(run, 'lifecycle', 'DELETE').catch(() => undefined))
+    await this.closeReplyStream()
+    // Ending a stream never holds up the release.
+    await Promise.resolve().then(() => channelStreams(this.env, run.channelId).endAgentStream(run.id)).catch(() => undefined)
     await deleteAgentTurn(this.env, run.id)
     await fanoutAgentTurns(this.env, run.channelId, run.agentId)
     await this.env.DB.prepare('UPDATE agent_sessions SET active_run_id=NULL,updated_at=? WHERE id=? AND active_run_id=?').bind(nowIso(), run.sessionId, run.id).run()
@@ -330,11 +349,15 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       if (!response.ok || !body.ok) throw new Error('Executor response unavailable')
       const poll = pollSchema.parse(JSON.parse(new TextDecoder().decode(body.bytes)))
       if (poll.nextCursor !== run.eventCursor + poll.events.length) throw new Error('Invalid executor event sequence')
+      // Text deltas are streamed, not stored: the finished answer is in result_text. Steps keep their sequence.
       await this.env.DB.batch([
-        ...poll.events.map((event, index) => this.env.DB.prepare('INSERT INTO agent_run_events(run_id,sequence,event_json,created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING')
-          .bind(run.id, run.eventCursor + index, JSON.stringify(event), nowIso())),
+        ...poll.events.flatMap((event, index) => event.type === 'text' ? [] : [this.env.DB.prepare('INSERT INTO agent_run_events(run_id,sequence,event_json,created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING')
+          .bind(run.id, run.eventCursor + index, JSON.stringify(event), nowIso())]),
         this.env.DB.prepare('UPDATE agent_runs SET event_cursor=?,updated_at=? WHERE id=?').bind(poll.nextCursor, nowIso(), run.id),
       ])
+      // Embedded Pi streams as it writes; a container executor is heard only through this poll.
+      const containerExecutor = Boolean(this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL)
+      if (containerExecutor) for (const event of poll.events) this.replyStreamFor(run.id).event(event)
       const toolEvent = [...poll.events].reverse().find(event => event.type === 'tool')
       const partial = poll.events.filter((event): event is Extract<RuntimeEvent, { type: 'text' }> => event.type === 'text').map(event => event.text).join('')
       if (toolEvent?.type === 'tool' || partial) {
@@ -346,7 +369,11 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const terminal: RuntimeEvent | undefined | null = poll.result || [...poll.events].reverse().find(event => event.type === 'result' || event.type === 'error')
       if (!terminal && (poll.status === 'interrupted' || poll.status === 'idle')) throw new Error('Executor interrupted; create a new attempt after reviewing tool outcomes')
       // Drain event pages before committing the terminal result and removing compute.
-      if (!terminal || poll.events.length === 100) return
+      if (!terminal || poll.events.length === 100) {
+        // While a container executor is writing, ask again soon so its answer streams.
+        if (containerExecutor && poll.events.length) await this.ctx.storage.setAlarm(Date.now() + 750)
+        return
+      }
       const factory = await factoryCompletion(this.env, run)
       if (factory.pending) {
         await patchAgentTurn(this.env, run.id, { status: 'waiting_approval', detail: 'Review required' })
@@ -370,6 +397,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const failure = terminal.type === 'result' && factory.missingWork ? 'No completed coding operation was recorded. Review the missing capability and resume the Task.' : terminal.type === 'error' ? current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')
         ? 'No model request reached the Server. Ask the operator to check AGENT_CALLBACK_ORIGIN, runtime connectivity and trusted CA certificates, then retry.'
         : terminal.message) : null
+      await this.closeReplyStream()
       const finalized = await this.env.DB.prepare("UPDATE agent_runs SET status=?,result_text=?,result_message_id=?,last_error=?,updated_at=? WHERE id=? AND status='running' RETURNING id")
         .bind(terminal.type === 'result' && !failure ? 'completed' : 'failed', terminal.type === 'result' ? terminal.text : null, newId(),
           failure, nowIso(), run.id).first<{ id: string }>()
@@ -389,6 +417,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
         // Keep the check's own reason (missing permission, paused agent, no channel access), not a generic label.
         .bind(forbidden ? (error as { data?: { error?: { message?: string } } }).data?.error?.message || `Not authorized: ${(error instanceof Error && error.message) || 'authorization revoked'}` : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
+      await this.closeReplyStream()
       const failed = await findAgentRun(this.env, run.id)
       const delivered = failed ? await deliverAgentRun(this.env, failed, () => this.publish(failed)) : true
       await this.release(run)

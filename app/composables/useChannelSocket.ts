@@ -206,6 +206,7 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             if (parsed.live) live.setState(id, parsed.live)
             useUiStore().dmFrozen = Boolean(parsed.frozen)
             presence.hydrateAgentTurns(id, parsed.agentTurns ?? [])
+            presence.hydrateAgentStreams(id, parsed.agentStreams ?? [])
             void catchUp(id, gen)
             break
           case 'message':
@@ -269,6 +270,12 @@ export function useChannelSocket(channelId: MaybeRefOrGetter<string>) {
             break
           case 'agent.start_failed':
             if (session.user?.id === parsed.initiatedBy) toast.add({ title: parsed.message, color: 'error' })
+            break
+          case 'agent.stream':
+            presence.applyAgentStream(id, parsed.stream, parsed.at, parsed.text)
+            break
+          case 'agent.stream.end':
+            presence.endAgentStream(id, parsed.runId)
             break
           case 'agent.state':
             void queryClient()?.invalidateQueries({ queryKey: ['agent-conversation-runs'] })

@@ -125,6 +125,16 @@ export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: stri
   }
   return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
 }
+/**
+ * Who may watch a Run's answer while it is written, by the rule that decides whether it is posted:
+ * everyone in the conversation only when the finished text would be posted there as it is.
+ * Otherwise only the initiating Member, who may read the private Run anyway.
+ */
+export async function runStreamAudience(env: L4Env, run: AgentRun): Promise<'channel' | 'initiator'> {
+  const mandate = JSON.parse(run.mandateJson) as RunMandate
+  if (run.taskId || !autonomousExecution(mandate.execution?.mode)) return 'initiator'
+  return !await readPrivateSource(env, run) || await initiatorOnlyAudience(env, run) ? 'channel' : 'initiator'
+}
 /** A direct conversation between the initiator and this Agent, including its threads. */
 async function initiatorOnlyAudience(env: L4Env, run: AgentRun): Promise<boolean> {
   const row = await env.DB.prepare(`SELECT 1 AS ok FROM channels c JOIN channels root ON root.id=COALESCE(c.parent_id,c.id)
