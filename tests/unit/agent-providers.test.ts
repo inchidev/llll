@@ -111,6 +111,21 @@ it('paginates named connections and searches models on the Server while retainin
   expect((await agentModelOptions(env, 'owner', 'Model 17 3')).models.filter(m => m.label === 'Model 17 3')).toHaveLength(1)
 })
 
+it("keeps each model's context window and answer limit when the catalog reports them", async () => {
+  const { discoverAgentModels } = await import('../../server/utils/agent-provider-models')
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({ data: [
+    { id: 'vendor/long', supported_parameters: ['tools'], context_length: 400_000, top_provider: { max_completion_tokens: 64_000 } },
+    { id: 'vendor/plain', supported_parameters: ['tools'], context_length: 'unknown', top_provider: null },
+  ] })
+  try {
+    const [long, plain] = await discoverAgentModels('openrouter')
+    expect(long).toMatchObject({ id: 'vendor/long', contextWindow: 400_000, maxOutputTokens: 64_000 })
+    expect(plain).not.toHaveProperty('contextWindow')
+    expect(plain).not.toHaveProperty('maxOutputTokens')
+  } finally { globalThis.fetch = original }
+})
+
 it('excludes known models without tools while preserving unknown capability metadata', async () => {
   const { discoverAgentModels } = await import('../../server/utils/agent-provider-models')
   const { agentModelOptions } = await import('../../server/utils/agent-model-options')

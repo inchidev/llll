@@ -15,7 +15,7 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     apiKey: input.modelGateway.token,
     api: 'openai-completions',
     models: [{ id: input.modelGateway.model, name: input.modelGateway.model, reasoning: false,
-      input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 64000, maxTokens: 4096 }],
+      input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: input.modelGateway.contextWindow, maxTokens: input.modelGateway.maxOutputTokens }],
   })
   const model = runtime.getModel('l4', input.modelGateway.model)
   if (!model) throw new Error('Configured model is unavailable')
@@ -65,9 +65,12 @@ export async function openPi(input, { directory, emit, callTool, signal }) {
     if (error.code !== 'ENOENT') throw error
     sessionManager = SessionManager.create(cwd, join(directory, 'sessions'))
   }
+  const compaction = input.modelGateway.compaction
   const { session } = await createAgentSession({ cwd, agentDir: directory, modelRuntime: runtime, model,
     tools, customTools, resourceLoader: loader, sessionManager,
-    settingsManager: SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } }),
+    settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: true,
+      // pi-coding-agent has no background threshold; it takes the other two.
+      ...(compaction ? { reserveTokens: compaction.reserveTokens, keepRecentTokens: compaction.keepRecentTokens } : {}) } }),
     thinkingLevel: 'off',
   })
   session.setActiveToolsByName(input.tools.filter(tool => !tool.deferred).map(tool => tool.name))

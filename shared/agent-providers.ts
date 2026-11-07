@@ -12,7 +12,9 @@ export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160)
   /** Input modalities reported by the provider catalog; absent when it does not report them. */
   inputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(),
   /** Output modalities, such as image for models that draw. */
-  outputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(), reasoning: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
+  outputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(), reasoning: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat'),
+  /** Context window and answer limit in tokens, as the provider catalog reports them. */
+  contextWindow: z.number().int().positive().max(100_000_000).optional(), maxOutputTokens: z.number().int().positive().max(100_000_000).optional() })
 export const agentProviderSchema = z.object({
   // An empty connection name falls back to the provider name; the field shows that name rather than a placeholder.
   kind: z.enum(agentProviderIds).optional(), name: z.string().trim().max(80, 'Connection name must be 80 characters or fewer').optional(),
