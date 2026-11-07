@@ -9,7 +9,7 @@ import { requireProject } from './project-service'
 import { fail } from './cf'
 
 /**
- * A Project's Git flow for its Agents' boxes (ADR 0010), set on the Project page next to its network and
+ * A Project's Git flow for its Agents' boxes (ADR 0011), set on the Project page next to its network and
  * secrets, by whoever may manage the Project. A box follows the Git flow of the Project its repository is
  * attached to; a repository attached to no Project, or to an archived one, has the default flow.
  */

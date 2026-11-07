@@ -20,7 +20,7 @@ import { mergeToolCall } from './factory-merge'
 import { fail } from './cf'
 
 /**
- * What leaves a box, and the person's say over it (ADR 0010). The Agent asks through a tool; the Server keeps
+ * What leaves a box, and the person's say over it (ADR 0011). The Agent asks through a tool; the Server keeps
  * the request in factory_approvals and answers `outwardPending` until it is settled, so the Agent sees one
  * result. The execution mode decides who settles a push of the Agent's own branch:
  *

@@ -446,7 +446,7 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           tools: (await toolsForRun(this.env, authorization, promise => this.ctx.waitUntil(promise), run)).descriptors,
           // Outside a box a repository mandate is not approval of model-selected local commands: native Pi
           // tools bypass the Server's per-call policy and audit boundary. On the box they are the point
-          // (ADR 0010): its boundary is the box and its egress layer, and what leaves it is gated.
+          // (ADR 0011): its boundary is the box and its egress layer, and what leaves it is gated.
           computer: box, ...(box ? { box: true } : {}), maxSteps: mandate.maxSteps, transcript,
           timeoutMs: Math.min(900000, Math.max(1000, Date.parse(run.deadline) - Date.now())),
         })

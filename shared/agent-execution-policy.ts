@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /** Admission snapshots these limits. Changing settings cannot expand an existing Run. */
 export const agentExecutionPolicySchema = z.object({
-  /** The gate on what leaves a box (ADR 0010). role: the Agent publishes its own branch on its own.
+  /** The gate on what leaves a box (ADR 0011). role: the Agent publishes its own branch on its own.
    * plan: an approved plan covers the publications that follow it. review: a person approves each push. */
   mode: z.enum(['role', 'plan', 'review']).default('role'),
   maxSteps: z.number().int().min(1).max(2048).default(256),

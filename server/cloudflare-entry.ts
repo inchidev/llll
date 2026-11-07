@@ -14,6 +14,7 @@ import { receiveMailGatewayRequest } from '../workers/mail-gateway-ingress'
 import { renewCloudflareAccess } from './utils/cloudflare-account-access'
 import { requestTiming, timingRequested } from './utils/request-timing'
 import { serverStartupSettled } from './utils/server-startup'
+import { cloudRelay } from './utils/cloud-relay'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
@@ -35,6 +36,8 @@ export default {
     const gateway = url.pathname.match(AGENT_GATEWAY_PATH)
     if (gateway) return agentGateway(request, env, gateway[1]!, gateway[2]!, promise => context.waitUntil(promise))
     if (url.pathname === '/.llll/mail/inbound') return receiveMailGatewayRequest(request, env)
+    const relayed = await cloudRelay(request, env, url.pathname, runScheduled)
+    if (relayed) return relayed
     if (request.headers.get('Upgrade') === 'websocket') {
       const channel = url.pathname.match(/^\/ws\/channel\/([^/]+)/)
       if (channel?.[1]) {
@@ -88,14 +91,19 @@ export default {
     await routeServerEmail(message, env)
   },
   async scheduled(_controller: ScheduledController, env: L4Env, _context: ExecutionContext): Promise<void> {
-    // A renewal failure must not skip the backup; Settings shows when access needs reconnecting.
-    try { await renewCloudflareAccess(env) }
-    catch (error) { console.warn('cloudflare.access.renew_failed', { code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' }) }
-    if (env.BACKUPS && (env.FILES || env.TICKETS)) {
-      const createdAt = new Date().toISOString()
-      await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, fileStorage(env), createdAt, version))
-    }
+    await runScheduled(env)
   },
+}
+
+/** The weekly work: Access renewal, then a backup. L4 Cloud runs it through the relay when no Cron Trigger fires. */
+async function runScheduled(env: L4Env): Promise<void> {
+  // A renewal failure must not skip the backup; Settings shows when access needs reconnecting.
+  try { await renewCloudflareAccess(env) }
+  catch (error) { console.warn('cloudflare.access.renew_failed', { code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' }) }
+  if (env.BACKUPS && (env.FILES || env.TICKETS)) {
+    const createdAt = new Date().toISOString()
+    await uploadBackupToR2(env.BACKUPS, `servers/${await getServerId(env.DB)}/${createdAt.replaceAll(':', '-')}.tar`, createStorageBackup(env.DB, fileStorage(env), createdAt, version))
+  }
 }
 
 export { FactoryComputeDurableObject } from '../workers/factory-compute'

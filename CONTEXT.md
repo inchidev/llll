@@ -92,7 +92,7 @@ A Compute Node is where an Agent's repository work runs: it pairs with the Serve
 
 ## Box
 
-The machine one Task's code work runs on: a container on a Compute Node with an ordinary Git checkout, kept for the life of the Task and released when the Task is Done. The Agent runs inside it with its own file and shell tools; commands make no request to the Server. A box holds no provider key, Git write token or secret value. What leaves it (a push, a merge, a request to a host) passes the Node's egress layer and is gated by the Server. Say "box", not container or sandbox, in the product. See [ADR 0010](docs/adr/0010-agent-on-the-box.md).
+The machine one Task's code work runs on: a container on a Compute Node with an ordinary Git checkout, kept for the life of the Task and released when the Task is Done. The Agent runs inside it with its own file and shell tools; commands make no request to the Server. A box holds no provider key, Git write token or secret value. What leaves it (a push, a merge, a request to a host) passes the Node's egress layer and is gated by the Server. Say "box", not container or sandbox, in the product. See [ADR 0011](docs/adr/0011-agent-on-the-box.md).
 
 ## Network window and Project secret
 

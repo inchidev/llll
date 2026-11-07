@@ -3,12 +3,12 @@ import { request as httpsRequest } from 'node:https'
 import { connect, createConnection, createServer as createSocketServer } from 'node:net'
 import { TLSSocket } from 'node:tls'
 import { lookup } from 'node:dns/promises'
-import { readFileSync, statSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { Transform } from 'node:stream'
 import { issueHostCertificate } from './box-ca.mjs'
 
 /**
- * The egress proxy of one box on a VPS Node: the box's only way out (ADR 0010).
+ * The egress proxy of one box on a VPS Node: the box's only way out (ADR 0011).
  *
  * The hosts in effect come from a policy file the daemon rewrites on every change, mounted read-only here:
  * `{revision, hosts, secretHosts}`. Every allowed host is a plain CONNECT tunnel, unopened, except a host some
@@ -38,6 +38,11 @@ export async function destination(host, allowed, resolver = lookup, isPublic = p
 export const BODY_LIMIT = 1048576
 const PLACEHOLDER = /L4_SECRET_[A-Z0-9_]+/gu
 const HOP = new Set(['connection', 'proxy-connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-authorization', 'host', 'accept-encoding'])
+/** The response headers a terminated connection passes back to the box, by their lower-case name. Content-Length is dropped: the answer streams. */
+const RESPONSE_HEADERS = new Map(['Content-Type', 'Content-Encoding', 'Content-Language', 'Content-Disposition', 'Content-Range', 'Content-Location', 'Accept-Ranges',
+  'Cache-Control', 'Pragma', 'Expires', 'Age', 'Date', 'ETag', 'Last-Modified', 'Vary', 'Location', 'Link', 'Retry-After', 'WWW-Authenticate', 'Allow', 'Server', 'Warning',
+  'Strict-Transport-Security', 'Set-Cookie', 'X-Request-Id', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'X-RateLimit-Used', 'X-RateLimit-Resource',
+  'X-GitHub-Request-Id', 'X-GitHub-Media-Type', 'X-OAuth-Scopes', 'X-Accepted-OAuth-Scopes', 'X-Poll-Interval', 'X-Accepted-GitHub-Permissions', 'Docker-Content-Digest', 'Npm-Notice'].map(name => [name.toLowerCase(), name]))
 const TEXT = /^(?:text\/|multipart\/form-data|application\/(?:json|x-www-form-urlencoded|xml|javascript|graphql|x-ndjson|[\w.+-]+\+(?:json|xml)))/iu
 const latin1 = value => Buffer.from(value, 'utf8').toString('latin1')
 const urlSafe = value => value.replace(/[^A-Za-z0-9\-._~:@!$&'()*+,;=]/gu, encodeURIComponent)
@@ -108,15 +113,15 @@ export function createEgressProxy({ policyPath, resolver = lookup, isPublic = pu
   let policy = { revision: null, hosts: [], secretHosts: [] }, seen = null
   let state = { ca: null, known: [], secrets: [] }
   const certificates = new Map()
-  /** The daemon's latest word, read again whenever the file changed. */
+  /** The daemon's latest word: the file is small and read whole on every request, parsed again only when its text changed. */
   const current = () => {
     try {
-      const stats = statSync(policyPath), stamp = `${stats.mtimeMs}:${stats.size}:${stats.ino}`
-      if (stamp !== seen) {
-        const parsed = JSON.parse(readFileSync(policyPath, 'utf8'))
+      const text = readFileSync(policyPath, 'utf8')
+      if (text !== seen) {
+        const parsed = JSON.parse(text)
         policy = { revision: String(parsed.revision ?? ''), hosts: Array.isArray(parsed.hosts) ? parsed.hosts.filter(host => typeof host === 'string') : [],
           secretHosts: Array.isArray(parsed.secretHosts) ? parsed.secretHosts.filter(host => typeof host === 'string') : [] }
-        seen = stamp
+        seen = text
       }
     } catch { policy = { revision: null, hosts: [], secretHosts: [] }; seen = null }
     return policy
@@ -166,13 +171,13 @@ export function createEgressProxy({ policyPath, resolver = lookup, isPublic = pu
     upstream.on('timeout', () => upstream.destroy(new Error('Upstream timeout')))
     upstream.on('error', () => deny(response, 502, 'The host could not be reached.'))
     upstream.on('response', answer => {
+      // Only a header this proxy knows reaches the box, under the name it knows it by; the host chooses none.
       const out = []
       for (let index = 0; index < answer.rawHeaders.length; index += 2) {
-        const lower = answer.rawHeaders[index].toLowerCase()
-        if (HOP.has(lower) || lower === 'content-length') continue
-        out.push(answer.rawHeaders[index], scrubText(answer.rawHeaders[index + 1], values))
+        const name = RESPONSE_HEADERS.get(answer.rawHeaders[index].toLowerCase())
+        if (name) out.push(name, scrubText(answer.rawHeaders[index + 1], values))
       }
-      response.writeHead(answer.statusCode ?? 502, answer.statusMessage, out)
+      try { response.writeHead(answer.statusCode ?? 502, out) } catch { answer.destroy(); return deny(response, 502, 'The host answered badly.') }
       answer.pipe(scrubber(values)).pipe(response)
     })
     if (overflow) { upstream.write(body); request.pipe(upstream) } else upstream.end(body)

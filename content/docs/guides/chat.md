@@ -115,3 +115,7 @@ Thread replies inherit the parent conversation's notification setting. Reading, 
 Choose **Mark unread from here** on a message to leave it and later messages for another visit. For a Thread, this also follows it. The action returns you to Inbox; an older open tab cannot immediately mark those messages read again. Reopen the conversation to resume reading.
 
 In **Inbox → Unread chats**, the eye button previews up to five latest unread messages without marking them read. Followed Thread replies are included. Open a preview to jump to the message, or use **Mark as read** to clear a conversation and its followed Threads.
+
+## Opening again
+
+A signed-in browser keeps what you last saw in chat, Tasks and the sidebar, so the Server opens at once and then updates. Mail, tokens and settings are never kept. Signing out, or a session that ends, removes it all from that browser. On a shared computer, sign out when you finish.

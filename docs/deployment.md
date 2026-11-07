@@ -47,6 +47,12 @@ Optional Software Factory on a VPS needs Docker, a loop device and 17 GiB free d
 
 Keep each Server's D1, files and DO state separate. Preserve its original encryption secret and storage across restarts and updates. Operator Docker/SSH credentials do not enter the Client. Verify transport and browser behavior on celld separately from Cloudflare.
 
+## L4 Cloud
+
+A Server on L4 Cloud is the same published release, uploaded by the control plane in `inchidev/llll-cloud` to a Workers for Platforms dispatch namespace of ours, with its own D1, files bucket, backup bucket and KV in our account, at `<name>.llll.gg`. `packages/deployment-core/src/hosted.ts` installs and deletes one; the control plane routes its hostname to the script. See [ADR 0008](adr/0008-server-per-tenant.md).
+
+Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT_ID`: Deployment settings, self-update and domain management are off, and its origin is its `PUBLIC_ORIGIN`. The control plane reaches it only through `/.llll/cloud/scheduled` (the weekly backup) and `/.llll/cloud/purge-files` (before the files bucket is deleted), each with the Server's `CLOUD_SECRET` as a bearer token; every other Server answers 404 there. Deleting a hosted Server keeps its backup bucket.
+
 ## Providers and recovery
 
 RealtimeKit, AI and mail are optional Server-local settings. Cloudflare deployment does not imply they are configured. RealtimeKit's API token remains backend-only; clients receive participant credentials. See [runtime architecture](architecture.md) and [celld reference](self-host/celld.md).

@@ -29,7 +29,7 @@ async function fakeHosts() {
       const body = Buffer.concat(chunks).toString()
       received.push({ host: request.headers.host, method: request.method, url: request.url, headers: request.headers, body })
       // An echo, as a service that repeats what it was sent would answer.
-      response.writeHead(200, { 'Content-Type': 'application/json', 'X-Echo': String(request.headers.authorization ?? '') }).end(JSON.stringify({ url: request.url, body }))
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Warning': String(request.headers.authorization ?? '') }).end(JSON.stringify({ url: request.url, body }))
     })
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -85,7 +85,7 @@ test('the proxy tunnels open hosts, refuses closed ones, and terminates TLS only
     assert.equal(upstream.headers.authorization, `Bearer ${secretValue}`)
     assert.deepEqual(JSON.parse(upstream.body), { text: `token ${secretValue}`, other: 'L4_SECRET_UNKNOWN' })
     assert.ok(!sent.body.includes(secretValue) && !JSON.stringify(sent.headers).includes(secretValue), 'the box never reads the value back')
-    assert.equal(sent.headers['x-echo'], 'Bearer L4_SECRET_TELEGRAM_TOKEN')
+    assert.equal(sent.headers.warning, 'Bearer L4_SECRET_TELEGRAM_TOKEN')
 
     // A known placeholder not in effect here is refused with a reason, and the host never sees the request.
     const count = hosts.received.length

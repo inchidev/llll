@@ -827,7 +827,7 @@ UNIT
     *) fail 'Usage: llll factory enable --trust-shared-kernel [--no-systemd]|status|logs|restart|disable|backup|release-old-disks [--yes]|remove --keep-source' ;;
   esac
 }
-# The per-command Factory before 0.0.9 kept a workspace disk per Task in workspace-disks. The Server
+# The per-command Factory before 0.0.10 kept a workspace disk per Task in workspace-disks. The Server
 # dropped those workspaces in migration 0004, so no Node uses them; they stay until the operator releases them.
 old_workspace_disks() {
   local image name
@@ -841,7 +841,7 @@ old_workspace_disks() {
 old_disks_notice() {
   local count
   count=$(old_workspace_disks | wc -l | tr -d ' ')
-  [[ $count == 0 ]] || say "$count workspace disks of the per-command Factory before 0.0.9 are kept in $dir/factory/state/workspace-disks. No Task uses them now. Export them with llll compute backup, then delete them with llll compute release-old-disks --yes."
+  [[ $count == 0 ]] || say "$count workspace disks of the per-command Factory before 0.0.10 are kept in $dir/factory/state/workspace-disks. No Task uses them now. Export them with llll compute backup, then delete them with llll compute release-old-disks --yes."
 }
 release_old_disks() {
   local root=$dir/factory/state/workspace-disks name server_id count

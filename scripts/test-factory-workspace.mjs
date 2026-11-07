@@ -1,4 +1,4 @@
-// Real Docker: the Agent's box and what leaves it (ADR 0010). A box image checks out a Task disk, the box
+// Real Docker: the Agent's box and what leaves it (ADR 0011). A box image checks out a Task disk, the box
 // runtime answers on its control socket with no network, the Agent commits in it (a lockfile, a binary file
 // and a booby-trapped Git config), and the daemon's publish chain runs as on a VPS Node: a throwaway copy
 // with no network and the box disk read-only, its review, and a push of exactly the approved commit to a

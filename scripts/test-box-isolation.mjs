@@ -1,4 +1,4 @@
-// Real Docker: nothing secret is in the Agent's box (ADR 0010, "Nothing in the box").
+// Real Docker: nothing secret is in the Agent's box (ADR 0011, "Nothing in the box").
 //
 // The daemon's own box host (packages/compute-node/src/boxes.mjs) starts a box with its egress proxy, as on a
 // VPS Node, against a stand-in Server. Canaries are planted where the trusted side holds credentials: the

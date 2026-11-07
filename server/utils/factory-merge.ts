@@ -18,7 +18,7 @@ import { requireTask, taskPermissionAllowed } from './task-policy'
 import { fail } from './cf'
 
 /**
- * The merge of a Task's pull request from L4 (ADR 0010), the end of the Factory. A person merges from the Task
+ * The merge of a Task's pull request from L4 (ADR 0011), the end of the Factory. A person merges from the Task
  * under the `person` and `agent_after_checks` Git flows; the Agent merges with `factory_merge` only under
  * `agent_after_checks`. Both wait for the readiness `factory_feedback` reports: every check of the approved head
  * passed, and there was at least one. A person may also merge a head for which the provider reports no checks,

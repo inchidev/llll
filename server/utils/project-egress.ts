@@ -8,7 +8,7 @@ import { requireProject } from './project-service'
 import { fail } from './cf'
 
 /**
- * A Project's network and secrets for its Agents' boxes (ADR 0010). Whoever may manage the Project, as for
+ * A Project's network and secrets for its Agents' boxes (ADR 0011). Whoever may manage the Project, as for
  * its repositories, sets them; anyone who reads the Project sees them, but never a secret's value. A value is
  * entered once, encrypted with scope `project-secret:<id>`, and only a box's egress layer ever decrypts it.
  */

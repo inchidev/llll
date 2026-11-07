@@ -58,7 +58,7 @@ sudo llll compute remove --keep-source
 
 The executor always runs the same release as its Server. `sudo llll upgrade` replaces it with the new release's Compute Node and box image once the Server is updated and healthy. You can also run `sudo llll compute enable --trust-shared-kernel` at any time, for example to retry. The executor keeps its pairing, its boxes and their Task disks, and settings such as `LLLL_NODE_BOXES`. If the replacement fails, the Server stays updated and the command to retry is printed. A Node you disabled and revoked in Settings stays off.
 
-An executor from before 0.0.9 also leaves the workspace disks of the old per-command Factory in `/opt/llll/factory/state/workspace-disks`. No Task uses them now. `sudo llll compute release-old-disks` lists them; export them with `sudo llll compute backup`, then delete them with `sudo llll compute release-old-disks --yes`.
+An executor from before 0.0.10 also leaves the workspace disks of the old per-command Factory in `/opt/llll/factory/state/workspace-disks`. No Task uses them now. `sudo llll compute release-old-disks` lists them; export them with `sudo llll compute backup`, then delete them with `sudo llll compute release-old-disks --yes`.
 
 ### Hosts without systemd
 

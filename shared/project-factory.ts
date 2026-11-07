@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /**
- * A Project's network for its Agents' boxes (ADR 0010): closed by default, with windows. Presets and Project
+ * A Project's network for its Agents' boxes (ADR 0011): closed by default, with windows. Presets and Project
  * hosts are open for every box of the Project; a Task window opens one more host for a stated time.
  *
  * Each preset is a fixed list of hosts. None carries a credential: the box holds none, so a preset reads
@@ -35,7 +35,7 @@ export type ProjectNetwork = z.infer<typeof projectNetworkSchema>
 export const CLOSED_NETWORK: ProjectNetwork = { presets: [], hosts: [] }
 
 /**
- * A Project's Git flow for its Agents (ADR 0010): the branch prefix of an Agent's branch, who merges and how.
+ * A Project's Git flow for its Agents (ADR 0011): the branch prefix of an Agent's branch, who merges and how.
  * The target branch is always the repository's base branch. GitHub or Gitea branch protection stays the
  * ceiling: a push or merge it refuses is reported with its reason, never worked around.
  *

@@ -8,7 +8,7 @@ import { factoryHash } from './factory-authority'
 import { fail } from './cf'
 
 /**
- * What one box may reach, and which Project secrets its egress layer puts in (ADR 0010).
+ * What one box may reach, and which Project secrets its egress layer puts in (ADR 0011).
  *
  * The hosts in effect are this Server, the Project's presets and hosts, and the Task windows a person (or the
  * mode) opened whose time has not run out. A secret is put in only on a host it is bound to, and only as the

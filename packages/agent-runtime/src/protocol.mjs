@@ -11,7 +11,7 @@ export const runtimeInput = z.object({
   toolEndpoint: z.string().url(), transcript: z.string().max(2000000).nullable().optional(),
   repository: z.object({ archiveUrl: z.string().url() }).optional(), filesUrl: z.string().url().optional(),
   // Pi's own shell, file and edit tools. They bypass the Server's per-call policy, so they run only on the
-  // Task's box, whose boundary is the box and its egress layer (ADR 0010); anywhere else they are refused.
+  // Task's box, whose boundary is the box and its egress layer (ADR 0011); anywhere else they are refused.
   computer: z.boolean().default(false), box: z.boolean().default(false),
   // Messages the person sent while the turn waited or ran; a box hears later ones from the Server.
   steering: z.array(z.object({ messageId: z.string().min(1).max(100), content: z.string().min(1).max(48000) }).strict()).max(20).optional(),
