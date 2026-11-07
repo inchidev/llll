@@ -1,4 +1,3 @@
-import { dispatchCloudflareFactory } from './factory-setup'
 import { patchAgentTurn, fanoutAgentTurns } from '../../workers/agent-turns'
 import { factoryRequest, parseFactoryToolInput, factorySnapshot, planRequest, type FactoryAction, type FactoryRequest } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
@@ -70,7 +69,6 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
     if (['completed','failed'].includes(row.status) && row.resultJson) return JSON.parse(row.resultJson)
     if (isPlan && row.status === 'rejected') return { factoryPending: false, actionId: row.id, status: row.status, message: 'The plan was rejected. Ask the person what to change, then propose a revised plan.' }
     if (!['pending', 'approved', 'claimed', 'executing'].includes(row.status)) return { factoryPending: false, actionId: row.id, status: row.status, message: 'This action did not complete. Inspect its outcome; it will not be replayed.' }
-    if (row.status === 'approved' && request.operation !== 'publish') await dispatchCloudflareFactory(env, row.id, row.workspaceId, (await factoryWorkspace(env, context)).nodeId)
     return { factoryPending: true, actionId: row.id, status: row.status, reviewUrl: `/runs/${runId}` }
   }
   const workspace = await factoryWorkspace(env, context)
@@ -106,7 +104,6 @@ export async function factoryToolCall(env: L4Env, runId: string, callId: string,
   await patchAgentTurn(env, runId, proceeding ? { status: 'tool', detail: 'Using a tool' } : { status: 'waiting_approval', detail: 'Review required' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
   if (planAccepted) return JSON.parse((await env.DB.prepare('SELECT result_json AS resultJson FROM factory_actions WHERE id=?').bind(id).first<{ resultJson: string }>())!.resultJson)
-  if (automatic && request.operation !== 'publish') await dispatchCloudflareFactory(env, id, workspace.id, workspace.nodeId)
   if (automatic && request.operation === 'publish') {
     const { executeFactoryPublication } = await import('./factory-github')
     await executeFactoryPublication(env, id)
@@ -126,14 +123,8 @@ export async function listFactoryActions(env: L4Env, runId: string, actorId: str
     (SELECT id FROM factory_workspaces WHERE task_id=? AND agent_id=? AND initiated_by=?) ORDER BY created_at DESC LIMIT 100`).bind(run.taskId, run.agentId, actorId).all<ActionRow>()
   const workspace = await env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE task_id=? AND agent_id=? AND initiated_by=?`).bind(run.taskId, run.agentId, actorId).first<FactoryWorkspace>()
   if (workspace && (workspace.channelId !== run.channelId || workspace.environmentJson !== run.environmentJson)) fail(403, 'factory_revoked', 'Workspace belongs to an earlier repository mandate')
-  let recovery: unknown = null
-  if (workspace && env.FACTORY_COMPUTE) {
-    const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=?').bind(workspace.nodeId).first<{ capabilitiesJson: string }>()
-    if (node && JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers') {
-      const state = await env.FACTORY_COMPUTE.getByName(`workspace:${workspace.id}`).fetch(`http://factory/state?workspace=${workspace.id}`)
-      if (state.ok) recovery = await state.json()
-    }
-  }
+  // A Cloudflare box keeps its checkpoint itself now; per-operation recovery has nothing to report.
+  const recovery: unknown = null
   return { recovery, actions: actions.results.map(visibleAction), workspace: workspace ? { repository: JSON.parse(workspace.environmentJson).sourceRepo, baseBranch: JSON.parse(workspace.environmentJson).baseBranch, branch: 'l4-agent/' + workspace.id, connectionId: JSON.parse(workspace.environmentJson).gitConnectionId ?? 'deployment', taskId: workspace.taskId, agentId: workspace.agentId, initiatedBy: workspace.initiatedBy, id: workspace.id, status: workspace.status, nodeId: workspace.nodeId, commands: workspace.commands, runtimeMs: workspace.runtimeMs, publicationCount: workspace.publicationCount,
     snapshot: workspace.snapshotJson ? JSON.parse(workspace.snapshotJson) : null, snapshotDigest: workspace.snapshotJson ? await factoryHash(workspace.snapshotJson) : null, pull: workspace.pullJson ? JSON.parse(workspace.pullJson) : null } : null }
 }
@@ -151,7 +142,6 @@ export async function decideFactoryAction(env: L4Env, runId: string, actorId: st
   await env.DB.prepare('UPDATE tasks SET factory_state=? WHERE id=? AND assignee_id=?').bind(request.decision === 'approve' ? 'queued' : 'rejected', context.run.taskId, context.run.agentId).run()
   await patchAgentTurn(env, runId, { status: 'tool', detail: 'Using a tool' })
   if (env.CHANNEL_DO) await fanoutAgentTurns(env, context.run.channelId, context.run.agentId).catch(() => undefined)
-  if (request.decision === 'approve' && !['publish', 'plan'].includes(context.request.operation)) await dispatchCloudflareFactory(env, row.id, row.workspaceId, context.workspace.nodeId)
   if (request.decision === 'approve' && context.request.operation === 'publish') {
     const { executeFactoryPublication } = await import('./factory-github')
     const work = executeFactoryPublication(env, row.id)

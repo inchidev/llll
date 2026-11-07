@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..')
 const codingWorkspaceSources = new Set([
   'app/components/settings/FactorySetup.vue', 'server/api/agent-runs/[id]/factory-export.post.ts',
   'server/api/agent-runs/[id].get.ts', 'server/utils/factory-completion.ts', 'server/utils/factory-setup.ts',
-  'workers/env.ts', 'workers/factory-compute.ts', 'packages/deployment-core/src/factory.ts', 'packages/deployment-core/src/factory-repair.ts',
+  'workers/env.ts', 'packages/deployment-core/src/factory.ts', 'packages/deployment-core/src/factory-repair.ts',
   'app/components/agents/FactoryReview.vue', 'app/components/settings/ComputeNodes.vue',
   'app/components/settings/ToolsSettings.vue', 'app/pages/runs/[id].vue', 'app/pages/projects/board.vue',
   'server/utils/agent-tool-security.ts', 'server/utils/agent-tools.ts', 'server/utils/channel-lifecycle.ts', 'server/utils/compute-nodes.ts',

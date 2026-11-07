@@ -15,7 +15,8 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   const limits = cloud ? JSON.parse(cloud.capabilitiesJson) : env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : null
   const resources = Boolean(env.FACTORY_COMPUTE && env.FACTORY_CODE && env.FACTORY_IMAGE)
   const serverId = await getServerId(env.DB)
-  const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_workspaces WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status IN ('claimed','executing')) AS active, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status='uncertain') AS recoveryRequired").bind(cloud.id, cloud.id, cloud.id).first<{ retained: number; active: number; recoveryRequired: number }>() : null
+  // Boxes kept with their checkpoints, and boxes running now. A box that fails to start ends its turn and starts again on the next one.
+  const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status IN ('starting','running','idle')) AS active, 0 AS recoveryRequired").bind(cloud.id, cloud.id).first<{ retained: number; active: number; recoveryRequired: number }>() : null
   return { placement, resources, usage, state: cloud ? cloud.enabled ? usage?.recoveryRequired ? 'failed_recovery' : 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
     nodeId: cloud?.id ?? null, image: env.FACTORY_IMAGE ?? limits?.image ?? null, limits,
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
@@ -83,12 +84,4 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
     ])
   }
   return factorySetup(env, auth)
-}
-export async function dispatchCloudflareFactory(env: L4Env, actionId: string, workspaceId: string, nodeId: string) {
-  const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
-  if (!env.FACTORY_COMPUTE) return
-  if (node && JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers') {
-    const result = await env.FACTORY_COMPUTE.getByName(`workspace:${workspaceId}`).fetch(new Request(`http://factory/${actionId}`, { method: 'POST' }))
-    if (!result.ok) fail(503, 'factory_dispatch_failed', 'Factory is unavailable; the approved action remains recorded')
-  }
 }

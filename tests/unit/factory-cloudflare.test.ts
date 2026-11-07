@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { mcpFixture, ids } from '../helpers/outbound-mcp'
-import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
+import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { factoryHash } from '../../server/utils/factory-authority'
-import { factoryToolCall, decideFactoryAction } from '../../server/utils/factory-actions'
 import * as githubAgent from '../../server/utils/github-agent-client'
+import { agentGateway } from '../../server/utils/agent-gateway'
 import { findAgentRun } from '../../server/utils/agent-run-service'
-import { FactoryOutbound } from '../../workers/factory-outbound'
-import { FactoryComputeDurableObject } from '../../workers/factory-compute'
+import { ensureBox, releaseBoxTurn } from '../../server/utils/factory-boxes'
+import { BoxOutbound, type BoxEgress } from '../../workers/factory-outbound'
+import { CLOUD_BOX_IDLE_MS, FactoryComputeDurableObject } from '../../workers/factory-compute'
 import { factoryRepositoryName } from '../../shared/software-factory'
-import type { AgentRun } from '../../shared/agent-execution'
-import type { L4Env } from '../../workers/env'
+import type { AgentRun, RuntimeEvent } from '../../shared/agent-execution'
 import { configureCloudflareFactory } from '../../server/utils/factory-setup'
 import { beginUnusedFactoryRepair } from '../../packages/deployment-core/src/factory-repair'
 import { cloudCodeBridge } from '../../workers/factory-code-bridge'
@@ -18,6 +18,9 @@ vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class { constructor(protected ctx: unknown, protected env: unknown) {} },
   DurableObject: class { constructor(protected ctx: unknown, protected env: unknown) {} },
 }))
+// The gateway is served in-process; this test sees only what reaches it.
+vi.mock('../../server/utils/agent-gateway', async original => ({ ...await original<typeof import('../../server/utils/agent-gateway')>(),
+  agentGateway: vi.fn(async () => Response.json({ ack: 0, cancel: false, steer: [] })) }))
 
 const nodeId = '00000000-0000-4000-8000-000000000099'
 const image = 'registry.cloudflare.com/account/factory@sha256:' + 'a'.repeat(64)
@@ -25,49 +28,102 @@ const capabilities = { provider: 'cloudflare-containers', diskBytes: 8000000000,
   capacity: { cpu: 0.5, memoryMiB: 4096, boxes: 1 }, protocol: 2, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
 const config = { name: 'Original upstream', computeNodeId: nodeId, sourceRepo: 'inchidev/afterprompt', sourceRepoId: 11, sourceInstallationId: 101,
   workRepo: 'inchidev/afterprompt', workRepoId: 11, workInstallationId: 101, baseBranch: 'main', requiredChecks: ['test'], previewHosts: [] }
-const lease = 'b'.repeat(64), codeRemote = 'https://account.artifacts.cloudflare.net/git/server/task.git'
-let f: ReturnType<typeof mcpFixture>, run: AgentRun, actionId: string, workspaceId: string
-const network = vi.fn(async (_request: Request) => new Response('Provider Git response'))
+const codeRemote = 'https://account.artifacts.cloudflare.net/git/server/task.git', source = 'https://github.com/inchidev/afterprompt.git'
+const submission = (runId: string) => ({ runId, modelGateway: { url: `https://server.example/api/agent-runs/${runId}/gateway/v1`, token: 'run-capability-stays-in-the-run', model: 'm' }, computer: true, box: true })
+let f: ReturnType<typeof mcpFixture>, run: AgentRun
+const network = vi.fn(async (..._args: unknown[]) => new Response('Provider Git response'))
+const results: Array<{ runId: string; result?: RuntimeEvent }> = []
+const boxObjects = new Map<string, FactoryComputeDurableObject>()
+const handles: Array<{ revokeToken: ReturnType<typeof vi.fn>; [Symbol.dispose]: ReturnType<typeof vi.fn> }> = []
+let tokens = 0
+const artifacts = {
+  create: vi.fn(async (_name: string, _options?: unknown) => ({ token: 'initial-code-token' })),
+  get: vi.fn(async () => {
+    const handle = { info: vi.fn(async () => ({ remote: codeRemote })), createToken: vi.fn(async (scope: string) => ({ id: 'token-' + ++tokens, plaintext: `${scope}-Task-code-capability` })),
+      revokeToken: vi.fn(async () => {}), [Symbol.dispose]: vi.fn() }
+    handles.push(handle); return handle
+  }),
+  delete: vi.fn(async (_name: string) => {}),
+}
+
+/** A Task Run of the fixture's repository; a second Run of the same Task reuses its box. */
+async function taskRun(taskId: string) {
+  if (!f.db.prepare('SELECT 1 FROM tasks WHERE id=?').get(taskId)) f.db.prepare("INSERT INTO tasks(id,board_id,title,assignee_id,created_by,status) VALUES(?,?,?,?,?,'ready')").run(taskId, 'factory-board', 'Repair ' + taskId, ids.agent, ids.owner)
+  // The fixture has no Git connection: the Run's repository snapshot is written here, as the Server would pin it.
+  f.db.prepare('UPDATE tasks SET environment_id=NULL WHERE id=?').run(taskId)
+  const created = await f.run(ids.owner, undefined, taskId)
+  f.db.prepare('UPDATE tasks SET environment_id=? WHERE id=?').run('factory-env', taskId)
+  f.db.prepare('UPDATE agent_runs SET environment_json=?,mandate_json=? WHERE id=?')
+    .run(JSON.stringify({ ...config, id: 'factory-env', enabled: true, version: 1, baseSha: 'a'.repeat(40), baseTreeSha: 'b'.repeat(40) }),
+      JSON.stringify({ ...JSON.parse(created.run.mandateJson), environmentId: 'factory-env', environmentVersion: 1 }), created.run.id)
+  return (await findAgentRun(f.env, created.run.id))!
+}
 
 beforeEach(async () => {
   f = mcpFixture()
+  results.length = 0; handles.length = 0; boxObjects.clear(); tokens = 0
   f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS, ids.agentRole)
   f.db.prepare('INSERT INTO task_boards(id,name,created_by) VALUES(?,?,?)').run('factory-board', 'Factory', ids.owner)
-  f.db.prepare("INSERT INTO tasks(id,board_id,title,assignee_id,created_by,status) VALUES(?,?,?,?,?,'ready')").run('factory-task', 'factory-board', 'Repair the original repository', ids.agent, ids.owner)
-  const created = await f.run(ids.owner, undefined, 'factory-task')
   f.db.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
     .run(nodeId, 'Cloudflare', await factoryHash('unexposed-node-token'), JSON.stringify(capabilities), new Date().toISOString(), ids.owner, new Date().toISOString())
   f.db.prepare('INSERT INTO agent_environments(id,config_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?)')
     .run('factory-env', JSON.stringify(config), ids.owner, new Date().toISOString(), new Date().toISOString())
-  f.db.prepare('UPDATE tasks SET environment_id=? WHERE id=?').run('factory-env', 'factory-task')
-  f.db.prepare('UPDATE agent_runs SET environment_json=?,mandate_json=? WHERE id=?')
-    .run(JSON.stringify({ ...config, id: 'factory-env', enabled: true, version: 1, baseSha: 'a'.repeat(40), baseTreeSha: 'b'.repeat(40) }),
-      JSON.stringify({ ...JSON.parse(created.run.mandateJson), environmentId: 'factory-env', environmentVersion: 1 }), created.run.id)
-  run = (await findAgentRun(f.env, created.run.id))!
-  const initial = await factoryToolCall(f.env, run.id, 'bootstrap', { operation: 'bootstrap' })
-  actionId = initial.actionId
-  workspaceId = (f.db.prepare('SELECT workspace_id AS id FROM factory_actions WHERE id=?').get(actionId) as { id: string }).id
-  f.db.prepare("UPDATE factory_actions SET status='executing',lease_token=?,lease_until=? WHERE id=?")
-    .run(lease, new Date(Date.now() + 60000).toISOString(), actionId)
+  run = await taskRun('factory-task')
+  Object.assign(f.env, {
+    PUBLIC_ORIGIN: 'https://server.example', FACTORY_IMAGE: image, FACTORY_CODE: artifacts,
+    FACTORY_COMPUTE: { idFromName: (name: string) => name, getByName: (name: string) => boxObjects.get(name) ?? { wake: async () => {} } },
+    AGENT_RUN_DO: { getByName: () => ({
+      boxSubmission: async (runId: string) => submission(runId),
+      boxEvents: async (runId: string, _from: number, _events: RuntimeEvent[], result?: RuntimeEvent) => { results.push({ runId, result }); return { ack: 0, cancel: false, steer: [] } },
+      wake: async () => {} }) },
+    CHANNEL_DO: { getByName: () => ({ fanout: async () => {} }) },
+  })
+  vi.spyOn(githubAgent, 'githubSourceGrant').mockResolvedValue('upstream-read-only-capability')
+  vi.stubGlobal('scheduler', { wait: async () => {} })
   // workerd accepts streamed request bodies directly; Node's Undici needs its duplex hint.
   const NativeRequest = globalThis.Request
   vi.stubGlobal('Request', class extends NativeRequest {
     constructor(input: ConstructorParameters<typeof NativeRequest>[0], init?: RequestInit) { super(input, { ...init, duplex: 'half' } as RequestInit) }
   })
-  network.mockClear(); vi.stubGlobal('fetch', network)
+  network.mockClear(); vi.mocked(agentGateway).mockClear(); vi.stubGlobal('fetch', network)
+  for (const mock of [artifacts.create, artifacts.get, artifacts.delete]) mock.mockClear()
 })
 afterEach(() => { f.db.close(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function outbound(phase: 'source' | 'restore' | 'checkpoint' | 'command', remote = codeRemote, token = 'private-working-repo-capability') {
-  return new FactoryOutbound({ props: { actionId, lease, phase, remote, token } } as never, f.env)
+const boxRow = (id: string) => f.db.prepare('SELECT status,lease_token AS leaseToken,run_id AS runId,checkpoint_sha AS checkpointSha FROM factory_boxes WHERE id=?').get(id) as { status: string; leaseToken: string | null; runId: string | null; checkpointSha: string | null }
+/** A box its Node holds under a live lease, as the Durable Object leaves it once started. */
+async function leasedBox(lease = 'b'.repeat(64)) {
+  const id = await ensureBox(f.env, run, nodeId)
+  f.db.prepare("UPDATE factory_boxes SET status='running',lease_token=?,lease_until=? WHERE id=?").run(lease, new Date(Date.now() + 60000).toISOString(), id)
+  return { id, lease }
+}
+function outbound(boxId: string, lease: string, grant: Omit<BoxEgress, 'boxId' | 'lease'> = {}) {
+  return new BoxOutbound({ props: { boxId, lease, ...grant }, waitUntil: () => {} } as never, f.env)
 }
 const request = (url: string, method = 'GET') => new Request(url, { method, headers: { Authorization: 'Bearer attacker-selected', Cookie: 'private-cookie', 'X-Test': 'safe-header' }, ...(method === 'POST' ? { body: 'bounded Git body' } : {}) })
 
-it('keeps source credentials in the trusted outbound Worker and scopes them to original-repository Git reads', async () => {
-  const source = 'https://github.com/inchidev/afterprompt.git'
-  const worker = outbound('source', source, 'single-repository-read-token')
+it('serves its own Run’s gateway in this Worker and never sends it to the network', async () => {
+  const { id, lease } = await leasedBox()
+  const gateway = `https://server.example/api/agent-runs/${run.id}/gateway/events`
+  const answer = await outbound(id, lease).fetch(new Request(gateway, { method: 'POST', headers: { Authorization: 'Bearer run-capability', Cookie: 'private-cookie' }, body: '{"from":0,"events":[]}' }))
+  expect(answer.status).toBe(200)
+  expect(agentGateway).toHaveBeenCalledWith(expect.any(Request), f.env, run.id, 'events', expect.any(Function))
+  const forwarded = vi.mocked(agentGateway).mock.calls[0]![0]
+  expect(forwarded.headers.get('Authorization')).toBe('Bearer run-capability')
+  expect(forwarded.headers.has('cookie')).toBe(false)
+  const other = await taskRun('another-task')
+  for (const url of [gateway.replace(run.id, other.id), gateway.replace('server.example', 'attacker.example'), gateway + '?from=0', gateway.replace('https:', 'http:'), 'https://server.example/api/agent-runs']) {
+    expect((await outbound(id, lease).fetch(request(url, 'POST'))).status).toBe(403)
+  }
+  expect(agentGateway).toHaveBeenCalledOnce()
+  expect(network).not.toHaveBeenCalled()
+})
+
+it('adds the source credential on the way out, for original-repository Git reads only', async () => {
+  const { id, lease } = await leasedBox()
+  const worker = outbound(id, lease, { source: { remote: source, token: 'single-repository-read-token' } })
   expect((await worker.fetch(request(source + '/info/refs?service=git-upload-pack'))).status).toBe(200)
-  const forwarded = network.mock.calls[0]![0]
+  const forwarded = network.mock.calls[0]![0] as Request
   expect(forwarded.headers.get('Authorization')).toBe('Basic ' + btoa('x-access-token:single-repository-read-token'))
   expect(forwarded.headers.has('cookie')).toBe(false)
   expect(forwarded.redirect).toBe('manual')
@@ -77,12 +133,13 @@ it('keeps source credentials in the trusted outbound Worker and scopes them to o
   expect(network).toHaveBeenCalledTimes(1)
 })
 
-it.each(['restore', 'checkpoint'] as const)('scopes %s capabilities to one private Task code repository and the selected Git service', async phase => {
-  const worker = outbound(phase), service = phase === 'checkpoint' ? 'git-receive-pack' : 'git-upload-pack'
+it.each([false, true])('scopes the Artifacts token to the Task’s own repository and one Git service (write %s)', async write => {
+  const { id, lease } = await leasedBox()
+  const worker = outbound(id, lease, { storage: { remote: codeRemote, token: 'private-working-repo-capability', write } }), service = write ? 'git-receive-pack' : 'git-upload-pack'
   expect((await worker.fetch(request(codeRemote + '/info/refs?service=' + service))).status).toBe(200)
   expect((await worker.fetch(request(codeRemote + '/' + service, 'POST'))).status).toBe(200)
-  expect(network.mock.calls[0]![0].headers.get('Authorization')).toBe('Bearer private-working-repo-capability')
-  const otherService = phase === 'checkpoint' ? 'git-upload-pack' : 'git-receive-pack'
+  expect((network.mock.calls[0]![0] as Request).headers.get('Authorization')).toBe('Bearer private-working-repo-capability')
+  const otherService = write ? 'git-upload-pack' : 'git-receive-pack'
   for (const url of [codeRemote.replace('/task.git', '/another-task.git') + '/info/refs?service=' + service,
     codeRemote + '/info/refs?service=' + otherService, codeRemote + '/' + otherService,
     codeRemote.replace('https:', 'http:'), codeRemote.replace('.net', '.net:8443')]) {
@@ -91,77 +148,255 @@ it.each(['restore', 'checkpoint'] as const)('scopes %s capabilities to one priva
   expect(network).toHaveBeenCalledTimes(2)
 })
 
-it('rejects redirect responses without forwarding credentials to another destination', async () => {
+it('refuses a redirect without forwarding the credential to another destination', async () => {
+  const { id, lease } = await leasedBox()
   network.mockResolvedValueOnce(new Response(null, { status: 307, headers: { Location: 'https://attacker.example/steal' } }))
-  const result = await outbound('restore').fetch(request(codeRemote + '/info/refs?service=git-upload-pack'))
+  const result = await outbound(id, lease, { storage: { remote: codeRemote, token: 'private-working-repo-capability', write: false } }).fetch(request(codeRemote + '/info/refs?service=git-upload-pack'))
   expect(result.status).toBe(502)
   expect(await result.text()).not.toContain('private-working-repo-capability')
   expect(network).toHaveBeenCalledTimes(1)
 })
 
-it.each(['expired lease', 'settled action', 'disabled node', 'removed computer grant', 'changed workspace initiator'])('rechecks %s before a storage request can use its capability', async change => {
-  if (change === 'expired lease') f.db.prepare("UPDATE factory_actions SET lease_until='2000-01-01' WHERE id=?").run(actionId)
-  if (change === 'settled action') f.db.prepare("UPDATE factory_actions SET status='completed' WHERE id=?").run(actionId)
-  if (change === 'disabled node') f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
-  if (change === 'removed computer grant') f.db.prepare('UPDATE roles SET permissions_bitmask=? WHERE id=?').run(ALL_PERMISSIONS & ~Permission.useComputer, ids.agentRole)
-  if (change === 'changed workspace initiator') f.db.prepare('UPDATE factory_workspaces SET initiated_by=? WHERE id=?').run(ids.member, workspaceId)
-  expect((await outbound('restore').fetch(request(codeRemote + '/info/refs?service=git-upload-pack'))).status).toBe(403)
+it.each(['expired lease', 'another lease', 'paused Node', 'released box'])('refuses every destination after a %s', async change => {
+  const { id, lease } = await leasedBox()
+  if (change === 'expired lease') f.db.prepare("UPDATE factory_boxes SET lease_until='2000-01-01' WHERE id=?").run(id)
+  if (change === 'another lease') f.db.prepare('UPDATE factory_boxes SET lease_token=? WHERE id=?').run('c'.repeat(64), id)
+  if (change === 'paused Node') f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
+  if (change === 'released box') f.db.prepare("UPDATE factory_boxes SET status='released' WHERE id=?").run(id)
+  const worker = outbound(id, lease, { storage: { remote: codeRemote, token: 'private-working-repo-capability', write: true } })
+  expect((await worker.fetch(request(codeRemote + '/info/refs?service=git-receive-pack'))).status).toBe(403)
+  expect((await worker.fetch(request(`https://server.example/api/agent-runs/${run.id}/gateway/tools`, 'POST'))).status).toBe(403)
+  expect(network).not.toHaveBeenCalled()
+  expect(agentGateway).not.toHaveBeenCalled()
+})
+
+it('keeps every other host closed and never attaches a credential to it', async () => {
+  const { id, lease } = await leasedBox()
+  const worker = outbound(id, lease, { source: { remote: source, token: 'single-repository-read-token' }, storage: { remote: codeRemote, token: 'private-working-repo-capability', write: true } })
+  for (const url of ['https://registry.npmjs.org/package', 'https://api.telegram.org/bot/getMe', 'https://attacker.example/source']) {
+    expect((await worker.fetch(request(url))).status).toBe(403)
+  }
   expect(network).not.toHaveBeenCalled()
 })
 
-it('permits only reviewed command HTTPS hosts and never attaches source or code-store credentials', async () => {
-  f.db.prepare("UPDATE factory_actions SET request_json=? WHERE id=?").run(JSON.stringify({ operation: 'exec', command: 'npm test', timeoutMs: 30000, networkHosts: ['registry.npmjs.org'] }), actionId)
-  const worker = outbound('command')
-  expect((await worker.fetch(request('https://registry.npmjs.org/package'))).status).toBe(200)
-  const forwarded = network.mock.calls[0]![0]
-  expect(forwarded.headers.has('authorization')).toBe(false)
-  expect(forwarded.headers.has('cookie')).toBe(false)
-  expect((await worker.fetch(request('https://attacker.example/source'))).status).toBe(403)
-  expect((await worker.fetch(request('http://registry.npmjs.org/package'))).status).toBe(403)
-  expect(network).toHaveBeenCalledTimes(1)
-})
-
-function executor(seed: Record<string, unknown>, matches = true) {
-  const values = new Map(Object.entries(seed)), destroy = vi.fn(async () => {}), exec = vi.fn()
-  const ctx = { id: { equals: () => matches }, container: { running: true, destroy, exec }, storage: {
-    get: async (key: string) => values.get(key),
-    put: async (key: string | Record<string, unknown>, value?: unknown) => { if (typeof key === 'string') values.set(key, value); else Object.entries(key).forEach(([name, entry]) => values.set(name, entry)) },
-    delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key) },
-    transaction: async (operation: (transaction: { get: (key: string) => Promise<unknown>; delete: (key: string) => Promise<boolean> }) => Promise<unknown>) => operation({ get: async key => values.get(key), delete: async key => values.delete(key) }),
-    setAlarm: vi.fn(async () => {}),
-  } }
-  f.env.FACTORY_COMPUTE = { idFromName: () => ({}) } as unknown as L4Env['FACTORY_COMPUTE']
-  return { instance: new FactoryComputeDurableObject(ctx as never, f.env), ctx, values, destroy, exec }
+const kind = (props: BoxEgress) => props.source ? 'source' : props.storage ? props.storage.write ? 'checkpoint' : 'restore' : 'box'
+/** One box's Durable Object with a fake container that runs the box's control socket and its trusted helper. */
+function boxObject(id: string) {
+  const values = new Map<string, unknown>(), events: string[] = [], phases: BoxEgress[] = []
+  const helper: Array<Record<string, unknown>> = [], controls: Array<Record<string, unknown>> = []
+  const state = { running: false, image, turn: null as string | null, checkout: false, checkpoints: 0, checkpointFails: false, alarm: null as number | null }
+  const container = {
+    get running() { return state.running },
+    start: vi.fn((_options: { entrypoint: string[]; enableInternet: boolean; env: Record<string, string> }) => { state.running = true; events.push('start') }),
+    destroy: vi.fn(async () => { state.running = false; state.turn = null; state.checkout = false; events.push('destroy') }),
+    setInactivityTimeout: vi.fn(async () => {}),
+    inspect: vi.fn(async () => ({ image: state.image })),
+    interceptOutboundHttps: vi.fn(async (_host: string, binding: { props: BoxEgress }) => { phases.push(binding.props) }),
+    exec: vi.fn(async (argv: string[], options: { stdin?: ReadableStream; user?: string; env?: Record<string, string> }) => {
+      expect(options.user).toBe('1000:1000')
+      const input = JSON.parse(await new Response(options.stdin).text()) as Record<string, unknown>
+      const reply = (value: unknown, line = true) => ({ exitCode: Promise.resolve(0), stdout: new Response(JSON.stringify(value) + (line ? '\n' : '')).body, stderr: new Response('').body })
+      if (argv.includes('/opt/agent/src/control.mjs')) {
+        controls.push(input)
+        if (input.op === 'health') return reply({ status: state.turn ? 'running' : 'ready', ...(state.turn ? { runId: state.turn } : {}), checkout: state.checkout })
+        if (input.op === 'turn') { state.turn = (input.submission as { runId: string }).runId; return reply({ accepted: true }) }
+        return reply({ ok: state.turn === input.runId })
+      }
+      expect(argv[0]).toBe('/usr/bin/prlimit')
+      expect(argv.at(-1)).toBe(cloudCodeBridge)
+      expect(options.env).toMatchObject({ LLLL_BOX_ROOT: '/work' })
+      helper.push(input)
+      const phase = kind(phases.at(-1)!)
+      if (input.operation === 'bootstrap') { expect(phase).toBe('source'); state.checkout = true; events.push('source-cloned'); return reply({ ok: true }, false) }
+      if (input.operation === 'restore') { expect(phase).toBe('restore'); state.checkout = true; events.push('restored'); return reply({ ok: true }, false) }
+      expect(phase).toBe('checkpoint'); events.push('checkpoint')
+      state.checkpoints++
+      return reply(state.checkpointFails ? { ok: false } : { ok: true, checkpoint: (state.checkpoints === 1 ? 'c' : 'd').repeat(40), head: 'e'.repeat(40), tree: 'f'.repeat(40) }, false)
+    }),
+  }
+  const storage = {
+    get: async (key: string) => structuredClone(values.get(key)),
+    put: async (key: string, value: unknown) => { values.set(key, structuredClone(value)) },
+    delete: async (key: string) => values.delete(key),
+    deleteAll: async () => { values.clear() },
+    setAlarm: async (at: number) => { state.alarm = at },
+    getAlarm: async () => state.alarm,
+    deleteAlarm: async () => { state.alarm = null },
+  }
+  const ctx = { id: { equals: (other: unknown) => other === `box:${id}` }, storage, container, exports: { BoxOutbound: (binding: { props: BoxEgress }) => binding } }
+  const instance = new FactoryComputeDurableObject(ctx as never, f.env)
+  boxObjects.set(`box:${id}`, instance)
+  /** The runtime clears an alarm as it fires it. */
+  const tick = async () => { state.alarm = null; await instance.alarm() }
+  const turns = () => controls.filter(control => control.op === 'turn')
+  const idle = () => values.set('box', { ...values.get('box') as object, lastActive: Date.now() - CLOUD_BOX_IDLE_MS - 1000 })
+  return { instance, values, events, phases, helper, controls, state, container, tick, turns, idle }
+}
+/** The Run's turn goes to the Task's box: the Run's Durable Object wakes the box's on submission. */
+async function startedBox() {
+  const id = await ensureBox(f.env, run, nodeId)
+  const box = boxObject(id)
+  await box.instance.wake(id)
+  await box.tick()
+  return { id, box }
+}
+const finishTurn = async (box: ReturnType<typeof boxObject>, runId = run.id) => {
+  box.state.turn = null
+  f.db.prepare("UPDATE agent_runs SET status='completed' WHERE id=?").run(runId)
+  await box.tick()
 }
 
-it('rejects cross-workspace dispatch before it can queue or start a container', async () => {
-  const fixture = executor({}, false)
-  expect((await fixture.instance.fetch(new Request('http://factory/' + actionId, { method: 'POST' }))).status).toBe(403)
-  expect(fixture.values.size).toBe(0)
-  expect(fixture.exec).not.toHaveBeenCalled()
+it('starts the box for its first turn, clones the pinned source once and hands the turn to its control socket', async () => {
+  const { id, box } = await startedBox()
+  const row = boxRow(id)
+  expect(row).toMatchObject({ status: 'starting', runId: run.id })
+  expect(row.leaseToken).toMatch(/^[a-f0-9]{64}$/u)
+  expect(box.container.start).toHaveBeenCalledOnce()
+  const options = box.container.start.mock.calls[0]![0]
+  expect(options.enableInternet).toBe(false)
+  expect(options.entrypoint.slice(0, 3)).toEqual(['/usr/bin/setpriv', '--reuid=1000', '--regid=1000'])
+  expect(options.entrypoint.at(-1)).toBe('/opt/agent/src/box.mjs')
+  expect(box.phases.map(kind)).toEqual(['box', 'source', 'box'])
+  expect(box.phases.every(props => props.boxId === id && props.lease === row.leaseToken)).toBe(true)
+  expect(box.phases[1]!.source).toEqual({ remote: source, token: 'upstream-read-only-capability' })
+  expect(artifacts.create).toHaveBeenCalledWith(factoryRepositoryName(ids.server, id), expect.anything())
+  expect(handles[0]!.revokeToken).toHaveBeenCalledWith('initial-code-token')
+  expect(network).toHaveBeenCalledWith('https://api.github.com/installation/token', expect.objectContaining({ method: 'DELETE' }))
+  expect(box.turns()).toEqual([{ op: 'turn', submission: submission(run.id) }])
+  // Neither the container's start nor a helper ever sees a credential: the outbound Worker adds them.
+  expect(JSON.stringify([options, box.helper])).not.toContain('capability')
+  expect(box.values.get('checkpoint')).toBeUndefined()
+  expect(box.state.alarm).toBeGreaterThan(Date.now())
+
+  // The next sync reports the turn and keeps the lease; the box is not started or handed the turn again.
+  await box.tick()
+  expect(boxRow(id)).toMatchObject({ status: 'running', leaseToken: row.leaseToken })
+  expect(box.container.start).toHaveBeenCalledOnce()
+  expect(box.turns()).toHaveLength(1)
 })
 
-it('a restarted executor stops uncertain work and never starts the previous command again', async () => {
-  const fixture = executor({ action: actionId, nodeId, started: true })
-  await fixture.instance.alarm()
-  expect(fixture.destroy).toHaveBeenCalledOnce()
-  expect(fixture.exec).not.toHaveBeenCalled()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'uncertain' })
-  expect(fixture.values.has('action')).toBe(false)
-  await fixture.instance.alarm()
-  expect(fixture.destroy).toHaveBeenCalledTimes(1)
+it('checkpoints when the turn ends, stops when idle and restores the next turn from Artifacts', async () => {
+  const { id, box } = await startedBox()
+  await finishTurn(box)
+  expect(box.events.filter(event => event === 'checkpoint')).toHaveLength(1)
+  expect(box.phases.slice(-2).map(kind)).toEqual(['checkpoint', 'box'])
+  const repository = factoryRepositoryName(ids.server, id)
+  expect(box.values.get('checkpoint')).toMatchObject({ sha: 'c'.repeat(40), repository, image })
+  expect(boxRow(id)).toMatchObject({ status: 'idle', checkpointSha: 'c'.repeat(40), runId: null })
+  expect(box.container.destroy).not.toHaveBeenCalled()
+  expect(handles.every(handle => handle[Symbol.dispose].mock.calls.length === 1)).toBe(true)
+
+  box.idle()
+  await box.tick()
+  expect(box.container.destroy).toHaveBeenCalledOnce()
+  // Nothing changed since the turn's checkpoint.
+  expect(box.state.checkpoints).toBe(1)
+  expect(boxRow(id)).toMatchObject({ status: 'stopped', leaseToken: null })
+  expect(box.state.alarm).toBeNull()
+
+  const next = await taskRun('factory-task')
+  expect(await ensureBox(f.env, next, nodeId)).toBe(id)
+  await box.instance.wake(id)
+  await box.tick()
+  expect(box.container.start).toHaveBeenCalledTimes(2)
+  expect(box.phases.slice(-3).map(kind)).toEqual(['box', 'restore', 'box'])
+  expect(box.helper.find(input => input.operation === 'restore')).toMatchObject({ checkpoint: 'c'.repeat(40), baseSha: 'a'.repeat(40) })
+  expect(artifacts.create).toHaveBeenCalledOnce()
+  expect(box.turns().map(turn => (turn.submission as { runId: string }).runId)).toEqual([run.id, next.id])
+
+  await finishTurn(box, next.id)
+  expect(box.values.get('checkpoint')).toMatchObject({ sha: 'd'.repeat(40) })
+  expect(box.helper.at(-1)).toMatchObject({ operation: 'checkpoint', checkpoint: 'c'.repeat(40) })
 })
 
-it('re-delivers a durably saved receipt exactly once without replaying container execution', async () => {
-  const receipt = { operation: 'result', id: actionId, lease, result: { ok: true, exitCode: 0, output: 'Pinned and checkpointed code', runtimeMs: 100 } }
-  const fixture = executor({ action: actionId, nodeId, started: true, receipt })
-  await fixture.instance.alarm()
-  expect(fixture.exec).not.toHaveBeenCalled()
-  expect(f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'completed', result_json: JSON.stringify(receipt.result) })
-  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1, status: 'ready' })
-  expect(fixture.values.has('receipt')).toBe(false)
-  await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT commands FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1 })
+it('cancels a turn through the box’s control socket', async () => {
+  const { box } = await startedBox()
+  // The Run's DELETE releases the turn and wakes the box at once.
+  await releaseBoxTurn(f.env, run.id)
+  expect(box.state.alarm).toBeLessThanOrEqual(Date.now())
+  await box.tick()
+  expect(box.controls.at(-1)).toEqual({ op: 'cancel', runId: run.id })
+})
+
+it('ends a turn whose container is gone instead of running it again', async () => {
+  const { box } = await startedBox()
+  box.state.running = false
+  await box.tick()
+  expect(results).toContainEqual({ runId: run.id, result: { type: 'error', message: expect.stringContaining('stopped during this turn') } })
+  expect(box.container.start).toHaveBeenCalledOnce()
+  expect(box.turns()).toHaveLength(1)
+})
+
+it.each(['start', 'image', 'source'] as const)('ends the turn when its box cannot start (%s) and does not start it again for that turn', async failure => {
+  if (failure === 'source') vi.mocked(githubAgent.githubSourceGrant).mockRejectedValueOnce(new Error('private-provider-diagnostic'))
+  const id = await ensureBox(f.env, run, nodeId)
+  const box = boxObject(id)
+  if (failure === 'start') box.container.start.mockImplementationOnce(() => { throw new Error('private-provider-diagnostic') })
+  if (failure === 'image') box.state.image = 'registry.cloudflare.com/account/changed@sha256:' + 'f'.repeat(64)
+  await box.instance.wake(id)
+  await box.tick()
+  expect(results).toEqual([{ runId: run.id, result: { type: 'error', message: expect.stringContaining('could not start') } }])
+  expect(JSON.stringify(results)).not.toContain('private-provider-diagnostic')
+  expect(box.helper).toEqual([])
+  expect(artifacts.create).not.toHaveBeenCalled()
+  expect(box.turns()).toEqual([])
+  await box.instance.wake(id)
+  await box.tick()
+  expect(box.container.start).toHaveBeenCalledOnce()
+  expect(results).toHaveLength(1)
+})
+
+it('waits for a free box within the Node’s capacity and starts when one stops', async () => {
+  const first = await startedBox()
+  const other = await taskRun('second-task'), otherId = await ensureBox(f.env, other, nodeId)
+  const second = boxObject(otherId)
+  await second.instance.wake(otherId)
+  await second.tick()
+  expect(second.container.start).not.toHaveBeenCalled()
+  expect(boxRow(otherId).status).toBe('queued')
+  expect(second.state.alarm).toBeGreaterThan(Date.now())
+
+  await finishTurn(first.box)
+  first.box.idle()
+  await first.box.tick()
+  expect(boxRow(first.id).status).toBe('stopped')
+  // The stopping box's sync admitted the waiting one and woke its object.
+  expect(boxRow(otherId).status).toBe('starting')
+  expect(second.state.alarm).toBeLessThanOrEqual(Date.now())
+  await second.tick()
+  expect(second.container.start).toHaveBeenCalledOnce()
+  expect(second.turns().map(turn => (turn.submission as { runId: string }).runId)).toEqual([other.id])
+})
+
+it('stops with a paused Node and keeps its checkpoint', async () => {
+  const { id, box } = await startedBox()
+  await finishTurn(box)
+  f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
+  await box.tick()
+  expect(box.container.destroy).toHaveBeenCalledOnce()
+  expect(boxRow(id)).toMatchObject({ status: 'stopped', leaseToken: null, checkpointSha: 'c'.repeat(40) })
+  expect(box.values.get('checkpoint')).toMatchObject({ sha: 'c'.repeat(40) })
+  expect(artifacts.delete).not.toHaveBeenCalled()
+})
+
+it('releases the container and the Task’s code repository when the Task is Done', async () => {
+  const { id, box } = await startedBox()
+  await finishTurn(box)
+  f.db.prepare("UPDATE tasks SET status='done' WHERE id='factory-task'").run()
+  await box.tick()
+  expect(boxRow(id).status).toBe('released')
+  expect(box.container.destroy).toHaveBeenCalledOnce()
+  expect(artifacts.delete).toHaveBeenCalledWith(factoryRepositoryName(ids.server, id))
+  expect(box.values.size).toBe(0)
+  expect(box.state.alarm).toBeNull()
+})
+
+it('refuses a wake meant for another box’s object', async () => {
+  const id = await ensureBox(f.env, run, nodeId)
+  const box = boxObject(id)
+  await expect(box.instance.wake('00000000-0000-4000-8000-0000000000aa')).rejects.toThrow('Invalid box scope')
+  expect(box.values.size).toBe(0)
+  expect(box.state.alarm).toBeNull()
 })
 
 async function provisioningFixture() {
@@ -282,7 +517,12 @@ it.each(['node', 'source'])('preserves the pinned image when existing Factory %s
   const fixture = await provisioningFixture()
   fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
   if (kind === 'node') f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces')
-  if (kind === 'source') f.db.exec("UPDATE compute_nodes SET capabilities_json=json_remove(capabilities_json,'$.provider')")
+  if (kind === 'source') {
+    // Task source kept from the per-operation Factory still counts as authority.
+    f.db.prepare('INSERT INTO factory_workspaces(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(crypto.randomUUID(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, run.environmentJson, run.id, new Date().toISOString(), new Date().toISOString())
+    f.db.exec("UPDATE compute_nodes SET capabilities_json=json_remove(capabilities_json,'$.provider')")
+  }
   await expect(fixture.enable()).rejects.toMatchObject({ statusCode: 409 })
   expect(fixture.state.uploaded).toBe(false)
   expect(fixture.calls.some(call => call.path.endsWith('/registries/registry.cloudflare.com/credentials'))).toBe(false)
@@ -383,6 +623,9 @@ it('provisions only verified release blobs, preserves existing bindings and neve
   expect(metadata.bindings).not.toContainEqual(expect.objectContaining({ type: 'r2_bucket' }))
   expect(metadata.containers).toContainEqual({ class_name: 'AgentComputeDurableObject' })
   expect(metadata.containers).toContainEqual(expect.objectContaining({ class_name: 'FactoryComputeDurableObject', image: fixture.expectedImage, instance_type: 'standard-1', max_instances: 4, name: 'llll-' + ids.server + '-factory' }))
+  // One container is one box: the application runs at most the policy's boxes.
+  const application = fixture.calls.find(call => call.path.endsWith('/containers/applications') && call.init?.method === 'POST')!
+  expect(JSON.parse(String(application.init!.body))).toMatchObject({ max_instances: 4, configuration: { image: fixture.expectedImage, instance_type: 'standard-1' } })
   expect(await (form.get('llll-worker.mjs') as Blob).text()).toBe('published immutable module')
   expect(JSON.stringify(metadata)).not.toContain('browser-cloudflare-grant')
   expect(JSON.stringify(metadata)).not.toContain('registry-secret')
@@ -411,255 +654,4 @@ it('refuses an existing application whose image differs from the approved releas
   fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' },
     configuration: { image: 'registry.cloudflare.com/account/unreviewed@sha256:' + 'f'.repeat(64), instance_type: 'standard-4' }, scheduling_policy: 'default' }
   await expect(fixture.enable()).rejects.toThrow(/image|policy|limit|configuration/iu)
-})
-
-async function cloudAlarmFixture() {
-  // Restore the original pending action, then use the real exact-action decision and claim/begin broker.
-  f.db.prepare("UPDATE factory_actions SET status='pending',lease_token=NULL,lease_until=NULL WHERE id=?").run(actionId)
-  const saved = f.db.prepare('SELECT digest FROM factory_actions WHERE id=?').get(actionId) as { digest: string }
-  await decideFactoryAction(f.env, run.id, ids.owner, { id: actionId, digest: saved.digest, decision: 'approve' })
-  const grant = vi.spyOn(githubAgent, 'githubSourceGrant').mockResolvedValue('upstream-read-only-capability')
-  const values = new Map<string, unknown>(), events: string[] = []
-  const inputs: Array<{ script: string; input: Record<string, unknown>; user: string | undefined }> = []
-  const phases: Array<{ phase: string; token?: string; remote?: string; actionId: string }> = []
-  const state = { running: false, image, checkpointFails: false, checkpointCount: 0, stderrNoise: '', invalidOutput: false }
-  const container = {
-    get running() { return state.running },
-    start: vi.fn(() => { state.running = true; events.push('start') }),
-    destroy: vi.fn(async () => { state.running = false; events.push('destroy') }),
-    setInactivityTimeout: vi.fn(async () => {}),
-    inspect: vi.fn(async () => ({ image: state.image })),
-    interceptOutboundHttps: vi.fn(async (_host: string, binding: { props: { phase: string; token?: string; remote?: string; actionId: string } }) => { phases.push(binding.props) }),
-    exec: vi.fn(async (argv: string[], options: { stdin?: ReadableStream; user?: string; stdout?: string; stderr?: string } = {}) => {
-      if (argv[0] === '/usr/bin/pkill') { expect(options.user).toBe('0:0'); events.push('kill-background'); return { exitCode: Promise.resolve(0), stdout: null } }
-      if (argv.includes('--version')) return { exitCode: Promise.resolve(0), stdout: null }
-      const script = argv.at(-1) === cloudCodeBridge ? '/opt/l4/cloud-io.mjs' : argv.at(-1)!, input = JSON.parse(await new Response(options.stdin).text()) as Record<string, unknown>
-      inputs.push({ script, input, user: options.user })
-      expect(options.user).toBe('1000:1000')
-      expect(argv[0]).toBe('/usr/bin/prlimit')
-      expect(options.stdout).toBe('pipe'); expect(options.stderr).toBe('pipe')
-      let output: unknown
-      if (script.endsWith('/cloud-io.mjs')) {
-        if (input.operation === 'bootstrap') { expect(phases.at(-1)?.phase).toBe('source'); events.push('source-cloned'); output = { ok: true } }
-        else if (input.operation === 'restore') { expect(phases.at(-1)?.phase).toBe('restore'); events.push('checkpoint-restored'); output = { ok: true } }
-        else {
-          expect(phases.at(-1)?.phase).toBe('checkpoint'); events.push('checkpoint-confirmed')
-          state.checkpointCount++
-          output = state.checkpointFails ? { ok: false } : { ok: true, checkpoint: (state.checkpointCount === 1 ? 'c' : 'd').repeat(40), head: 'a'.repeat(40), tree: 'e'.repeat(40) }
-        }
-      } else { expect(script).toBe('/opt/l4/operate.mjs'); expect(phases.at(-1)?.phase).toBe('command'); events.push('command-completed'); output = { ok: true, exitCode: 0, output: 'Approved tests passed' } }
-      return { exitCode: Promise.resolve(0), stdout: new Response(state.invalidOutput ? 'not-json' : JSON.stringify(output)).body, stderr: new Response(state.stderrNoise).body }
-    }),
-  }
-  const handles: Array<{ revokeToken: ReturnType<typeof vi.fn>; [Symbol.dispose]: ReturnType<typeof vi.fn> }> = []
-  let tokenCounter = 0
-  const artifacts = {
-    create: vi.fn(async () => { events.push('task-repo-created'); return { token: 'initial-code-token' } }),
-    get: vi.fn(async () => {
-      const handle = { info: vi.fn(async () => ({ remote: codeRemote })), createToken: vi.fn(async (scope: string) => ({ id: 'token-' + ++tokenCounter, plaintext: `${scope}-Task-code-capability` })),
-        revokeToken: vi.fn(async () => {}), [Symbol.dispose]: vi.fn() }
-      handles.push(handle); return handle
-    }),
-    delete: vi.fn(async () => {}),
-  }
-  const storage = {
-    get: async (key: string) => values.get(key),
-    put: async (key: string | Record<string, unknown>, value?: unknown) => {
-      if (typeof key === 'string') { values.set(key, value); if (key === 'receipt') events.push('receipt-persisted'); if (key === 'checkpoint') events.push('checkpoint-persisted') }
-      else Object.entries(key).forEach(([name, entry]) => values.set(name, entry))
-    },
-    delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key) },
-    transaction: async (operation: (transaction: { get: (key: string) => Promise<unknown>; delete: (key: string) => Promise<boolean> }) => Promise<unknown>) => operation({ get: async key => values.get(key), delete: async key => values.delete(key) }),
-    setAlarm: vi.fn(async () => {}),
-  }
-  const ctx = { id: { equals: (id: unknown) => id === `workspace:${workspaceId}` }, storage, container,
-    exports: { FactoryOutbound: (binding: { props: unknown }) => binding } }
-  Object.assign(f.env, { FACTORY_IMAGE: image, FACTORY_CODE: artifacts,
-    FACTORY_COMPUTE: { idFromName: (name: string) => name, getByName: () => ({ fetch: async () => new Response(null, { status: 202 }) }) } })
-  const instance = new FactoryComputeDurableObject(ctx as never, f.env)
-  const queue = async (id = actionId) => { expect((await instance.fetch(new Request('http://factory/' + id, { method: 'POST' }))).status).toBe(202) }
-  return { instance, queue, values, events, inputs, phases, state, artifacts, handles, container, grant }
-}
-
-it('runs approved Cloud bootstrap through scoped claim, durable checkpoint/receipt and teardown, then restores the next operation', async () => {
-  const fixture = await cloudAlarmFixture()
-  await fixture.queue(); await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'completed' })
-  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1, status: 'ready' })
-  expect(fixture.grant).toHaveBeenCalledTimes(1)
-  expect(fixture.artifacts.create).toHaveBeenCalledWith(factoryRepositoryName(ids.server, workspaceId), expect.anything())
-  expect(fixture.phases.map(phase => phase.phase)).toEqual(['source', 'command', 'checkpoint'])
-  expect(fixture.phases[0]).toMatchObject({ token: 'upstream-read-only-capability', remote: 'https://github.com/inchidev/afterprompt.git' })
-  expect(JSON.stringify(fixture.inputs)).not.toContain('capability')
-  expect(fixture.values.get('checkpoint')).toMatchObject({ sha: 'c'.repeat(40), image })
-  expect(fixture.events.indexOf('checkpoint-confirmed')).toBeLessThan(fixture.events.indexOf('checkpoint-persisted'))
-  expect(fixture.events.indexOf('checkpoint-persisted')).toBeLessThan(fixture.events.indexOf('receipt-persisted'))
-  expect(fixture.events.indexOf('receipt-persisted')).toBeLessThan(fixture.events.indexOf('destroy'))
-  expect(fixture.values.has('receipt')).toBe(false)
-  expect(fixture.container.destroy).toHaveBeenCalledTimes(1)
-  expect(fixture.handles[0]!.revokeToken).toHaveBeenCalledWith('initial-code-token')
-  expect(fixture.handles[0]![Symbol.dispose]).toHaveBeenCalledOnce()
-
-  const next = await factoryToolCall(f.env, run.id, 'next-command', { operation: 'exec', command: 'npm test' })
-  const row = f.db.prepare('SELECT digest FROM factory_actions WHERE id=?').get(next.actionId) as { digest: string }
-  await decideFactoryAction(f.env, run.id, ids.owner, { id: next.actionId, digest: row.digest, decision: 'approve' })
-  await fixture.queue(next.actionId); await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(next.actionId)).toMatchObject({ status: 'completed' })
-  expect(fixture.grant).toHaveBeenCalledTimes(1)
-  expect(fixture.artifacts.create).toHaveBeenCalledTimes(1)
-  expect(fixture.phases.slice(3).map(phase => phase.phase)).toEqual(['restore', 'command', 'checkpoint'])
-  expect(fixture.inputs.find(input => input.input.operation === 'restore')?.input).toMatchObject({ checkpoint: 'c'.repeat(40), baseSha: 'a'.repeat(40) })
-  expect(fixture.values.get('checkpoint')).toMatchObject({ sha: 'd'.repeat(40), image })
-  expect(f.db.prepare('SELECT commands FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 2 })
-  expect(fixture.container.destroy).toHaveBeenCalledTimes(2)
-  expect(JSON.stringify(fixture.inputs)).not.toContain('capability')
-})
-
-it('keeps helper warnings separate from its JSON protocol', async () => {
-  const fixture = await cloudAlarmFixture()
-  fixture.state.stderrNoise = 'Runtime warning containing private-diagnostic-data'
-  await fixture.queue(); await fixture.instance.alarm()
-  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
-  expect(row.status).toBe('completed')
-  expect(String(row.result_json)).not.toContain('private-diagnostic-data')
-})
-
-it.each(['start', 'timeout setup', 'readiness', 'readiness exit'] as const)('records a failed receipt for %s before workspace effects, without permanently fencing the Task', async failure => {
-  const fixture = await cloudAlarmFixture()
-  const unavailable = () => { throw new Error('private-provider-diagnostic') }
-  if (failure === 'start') fixture.container.start.mockImplementationOnce(unavailable)
-  else if (failure === 'timeout setup') fixture.container.setInactivityTimeout.mockImplementationOnce(unavailable)
-  else {
-    vi.stubGlobal('scheduler', { wait: vi.fn(async () => {}) })
-    const execute = fixture.container.exec.getMockImplementation()!
-    fixture.container.exec.mockImplementation(async (argv, options) => {
-      if (argv.includes('--version')) {
-        if (failure === 'readiness exit') return { exitCode: Promise.resolve(1), stdout: null }
-        unavailable()
-      }
-      return execute(argv, options)
-    })
-  }
-  await fixture.queue(); await fixture.instance.alarm()
-  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
-  expect(row.status).toBe('failed')
-  expect(JSON.parse(String(row.result_json))).toMatchObject({ ok: false, exitCode: -1 })
-  expect(String(row.result_json)).toContain('before any workspace operation')
-  expect(String(row.result_json)).not.toContain('private-provider-diagnostic')
-  expect(fixture.inputs).toEqual([])
-  expect(fixture.artifacts.create).not.toHaveBeenCalled()
-  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1, status: 'new' })
-  expect(fixture.values.has('receipt')).toBe(false)
-  expect(fixture.values.has('action')).toBe(false)
-  await fixture.instance.alarm()
-  expect(fixture.container.start).toHaveBeenCalledTimes(1)
-  const retry = await factoryToolCall(f.env, run.id, 'separate-bootstrap', { operation: 'bootstrap' })
-  expect(retry).toMatchObject({ factoryPending: true, status: 'approved' })
-  expect(retry.actionId).not.toBe(actionId)
-})
-
-it('retains the acknowledged checkpoint when the next container cannot start, and never replays that action', async () => {
-  const fixture = await cloudAlarmFixture()
-  await fixture.queue(); await fixture.instance.alarm()
-  const checkpoint = fixture.values.get('checkpoint')
-  const next = await factoryToolCall(f.env, run.id, 'read-after-checkpoint', { operation: 'read', path: 'fixture.txt' })
-  const row = f.db.prepare('SELECT digest FROM factory_actions WHERE id=?').get(next.actionId) as { digest: string }
-  await decideFactoryAction(f.env, run.id, ids.owner, { id: next.actionId, digest: row.digest, decision: 'approve' })
-  fixture.container.start.mockImplementationOnce(() => { throw new Error('private-provider-diagnostic') })
-  await fixture.queue(next.actionId); await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(next.actionId)).toMatchObject({ status: 'failed' })
-  expect(fixture.values.get('checkpoint')).toEqual(checkpoint)
-  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 2, status: 'ready' })
-  expect(fixture.inputs.filter(input => input.script.endsWith('/operate.mjs'))).toHaveLength(0)
-  expect(await factoryToolCall(f.env, run.id, 'read-after-checkpoint', { operation: 'read', path: 'fixture.txt' })).toMatchObject({ ok: false })
-  await fixture.instance.alarm()
-  expect(fixture.container.start).toHaveBeenCalledTimes(2)
-  const nextRead = await factoryToolCall(f.env, run.id, 'new-authorized-read', { operation: 'read', path: 'fixture.txt' })
-  expect(nextRead).toMatchObject({ factoryPending: true, status: 'approved' })
-})
-
-it('retries delivery of a durable startup-failure receipt without restarting the container', async () => {
-  const fixture = await cloudAlarmFixture()
-  fixture.container.start.mockImplementationOnce(() => { throw new Error('Unavailable') })
-  const batch = f.env.DB.batch.bind(f.env.DB)
-  let interrupt = true
-  vi.spyOn(f.env.DB, 'batch').mockImplementation(async statements => {
-    if (interrupt && fixture.values.has('receipt')) { interrupt = false; throw new Error('Receipt transport interrupted') }
-    return batch(statements)
-  })
-  await fixture.queue(); await fixture.instance.alarm()
-  expect(fixture.values.get('receipt')).toMatchObject({ operation: 'result', result: { ok: false } })
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'executing' })
-  await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'failed' })
-  expect(fixture.values.has('receipt')).toBe(false)
-  expect(fixture.container.start).toHaveBeenCalledTimes(1)
-  expect(fixture.inputs).toEqual([])
-})
-
-it('keeps an unsuccessful reset of a previous container uncertain', async () => {
-  const fixture = await cloudAlarmFixture()
-  fixture.state.running = true
-  fixture.container.destroy.mockRejectedValueOnce(new Error('Private reset failure'))
-  await fixture.queue(); await fixture.instance.alarm()
-  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
-  expect(row.status).toBe('uncertain')
-  expect(JSON.parse(String(row.result_json))).toMatchObject({ failureStage: 'container_reset' })
-  expect(fixture.container.start).not.toHaveBeenCalled()
-  expect(fixture.inputs).toEqual([])
-})
-
-it('records a safe failure stage without leaking diagnostics or replaying malformed output', async () => {
-  const fixture = await cloudAlarmFixture()
-  fixture.state.invalidOutput = true
-  fixture.state.stderrNoise = 'private-diagnostic-data'
-  await fixture.queue(); await fixture.instance.alarm()
-  const row = f.db.prepare('SELECT status,result_json FROM factory_actions WHERE id=?').get(actionId)!
-  expect(row.status).toBe('uncertain')
-  expect(JSON.parse(String(row.result_json))).toMatchObject({ failureStage: 'source_bootstrap', failureCode: 'helper_json', checkpoint: null })
-  expect(String(row.result_json)).not.toContain('private-diagnostic-data')
-  await fixture.instance.alarm()
-  expect(fixture.inputs).toHaveLength(1)
-})
-
-it('does not clone or acknowledge code when the running Cloud image differs from the approved digest', async () => {
-  const fixture = await cloudAlarmFixture(); fixture.state.image = 'registry.cloudflare.com/account/changed@sha256:' + 'f'.repeat(64)
-  await fixture.queue(); await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(actionId)).toMatchObject({ status: 'uncertain' })
-  expect(f.db.prepare('SELECT commands,status FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 0, status: 'new' })
-  expect(fixture.inputs).toEqual([])
-  expect(fixture.artifacts.create).not.toHaveBeenCalled()
-  expect(fixture.values.has('receipt')).toBe(false)
-  expect(fixture.container.destroy).toHaveBeenCalledOnce()
-})
-
-it('keeps a failed checkpoint uncertain without acknowledging or replaying the completed command', async () => {
-  const fixture = await cloudAlarmFixture()
-  await fixture.queue(); await fixture.instance.alarm()
-  fixture.state.checkpointFails = true
-  const next = await factoryToolCall(f.env, run.id, 'fails-checkpoint', { operation: 'exec', command: 'npm test' })
-  const row = f.db.prepare('SELECT digest FROM factory_actions WHERE id=?').get(next.actionId) as { digest: string }
-  await decideFactoryAction(f.env, run.id, ids.owner, { id: next.actionId, digest: row.digest, decision: 'approve' })
-  await fixture.queue(next.actionId); await fixture.instance.alarm()
-  expect(f.db.prepare('SELECT status FROM factory_actions WHERE id=?').get(next.actionId)).toMatchObject({ status: 'uncertain' })
-  expect(fixture.values.get('checkpoint')).toMatchObject({ sha: 'c'.repeat(40) })
-  expect(f.db.prepare('SELECT commands FROM factory_workspaces WHERE id=?').get(workspaceId)).toMatchObject({ commands: 1 })
-  expect(fixture.values.has('receipt')).toBe(false)
-  expect(fixture.container.destroy).toHaveBeenCalledTimes(2)
-  const commands = fixture.inputs.filter(input => input.script.endsWith('/operate.mjs')).length
-  await fixture.instance.alarm()
-  expect(fixture.inputs.filter(input => input.script.endsWith('/operate.mjs'))).toHaveLength(commands)
-})
-
-it.each(['expired', 'revoked'] as const)('clears %s queued work without losing acknowledged source or starting a container', async reason => {
-  f.db.prepare("UPDATE factory_actions SET status='approved' WHERE id=?").run(actionId)
-  if (reason === 'expired') f.db.prepare("UPDATE factory_actions SET expires_at='2000-01-01' WHERE id=?").run(actionId)
-  else f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
-  const checkpoint = { sha: 'a'.repeat(40), repository: 'retained-task-code', image }
-  const fixture = executor({ action: actionId, checkpoint })
-  await fixture.instance.alarm()
-  expect(fixture.values.has('action')).toBe(false)
-  expect(fixture.values.get('checkpoint')).toEqual(checkpoint)
-  expect(fixture.exec).not.toHaveBeenCalled()
-  expect(fixture.destroy).not.toHaveBeenCalled()
 })

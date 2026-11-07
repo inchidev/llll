@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-execution'
 import { runtimeEventSchema } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
-import { dockerCapabilities, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
+import { computeCapabilities, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
 import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -52,16 +52,49 @@ export async function leasedBox(env: L4Env, boxId: string, lease: string, nodeId
 }
 
 /**
- * The Node a Run's box lives on: a Task Run with computer access whose repository names a Node that syncs
- * boxes. Cloudflare containers become boxes later; until then their Runs keep the per-operation path.
+ * The Node a Run's box lives on: a Task Run with computer access whose repository names a Node that runs
+ * boxes. A paired Node syncs them itself; on Cloudflare each box's own Durable Object does, so this Server
+ * must have its container binding.
  */
 export async function boxNodeFor(env: L4Env, run: Pick<AgentRun, 'taskId' | 'environmentJson' | 'mandateJson'>): Promise<{ nodeId: string; capabilities: ComputeCapabilities } | null> {
   if (!run.taskId || !run.environmentJson || !(JSON.parse(run.mandateJson) as RunMandate).computer) return null
   const nodeId = (JSON.parse(run.environmentJson) as RunEnvironment).computeNodeId
   if (!nodeId) return null
   const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
-  const capabilities = node ? dockerCapabilities.safeParse(JSON.parse(node.capabilitiesJson)) : null
-  return capabilities?.success ? { nodeId, capabilities: capabilities.data } : null
+  const capabilities = node ? computeCapabilities.safeParse(JSON.parse(node.capabilitiesJson)) : null
+  if (!capabilities?.success || ('provider' in capabilities.data && !env.FACTORY_COMPUTE)) return null
+  return { nodeId, capabilities: capabilities.data }
+}
+
+/** The Durable Object that runs a box on Cloudflare: one per box, so a Task's container is always its own. */
+export const cloudBoxName = (boxId: string) => `box:${boxId}`
+export type CloudBoxRpc = { wake: (boxId: string) => Promise<void> }
+
+/**
+ * Asks a Cloudflare box to look at what the Server wants of it now: a turn handed to it, a cancellation,
+ * room on its Node or its release. A box on a paired Node hears the same on its Node's next sync.
+ */
+export async function wakeCloudBox(env: L4Env, boxId: string) {
+  if (!env.FACTORY_COMPUTE) return
+  const cloud = await env.DB.prepare("SELECT 1 FROM factory_boxes b JOIN compute_nodes n ON n.id=b.node_id WHERE b.id=? AND json_extract(n.capabilities_json,'$.provider')='cloudflare-containers'").bind(boxId).first()
+  if (cloud) await asRpc<CloudBoxRpc>(env.FACTORY_COMPUTE.getByName(cloudBoxName(boxId))).wake(boxId)
+}
+
+export type CloudBox = { id: string; nodeId: string; taskId: string; agentId: string; initiatedBy: string; environmentJson: string; status: string; runId: string | null; runStatus: string | null
+  checkpointSha: string | null; enabled: number; capabilitiesJson: string }
+/** A Cloudflare box as its Durable Object sees it, with its Node. */
+export async function cloudBox(env: L4Env, boxId: string) {
+  return await env.DB.prepare(`SELECT b.id,b.node_id AS nodeId,b.task_id AS taskId,b.agent_id AS agentId,b.initiated_by AS initiatedBy,b.environment_json AS environmentJson,b.status,b.run_id AS runId,
+    (SELECT status FROM agent_runs WHERE id=b.run_id) AS runStatus,b.checkpoint_sha AS checkpointSha,n.enabled,n.capabilities_json AS capabilitiesJson
+    FROM factory_boxes b JOIN compute_nodes n ON n.id=b.node_id WHERE b.id=? AND json_extract(n.capabilities_json,'$.provider')='cloudflare-containers'`).bind(boxId).first<CloudBox>()
+}
+
+/** What a Cloudflare box's outbound Worker checks on every request: the box still holds this lease on an enabled Node. */
+export async function leasedCloudBox(env: L4Env, boxId: string, lease: string) {
+  return await env.DB.prepare(`SELECT b.id,b.task_id AS taskId,b.agent_id AS agentId,b.initiated_by AS initiatedBy,b.environment_json AS environmentJson FROM factory_boxes b
+    JOIN compute_nodes n ON n.id=b.node_id AND n.enabled=1 AND json_extract(n.capabilities_json,'$.provider')='cloudflare-containers'
+    WHERE b.id=? AND b.lease_token=? AND b.lease_until>? AND b.status IN ${ACTIVE}`).bind(boxId, lease, nowIso())
+    .first<{ id: string; taskId: string; agentId: string; initiatedBy: string; environmentJson: string }>()
 }
 
 /**
@@ -78,9 +111,10 @@ export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string) {
   return box.id
 }
 
-/** The turn has ended or was cancelled: the next sync tells the Node to stop it. */
+/** The turn has ended or was cancelled: the next sync tells the Node to stop it, and a Cloudflare box hears it now. */
 export async function releaseBoxTurn(env: L4Env, runId: string) {
-  await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE run_id=?').bind(nowIso(), runId).run()
+  const released = await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE run_id=? RETURNING id').bind(nowIso(), runId).all<{ id: string }>()
+  for (const { id } of released.results) await wakeCloudBox(env, id).catch(() => undefined)
 }
 
 /** What still waits for a person before a box's turn may end; the commits themselves are in Git. */
@@ -97,12 +131,22 @@ type SyncRow = FactoryBox & { runStatus: string | null }
  * in order within the Node's capacity; the rest show the Task as waiting for a free box.
  */
 export async function computeSync(env: L4Env, nodeId: string, input: z.infer<typeof boxSyncInput>) {
+  const { boxes } = await syncBoxes(env, nodeId, input)
+  return { boxes }
+}
+
+/**
+ * The sync itself. It also says which boxes this sync admitted and released: a Cloudflare box syncs only
+ * for itself, so it wakes those others, which have no daemon to hear it.
+ */
+export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeof boxSyncInput>) {
   const now = nowIso(), renewed = leaseUntil()
   const { diskFree: _diskFree, ...capacity } = input.capacity
   const reported = new Map(input.boxes.map(box => [box.id, box]))
   const [node, , released] = await env.DB.batch([
-    env.DB.prepare("UPDATE compute_nodes SET capabilities_json=json_set(capabilities_json,'$.capacity',json(?)) WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 AND json_extract(capabilities_json,'$.docker')=1 RETURNING capabilities_json AS capabilitiesJson")
-      .bind(JSON.stringify(capacity), nodeId),
+    // A paired Node reports what its host has now; a Cloudflare Node's capacity is what it was provisioned with.
+    env.DB.prepare(`UPDATE compute_nodes SET capabilities_json=CASE WHEN json_extract(capabilities_json,'$.docker')=1 THEN json_set(capabilities_json,'$.capacity',json(?)) ELSE capabilities_json END
+      WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 RETURNING capabilities_json AS capabilitiesJson,enabled`).bind(JSON.stringify(capacity), nodeId),
     env.DB.prepare(`UPDATE factory_boxes SET status='stopped',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,updated_at=? WHERE node_id=? AND status IN ${ACTIVE} AND lease_until<=?`).bind(now, nodeId, now),
     // A Done or archived Task's work is in its pull request; with no turn running, the Node may drop its disk.
     env.DB.prepare(`UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=? WHERE node_id=? AND status<>'released'
@@ -113,15 +157,16 @@ export async function computeSync(env: L4Env, nodeId: string, input: z.infer<typ
       memory_mib=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE memory_mib END,runtime_ms=MAX(runtime_ms,?),updated_at=?
       WHERE id=? AND node_id=? AND lease_token=? AND status IN ${ACTIVE}`).bind(box.state, box.state, renewed, box.state, box.state, box.state, box.runtimeMs, now, box.id, nodeId, box.lease)),
   ])
-  const stored = (node?.results as Array<{ capabilitiesJson: string }> | undefined)?.[0]
-  const capabilities = stored ? dockerCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
+  const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number }> | undefined)?.[0]
+  const capabilities = stored ? computeCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
   if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node was paired with an older protocol. Pair it again from Settings → Compute.')
   const releasedIds = new Set((released?.results as Array<{ id: string }> | undefined ?? []).map(row => row.id))
   const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
     WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results
 
   const active = rows.filter(row => ['starting', 'running', 'idle'].includes(row.status))
-  const waiting = rows.filter(row => ['new', 'queued', 'stopped', 'failed'].includes(row.status) && row.runId && row.runStatus === 'running')
+  // A paused Node admits nothing; its boxes wait until it is enabled again.
+  const waiting = stored!.enabled ? rows.filter(row => ['new', 'queued', 'stopped', 'failed'].includes(row.status) && row.runId && row.runStatus === 'running') : []
   const { admitted, queued, reservation } = admitBoxes(capabilities.data.capacity, active.map(row => ({ cpu: row.cpu ?? 0, memoryMiB: row.memoryMib ?? 0 })), waiting)
   const leases = new Map(admitted.map(row => [row.id, secret()]))
   const nowQueued = queued.filter(row => row.status !== 'queued'), wasQueued = new Set(admitted.filter(row => row.status === 'queued').map(row => row.id))
@@ -165,7 +210,8 @@ export async function computeSync(env: L4Env, nodeId: string, input: z.infer<typ
     ...rows.filter(row => leased(row) || reported.has(row.id)).map(row => answer(row, reported.get(row.id))),
     ...[...reported.values()].filter(report => !byId.has(report.id)).map(report => answer(undefined, report)),
   ]
-  return { boxes }
+  const started = admitted.filter(row => row.status === 'starting' && leases.get(row.id) === row.leaseToken).map(row => row.id)
+  return { boxes, admitted: started, released: [...releasedIds] }
 }
 
 /**

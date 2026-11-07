@@ -18,7 +18,7 @@ import { deliverAgentRun } from '../server/utils/agent-run-delivery'
 import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook, type AgentWebhook } from '../server/utils/agent-webhooks'
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
-import { boxCompletion, boxNodeFor, ensureBox, releaseBoxTurn, type BoxEventsAck } from '../server/utils/factory-boxes'
+import { boxCompletion, boxNodeFor, ensureBox, releaseBoxTurn, wakeCloudBox, type BoxEventsAck } from '../server/utils/factory-boxes'
 import { z } from 'zod'
 
 const pollSchema = z.object({ status: z.enum(['running', 'finished', 'interrupted', 'idle']), events: z.array(runtimeEventSchema).max(100), nextCursor: z.number().int().min(0), result: runtimeEventSchema.nullable().optional() })
@@ -258,8 +258,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       if (!saved) await putRunBlob(this.ctx.storage, 'pi-embedded-input', body)
       const node = await boxNodeFor(this.env, run)
       if (!node) return this.respond({ ok: false }, 409)
-      // The Node sees the turn on its next sync.
-      await ensureBox(this.env, run, node.nodeId)
+      // A paired Node sees the turn on its next sync; on Cloudflare the box's own Durable Object syncs now.
+      const boxId = await ensureBox(this.env, run, node.nodeId)
+      if ('provider' in node.capabilities) await wakeCloudBox(this.env, boxId)
       return this.respond({ ok: true })
     }
     if (path.startsWith('run') && method === 'GET') {
@@ -407,7 +408,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const files = fileStorage(this.env)
       if (!files) throw new Error('Pi file storage unavailable')
       const mandate = JSON.parse(run.mandateJson) as RunMandate
+      // A box is not the legacy container executor, even on a Server that also has one.
       if (mandate.computer && (this.env.AGENT_COMPUTE || this.env.AGENT_RUNNER_URL)
+        && await this.ctx.storage.get<boolean>('box') !== true
         && await this.ctx.storage.get<boolean>('submitted')
         && await this.ctx.storage.get<string>('computerPolicy') !== 'server-broker-only') {
         throw new Error('Legacy computer execution interrupted; a new attempt requires Server review policy')

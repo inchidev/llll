@@ -1,10 +1,11 @@
-// Fixed image helper. No provider token ever enters the container.
+// Fixed image helper. No provider token ever enters the container: the outbound Worker adds it on the way out.
 import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runProcess } from './process.mjs'
 
-const root = '/workspace/repo'
+// A Cloudflare box keeps its checkout where the box runtime works, /work/repo.
+const base = process.env.LLLL_BOX_ROOT || '/workspace', root = `${base}/repo`
 export async function readCodeInput(stream = process.stdin) {
   const chunks = []; let size = 0
   for await (const chunk of stream) {
@@ -23,8 +24,10 @@ const git = async (cwd, args, extra = {}) => {
 export async function codeState(input) {
   if (!/^[a-f0-9]{40}$/u.test(input.baseSha) || !/^https:\/\//u.test(input.remote)) throw new Error('Invalid code storage identity')
   if (input.operation === 'bootstrap' || input.operation === 'restore') {
-    await mkdir('/workspace', { recursive: true })
-    await git('/workspace', ['clone', '--no-checkout', input.remote, 'repo'])
+    await mkdir(base, { recursive: true })
+    // Acknowledged code is the checkpoint, never what an earlier container left on its disk.
+    await rm(root, { recursive: true, force: true })
+    await git(base, ['clone', '--no-checkout', input.remote, 'repo'])
     if (input.operation === 'bootstrap') await git(root, ['checkout', '-b', 'work', input.baseSha])
     else {
       if (!/^[a-f0-9]{40}$/u.test(input.checkpoint)) throw new Error('Missing acknowledged checkpoint')

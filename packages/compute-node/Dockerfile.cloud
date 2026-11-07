@@ -1,5 +1,6 @@
-# Only the fixed idle supervisor runs as root. The provider execs every Task
-# operation and code checkpoint explicitly as uid/gid 1000 without capabilities.
+# The box image for Cloudflare Containers. Only the fixed supervisor runs as root: the box's Durable Object
+# starts the box runtime through setpriv as uid/gid 1000, and execs its control socket and the trusted
+# checkout helpers explicitly as uid/gid 1000 without capabilities.
 ARG WORKSPACE_IMAGE
 FROM ${WORKSPACE_IMAGE}
 USER root
