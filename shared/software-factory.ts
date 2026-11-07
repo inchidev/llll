@@ -40,6 +40,18 @@ export type FactoryApproval = { id: string; boxId: string; runId: string; kind: 
   diff: { digest: string } | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; result: unknown; createdAt: string }
 export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null }
+/** The name the Server gives the Node it pairs on its own VPS host. */
+export const LOCAL_NODE_NAME = 'Local VPS executor'
+/**
+ * A Node of an earlier release speaks protocol 1 and gets no work. What its Owner does about it: the Server's own
+ * VPS Node is replaced in place from the release; any other Node is paired again with this release's Node.
+ */
+export function computeNodeUpdate(node: Pick<ComputeNode, 'name' | 'enabled' | 'capabilities'>) {
+  if (!node.enabled || node.capabilities.protocol === 2) return null
+  return node.name === LOCAL_NODE_NAME
+    ? { local: true, text: 'This Node runs the Compute Node of an earlier release (protocol 1) and gets no work. On the Server’s VPS, run sudo llll compute enable --trust-shared-kernel. It replaces the Node in place with this release and keeps its pairing; llll upgrade does the same when it updates the Server.' }
+    : { local: false, text: 'This Node runs the Compute Node of an earlier release (protocol 1) and gets no work. Stop its daemon, disable and revoke it here, then pair this release’s Node and box image with a new pairing code and select it for your repositories.' }
+}
 /** What a Node runs at once: the Server admits boxes while their reservations fit (server/utils/box-admission.ts). */
 export const nodeCapacity = z.object({ cpu: z.number().positive().max(1024), memoryMiB: z.number().int().min(256).max(16777216), boxes: z.number().int().min(1).max(64) }).strict()
 export type NodeCapacity = z.infer<typeof nodeCapacity>

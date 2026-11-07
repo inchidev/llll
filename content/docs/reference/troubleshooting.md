@@ -154,11 +154,12 @@ Add compute in **Server settings → Compute**. See [Compute Nodes](../self-host
 
 | Message | Fix |
 | --- | --- |
-| "Compute Node needs 17 GiB free disk capacity for a 10 GiB Task disk, its image and reserve for the Server." | Free disk space or use a larger disk. |
+| "Compute Node needs 17 GiB free disk capacity for its box image, a 10 GiB Task disk when it is new and reserve for the Server." | Free disk space or use a larger disk. Replacing an installed Node asks for 8 GiB. |
 | "Factory needs 2 GiB available RAM, including reserve for the Server." | Use a larger VPS. |
 | "Factory needs systemd as PID 1 (/run/systemd/system) before it writes executor files." | Add `--no-systemd` and start the Node yourself. |
 | "Docker shares the host kernel. Run llll factory enable --trust-shared-kernel only for trusted code/users." | Add `--trust-shared-kernel` if you trust the code and people on this VPS. |
-| "The released image changed. Existing executor and source remain pinned." | Export source, disable and revoke the Node in Settings, and pair a replacement for new Tasks. |
+| "The local Compute Node was not replaced and gets no work until it is." | Fix the reason printed above it, then run `sudo llll compute enable --trust-shared-kernel`. |
+| "This local Compute Node was disabled and revoked in Server settings → Compute, so it stays off." | The Owner revoked it. It is not paired again on its own. |
 
 If only the compute step fails during a new install, the Server stays installed and the script prints the command to retry.
 

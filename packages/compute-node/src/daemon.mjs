@@ -132,6 +132,9 @@ const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,conn
   log:(event,detail)=>console.warn(event,detail)})
 // A box disk without a record, from a lost state file, is reported until the Server says what it is.
 for (const name of (await docker(['volume','ls','-q',...owned])).trim().split('\n').filter(Boolean)) {
+  // The per-command Factory before protocol 2 left a volume per workspace. Its Server dropped those
+  // workspaces; the bind entry goes, and its disk image stays until the operator releases it.
+  if (/^l4-ws-[a-f0-9-]{36}$/u.test(name)) { await docker(['volume','rm',name]).catch(()=>{}); continue }
   const match=/^l4-disk-([a-f0-9-]{36})$/u.exec(name)
   if (!match) continue
   try { host.adopt(match[1],JSON.parse(await docker(['volume','inspect',name]))[0]?.Labels?.['l4.task']) } catch { /* Not a box disk. */ }

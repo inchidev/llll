@@ -4,7 +4,7 @@ A person assigns a repository-backed Task to a Pi Agent. The Task gets one **box
 
 The decision behind this is [The Agent works on its box](adr/0010-agent-on-the-box.md). Where compute comes from, and why it is the only thing L4 sells, is [Compute is the business](adr/0009-compute-as-the-business.md).
 
-A Server knows one kind of Node, the Compute Node, and three ways to get one: the operator's own VPS (the Docker Node below), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task from llll.gg paid by the hour of agent work, which is coming. All of them speak Node protocol 2. A Node of protocol 1, which ran one command at a time, is refused. Nothing provider-specific lives in this repository; provisioning and billing live only in `llll-cloud`.
+A Server knows one kind of Node, the Compute Node, and three ways to get one: the operator's own VPS (the Docker Node below), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task from llll.gg paid by the hour of agent work, which is coming. All of them speak Node protocol 2. A Node of protocol 1, which ran one command at a time, is refused, and **Server settings → Compute** marks it **Needs this release’s Compute Node** with what to do. The Server's own VPS Node is replaced in place (below); any other Node is paired again. Nothing provider-specific lives in this repository; provisioning and billing live only in `llll-cloud`.
 
 ## Set up on a VPS
 
@@ -24,9 +24,17 @@ set -a; . /opt/llll/factory/factory.env; set +a
 /opt/llll/factory/releases/VERSION/node /opt/llll/factory/releases/VERSION/src/daemon.mjs
 ```
 
-Use `llll compute status|logs|restart|disable|backup|remove --keep-source`. `status` and `logs` say so when systemd is not running. Disable and remove keep Task disks. Factory backups are separate from the Server backup and include the backing disk images; copy them encrypted off the host.
+Use `llll compute status|logs|restart|disable|backup|release-old-disks [--yes]|remove --keep-source`. `status` and `logs` say so when systemd is not running. Disable and remove keep Task disks. Factory backups are separate from the Server backup and include the backing disk images; copy them encrypted off the host.
 
-The image pin accepts the loaded image id when it equals the published image id, config digest or OCI index digest, since the classic Docker image store and containerd report different ids for one release. A changed image is refused before the running Node stops: finish or export retained work, revoke the Node and pair a replacement for new Tasks.
+The image pin accepts the loaded image id when it equals the published image id, config digest or OCI index digest, since the classic Docker image store and containerd report different ids for one release.
+
+### Updating the VPS Node
+
+The local Node always runs the release of its Server. `llll upgrade` replaces it after the Server is up and healthy, while its service is installed; `sudo llll compute enable --trust-shared-kernel` does the same at any time, for example after a failed attempt or for a Node whose service was removed. Both take the daemon and box image from the release being installed, verified like a fresh install. The running Node stops only after the new files, image and disk probe check out; then `factory.env` and the service point at the new release, `LLLL_NODE_BOXES` and `LLLL_WORKSPACE_DISK_BYTES` are kept, and the earlier release's files and box image are removed. A failed replacement never rolls back the Server; the command to retry is printed.
+
+As it starts, the Node signs its new capabilities with its own credential and the host signature, so the Server updates the same Node: its ID, pairing, repository environments, boxes and box disks stay. That is also how a protocol 1 Node of an earlier release becomes a protocol 2 Node. A Node an Owner disabled and revoked stays off; its start fails and says so.
+
+At its first start the new daemon removes the containers, networks and `l4-ws-*` volumes the per-command Factory labelled for this Node. Their workspaces were dropped with migration `0004`, but their disk images stay in `factory/state/workspace-disks` until the operator releases them: `llll compute release-old-disks` lists them, `llll compute backup` exports them, and `llll compute release-old-disks --yes` unmounts and deletes them. A disk-space check for a replacement asks for 8 GiB instead of 17, since the Node's Task disks already exist.
 
 ### A remote Docker Node
 

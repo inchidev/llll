@@ -186,7 +186,7 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   ])
   const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number }> | undefined)?.[0]
   const capabilities = stored ? computeCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
-  if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node was paired with an older protocol. Pair it again from Settings → Compute.')
+  if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node runs the Compute Node of an earlier release (protocol 1). On the Server’s VPS run sudo llll compute enable --trust-shared-kernel; any other Node is paired again from Server settings → Compute.')
   const releasedIds = new Set((released?.results as Array<{ id: string }> | undefined ?? []).map(row => row.id))
   const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
     WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results

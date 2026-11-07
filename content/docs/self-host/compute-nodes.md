@@ -54,6 +54,12 @@ sudo llll compute remove --keep-source
 
 `disable` and `remove --keep-source` keep Task disks. Compute backups are separate from the Server backup made by `llll backup`; copy them encrypted off the host.
 
+### Update the executor
+
+The executor always runs the same release as its Server. `sudo llll upgrade` replaces it with the new release's Compute Node and box image once the Server is updated and healthy. You can also run `sudo llll compute enable --trust-shared-kernel` at any time, for example to retry. The executor keeps its pairing, its boxes and their Task disks, and settings such as `LLLL_NODE_BOXES`. If the replacement fails, the Server stays updated and the command to retry is printed. A Node you disabled and revoked in Settings stays off.
+
+An executor from before 0.0.9 also leaves the workspace disks of the old per-command Factory in `/opt/llll/factory/state/workspace-disks`. No Task uses them now. `sudo llll compute release-old-disks` lists them; export them with `sudo llll compute backup`, then delete them with `sudo llll compute release-old-disks --yes`.
+
 ### Hosts without systemd
 
 In a container or on a host whose process 1 is not systemd, add `--no-systemd`. The CLI prepares the same verified files and writes `factory/factory.env`; you start the Node yourself:
@@ -115,4 +121,4 @@ Select a Node in **Server settings → Compute** to see whether it is **Connecte
 
 ![Server settings → Compute with the Server compute setup entry and one connected Docker Node](screenshot:self-host-compute-list "Compute in Server settings")
 
-To replace a Node, for example after changing its image: export or finish retained work, disable and revoke the old Node, pair a new one, update the repository environment and start new Tasks.
+A Node of an earlier release shows **Needs this release’s Compute Node** and gets no work until it is updated. Selecting it says what to do: for the VPS local executor, run `sudo llll compute enable --trust-shared-kernel`, which replaces it in place. A remote Docker Node is replaced: stop its daemon, disable and revoke it, pair this release's Node with a new code, select it in the repository environment and start new Tasks. Do the same to change a remote Node's image.

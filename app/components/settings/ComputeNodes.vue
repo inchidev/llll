@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import SettingsEditor from './SettingsEditor.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { ComputeNode } from '~~/shared/software-factory'
+import { computeNodeUpdate, type ComputeNode } from '~~/shared/software-factory'
 const { api } = useApi(), toast = useToast(), cache = useQueryClient()
 const emit = defineEmits<{ 'open-server': [] }>()
 const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: ComputeNode[] }>('/api/compute-nodes'), refetchInterval: 10000 })
@@ -10,6 +10,7 @@ const selected = computed(() => nodes.data.value?.nodes.find(node => node.id ===
 const name = ref('My Docker Node'), pairing = ref<{ token: string; expiresAt: string } | null>(null), busy = ref(false)
 function nodeStatus(node: ComputeNode) {
   if (!node.enabled) return 'Disabled'
+  if (computeNodeUpdate(node)) return 'Needs this release’s Compute Node'
   if (node.capabilities.provider === 'cloudflare-containers') return 'Managed provider ready'
   return node.lastSeen && Date.now() - Date.parse(node.lastSeen) < 30000 ? 'Connected' : 'Offline'
 }
@@ -57,6 +58,7 @@ async function disable(id: string) {
       </div>
     </div></template></SettingsEditor>
     <SettingsEditor v-model:open="detailOpen" back="Compute" :title="selected?.name ?? 'Compute node'" description="Connection status, capacity and access."><template #body>
+    <UAlert v-if="selected && computeNodeUpdate(selected)" color="warning" variant="subtle" icon="i-ph-warning" title="Earlier Compute Node" :description="computeNodeUpdate(selected)!.text" class="mb-3" data-compute-update />
     <div v-if="selected" class="flex flex-wrap items-center justify-between gap-3 rounded border border-default p-3">
       <div class="min-w-0"><p>{{ selected.name }} · {{ nodeStatus(selected) }}</p><p class="break-all text-xs text-muted">{{ selected.id }} · {{ selected.capabilities.isolation === 'container-vm' ? 'Cloudflare VM container · durable code checkpoints' : 'One Docker box per Task, its disk kept · Shared kernel' }}<br>Last seen: {{ selected.lastSeen ? new Date(selected.lastSeen).toLocaleString() : 'Never' }} · Disk: {{ Number(selected.capabilities.diskBytes || 0) / 1048576 }} MiB · Boxes at once: {{ (selected.capabilities.capacity as { boxes?: number } | undefined)?.boxes ?? 1 }}<br>Image: {{ selected.capabilities.image }}</p></div>
       <UButton v-if="selected.enabled" label="Disable and revoke" color="neutral" variant="outline" :loading="busy" @click="disable(selected.id)" />

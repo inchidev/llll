@@ -130,15 +130,25 @@ it.each([
   expect(nodes()).toEqual([])
 })
 
-it('requires a new pairing identity when the released workspace image or declared capabilities change', async () => {
+it('replaces the daemon and box image of the paired local Node in place, with its own credential', async () => {
   await request()
-  const before = nodes()
   const changed = { ...capabilities, image: 'sha256:' + 'c'.repeat(64) }
-  const rejected = await request(payload({ capabilities: changed })).catch(error => error)
+  expect(await request(payload({ capabilities: changed }))).toEqual({ serverId: ids.server })
+  expect(nodes()).toEqual([expect.objectContaining({ id: nodeId, token_hash: await factoryHash(token), capabilities_json: JSON.stringify(changed), enabled: 1 })])
+  expect(await requireComputeNode(fixture.env, token)).toMatchObject({ id: nodeId })
+  const rejected = await request(payload({ token: 'c'.repeat(64), capabilities })).catch(error => error)
   expect(rejected).toMatchObject({ statusCode: 409 })
   expect(JSON.stringify(rejected)).not.toContain(token)
-  expect(nodes()).toEqual(before)
-  expect(await requireComputeNode(fixture.env, token)).toMatchObject({ id: nodeId })
+  expect(JSON.parse(nodes()[0]!.capabilities_json as string).image).toBe(changed.image)
+})
+
+it('moves a protocol 1 local Node of an earlier release to protocol 2 when this release starts it', async () => {
+  const earlier = { diskBytes: 10737418240, docker: true, durableDisk: true, isolation: 'shared-kernel', image: 'sha256:' + 'e'.repeat(64), maxParallel: 1, protocol: 1 }
+  fixture.db.prepare(`INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,created_by,created_at) VALUES(?,'Local VPS executor',?,?,?,?)`)
+    .run(nodeId, await factoryHash(token), JSON.stringify(earlier), ids.owner, new Date().toISOString())
+  const current = { ...capabilities, diskBytes: 10737418240 }
+  expect(await request(payload({ capabilities: current }))).toEqual({ serverId: ids.server })
+  expect(nodes()).toEqual([expect.objectContaining({ id: nodeId, capabilities_json: JSON.stringify(current), enabled: 1 })])
 })
 
 it('accepts a new 10 GiB Node while retaining existing 1 GiB Nodes', async () => {
@@ -160,3 +170,12 @@ it('cancels an oversized streaming body before waiting for its completion or che
   expect(cancel).toHaveBeenCalledOnce()
   expect(nodes()).toEqual([])
 }, 2000)
+
+it('tells the Owner how to replace a Node of an earlier release, by where it runs', async () => {
+  const { computeNodeUpdate } = await import('../../shared/software-factory')
+  const earlier = { diskBytes: 10737418240, docker: true, image: 'sha256:' + 'e'.repeat(64), maxParallel: 1, protocol: 1 }
+  expect(computeNodeUpdate({ name: 'Local VPS executor', enabled: true, capabilities: earlier })).toMatchObject({ local: true, text: expect.stringContaining('sudo llll compute enable --trust-shared-kernel') })
+  expect(computeNodeUpdate({ name: 'Build box', enabled: true, capabilities: earlier })).toMatchObject({ local: false, text: expect.stringContaining('pair this release’s Node') })
+  expect(computeNodeUpdate({ name: 'Local VPS executor', enabled: true, capabilities })).toBeNull()
+  expect(computeNodeUpdate({ name: 'Build box', enabled: false, capabilities: earlier })).toBeNull()
+})
