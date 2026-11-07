@@ -1617,6 +1617,8 @@ export const factoryBoxes = sqliteTable('factory_boxes', {
   checkpointSha: text('checkpoint_sha'),
   headSha: text('head_sha'),
   pullJson: text('pull_json'),
+  /** The commit a direct_push Git flow last pushed to the base branch; such a box has no pull request. */
+  pushedSha: text('pushed_sha'),
   runtimeMs: integer('runtime_ms').notNull().default(0),
   publicationCount: integer('publication_count').notNull().default(0),
   createdAt: text('created_at').notNull(),

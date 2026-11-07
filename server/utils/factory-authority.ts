@@ -13,8 +13,8 @@ import { fail } from './cf'
 export const factoryHash = async (value: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
 /** A Task's box as the outward actions see it: its branch, what it published and how much it ran. */
 export type TaskBox = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; status: string; runId: string | null
-  leaseToken: string | null; checkpointSha: string | null; headSha: string | null; pullJson: string | null; runtimeMs: number; publicationCount: number; updatedAt: string }
-export const taskBoxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,status,run_id AS runId,lease_token AS leaseToken,checkpoint_sha AS checkpointSha,head_sha AS headSha,pull_json AS pullJson,runtime_ms AS runtimeMs,publication_count AS publicationCount,updated_at AS updatedAt`
+  leaseToken: string | null; checkpointSha: string | null; headSha: string | null; pullJson: string | null; pushedSha: string | null; runtimeMs: number; publicationCount: number; updatedAt: string }
+export const taskBoxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,status,run_id AS runId,lease_token AS leaseToken,checkpoint_sha AS checkpointSha,head_sha AS headSha,pull_json AS pullJson,pushed_sha AS pushedSha,runtime_ms AS runtimeMs,publication_count AS publicationCount,updated_at AS updatedAt`
 export async function factoryAuthority(env: L4Env, runId: string, actorId?: string, publication = false, readOnly = false) {
   const run = await findAgentRun(env, runId)
   if (!run) fail(404, 'not_found', 'Run not found')

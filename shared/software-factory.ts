@@ -1,9 +1,12 @@
 import { z } from 'zod'
-import { egressHost, secretName } from './project-factory'
+import { DEFAULT_BRANCH_PREFIX, egressHost, secretName } from './project-factory'
 
 export const factorySha = z.string().regex(/^[a-f0-9]{40}$/u)
-/** The branch in the original repository a box publishes to; nothing else of the repository is ever written. */
-export const boxBranch = (boxId: string) => `l4-agent/${boxId}`
+/**
+ * The branch in the original repository a box publishes to: the Project's branch prefix and the box's id.
+ * Only a Project whose Git flow is direct_push has its base branch written instead.
+ */
+export const boxBranch = (boxId: string, prefix = DEFAULT_BRANCH_PREFIX) => `${prefix}${boxId}`
 /** What the Agent asks to publish: one commit of its box, by SHA. Git's hashes stand for its content. */
 export const publishToolSchema = z.object({
   sha: factorySha.describe('The full 40-character SHA of the commit in the box’s checkout to publish, from git rev-parse HEAD. It must descend from the Task’s pinned base.'),
@@ -17,6 +20,12 @@ export const planToolSchema = z.object({
   hosts: z.array(egressHost).max(10).default([]).describe('Hosts beyond the Project’s network the work needs, such as api.telegram.org. Once the plan is approved, a window for one of them opens without asking again.'),
   secrets: z.array(secretName).max(10).default([]).describe('Names of Project secrets the work uses, such as TELEGRAM_TOKEN. In plan mode only the secrets an approved plan names are put in.'),
 }).strict()
+/** What the Agent asks to merge, where the Project's Git flow lets it: its pull request at the head it checked. */
+export const mergeToolSchema = z.object({
+  sha: factorySha.describe('The full SHA of the pull request head whose checks passed, as factory_feedback reports it in commit. A head that moved since is refused.'),
+}).strict()
+/** A person's merge from the Task: the head they saw. */
+export const mergeRequestSchema = mergeToolSchema
 /** A push's review as the Node or box produced it from Git, stored in R2 under the approval. */
 export const reviewDiffSchema = z.object({ sha: factorySha, baseSha: factorySha,
   commits: z.array(z.object({ sha: factorySha, subject: z.string().max(500) }).strict()).max(200),
@@ -25,7 +34,8 @@ export type ReviewDiff = z.infer<typeof reviewDiffSchema>
 export type FactoryApprovalKind = 'plan' | 'publish' | 'window' | 'merge'
 /** An outward action of a box as a person reviewing it sees it. The diff itself is read from R2 on demand. */
 export type FactoryApproval = { id: string; boxId: string; runId: string; kind: FactoryApprovalKind; digest: string; status: string
-  request: { sha?: string; ref?: string; title?: string; body?: string; summary?: string; steps?: string[]; hosts?: string[]; host?: string; minutes?: number; secrets?: string[]; reason?: string }
+  request: { sha?: string; ref?: string; direct?: true; title?: string; body?: string; summary?: string; steps?: string[]; hosts?: string[]; host?: string; minutes?: number; secrets?: string[]; reason?: string
+    number?: number; method?: string; by?: 'person' | 'agent' }
   /** The review a Node or box produced for a push, kept in R2: only its digest is on the row. */
   diff: { digest: string } | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; result: unknown; createdAt: string }
@@ -66,6 +76,6 @@ export function factoryImageAccepted(reported: string | undefined, expected: str
 }
 
 const FACTORY_STATES: Record<string, string> = { approval_pending: 'Waiting for review', publishing: 'Publishing', pr_published: 'Pull request open', publish_failed: 'Publication failed',
-  rejected: 'Publication rejected', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
+  rejected: 'Publication rejected', pushed: 'Pushed to the base branch', merged: 'Merged', merge_failed: 'Merge refused', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
 /** A Task's code work as its board shows it. */
 export const factoryStateLabel = (state: string) => FACTORY_STATES[state] ?? state.replaceAll('_', ' ')

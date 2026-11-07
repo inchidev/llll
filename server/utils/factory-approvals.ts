@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { RunMandate } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
-import { boxBranch, planToolSchema, publishToolSchema, reviewDiffSchema, type FactoryApproval, type FactoryApprovalKind } from '../../shared/software-factory'
+import { planToolSchema, publishToolSchema, reviewDiffSchema, type FactoryApproval, type FactoryApprovalKind } from '../../shared/software-factory'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -10,11 +10,13 @@ import { findAgentRun, runAuthorization } from './agent-run-service'
 import { requireRunReader } from './agent-tool-security'
 import { getTask } from './task-service'
 import { githubPushGrant } from './github-agent-client'
-import { publishedHead, publishedPull, type PullReceipt } from './factory-github'
+import { fastForwarded, publishedHead, publishedPull, type PullReceipt } from './factory-github'
 import { giteaCredentials } from './gitea'
 import { leaseCapability, wakeCloudBox } from './factory-boxes'
 import { boxEgress } from './box-egress'
 import { windowToolSchema } from '../../shared/project-factory'
+import { publishTarget, repositoryGitFlow } from './project-git-flow'
+import { mergeToolCall } from './factory-merge'
 import { fail } from './cf'
 
 /**
@@ -26,15 +28,19 @@ import { fail } from './cf'
  * - plan: the latest plan the person approved for the Task covers it; without one it waits as in review.
  * - review: a person approves the exact commit, after reading its diff, which the Node or box produced from Git.
  *
- * A trusted component pushes the approved SHA to `l4-agent/<box id>`: the daemon on a VPS Node, or the box's
- * outbound Worker on Cloudflare, which allows only that ref update. The Server then reads the branch back and
- * opens or updates the Task's draft pull request only if it is at that SHA.
+ * A trusted component pushes the approved SHA to the Agent's branch, `<prefix><box id>` by the Project's Git
+ * flow (project-git-flow.ts): the daemon on a VPS Node, or the box's outbound Worker on Cloudflare, which
+ * allows only that ref update. The Server then reads the branch back and opens or updates the Task's draft
+ * pull request only if it is at that SHA. Under a direct_push flow the target is the base branch itself, as a
+ * fast-forward from the head the Server read when the push was claimed, and there is no pull request.
+ *
+ * `factory_merge` merges the Task's pull request where the Git flow lets the Agent (factory-merge.ts).
  *
  * `request_network_window` asks for one more host for a while (box-egress.ts). The Project's network is open
  * already; a host outside it always needs a person, unless an approved plan named it in plan mode. Once
  * approved, a window stays open for the Task's box until its time runs out, across the Task's Runs.
  */
-export const OUTWARD_TOOLS = new Set(['factory_publish', 'factory_plan', 'request_network_window'])
+export const OUTWARD_TOOLS = new Set(['factory_publish', 'factory_plan', 'request_network_window', 'factory_merge'])
 
 type ApprovalRow = { id: string; boxId: string; runId: string; callId: string; kind: FactoryApprovalKind; requestJson: string; digest: string; status: string; diffKey: string | null; diffDigest: string | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; resultJson: string | null; createdAt: string }
@@ -44,7 +50,10 @@ const approvalColumns = `id,box_id AS boxId,run_id AS runId,call_id AS callId,ki
 export const OPEN_APPROVALS = "('pending_diff','pending','approved','publishing')"
 /** A push's review in R2, under the private files bucket. */
 export const reviewKey = (boxId: string, approvalId: string) => `factory-reviews/${boxId}/${approvalId}.json`
-const publishRequest = publishToolSchema.extend({ ref: z.string() })
+/** A push as recorded: the tool's arguments, the branch it goes to and, under direct_push, that it is the base branch. */
+const publishRequest = publishToolSchema.extend({ ref: z.string(), direct: z.literal(true).optional() })
+/** The tool's own arguments of a recorded request: where it goes is the Server's choice, not the call's. */
+const callArguments = (requestJson: string) => { const { ref: _ref, direct: _direct, ...rest } = JSON.parse(requestJson) as Record<string, unknown>; return JSON.stringify(rest) }
 
 const visible = (row: ApprovalRow): FactoryApproval => ({ id: row.id, boxId: row.boxId, runId: row.runId, kind: row.kind, digest: row.digest, status: row.status,
   request: JSON.parse(row.requestJson), diff: row.diffDigest ? { digest: row.diffDigest } : null, decidedBy: row.decidedBy, decidedAt: row.decidedAt,
@@ -98,17 +107,19 @@ export async function outwardToolCall(env: L4Env, runId: string, name: string, c
   const isPlan = name === 'factory_plan'
   if (!OUTWARD_TOOLS.has(name)) fail(404, 'tool_unavailable', 'Unknown outward action')
   if (name === 'request_network_window') return windowToolCall(env, runId, callId, input)
+  if (name === 'factory_merge') return mergeToolCall(env, runId, callId, input)
   const request = isPlan ? planToolSchema.parse(input) : publishToolSchema.parse(input)
   const context = await factoryAuthority(env, runId, undefined, !isPlan)
   await expireApprovals(env)
   const box = await taskBox(env, context)
   if (!box || box.status === 'released') fail(409, 'box_unavailable', 'This Task has no box. Its first turn makes one.')
-  const encoded = JSON.stringify(isPlan ? request : { ...request, ref: boxBranch(box.id) })
   const existing = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND call_id=?`).bind(runId, callId).first<ApprovalRow>()
   if (existing) {
-    if (existing.requestJson !== encoded) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
+    if (callArguments(existing.requestJson) !== JSON.stringify(request)) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
     return answer(existing)
   }
+  // The Project's Git flow decides where the push goes; the person who approves it sees that ref.
+  const encoded = JSON.stringify(isPlan ? request : { ...request, ...publishTarget((await repositoryGitFlow(env, context.environment.id)).gitFlow, box.id, context.environment) })
   const execution = (JSON.parse(context.run.mandateJson) as RunMandate).execution
   const mode = execution?.mode ?? 'review'
   if (!isPlan) {
@@ -127,7 +138,7 @@ export async function outwardToolCall(env: L4Env, runId: string, name: string, c
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(run_id,call_id) DO NOTHING RETURNING ${approvalColumns}`)
     .bind(id, box.id, runId, callId, isPlan ? 'plan' : 'publish', encoded, digest, status, automatic ? now : null, expiresAt, result, now).first<ApprovalRow>()
   const row = inserted ?? await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND call_id=?`).bind(runId, callId).first<ApprovalRow>()
-  if (!row || row.requestJson !== encoded) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
+  if (!row || callArguments(row.requestJson) !== JSON.stringify(request)) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
   if (inserted) {
     if (!isPlan) await setTaskState(env, context.run, automatic ? 'publishing' : 'approval_pending')
     await showTurn(env, context.run, !automatic)
@@ -223,8 +234,9 @@ export async function listBoxReview(env: L4Env, runId: string, actorId: string) 
   if (box.channelId !== run.channelId || box.environmentJson !== run.environmentJson) fail(403, 'factory_revoked', 'This box belongs to an earlier repository mandate')
   const approvals = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE box_id=? ORDER BY created_at DESC,id DESC LIMIT 50`).bind(box.id).all<ApprovalRow>()
   const environment = JSON.parse(box.environmentJson) as RunEnvironment
-  return { box: { id: box.id, status: box.status, nodeId: box.nodeId, repository: environment.sourceRepo, baseBranch: environment.baseBranch, baseSha: environment.baseSha,
-    branch: boxBranch(box.id), headSha: box.headSha, runtimeMs: box.runtimeMs, publicationCount: box.publicationCount, updatedAt: box.updatedAt,
+  const { gitFlow } = await repositoryGitFlow(env, environment.id)
+  return { box: { id: box.id, taskId: box.taskId, status: box.status, nodeId: box.nodeId, repository: environment.sourceRepo, baseBranch: environment.baseBranch, baseSha: environment.baseSha,
+    branch: publishTarget(gitFlow, box.id, environment).ref, gitFlow, pushedSha: box.pushedSha, headSha: box.headSha, runtimeMs: box.runtimeMs, publicationCount: box.publicationCount, updatedAt: box.updatedAt,
     pull: box.pullJson ? JSON.parse(box.pullJson) as PullReceipt : null }, approvals: approvals.results.map(visible) }
 }
 
@@ -282,14 +294,19 @@ export async function claimPublication(env: L4Env, nodeId: string, approvalId: s
   const prior = box.pullJson ? JSON.parse(box.pullJson) as PullReceipt : null
   const ensure = async () => { await nodePublication(env, nodeId, approvalId, ['approved', 'publishing']) }
   const current = await publishedHead(env, environment, request.ref, ensure)
-  if (current !== (prior?.commit ?? null)) {
-    await env.DB.prepare("UPDATE factory_approvals SET status='failed',result_json=? WHERE id=? AND status='approved'")
-      .bind(JSON.stringify({ message: `The branch ${request.ref} changed outside L4. Ask the person to look at it before publishing again.` }), row.id).run()
-    fail(409, 'factory_branch_changed', 'The dedicated branch changed outside this Task')
+  const refuse = async (message: string) => {
+    await env.DB.prepare("UPDATE factory_approvals SET status='failed',result_json=? WHERE id=? AND status='approved'").bind(JSON.stringify({ message }), row.id).run()
+    fail(409, 'factory_branch_changed', message)
   }
-  const claimed = await env.DB.prepare("UPDATE factory_approvals SET status='publishing' WHERE id=? AND status='approved' RETURNING id").bind(row.id).first()
+  // Under direct_push the base branch moves with the team's work: the push is a fast-forward from where it is
+  // now, and whoever pushes it checks that the approved commit descends from that head.
+  if (request.direct) { if (!current) await refuse(`The base branch ${request.ref} was not found. Nothing was pushed.`) }
+  else if (current !== (prior?.branch === request.ref ? prior.commit : null)) await refuse(`The branch ${request.ref} changed outside L4. Ask the person to look at it before publishing again.`)
+  // The head it must replace is kept with the push, for the Server's own Gitea push transport.
+  const claimed = await env.DB.prepare("UPDATE factory_approvals SET status='publishing',result_json=? WHERE id=? AND status='approved' RETURNING id")
+    .bind(JSON.stringify({ expectedOld: current }), row.id).first()
   if (!claimed) fail(409, 'factory_settled', 'This publication was already claimed')
-  return { ...publication, ref: `refs/heads/${request.ref}`, expectedOld: current, ensure: async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) } }
+  return { ...publication, ref: `refs/heads/${request.ref}`, direct: request.direct === true, expectedOld: current, ensure: async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) } }
 }
 
 /**
@@ -298,8 +315,8 @@ export async function claimPublication(env: L4Env, nodeId: string, approvalId: s
  * and the box's lease, and the Server allows only the approved ref update.
  */
 export async function computePublish(env: L4Env, nodeId: string, approvalId: string) {
-  const { box, request, environment, ref, expectedOld, ensure } = await claimPublication(env, nodeId, approvalId)
-  const pinned = { approvalId, repository: environment.sourceRepo, ref, sha: request.sha, baseSha: environment.baseSha, expectedOld }
+  const { box, request, environment, ref, direct, expectedOld, ensure } = await claimPublication(env, nodeId, approvalId)
+  const pinned = { approvalId, repository: environment.sourceRepo, ref, sha: request.sha, baseSha: environment.baseSha, expectedOld, ...(direct ? { direct: true } : {}) }
   if (environment.provider === 'gitea') {
     await giteaCredentials(env, environment.gitConnectionId)
     let origin: string
@@ -324,11 +341,12 @@ export async function publishedApproval(env: L4Env, nodeId: string, approvalId: 
     await setTaskState(env, run, 'publish_failed')
     return { accepted: true }
   }
+  if (request.direct) return publishedDirect(env, { row, box, request, environment }, run, async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) })
   const prior = box.pullJson ? JSON.parse(box.pullJson) as PullReceipt : null
   const description = `${request.body}\n\nL4 Task: ${run.taskId}\nBox: ${box.id}\nApproved commit: ${request.sha}\n\nIndependent CI and provider review remain required.`
   let receipt: PullReceipt
   try {
-    receipt = await publishedPull(env, environment, { branch: request.ref, sha: request.sha, prior, title: request.title, description,
+    receipt = await publishedPull(env, environment, { branch: request.ref, sha: request.sha, prior: prior?.branch === request.ref ? prior : null, title: request.title, description,
       ensure: async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) } })
   } catch (error) {
     await env.DB.prepare("UPDATE factory_approvals SET status='uncertain',result_json=? WHERE id=? AND status='publishing'")
@@ -344,9 +362,35 @@ export async function publishedApproval(env: L4Env, nodeId: string, approvalId: 
   return { accepted: true }
 }
 
+/**
+ * A direct_push is done: the base branch must be at exactly the approved commit, reached as a fast-forward
+ * from the head it replaced. There is no pull request; the box records the pushed commit.
+ */
+async function publishedDirect(env: L4Env, { row, box, request, environment }: Omit<Publication, 'box'> & { box: TaskBox }, run: { taskId: string | null; agentId: string }, ensure: () => Promise<void>) {
+  const expectedOld = (row.resultJson ? JSON.parse(row.resultJson) as { expectedOld?: string | null } : {}).expectedOld ?? null
+  const uncertain = async (message: string) => {
+    await env.DB.prepare("UPDATE factory_approvals SET status='uncertain',result_json=? WHERE id=? AND status='publishing'").bind(JSON.stringify({ message }), row.id).run()
+    return { accepted: true }
+  }
+  let head: string | null, forward: boolean
+  try {
+    head = await publishedHead(env, environment, request.ref, ensure)
+    forward = Boolean(expectedOld) && await fastForwarded(env, environment, expectedOld!, request.sha, ensure)
+  } catch { return uncertain(`The push finished, but ${request.ref} could not be read back. Ask the person to look at it before publishing again.`) }
+  if (head !== request.sha) return uncertain(`The push finished, but ${request.ref} is not at the approved commit. Ask the person to look at it before publishing again.`)
+  if (!forward) return uncertain(`${request.ref} is at the approved commit, but it may not have been a fast-forward from ${expectedOld ?? 'its earlier head'}. Ask the person to look at its history.`)
+  const result = { published: true, sha: request.sha, branch: request.ref, direct: true, message: `Pushed ${request.sha} to ${request.ref}. There is no pull request under this Project’s Git flow.` }
+  await env.DB.batch([
+    env.DB.prepare("UPDATE factory_approvals SET status='completed',result_json=? WHERE id=? AND status='publishing'").bind(JSON.stringify(result), row.id),
+    env.DB.prepare('UPDATE factory_boxes SET pushed_sha=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(request.sha, nowIso(), box.id),
+    env.DB.prepare("UPDATE tasks SET factory_state='pushed' WHERE id=? AND assignee_id=?").bind(run.taskId, run.agentId),
+  ])
+  return { accepted: true }
+}
+
 /** What a sync tells a leased box to do for its pushes: make the review of one, or push one that was approved. */
 export async function boxOutwardWork(env: L4Env, boxIds: string[]) {
-  const work = new Map<string, { review?: { approvalId: string; sha: string; baseSha: string }; publish?: { approvalId: string; sha: string; ref: string; baseSha: string } }>()
+  const work = new Map<string, { review?: { approvalId: string; sha: string; baseSha: string }; publish?: { approvalId: string; sha: string; ref: string; baseSha: string; direct?: true } }>()
   if (!boxIds.length) return work
   const rows = await env.DB.prepare(`SELECT a.id,a.box_id AS boxId,a.status,a.request_json AS requestJson,json_extract(b.environment_json,'$.baseSha') AS baseSha FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id
     WHERE a.box_id IN (SELECT value FROM json_each(?)) AND a.kind='publish' AND a.status IN ('pending_diff','approved') AND a.expires_at>? ORDER BY a.created_at,a.id`)
@@ -354,7 +398,7 @@ export async function boxOutwardWork(env: L4Env, boxIds: string[]) {
   for (const row of rows.results) {
     const request = publishRequest.parse(JSON.parse(row.requestJson)), entry = work.get(row.boxId) ?? {}
     if (row.status === 'pending_diff') entry.review ??= { approvalId: row.id, sha: request.sha, baseSha: row.baseSha }
-    else entry.publish ??= { approvalId: row.id, sha: request.sha, ref: `refs/heads/${request.ref}`, baseSha: row.baseSha }
+    else entry.publish ??= { approvalId: row.id, sha: request.sha, ref: `refs/heads/${request.ref}`, baseSha: row.baseSha, ...(request.direct ? { direct: true as const } : {}) }
     work.set(row.boxId, entry)
   }
   return work

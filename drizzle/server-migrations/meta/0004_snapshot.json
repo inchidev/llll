@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "96d77988-74b9-4763-880f-db4e1bd394ab",
+  "id": "4219b6bc-ec08-4c32-85b9-df153a088c6d",
   "prevId": "9bc313d4-ee78-4e56-a15b-16dc10e71bee",
   "tables": {
     "account_recovery": {
@@ -6420,6 +6420,13 @@
         },
         "pull_json": {
           "name": "pull_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pushed_sha": {
+          "name": "pushed_sha",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

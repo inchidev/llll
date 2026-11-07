@@ -34,6 +34,49 @@ export const projectNetworkSchema = z.object({
 export type ProjectNetwork = z.infer<typeof projectNetworkSchema>
 export const CLOSED_NETWORK: ProjectNetwork = { presets: [], hosts: [] }
 
+/**
+ * A Project's Git flow for its Agents (ADR 0010): the branch prefix of an Agent's branch, who merges and how.
+ * The target branch is always the repository's base branch. GitHub or Gitea branch protection stays the
+ * ceiling: a push or merge it refuses is reported with its reason, never worked around.
+ *
+ * - person: the Agent pushes `<prefix><box id>` and opens a draft pull request; a person merges it.
+ * - agent_after_checks: as person, and the Agent may also merge once every check of the head passed.
+ * - direct_push: the approved commit goes straight to the base branch, as a fast-forward only. No pull request.
+ */
+export const gitMergeModes = ['person', 'agent_after_checks', 'direct_push'] as const
+export type GitMergeMode = typeof gitMergeModes[number]
+export const gitMergeMethods = ['squash', 'merge', 'rebase'] as const
+export type GitMergeMethod = typeof gitMergeMethods[number]
+export const DEFAULT_BRANCH_PREFIX = 'l4-agent/'
+/**
+ * The start of an Agent's branch name, which ends in its box's id. Git's ref rules, narrowed to plain names:
+ * letters, digits, `.`, `_`, `-` and `/` between parts, ending in `/`, `-` or `_`.
+ */
+export const branchPrefix = z.string().trim().min(2).max(60)
+  .regex(/^[A-Za-z0-9_][A-Za-z0-9._/-]*[/_-]$/u, 'Use letters, digits, dots, dashes and slashes, ending in / or -, such as l4-agent/')
+  .refine(value => !/\.\.|\/\/|\/\.|\.\/|\.lock\/|@\{/u.test(value) && !value.startsWith('refs/'), 'Use a plain branch name prefix such as l4-agent/')
+export const projectGitFlowSchema = z.object({
+  branchPrefix: branchPrefix.default(DEFAULT_BRANCH_PREFIX),
+  merge: z.enum(gitMergeModes).default('person'),
+  method: z.enum(gitMergeMethods).default('squash'),
+}).strict()
+export type ProjectGitFlow = z.infer<typeof projectGitFlowSchema>
+export const DEFAULT_GIT_FLOW: ProjectGitFlow = { branchPrefix: DEFAULT_BRANCH_PREFIX, merge: 'person', method: 'squash' }
+/** The Git flow part of `projects.factory_json`, or the default: a person merges `l4-agent/<box>` by squash. */
+export function projectGitFlow(factoryJson: string | null | undefined): ProjectGitFlow {
+  if (!factoryJson) return DEFAULT_GIT_FLOW
+  try {
+    const parsed = projectGitFlowSchema.safeParse((JSON.parse(factoryJson) as { gitFlow?: unknown }).gitFlow ?? DEFAULT_GIT_FLOW)
+    return parsed.success ? parsed.data : DEFAULT_GIT_FLOW
+  } catch { return DEFAULT_GIT_FLOW }
+}
+export const GIT_MERGE_LABELS: Record<GitMergeMode, { label: string; description: string }> = {
+  person: { label: 'A person merges', description: 'The Agent pushes its own branch and opens a draft pull request. A person merges it from the Task once its checks pass.' },
+  agent_after_checks: { label: 'The Agent merges after checks', description: 'As above, and the Agent may merge its pull request itself once every check of its head passed. Branch protection still decides.' },
+  direct_push: { label: 'Direct push', description: 'For experiments: the approved commit goes straight to the base branch as a fast-forward, without a pull request. Branch protection may refuse it.' },
+}
+export const GIT_METHOD_LABELS: Record<GitMergeMethod, string> = { squash: 'Squash and merge', merge: 'Merge commit', rebase: 'Rebase and merge' }
+
 /** The network part of `projects.factory_json`; anything else in it (the Git flow) is kept as stored. */
 export function projectNetwork(factoryJson: string | null | undefined): ProjectNetwork {
   if (!factoryJson) return CLOSED_NETWORK

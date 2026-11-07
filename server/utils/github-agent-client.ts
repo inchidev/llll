@@ -24,8 +24,12 @@ async function decode(response: Response) {
   return JSON.parse(new TextDecoder().decode(body.bytes))
 }
 
-/** A token is limited to one repository and one operation class; it never crosses the gateway. */
-export async function githubAgentClient(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' | 'feedback' },
+/**
+ * A token is limited to one repository and one operation class; it never crosses the gateway. `merge` is the
+ * merge of a Task's pull request from L4: GitHub's merge needs Contents write and taking a pull request out of
+ * draft needs Pull requests write, both of which the App already requests (docs/agents.md).
+ */
+export async function githubAgentClient(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number; access: 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' | 'feedback' | 'merge' },
   ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
   if (!await githubConnectionCredentials(env, input.connectionId)) fail(409, 'github_unconfigured', 'Choose a configured GitHub App connection for this repository')
   await ensure()
@@ -33,15 +37,17 @@ export async function githubAgentClient(env: L4Env, input: { connectionId?: stri
   const tokenResult = await decode(await transport(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: input.access === 'work' ? 'write' : 'read',
-      ...(input.access === 'pull_request' ? { pull_requests: 'write' } : {}), ...(input.access === 'pull_request_read' ? { pull_requests: 'read' } : {}), ...(input.access === 'issues' ? { issues: 'read' } : {}), ...(['checks','feedback'].includes(input.access) ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}), ...(input.access === 'feedback' ? { actions: 'read', deployments: 'read' } : {}) } }),
+    body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: ['work', 'merge'].includes(input.access) ? 'write' : 'read',
+      ...(['pull_request', 'merge'].includes(input.access) ? { pull_requests: 'write' } : {}), ...(input.access === 'pull_request_read' ? { pull_requests: 'read' } : {}), ...(input.access === 'issues' ? { issues: 'read' } : {}), ...(['checks','feedback'].includes(input.access) ? { checks: 'read', statuses: 'read', pull_requests: 'read' } : {}), ...(input.access === 'feedback' ? { actions: 'read', deployments: 'read' } : {}) } }),
   })) as { token?: string }
   const token = tokenResult.token
   if (!token) fail(502, 'github_response', 'GitHub did not issue a repository capability')
   return {
     async raw(path: string, method = 'GET', body?: unknown) {
       // Callers supply operation-specific paths, never a model-selected URL or method.
-      if (!path.startsWith('/repos/') || path.includes('..') || path.includes('://')) throw new Error('Invalid broker path')
+      // A commit comparison is the one path with dots in a row: `<sha>...<sha>`, never a path segment.
+      const comparison = /^\/repos\/[\w-][\w.-]*\/[\w-][\w.-]*\/compare\/[a-f0-9]{40}\.\.\.[a-f0-9]{40}$/u.test(path)
+      if (!path.startsWith('/repos/') || (path.includes('..') && !comparison) || path.includes('://')) throw new Error('Invalid broker path')
       await ensure()
       return transport(`https://api.github.com${path}`, { method, redirect: 'manual', signal: AbortSignal.timeout(30000),
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-agent-broker', ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -49,6 +55,18 @@ export async function githubAgentClient(env: L4Env, input: { connectionId?: stri
     },
     async json(path: string, method = 'GET', body?: unknown) {
       return decode(await this.raw(path, method, body))
+    },
+    /** GitHub takes a pull request out of draft only through GraphQL; this is the one mutation sent there. */
+    async markReadyForReview(pullNodeId: string) {
+      if (input.access !== 'merge' || !/^[\w-]{1,100}$/u.test(pullNodeId)) throw new Error('Invalid broker operation')
+      await ensure()
+      const response = await transport('https://api.github.com/graphql', { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(30000),
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'L4-agent-broker', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: 'mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }', variables: { id: pullNodeId } }) })
+      const result = await decode(response) as { errors?: Array<{ message?: string }>; data?: { markPullRequestReadyForReview?: { pullRequest?: { isDraft?: boolean } } } }
+      if (result.errors?.length || result.data?.markPullRequestReadyForReview?.pullRequest?.isDraft !== false) {
+        fail(409, 'github_refused', `GitHub did not take the pull request out of draft${result.errors?.[0]?.message ? `: ${result.errors[0].message.slice(0, 300)}` : ''}`)
+      }
     },
   }
 }

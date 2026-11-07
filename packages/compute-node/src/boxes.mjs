@@ -1,4 +1,5 @@
 import { createBoxCa } from './box-ca.mjs'
+import { pushRef } from './push-branch.mjs'
 
 /** A box with no turn for this long stops; its disk stays until its Task is Done. */
 export const BOX_IDLE_MS = 15 * 60 * 1000
@@ -35,7 +36,8 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  * What a box asks to publish leaves it only through this daemon. A throwaway container with no network and
  * the box's disk read-only copies the requested commit into a bare repository on a scratch disk with hardened
  * Git (review-diff.mjs), and for a review writes its diff, which goes to the Server. Once the push is approved,
- * another throwaway container pushes exactly that commit from the copy to the Task's branch with a short
+ * another throwaway container pushes exactly that commit from the copy to the Task’s branch (or, under a
+ * direct_push Git flow, to the base branch as a fast-forward only) with a short
  * credential the Server grants for it (push-branch.mjs); a GitHub token is revoked right after. One such
  * publication runs at a time on a Node, beside turns.
  *
@@ -285,12 +287,13 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     try {
       // Claiming the push gives its credential; it never enters the box or the copy's container.
       grant = await poll({ operation: 'publish', approvalId: work.approvalId })
-      if (grant?.sha !== work.sha || grant.ref !== work.ref) { message = 'The Server granted another push'; return }
+      if (grant?.sha !== work.sha || grant.ref !== work.ref || (grant.direct === true) !== (work.direct === true)) { message = 'The Server granted another push'; return }
       const copied = await copyCommit(box, work, directory, false).catch(() => ({ ok: false, message: 'The commit could not be copied from the box' }))
       if (!copied.ok) { message = String(copied.message ?? 'The commit could not be copied').slice(0, 300); return }
       const output = await docker(['run', '--rm', '-i', '--name', names(box.id).push, ...labels(box), '--network', 'bridge', ...hardened,
         '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/push-branch.mjs'],
-      { input: JSON.stringify({ remote: grant.remote, ref: grant.ref, sha: grant.sha, expectedOld: grant.expectedOld ?? null, ...(grant.token ? { token: grant.token } : { authorization: grant.authorization }) }), timeoutMs: 600000, limit: 10000 })
+      { input: JSON.stringify({ remote: grant.remote, ref: grant.ref, sha: grant.sha, expectedOld: grant.expectedOld ?? null, ...(work.direct === true ? { fastForward: true } : {}),
+        ...(grant.token ? { token: grant.token } : { authorization: grant.authorization }) }), timeoutMs: 600000, limit: 10000 })
         .catch(error => String(error?.output ?? ''))
       const answer = lines(output).at(-1)
       ok = answer?.ok === true
@@ -311,7 +314,8 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
   function outwardWork(box, answer) {
     for (const [work, run] of [[answer.review, reviewPush], [answer.publish, publishPush]]) {
       if (!work || !uuid(work.approvalId) || !commit(work.sha) || !commit(work.baseSha) || outward.has(work.approvalId)) continue
-      if (run === publishPush && !/^refs\/heads\/l4-agent\/[a-f0-9-]{36}$/u.test(work.ref ?? '')) continue
+      // The box's own branch, or under a direct_push Git flow the base branch as a fast-forward.
+      if (run === publishPush && !pushRef(work.ref, { boxId: box.id, fastForward: work.direct === true })) continue
       outward.add(work.approvalId)
       publishing = publishing.then(() => run(box, work))
         .catch(error => log('compute.box_publication_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))

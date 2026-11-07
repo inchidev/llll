@@ -34,7 +34,7 @@ async function publication(input) {
     const mirror = join(directory, 'repo.git')
     const copied = await copyCommit({ box: root, mirror, sha: input.sha, baseSha: input.baseSha, review: input.operation === 'review', shared: true })
     if (input.operation === 'review') return copied
-    return await pushBranch({ mirror, remote: input.remote, ref: input.ref, sha: input.sha, expectedOld: input.expectedOld ?? null }, { outbound: true })
+    return await pushBranch({ mirror, remote: input.remote, ref: input.ref, sha: input.sha, expectedOld: input.expectedOld ?? null, fastForward: input.fastForward === true }, { outbound: true })
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 

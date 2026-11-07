@@ -2,7 +2,8 @@
 // runtime answers on its control socket with no network, the Agent commits in it (a lockfile, a binary file
 // and a booby-trapped Git config), and the daemon's publish chain runs as on a VPS Node: a throwaway copy
 // with no network and the box disk read-only, its review, and a push of exactly the approved commit to a
-// local Git server standing in for the repository, which applies the Server's receive-pack check.
+// local Git server standing in for the repository, which applies the Server's receive-pack check. Under a
+// direct_push Git flow the same commit then goes to the base branch, as a fast-forward only.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -13,7 +14,7 @@ import { join, resolve } from 'node:path'
 const image = process.env.LLLL_FACTORY_TEST_IMAGE || 'l4-workspace:test'
 const root = resolve(import.meta.dirname, '..'), suffix = randomUUID().slice(0, 8), boxId = randomUUID(), approvalId = randomUUID()
 const directory = await mkdtemp(join(tmpdir(), 'l4-box-docker-'))
-const names = { volume: `l4-test-disk-${suffix}`, box: `l4-test-box-${suffix}`, server: `l4-test-git-${suffix}` }
+const names = { volume: `l4-test-disk-${suffix}`, box: `l4-test-box-${suffix}`, server: `l4-test-git-${suffix}`, direct: `l4-test-direct-${suffix}` }
 const ref = `refs/heads/l4-agent/${boxId}`, capability = 'a'.repeat(64)
 
 function run(command, args, { input, allowFailure = false } = {}) {
@@ -39,11 +40,20 @@ async function copy(mirror, sha, baseSha, review) {
   return json(await docker(['run', '--rm', '-i', '--network', 'none', ...hardened, '--mount', `type=volume,src=${names.volume},dst=/box,readonly`,
     '--mount', `type=bind,src=${mirror},dst=/mirror`, image, 'node', '/opt/l4/review-diff.mjs'], { input: JSON.stringify({ sha, baseSha, review }), allowFailure: true }))
 }
-async function push(mirror, sha, expectedOld) {
+async function push(mirror, sha, expectedOld, { server = names.server, target = ref, fastForward = false } = {}) {
   // The push shares the stand-in server's network namespace, so the repository is at 127.0.0.1.
-  return json(await docker(['run', '--rm', '-i', '--network', `container:${names.server}`, ...hardened, '--env', 'LLLL_PUSH_INSECURE_LOCAL=1',
+  return json(await docker(['run', '--rm', '-i', '--network', `container:${server}`, ...hardened, '--env', 'LLLL_PUSH_INSECURE_LOCAL=1',
     '--mount', `type=bind,src=${mirror},dst=/mirror`, image, 'node', '/opt/l4/push-branch.mjs'],
-  { input: JSON.stringify({ remote: `http://127.0.0.1:8080/api/compute-agent/publish/${approvalId}.git`, ref, sha, expectedOld, authorization: `Bearer ${capability}` }), allowFailure: true }))
+  { input: JSON.stringify({ remote: `http://127.0.0.1:8080/api/compute-agent/publish/${approvalId}.git`, ref: target, sha, expectedOld, ...(fastForward ? { fastForward } : {}), authorization: `Bearer ${capability}` }), allowFailure: true }))
+}
+/** The stand-in repository with the receive-pack check for one approved update. */
+async function gitServer(name, remote, environment) {
+  const owner = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid()}` : '1000:1000'
+  await docker(['run', '-d', '--name', name, '--network', 'none', '--user', owner, '--read-only', '--tmpfs', '/tmp:rw,size=64m',
+    '--mount', `type=bind,src=${join(root, 'shared')},dst=/opt/shared,readonly`, '--mount', `type=bind,src=${join(root, 'scripts')},dst=/opt/scripts,readonly`,
+    '--mount', `type=bind,src=${remote},dst=/remote`, ...Object.entries({ ...environment, CAPABILITY: capability, APPROVAL: approvalId }).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
+    image, 'node', '/opt/scripts/test-factory-git-server.mjs'])
+  for (let attempt = 0; attempt < 50 && !(await docker(['logs', name], { allowFailure: true })).includes('listening'); attempt++) await new Promise(done => setTimeout(done, 200))
 }
 
 try {
@@ -107,12 +117,7 @@ try {
   await git(join(remote, 'repo.git'), 'config', 'http.receivepack', 'true')
   // Git serves only a repository its own user owns, so the stand-in runs as whoever made it: on a Linux host
   // a bind mount keeps the host's uid, which need not be the box's 1000.
-  const owner = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid()}` : '1000:1000'
-  await docker(['run', '-d', '--name', names.server, '--network', 'none', '--user', owner, '--read-only', '--tmpfs', '/tmp:rw,size=64m',
-    '--mount', `type=bind,src=${join(root, 'shared')},dst=/opt/shared,readonly`, '--mount', `type=bind,src=${join(root, 'scripts')},dst=/opt/scripts,readonly`,
-    '--mount', `type=bind,src=${remote},dst=/remote`, '--env', `EXPECTED_REF=${ref}`, '--env', `EXPECTED_SHA=${sha}`, '--env', `CAPABILITY=${capability}`, '--env', `APPROVAL=${approvalId}`,
-    image, 'node', '/opt/scripts/test-factory-git-server.mjs'])
-  for (let attempt = 0; attempt < 50 && !(await docker(['logs', names.server], { allowFailure: true })).includes('listening'); attempt++) await new Promise(done => setTimeout(done, 200))
+  await gitServer(names.server, remote, { EXPECTED_REF: ref, EXPECTED_SHA: sha })
 
   // The approved push: exactly that commit to the Task's branch, while the branch is where this Task left it.
   const pushMirror = await scratch('push')
@@ -140,12 +145,22 @@ try {
   const refused = (await docker(['logs', names.server])).split('\n').filter(line => line.startsWith('refused'))
   assert.ok(refused.some(line => line.includes('approved commit')), refused.join('\n'))
 
+  // direct_push: the approved commit goes to main only as a fast-forward from the head the Server read.
+  await gitServer(names.direct, remote, { EXPECTED_REF: 'refs/heads/main', EXPECTED_SHA: sha, EXPECTED_OLD: baseSha })
+  const diverged = await push(pushMirror, sha, 'e'.repeat(40), { server: names.direct, target: 'refs/heads/main', fastForward: true })
+  assert.equal(diverged.ok, false)
+  assert.match(diverged.message, /only fast-forwards/u, 'a base branch that moved elsewhere is never overwritten')
+  assert.equal(await git(join(remote, 'repo.git'), 'rev-parse', 'main'), baseSha)
+  const direct = await push(pushMirror, sha, baseSha, { server: names.direct, target: 'refs/heads/main', fastForward: true })
+  assert.deepEqual(direct, { ok: true }, `${direct.message}\n${(await run('docker', ['logs', names.direct], { allowFailure: true })).stderr}`)
+  assert.equal(await git(join(remote, 'repo.git'), 'rev-parse', 'main'), sha)
+
   // Nothing the box can read holds a push credential: it reaches the push container only, on stdin.
   assert.equal(await inBox(`grep -rl ${capability} /proc/*/environ /work 2>/dev/null | wc -l`), '0')
   assert.equal(await inBox('id -u; test -e /var/run/docker.sock && echo docker || echo no-docker'), '1000\nno-docker')
-  console.log('PASS: real Docker box checkout and control socket, Git work with a large lockfile and a binary file, hardened copy and review with no network from the read-only box disk (box Git config never ran), refusal of foreign and missing commits, force-with-lease push of exactly the approved commit, and refusal of any other commit at the receive-pack check')
+  console.log('PASS: real Docker box checkout and control socket, Git work with a large lockfile and a binary file, hardened copy and review with no network from the read-only box disk (box Git config never ran), refusal of foreign and missing commits, force-with-lease push of exactly the approved commit, refusal of any other commit at the receive-pack check, and a direct push to main as a fast-forward only')
 } finally {
-  for (const container of [names.box, names.server]) await docker(['rm', '-f', container], { allowFailure: true })
+  for (const container of [names.box, names.server, names.direct]) await docker(['rm', '-f', container], { allowFailure: true })
   await docker(['volume', 'rm', names.volume], { allowFailure: true })
   await rm(directory, { recursive: true, force: true }).catch(async () => {
     // Files the containers wrote as uid 1000 may need a container to remove them.

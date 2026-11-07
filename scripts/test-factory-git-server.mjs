@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { inspectReceivePack } from '/opt/shared/git-pktline.ts'
 
-const expected = { ref: process.env.EXPECTED_REF, sha: process.env.EXPECTED_SHA }
+// A base branch (a direct_push Git flow) moves only from the head the Server read: EXPECTED_OLD.
+const expected = { ref: process.env.EXPECTED_REF, sha: process.env.EXPECTED_SHA, ...(process.env.EXPECTED_OLD ? { old: process.env.EXPECTED_OLD } : {}) }
 const prefix = `/api/compute-agent/publish/${process.env.APPROVAL}.git`
 createServer(async (request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1')

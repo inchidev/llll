@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inspectReceivePack, parseReceivePack, receivePackRefusal } from '../../shared/git-pktline'
+import { inspectReceivePack, ownBranchRef, parseReceivePack, receivePackRefusal } from '../../shared/git-pktline'
 
 const pkt = (line: string) => (new TextEncoder().encode(line).length + 4).toString(16).padStart(4, '0') + line
 const bytes = (text: string) => new TextEncoder().encode(text)
@@ -46,6 +46,25 @@ describe('receive-pack commands', () => {
     ['capabilities on a later command', pkt(`${old} ${sha} ${ref}\0report-status\n`) + pkt(`${old} ${sha} ${ref}\0atomic\n`) + '0000'],
   ])('throws on %s', (_name, text) => {
     expect(() => parseReceivePack(bytes(text))).toThrow()
+  })
+})
+
+describe('a Project’s Git flow', () => {
+  const box = '00000000-0000-4000-8000-0000000000c1'
+  it('allows the box’s own branch under any plain prefix, and nothing else', () => {
+    for (const branch of [`refs/heads/l4-agent/${box}`, `refs/heads/agents/${box}`, `refs/heads/team/ai-${box}`, `refs/heads/bot_${box}`]) expect(ownBranchRef(branch, box), branch).toBe(true)
+    for (const branch of [`refs/heads/${box}`, `refs/heads/l4-agent/${box}-x`, `refs/heads/l4-agent/00000000-0000-4000-8000-0000000000c2`, `refs/tags/l4-agent/${box}`,
+      `refs/heads/../l4-agent/${box}`, `refs/heads/a//${box}`, `refs/heads/.x/${box}`, `refs/heads/x.lock/${box}`, `refs/heads/a@{1}/${box}`, 'refs/heads/main']) expect(ownBranchRef(branch, box), branch).toBe(false)
+  })
+  it('under direct_push allows the base branch only from the head the Server read', () => {
+    const base = { ref: 'refs/heads/main', sha, old }
+    const direct = (text: string) => receivePackRefusal(parseReceivePack(bytes(text))!, base)
+    expect(direct(commands(`${old} ${sha} refs/heads/main`))).toBeNull()
+    expect(direct(commands(`${'b'.repeat(40)} ${sha} refs/heads/main`))).toMatch(/move forward from the head/u)
+    expect(direct(commands(`${zero} ${sha} refs/heads/main`))).toMatch(/move forward from the head/u)
+    expect(direct(commands(`${old} ${'d'.repeat(40)} refs/heads/main`))).toMatch(/approved commit/u)
+    expect(direct(commands(`${old} ${sha} refs/heads/release`))).toMatch(/own branch/u)
+    expect(direct(commands(`${old} ${zero} refs/heads/main`))).toMatch(/deleted/u)
   })
 })
 

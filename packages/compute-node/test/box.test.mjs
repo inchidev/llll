@@ -336,6 +336,35 @@ test('a push the Server grants for another commit or ref is not made', async () 
   assert.equal(server.publications.filter(entry => entry.operation === 'publish').length, 1)
 })
 
+test('pushes the Project’s prefixed branch, and under direct_push the base branch as a fast-forward only', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  const prefixed = `refs/heads/agents/${boxId}`
+  server.grant = body => ({ approvalId: body.approvalId, ref: prefixed, sha: pushed, expectedOld: null, remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_a' })
+  server.answer = () => [want({ publish: { approvalId, sha: pushed, ref: prefixed, baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(docker.pushes.at(-1), { remote: 'https://github.com/inchidev/afterprompt.git', ref: prefixed, sha: pushed, expectedOld: null, token: 'ghs_a' })
+  // Another box's branch under the same prefix is not this box's to push.
+  server.answer = () => [want({ publish: { approvalId: '00000000-0000-4000-8000-0000000000f3', sha: pushed, ref: 'refs/heads/agents/00000000-0000-4000-8000-0000000000ff', baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(docker.pushes.length, 1)
+  // direct_push: the base branch, with the head it replaces and the fast-forward check.
+  const direct = '00000000-0000-4000-8000-0000000000f4'
+  server.grant = body => ({ approvalId: body.approvalId, ref: 'refs/heads/main', sha: pushed, expectedOld: base, direct: true, remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_b' })
+  server.answer = () => [want({ publish: { approvalId: direct, sha: pushed, ref: 'refs/heads/main', baseSha: base, direct: true } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(docker.pushes.at(-1), { remote: 'https://github.com/inchidev/afterprompt.git', ref: 'refs/heads/main', sha: pushed, expectedOld: base, fastForward: true, token: 'ghs_b' })
+  // A grant that does not say direct for a direct push, or the other way round, is not made.
+  const mismatch = '00000000-0000-4000-8000-0000000000f5'
+  server.grant = body => ({ approvalId: body.approvalId, ref: 'refs/heads/main', sha: pushed, expectedOld: base, remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_c' })
+  server.answer = () => [want({ publish: { approvalId: mismatch, sha: pushed, ref: 'refs/heads/main', baseSha: base, direct: true } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(docker.pushes.length, 2)
+  assert.deepEqual(server.publications.at(-1), { operation: 'published', approvalId: mismatch, ok: false, message: 'The Server granted another push' })
+})
+
 test('a new egress revision reloads the proxy’s secrets by docker exec, then rewrites its policy file', async () => {
   const docker = fakeDocker(), server = fakeServer()
   const h = host({ docker, server })

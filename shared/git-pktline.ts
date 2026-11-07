@@ -2,7 +2,11 @@
  * The start of a Git `git-receive-pack` request: its ref update commands, read before anything is forwarded.
  * The egress layer allows a push only when it updates exactly the approved branch to exactly the approved
  * commit; the pack after the commands is Git's own, and the receiving server checks it against those hashes.
+ * A push to a base branch (a direct_push Git flow) must also replace exactly the head the Server read when it
+ * claimed the push: the receiving server applies the update only while the branch is still there.
  */
+/** What one approved push may do: set `ref` to `sha`, and where `old` is given, only from that head. */
+export type ExpectedPush = { ref: string; sha: string; old?: string }
 export type ReceiveCommand = { old: string; new: string; ref: string }
 export type ReceivePack = { commands: ReceiveCommand[]; capabilities: string[]; end: number }
 
@@ -16,6 +20,13 @@ const CAPABILITIES = new Set(['report-status', 'report-status-v2', 'side-band', 
 const PREFIXED = ['agent=', 'session-id=']
 
 export class GitPktLineError extends Error {}
+
+/** A box's own branch ref: the Project's branch prefix, ending in `/`, `-` or `_`, then the box's id. */
+export function ownBranchRef(ref: string, boxId: string) {
+  if (!ref.startsWith('refs/heads/') || !ref.endsWith(boxId) || ref.length <= 'refs/heads/'.length + boxId.length) return false
+  const prefix = ref.slice('refs/heads/'.length, -boxId.length)
+  return /^[A-Za-z0-9_][A-Za-z0-9._/-]*[/_-]$/u.test(prefix) && !/\.\.|\/\/|\/\.|\.\/|\.lock\/|@\{/u.test(prefix)
+}
 
 /**
  * Reads the command list at the start of a receive-pack request body. Returns null while it is incomplete,
@@ -49,13 +60,14 @@ export function parseReceivePack(bytes: Uint8Array): ReceivePack | null {
 }
 
 /** Why a push other than `<old> <sha> <ref>` for the one approved update is refused, or null when it is that push. */
-export function receivePackRefusal(pack: ReceivePack, expected: { ref: string; sha: string }) {
+export function receivePackRefusal(pack: ReceivePack, expected: ExpectedPush) {
   if (pack.commands.length !== 1) return pack.commands.length ? 'Only one ref update is allowed' : 'No ref update'
   const [command] = pack.commands as [ReceiveCommand]
   if (!SHA.test(command.old) || !SHA.test(command.new)) return 'Invalid object name'
   if (command.ref !== expected.ref) return 'Only the Task’s own branch may be pushed'
   if (command.new === ZERO) return 'A branch cannot be deleted'
   if (command.new !== expected.sha) return 'Only the approved commit may be pushed'
+  if (expected.old !== undefined && command.old !== expected.old) return 'The base branch may only move forward from the head it had when the push was approved'
   const unknown = pack.capabilities.find(capability => !CAPABILITIES.has(capability) && !PREFIXED.some(prefix => capability.startsWith(prefix)))
   if (unknown) return `Push capability ${unknown.split('=')[0]} is not accepted`
   return null
@@ -68,7 +80,7 @@ export const receivePackProbe = (bytes: Uint8Array) => bytes.length === 4 && new
  * Reads a receive-pack request's commands from its body and decides: a refusal, or a body that replays the
  * bytes already read and then the rest, unchanged, to forward.
  */
-export async function inspectReceivePack(body: ReadableStream<Uint8Array> | null, expected: { ref: string; sha: string }):
+export async function inspectReceivePack(body: ReadableStream<Uint8Array> | null, expected: ExpectedPush):
   Promise<{ refusal: string } | { body: ReadableStream<Uint8Array> }> {
   if (!body) return { refusal: 'No ref update' }
   const reader = body.getReader()

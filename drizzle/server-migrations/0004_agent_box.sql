@@ -41,6 +41,7 @@ CREATE TABLE `factory_boxes` (
 	`checkpoint_sha` text,
 	`head_sha` text,
 	`pull_json` text,
+	`pushed_sha` text,
 	`runtime_ms` integer DEFAULT 0 NOT NULL,
 	`publication_count` integer DEFAULT 0 NOT NULL,
 	`created_at` text NOT NULL,

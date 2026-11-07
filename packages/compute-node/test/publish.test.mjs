@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { copyCommit } from '../src/review-diff.mjs'
-import { pushBranch, pushFailure } from '../src/push-branch.mjs'
+import { pushBranch, pushFailure, pushRef } from '../src/push-branch.mjs'
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }).trim()
 async function boxRepository() {
@@ -75,6 +75,42 @@ test('a push names only a box’s own branch, one commit and a known remote with
     { remote: 'file:///tmp/repo.git', ref, sha, expectedOld: null, token },
     { remote: 'https://server.example/api/compute-agent/publish/00000000-0000-4000-8000-0000000000f1.git', ref, sha, expectedOld: null, authorization: 'Bearer short' },
   ]) await assert.rejects(pushBranch({ mirror: '/nonexistent', ...input }), /Invalid push/u, JSON.stringify(input))
+})
+
+test('a push goes to the box’s branch under the Project’s prefix, or with fastForward to a base branch', async () => {
+  const box = '00000000-0000-4000-8000-0000000000c1'
+  for (const ref of [`refs/heads/l4-agent/${box}`, `refs/heads/agents/${box}`, `refs/heads/team/ai-${box}`]) {
+    assert.equal(pushRef(ref, { boxId: box }), true, ref)
+    assert.equal(pushRef(ref), true, ref)
+  }
+  for (const ref of ['refs/heads/main', `refs/heads/${box}`, `refs/heads/agents/00000000-0000-4000-8000-0000000000c2`, `refs/tags/l4-agent/${box}`, `refs/heads/../${box}`, `refs/heads/a//${box}`])
+    assert.equal(pushRef(ref, { boxId: box }), false, ref)
+  for (const ref of ['refs/heads/main', 'refs/heads/release/2026', 'refs/heads/feature_x']) assert.equal(pushRef(ref, { fastForward: true }), true, ref)
+  for (const ref of ['refs/tags/v1', 'refs/heads/', 'refs/heads/main.lock', 'refs/heads/.x', 'refs/heads/a..b', 'refs/heads/x/', 'refs/heads/a@{1}', 'HEAD', 'refs/heads/a b'])
+    assert.equal(pushRef(ref, { fastForward: true }), false, ref)
+  const github = 'https://github.com/inchidev/afterprompt.git', sha = 'c'.repeat(40), token = 'ghs_' + 'x'.repeat(36)
+  // A fast-forward names the head it replaces.
+  for (const expectedOld of [null, 'main', undefined]) await assert.rejects(pushBranch({ mirror: '/nonexistent', remote: github, ref: 'refs/heads/main', sha, expectedOld, fastForward: true, token }), /Invalid push/u)
+  await assert.rejects(pushBranch({ mirror: '/nonexistent', remote: github, ref: 'refs/heads/main', sha, expectedOld: null, fastForward: 'yes', token }), /Invalid push/u)
+})
+
+test('a direct push goes ahead only when the approved commit descends from the branch’s head', async () => {
+  const { directory, box, baseSha, sha } = await boxRepository()
+  const previous = process.env.LLLL_PUSH_INSECURE_LOCAL
+  process.env.LLLL_PUSH_INSECURE_LOCAL = '1'
+  try {
+    await mkdir(join(directory, 'mirror'))
+    const mirror = join(directory, 'mirror/repo.git')
+    await copyCommit({ box, mirror, sha, baseSha })
+    // Nothing listens there: a fast-forward gets as far as Git's push, which fails to connect.
+    const remote = 'http://127.0.0.1:9/inchidev/afterprompt.git', other = 'f'.repeat(40)
+    await assert.rejects(pushBranch({ mirror, remote, ref: 'refs/heads/main', sha, expectedOld: other, fastForward: true }, { outbound: true }), /does not descend from: a direct push only fast-forwards/u)
+    await assert.rejects(pushBranch({ mirror, remote, ref: 'refs/heads/main', sha: baseSha, expectedOld: sha, fastForward: true }, { outbound: true }), /does not descend/u)
+    await assert.rejects(pushBranch({ mirror, remote, ref: 'refs/heads/main', sha, expectedOld: baseSha, fastForward: true }, { outbound: true }), error => !/does not descend|Invalid push/u.test(error.message))
+  } finally {
+    if (previous === undefined) delete process.env.LLLL_PUSH_INSECURE_LOCAL; else process.env.LLLL_PUSH_INSECURE_LOCAL = previous
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('a failed push says what Git said, never its credential', () => {

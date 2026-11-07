@@ -193,6 +193,23 @@ it('lets a box push only the approved commit to its own branch, adding the push 
   expect(network).toHaveBeenCalledTimes(2)
 })
 
+it('pushes the box’s branch under the Project’s prefix, and a base branch only as a fast-forward from the head the Server read', async () => {
+  const { id, lease } = await leasedBox()
+  const approved = 'c'.repeat(40), head = 'a'.repeat(40), zero = '0'.repeat(40), prefixed = `refs/heads/agents/${id}`
+  expect((await outbound(id, lease, { push: { remote: source, token: 't', ref: prefixed, sha: approved } }).fetch(pushRequest(pushBody(`${zero} ${approved} ${prefixed}`)))).status).toBe(200)
+  // Without direct_push the base branch is never a box's to push, whatever the grant names.
+  expect((await outbound(id, lease, { push: { remote: source, token: 't', ref: 'refs/heads/main', sha: approved } }).fetch(pushRequest(pushBody(`${head} ${approved} refs/heads/main`)))).status).toBe(403)
+  const direct = outbound(id, lease, { push: { remote: source, token: 't', ref: 'refs/heads/main', sha: approved, direct: true, old: head } })
+  expect((await direct.fetch(pushRequest(pushBody(`${head} ${approved} refs/heads/main`)))).status).toBe(200)
+  for (const body of [pushBody(`${'b'.repeat(40)} ${approved} refs/heads/main`), pushBody(`${zero} ${approved} refs/heads/main`), pushBody(`${head} ${approved} ${prefixed}`)]) {
+    expect((await direct.fetch(pushRequest(body))).status).toBe(403)
+  }
+  // A direct grant is for the repository's base branch only, with the head it must replace.
+  expect((await outbound(id, lease, { push: { remote: source, token: 't', ref: 'refs/heads/release', sha: approved, direct: true, old: head } }).fetch(pushRequest(pushBody(`${head} ${approved} refs/heads/release`)))).status).toBe(403)
+  expect((await outbound(id, lease, { push: { remote: source, token: 't', ref: 'refs/heads/main', sha: approved, direct: true } }).fetch(pushRequest(pushBody(`${head} ${approved} refs/heads/main`)))).status).toBe(403)
+  expect(network).toHaveBeenCalledTimes(2)
+})
+
 it.each(['expired lease', 'another lease', 'paused Node', 'released box'])('refuses every destination after a %s', async change => {
   const { id, lease } = await leasedBox()
   if (change === 'expired lease') f.db.prepare("UPDATE factory_boxes SET lease_until='2000-01-01' WHERE id=?").run(id)

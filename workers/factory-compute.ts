@@ -377,7 +377,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
    * The box's pushes, as its sync says: the review a person reads of one, or the approved one to push. The
    * Agent's turn waits on its tool call meanwhile, so this runs while the turn does.
    */
-  private async outward(box: CloudBox, capabilities: Capabilities, state: BoxState, answer: { review?: { approvalId: string; sha: string; baseSha: string }; publish?: { approvalId: string; sha: string; ref: string; baseSha: string } }) {
+  private async outward(box: CloudBox, capabilities: Capabilities, state: BoxState, answer: { review?: { approvalId: string; sha: string; baseSha: string }; publish?: { approvalId: string; sha: string; ref: string; baseSha: string; direct?: true } }) {
     const failed = (value: unknown, fallback: string) => String((value as { message?: unknown } | null)?.message ?? fallback).slice(0, 300)
     if (answer.review) {
       const { approvalId, sha, baseSha } = answer.review
@@ -397,8 +397,11 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       const remote = gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
       // Gitea credentials stay in the outbound Worker; a GitHub token lives only in its grant for this push.
       if (!gitea) token = await githubPushGrant(this.env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, claim.ensure)
-      await this.intercept(box.id, state.lease!, { push: { remote, token: token ?? 'gitea-broker', ref: claim.ref, sha: claim.request.sha } })
-      const pushed = await this.command({ operation: 'publish', remote, ref: claim.ref, sha: claim.request.sha, baseSha: environment.baseSha, expectedOld: claim.expectedOld }, capabilities.processLimit) as { ok?: boolean }
+      // A base branch (direct_push) moves only forward from the head the Server read for this push.
+      const direct = claim.direct ? { direct: true as const, old: claim.expectedOld! } : {}
+      await this.intercept(box.id, state.lease!, { push: { remote, token: token ?? 'gitea-broker', ref: claim.ref, sha: claim.request.sha, ...direct } })
+      const pushed = await this.command({ operation: 'publish', remote, ref: claim.ref, sha: claim.request.sha, baseSha: environment.baseSha, expectedOld: claim.expectedOld,
+        ...(claim.direct ? { fastForward: true } : {}) }, capabilities.processLimit) as { ok?: boolean }
       ok = pushed.ok === true
       if (!ok) message = failed(pushed, 'The repository refused the push')
     } catch { message = 'The push failed' }

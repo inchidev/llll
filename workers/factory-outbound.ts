@@ -4,7 +4,7 @@ import type { RunEnvironment } from '../shared/code-environments'
 import { AGENT_GATEWAY_PATH, agentGateway } from '../server/utils/agent-gateway'
 import { leasedCloudBox } from '../server/utils/factory-boxes'
 import { giteaPush, giteaRemote, giteaSourceFetch } from '../server/utils/gitea'
-import { inspectReceivePack } from '../shared/git-pktline'
+import { inspectReceivePack, ownBranchRef } from '../shared/git-pktline'
 import { boxEgress, EGRESS_BODY_LIMIT, egressBytes, egressSecretValues, markSecretsUsed, replacePlaceholders, scrubStream, scrubText, TEXT_BODY, type CompiledEgress } from '../server/utils/box-egress'
 
 /** Reads a body up to `limit`; past it, what was read and the rest stream on unchanged. */
@@ -38,8 +38,11 @@ export type BoxEgress = { boxId: string; lease: string
   storage?: { remote: string; token: string; write: boolean }
   /** The original repository's pinned source, read once while the box's first checkout is cloned. */
   source?: { remote: string; token: string }
-  /** One approved push of the Task's branch to the original repository, while a trusted helper makes it. */
-  push?: { remote: string; token: string; ref: string; sha: string } }
+  /**
+   * One approved push to the original repository, while a trusted helper makes it: the Task's own branch, or
+   * under a direct_push Git flow the base branch, then only from `old`, the head the Server read for it.
+   */
+  push?: { remote: string; token: string; ref: string; sha: string; direct?: true; old?: string } }
 
 /** A Git smart-HTTP request under `remote` for one service only: its refs advertisement or the service itself. */
 function gitService(url: URL, request: Request, remote: URL, service: 'git-upload-pack' | 'git-receive-pack') {
@@ -100,13 +103,15 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
       }
     }
     if (grant.push) {
-      // Only `<old> <approved sha> refs/heads/l4-agent/<box>`: the commands are read before anything is forwarded.
+      // Only `<old> <approved sha> <the approved branch>`: the commands are read before anything is forwarded.
       const remote = new URL(grant.push.remote)
       const suffix = gitService(url, request, remote, 'git-receive-pack')
       if (suffix !== null) {
         const environment = JSON.parse(box.environmentJson) as RunEnvironment
-        const expected = { ref: grant.push.ref, sha: grant.push.sha }
-        if (expected.ref !== `refs/heads/l4-agent/${box.id}`) return new Response('Only the Task’s own branch may be pushed', { status: 403 })
+        // A base branch only as a fast-forward from the head the Server read; otherwise the box's own branch.
+        const direct = grant.push.direct === true
+        if (direct ? grant.push.ref !== `refs/heads/${environment.baseBranch}` || !/^[a-f0-9]{40}$/u.test(grant.push.old ?? '') : !ownBranchRef(grant.push.ref, box.id)) return new Response('Only the Task’s own branch may be pushed', { status: 403 })
+        const expected = { ref: grant.push.ref, sha: grant.push.sha, ...(direct ? { old: grant.push.old! } : {}) }
         if (environment.provider === 'gitea') {
           if (remote.href !== await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo)) return new Response('Repository capability denied', { status: 403 })
           return giteaPush(this.env, environment.gitConnectionId, environment.sourceRepo, suffix, request, expected)

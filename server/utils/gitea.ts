@@ -9,7 +9,7 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { listGitConnections, requireGitSetupOwner } from './git-connections'
 import { writeAudit } from './messages'
 import { fail } from './cf'
-import { inspectReceivePack } from '../../shared/git-pktline'
+import { inspectReceivePack, type ExpectedPush } from '../../shared/git-pktline'
 
 // The same scope as GitHub connections: one encrypted credential per Server and connection.
 const scope = (server: string, id: string) => `git-connection:${server}:${id}`
@@ -80,7 +80,7 @@ export async function giteaRepositories(env: L4Env, connectionId: string, transp
   return result
 }
 
-export type GiteaAccess = 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' | 'feedback'
+export type GiteaAccess = 'read' | 'work' | 'pull_request' | 'checks' | 'issues' | 'pull_request_read' | 'feedback' | 'merge'
 /** A Gitea token cannot be narrowed to one repository or operation, so the broker does it: callers
  * name the repository and operation class, and every request stays inside both. */
 export async function giteaAgentClient(env: L4Env, input: { connectionId?: string | null; repository: string; access: GiteaAccess },
@@ -91,6 +91,8 @@ export async function giteaAgentClient(env: L4Env, input: { connectionId?: strin
   const writes: Partial<Record<GiteaAccess, RegExp>> = {
     work: /^\/(?:contents|branches)$/u,
     pull_request: /^\/pulls(?:\/\d+)?$/u,
+    // The Task's pull request: its title out of WIP, then its merge.
+    merge: /^\/pulls\/\d+(?:\/merge)?$/u,
   }
   return {
     host: credentials.host,
@@ -117,7 +119,7 @@ export async function giteaRemote(env: L4Env, connectionId: string | null | unde
  * whose commands are exactly `<old> <sha> <ref>`, read before anything is forwarded. The Gitea token is added
  * here; redirects are refused.
  */
-export async function giteaPush(env: L4Env, connectionId: string | null | undefined, repository: string, suffix: string, incoming: Request, expected: { ref: string; sha: string }) {
+export async function giteaPush(env: L4Env, connectionId: string | null | undefined, repository: string, suffix: string, incoming: Request, expected: ExpectedPush) {
   const url = new URL(incoming.url)
   const advertisement = incoming.method === 'GET' && suffix === '/info/refs' && url.searchParams.get('service') === 'git-receive-pack' && [...url.searchParams.keys()].length === 1
   if (!advertisement && !(incoming.method === 'POST' && suffix === '/git-receive-pack' && !url.search)) return new Response('Repository capability denied', { status: 403 })
