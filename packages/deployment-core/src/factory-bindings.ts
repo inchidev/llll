@@ -1,6 +1,17 @@
-/** Script-metadata container entry. Default scheduling reads image and size from here. */
-export function factoryScriptContainer(workerName: string, image: string, instanceType: string) {
-  return { class_name: 'FactoryComputeDurableObject', name: `${workerName}-factory`, image, instance_type: instanceType, max_instances: 1 }
+/** Script-metadata container entry. Default scheduling reads image, size and how many boxes may run from here. */
+export function factoryScriptContainer(workerName: string, image: string, instanceType: string, maxBoxes: number) {
+  return { class_name: 'FactoryComputeDurableObject', name: `${workerName}-factory`, image, instance_type: instanceType, max_instances: maxBoxes }
+}
+
+/** Boxes a newly provisioned Server may run at once on its Cloudflare account. One container is one Task's box. */
+export const FACTORY_DEFAULT_BOXES = 4
+/** A policy written before boxes ran one container, so it keeps one until Factory is provisioned again. */
+export function factoryMaxBoxes(policyText?: string) {
+  try {
+    const boxes = policyText ? (JSON.parse(policyText) as { maxBoxes?: number }).maxBoxes : undefined
+    if (Number.isInteger(boxes) && boxes! >= 1 && boxes! <= 64) return boxes!
+  } catch { /* Stale or absent policy text keeps one container. */ }
+  return 1
 }
 
 export type FactoryApplicationConfiguration = {

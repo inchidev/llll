@@ -58,15 +58,20 @@ export type FactorySnapshot = z.infer<typeof factorySnapshot>
 export type FactoryAction = { approvalMode?: 'role' | 'plan' | 'review'; computeImage: string; computeLimits: { cpu: number; memoryMiB: number; processes: number; timeoutMs: number }; diskBytes: number; workspaceRevision: number; id: string; workspaceId: string; runId: string; digest: string; request: FactoryRequest; status: string;
   expiresAt: string; decidedBy: string | null; decidedAt: string | null; result: unknown; createdAt: string }
 export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null }
+/** What a Node runs at once: the Server admits boxes while their reservations fit (server/utils/box-admission.ts). */
+export const nodeCapacity = z.object({ cpu: z.number().positive().max(1024), memoryMiB: z.number().int().min(256).max(16777216), boxes: z.number().int().min(1).max(64) }).strict()
+export type NodeCapacity = z.infer<typeof nodeCapacity>
 // Existing Nodes retain their 1 GiB disks; new Nodes allocate 10 GiB per Task.
 export const dockerCapabilities = z.object({ diskBytes: z.union([z.literal(1073741824), z.literal(10737418240)]), docker: z.literal(true), durableDisk: z.literal(true), isolation: z.literal('shared-kernel'),
-  image: z.string().regex(/^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$/u), maxParallel: z.literal(1), protocol: z.literal(1) }).strict()
+  image: z.string().regex(/^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$/u), capacity: nodeCapacity, protocol: z.literal(2) }).strict()
 
+/** `cpu` and `memoryMiB` size one container; `capacity` is that size times the containers the application may run. */
 export const cloudflareCapabilities = z.object({ provider: z.literal('cloudflare-containers'), diskBytes: z.number().int().min(1000000000).max(20000000000), docker: z.literal(false), durableDisk: z.literal(false),
-  isolation: z.literal('container-vm'), image: z.string().regex(/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/u), maxParallel: z.literal(1), protocol: z.literal(1),
+  isolation: z.literal('container-vm'), image: z.string().regex(/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/u), capacity: nodeCapacity, protocol: z.literal(2),
   memoryMiB: z.number().int().min(256).max(12288), cpu: z.number().positive().max(4), processLimit: z.number().int().min(32).max(512), codeBytes: z.literal(500000000), timeoutMs: z.number().int().min(1000).max(600000),
 }).strict()
 export const computeCapabilities = z.union([dockerCapabilities, cloudflareCapabilities])
+export type ComputeCapabilities = z.infer<typeof computeCapabilities>
 
 /** Artifacts repository names allow 2–63 characters. Two UUIDs do not fit. */
 export function factoryRepositoryName(serverId: string, workspaceId: string) {

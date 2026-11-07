@@ -16,7 +16,7 @@ import type { AgentRun } from '../../shared/agent-execution'
 import { sequentialRoundTrips } from '../helpers/round-trips'
 
 const nodeId='00000000-0000-4000-8000-000000000099', image='registry.example/l4@sha256:'+'a'.repeat(64)
-const capabilities={diskBytes:1073741824 as const,docker:true as const,durableDisk:true as const,isolation:'shared-kernel' as const,image,maxParallel:1 as const,protocol:1 as const}
+const capabilities={diskBytes:1073741824 as const,docker:true as const,durableDisk:true as const,isolation:'shared-kernel' as const,image,capacity:{cpu:4,memoryMiB:16384,boxes:4},protocol:2 as const}
 const config={name:'Afterprompt',computeNodeId:nodeId,sourceRepo:'inchidev/afterprompt',sourceRepoId:11,sourceInstallationId:101,
   workRepo:'inchidev/afterprompt',workRepoId:11,workInstallationId:101,baseBranch:'main',requiredChecks:['test'],previewHosts:['vercel.app']}
 let f:ReturnType<typeof mcpFixture>,run:AgentRun
@@ -379,7 +379,7 @@ it('refuses a remote pairing that impersonates the managed Cloudflare provider w
   const auth = await runAuthorization(f.env, run)
   const owner = { ...auth, principal: { ...auth.principal, id: ids.owner, kind: 'human' as const, isOwner: true }, credential: { kind: 'session' as const }, delegation: undefined }
   const code = await prepareComputePairing(f.env, owner, 'Remote Docker')
-  const forged = { provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm', image, maxParallel: 1, protocol: 1, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
+  const forged = { provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm', image, capacity: { cpu: 2, memoryMiB: 16384, boxes: 4 }, protocol: 2, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
   await expect(pairComputeNode(f.env, code.token, forged as never)).rejects.toThrow()
   expect(f.db.prepare('SELECT count(*) AS total FROM compute_pairings').get()).toMatchObject({ total: 1 })
   expect(await pairComputeNode(f.env, code.token, capabilities)).toHaveProperty('nodeId')

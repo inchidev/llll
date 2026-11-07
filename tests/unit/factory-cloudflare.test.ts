@@ -22,7 +22,7 @@ vi.mock('cloudflare:workers', () => ({
 const nodeId = '00000000-0000-4000-8000-000000000099'
 const image = 'registry.cloudflare.com/account/factory@sha256:' + 'a'.repeat(64)
 const capabilities = { provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm', image,
-  maxParallel: 1, protocol: 1, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
+  capacity: { cpu: 0.5, memoryMiB: 4096, boxes: 1 }, protocol: 2, memoryMiB: 4096, cpu: 0.5, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000 }
 const config = { name: 'Original upstream', computeNodeId: nodeId, sourceRepo: 'inchidev/afterprompt', sourceRepoId: 11, sourceInstallationId: 101,
   workRepo: 'inchidev/afterprompt', workRepoId: 11, workInstallationId: 101, baseBranch: 'main', requiredChecks: ['test'], previewHosts: [] }
 const lease = 'b'.repeat(64), codeRemote = 'https://account.artifacts.cloudflare.net/git/server/task.git'
@@ -382,7 +382,7 @@ it('provisions only verified release blobs, preserves existing bindings and neve
   expect(metadata.bindings).toContainEqual(expect.objectContaining({ type: 'artifacts', name: 'FACTORY_CODE' }))
   expect(metadata.bindings).not.toContainEqual(expect.objectContaining({ type: 'r2_bucket' }))
   expect(metadata.containers).toContainEqual({ class_name: 'AgentComputeDurableObject' })
-  expect(metadata.containers).toContainEqual(expect.objectContaining({ class_name: 'FactoryComputeDurableObject', image: fixture.expectedImage, instance_type: 'standard-1', max_instances: 1, name: 'llll-' + ids.server + '-factory' }))
+  expect(metadata.containers).toContainEqual(expect.objectContaining({ class_name: 'FactoryComputeDurableObject', image: fixture.expectedImage, instance_type: 'standard-1', max_instances: 4, name: 'llll-' + ids.server + '-factory' }))
   expect(await (form.get('llll-worker.mjs') as Blob).text()).toBe('published immutable module')
   expect(JSON.stringify(metadata)).not.toContain('browser-cloudflare-grant')
   expect(JSON.stringify(metadata)).not.toContain('registry-secret')

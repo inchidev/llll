@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { runProcess } from './process.mjs'
 import { openNodeState, serverOrigin } from './state-store.mjs'
 import { readdir } from 'node:fs/promises'
+import { nodeCapacity } from './capacity.mjs'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
@@ -20,7 +21,8 @@ const probe = new LoopDiskStore(join(state,'probe-disks'),{bytes:33554432,maxDis
 await probe.initialize()
 const probeId = crypto.randomUUID()
 try { await probe.cleanup(); await probe.ensure(probeId,true) } finally { await probe.remove(probeId) }
-const capabilities = { diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,maxParallel:1,protocol:1 }
+// The Server places boxes within this capacity; a Node no longer runs one operation at a time.
+const capabilities = { diskBytes:configuredDiskBytes,docker:true,durableDisk:true,isolation:'shared-kernel',image,capacity:nodeCapacity(),protocol:2 }
 const delay = ms => new Promise(resolveDelay => setTimeout(resolveDelay,ms))
 const docker = async (args,options={}) => {
   const result = await runProcess('docker',args,options)

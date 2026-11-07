@@ -64,9 +64,12 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
     } finally { await env.FACTORY_CODE.delete(name).catch(() => undefined) }
   }
   const existing = await env.DB.prepare("SELECT id,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='cloudflare-containers' ORDER BY created_at LIMIT 1").first<{ id: string; capabilitiesJson: string }>()
-  const limits = env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : { diskBytes: 8000000000, cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000 }
-  const capabilities = cloudflareCapabilities.parse({ provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm',
-    image: env.FACTORY_IMAGE, maxParallel: 1, protocol: 1, cpu: 0.5, memoryMiB: 4096, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000, ...limits })
+  // One container is one box. The application runs at most maxBoxes of them, so that is the Node's capacity;
+  // a policy provisioned before boxes allows one container.
+  const { maxBoxes = 1, ...limits } = env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) as Record<string, number> : { diskBytes: 8000000000, cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000 }
+  const size = { cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000, diskBytes: 8000000000, ...limits }
+  const capabilities = cloudflareCapabilities.parse({ provider: 'cloudflare-containers', docker: false, durableDisk: false, isolation: 'container-vm',
+    image: env.FACTORY_IMAGE, protocol: 2, codeBytes: 500000000, ...size, capacity: { cpu: size.cpu * maxBoxes, memoryMiB: size.memoryMiB * maxBoxes, boxes: maxBoxes } })
   const nodeId = existing?.id ?? newId()
   if (existing && existing.capabilitiesJson !== JSON.stringify(capabilities)) fail(409, 'factory_image_changed', 'The Factory image changed. Preserve/export existing Task source and explicitly configure a new provider for new Tasks.')
   if (!existing && enabled) {

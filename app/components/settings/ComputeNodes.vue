@@ -58,7 +58,7 @@ async function disable(id: string) {
     </div></template></SettingsEditor>
     <SettingsEditor v-model:open="detailOpen" back="Compute" :title="selected?.name ?? 'Compute node'" description="Connection status, capacity and access."><template #body>
     <div v-if="selected" class="flex flex-wrap items-center justify-between gap-3 rounded border border-default p-3">
-      <div class="min-w-0"><p>{{ selected.name }} · {{ nodeStatus(selected) }}</p><p class="break-all text-xs text-muted">{{ selected.id }} · {{ selected.capabilities.isolation === 'container-vm' ? 'Cloudflare VM container · durable code checkpoints' : 'Persistent Docker workspace · Shared kernel' }}<br>Last seen: {{ selected.lastSeen ? new Date(selected.lastSeen).toLocaleString() : 'Never' }} · Disk: {{ Number(selected.capabilities.diskBytes || 0) / 1048576 }} MiB · Parallel operations: {{ selected.capabilities.maxParallel }}<br>Image: {{ selected.capabilities.image }}</p></div>
+      <div class="min-w-0"><p>{{ selected.name }} · {{ nodeStatus(selected) }}</p><p class="break-all text-xs text-muted">{{ selected.id }} · {{ selected.capabilities.isolation === 'container-vm' ? 'Cloudflare VM container · durable code checkpoints' : 'Persistent Docker workspace · Shared kernel' }}<br>Last seen: {{ selected.lastSeen ? new Date(selected.lastSeen).toLocaleString() : 'Never' }} · Disk: {{ Number(selected.capabilities.diskBytes || 0) / 1048576 }} MiB · Boxes at once: {{ (selected.capabilities.capacity as { boxes?: number } | undefined)?.boxes ?? 1 }}<br>Image: {{ selected.capabilities.image }}</p></div>
       <UButton v-if="selected.enabled" label="Disable and revoke" color="neutral" variant="outline" :loading="busy" @click="disable(selected.id)" />
     </div>
     </template></SettingsEditor>

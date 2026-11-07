@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 export async function testFactoryTransport({api}) {
-  const root='/api/compute-nodes',capabilities={diskBytes:1073741824,docker:true,durableDisk:true,isolation:'shared-kernel',image:'registry.example/l4@sha256:'+'a'.repeat(64),maxParallel:1,protocol:1}
+  const root='/api/compute-nodes',capabilities={diskBytes:1073741824,docker:true,durableDisk:true,isolation:'shared-kernel',image:'registry.example/l4@sha256:'+'a'.repeat(64),capacity:{cpu:4,memoryMiB:16384,boxes:4},protocol:2}
   await api('alpha',root,{actor:'anonymous',expected:401})
   await api('alpha',root,{actor:'alpha-member',expected:403})
   await api('alpha',root,{actor:'alpha-member',method:'POST',body:{name:'Unauthorized'},expected:403})

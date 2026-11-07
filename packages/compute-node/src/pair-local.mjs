@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { createHmac } from 'node:crypto'
 import { openNodeState, serverOrigin } from './state-store.mjs'
+import { nodeCapacity } from './capacity.mjs'
 
 process.umask(0o077)
 const config = Object.fromEntries((await readFile(process.argv[2], 'utf8')).split('\n').filter(line => /^(AUTH_SECRET|PUBLIC_ORIGIN|SERVER_ID)=/u.test(line)).map(line => {
@@ -12,7 +13,7 @@ if (serverOrigin(config.PUBLIC_ORIGIN) !== origin) throw new Error('Local pairin
 const state = await openNodeState(process.env.LLLL_NODE_STATE)
 try {
   if (!state.connection(origin)) {
-    const capabilities = { diskBytes: 10737418240, docker: true, durableDisk: true, isolation: 'shared-kernel', image: process.env.LLLL_WORKSPACE_IMAGE, maxParallel: 1, protocol: 1 }
+    const capabilities = { diskBytes: 10737418240, docker: true, durableDisk: true, isolation: 'shared-kernel', image: process.env.LLLL_WORKSPACE_IMAGE, capacity: nodeCapacity(), protocol: 2 }
     const { nodeId, token } = state.localPairing(origin)
     const body = JSON.stringify({ nodeId, token, capabilities, timestamp: Date.now() })
     const signature = createHmac('sha256', config.AUTH_SECRET).update('l4-local-compute-v1\n' + origin + '\n' + body).digest('hex')

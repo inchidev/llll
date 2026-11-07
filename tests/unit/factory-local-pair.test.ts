@@ -12,7 +12,7 @@ vi.mock('h3', async original => ({
 const origin = 'https://vps.example.com', nodeId = '00000000-0000-4000-8000-000000000090'
 const token = 'a'.repeat(64), timestamp = Date.parse('2026-10-26T12:00:00Z')
 const capabilities = { diskBytes: 1073741824, docker: true, durableDisk: true, isolation: 'shared-kernel',
-  image: 'sha256:' + 'b'.repeat(64), maxParallel: 1, protocol: 1 }
+  image: 'sha256:' + 'b'.repeat(64), capacity: { cpu: 4, memoryMiB: 16384, boxes: 4 }, protocol: 2 }
 let fixture: ReturnType<typeof mcpFixture>
 const setHeader = vi.fn()
 

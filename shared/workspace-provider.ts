@@ -1,8 +1,8 @@
-import type { FactoryRequest, FactorySnapshot } from './software-factory'
+import type { FactoryRequest, FactorySnapshot, NodeCapacity } from './software-factory'
 
 /** Server-authorized operations; implementations never receive a Git write credential. */
 export interface WorkspaceProvider {
-  readonly capabilities: { durableDisk: boolean; isolation: 'shared-kernel' | 'vm'; maxParallel: number; diskBytes: number; image: string }
+  readonly capabilities: { durableDisk: boolean; isolation: 'shared-kernel' | 'vm'; capacity: NodeCapacity; diskBytes: number; image: string }
   execute(job: WorkspaceJob, signal: AbortSignal): Promise<WorkspaceReceipt>
 }
 export type WorkspaceJob = { id: string; serverId: string; workspaceId: string; taskId: string; agentId: string;
