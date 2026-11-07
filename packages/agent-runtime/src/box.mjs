@@ -104,13 +104,18 @@ export function boxRuntime({ root = '/work', fetcher = fetch, batch = {} } = {})
   }
 }
 
-/** Serves the box's control socket: one JSON request per connection, answered in JSON lines. */
+/**
+ * Serves the box's control socket: one JSON request per connection, answered in JSON lines. control.mjs
+ * half-closes once it has sent its request, so the socket stays open for the answer until it is written.
+ */
 export function serveControl(box) {
-  const server = createServer(connection => {
+  const server = createServer({ allowHalfOpen: true }, connection => {
     let buffer = ''
     connection.setEncoding('utf8')
     const write = value => { if (!connection.destroyed) connection.write(JSON.stringify(value) + '\n') }
     connection.on('error', () => {})
+    // A request that ended without its line gets no answer.
+    connection.on('end', () => { if (buffer !== null) connection.end() })
     connection.on('data', async chunk => {
       if (buffer === null) return
       buffer += chunk

@@ -130,3 +130,23 @@ test('the daemon cancels a turn through the control socket, and the Run hears wh
     assert.deepEqual(await ask({ op: 'unknown' }), [{ error: 'Unknown operation' }])
   } finally { server.close(); await run.close(); await rm(root, { recursive: true, force: true }) }
 })
+
+test('a request sent with a half-close, as control.mjs sends it, still gets its answer', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'l4-control-')), socket = join(root, 'control.sock')
+  // A health check that takes a moment, as one reading the disk does.
+  const server = serveControl({ health: () => new Promise(resolve => setTimeout(() => resolve({ status: 'ready', checkout: true }), 50)), cancel: () => ({ ok: false }) })
+  await new Promise(resolve => server.listen(socket, resolve))
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const answer = await new Promise((resolve, reject) => {
+        let text = ''
+        const connection = connect(socket, () => connection.end(JSON.stringify({ op: 'health' }) + '\n'))
+        connection.setEncoding('utf8')
+        connection.on('data', chunk => { text += chunk })
+        connection.on('error', reject)
+        connection.on('close', () => resolve(text))
+      })
+      assert.equal(answer, JSON.stringify({ status: 'ready', checkout: true }) + '\n')
+    }
+  } finally { server.close(); await rm(root, { recursive: true, force: true }) }
+})

@@ -16,15 +16,18 @@ for await (const chunk of process.stdin) {
   chunks.push(chunk)
 }
 const request = Buffer.concat(chunks).toString('utf8').trim()
-// A box that has just started may not listen yet.
+// A box that has just started may not listen yet. Only a connection that opened is piped to stdout: a
+// refused one would leave its pipe listeners on stdout, one more each attempt.
 for (let attempt = 0; ; attempt++) {
   try {
     await new Promise((resolve, reject) => {
       const connection = connect(socket)
-      connection.once('connect', () => connection.end(request + '\n'))
-      connection.once('error', reject)
-      connection.pipe(process.stdout, { end: false })
-      connection.once('close', resolve)
+      connection.once('connect', () => {
+        connection.pipe(process.stdout, { end: false })
+        connection.once('close', resolve)
+        connection.end(request + '\n')
+      })
+      connection.once('error', error => { connection.unpipe(process.stdout); connection.destroy(); reject(error) })
     })
     break
   } catch (error) {
