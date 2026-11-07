@@ -43,7 +43,7 @@ A Node announces its capacity (CPU, memory, boxes) and the Server places Tasks w
 **The network is closed, with windows.**
 
 - **Presets:** npm, PyPI, crates.io and GitHub read access, chosen per Project.
-- **Project hosts:** set by an Owner or Space admin, including the Project's Destinations.
+- **Project hosts:** set by an Owner or Space admin, such as an API the Project's code talks to.
 - **A Task window:** the Agent asks for a host, a person opens it for a stated time.
 
 **Secrets belong to a Project.** An Owner or admin enters a value once; nobody, Agents included, reads it back. Each secret is bound to the hosts it may go to. The Agent sees a placeholder such as `L4_SECRET_TELEGRAM_TOKEN`, and the egress layer replaces it in headers, URL or body only on a request to a bound host. A window without a secret gives the Agent the network and nothing else. A token pasted into a conversation is history readable by its members and sent to the model; this is the place for it instead.
@@ -56,20 +56,17 @@ A Node announces its capacity (CPU, memory, boxes) and the Server places Tasks w
 
 **Each Project has its Git flow.** Its target branch, its branch prefix for Agents, who merges (only a person, which is the default, or the Agent after the required checks pass, or a direct push to the target branch for experiments) and the merge method. GitHub's branch protection is always the ceiling: L4 narrows it, never widens it. A person merges from the Task in L4; the GitHub App's Pull requests write is enough.
 
-**Destinations are where a Project ships**, configured on the Project and used the same way: a window to the destination plus a bound secret, under the Project's Git flow.
-
-- **Cloudflare through Git.** Workers Builds deploys from the target branch; L4 never uploads code itself. Setting up the Worker, its build, Durable Objects and a custom domain is an approved write on the operator's Cloudflare account, through a Cloudflare connection for Projects that is separate from the Server's own grant, which manages the Server itself and must never be reachable from a Task.
-- **AfterPrompt.** Upload a versioned package through its publish API from the box, once that API exists.
-- **Any approved outbound MCP write** from [the outbound MCP plan](../outbound-mcp-plan.md).
+**Factory ends at the merge; deployment is the repository's own business.** Whatever builds from the target branch, whether Workers Builds, Coolify, Fly or Vercel, stays authoritative and is configured by the team, not by L4. `factory_feedback` shows its checks and deployments as it does today. Setting up deployment targets from L4 (Destinations: a Cloudflare connection for Projects separate from the Server's own grant, the AfterPrompt publish API, approved outbound MCP writes) is deliberately out of this plan and gets its own decision later.
 
 **The model is told the truth.** Context window, output limit, reasoning and image input come from the model's own description: Pi's model catalog first, if it has one, then a table in L4, then Server settings for a custom model or OpenRouter. Compaction keeps a share of the real window instead of 6,000 tokens. Reasoning is on where the model supports it, with an effort setting.
 
-**Replies stream natively.** When a reply starts, the conversation's ChannelDO shows a message in a writing state. Deltas go over the conversation's existing WebSocket as transient events, buffered in the ChannelDO's memory, so a reconnecting client gets the text so far. The finished message is written to D1 once, and push notifications fire on it only. Tool steps and review waits show in the message as collapsible steps. Run events in D1 keep steps, not text deltas.
+**Replies stream natively, for every Agent Run, with or without a box.** When a reply starts, the conversation's ChannelDO shows a message in a writing state. Deltas go over the conversation's existing WebSocket as transient events, buffered in the ChannelDO's memory, so a reconnecting client gets the text so far. The finished message is written to D1 once, and push notifications fire on it only. Tool steps and review waits show in the message as collapsible steps. Run events in D1 keep steps, not text deltas.
 
 - **Embedded Pi:** the Durable Object forwards deltas as they come.
 - **Box:** the Pi loop holds one outbound WebSocket to the Run's Durable Object, replacing the poll for events.
+- **The unused `agent_turns.draft_message_id`** goes with the old progress-only path: streaming is not a draft message edited in D1.
 
-**The per-command protocol is removed, without compatibility.** The following go:
+**The per-command protocol is removed entirely, without compatibility or a transition period.** Nothing of it has users. The following go:
 
 - `factory_workspace` with its `exec`, `read`, `write`, `snapshot` and `publish` operations;
 - per-command `factory_actions`;
@@ -81,32 +78,29 @@ The Agent keeps Pi's tools and gets a few L4 tools: `factory_status`, `factory_p
 
 ## Work, in order
 
-Each item is a focused PR to `main`; the release ships when items 1 to 8 are merged and the acceptance runs pass.
+Each item is a focused PR to `main`; the release ships when items 1 to 7 are merged and the acceptance runs pass. No baseline is measured first: the current path is slow by construction.
 
-0. **Measure before.** On a Preview with `SERVER_TIMING`, record the time per `ls`, per `pnpm test` and per publication with the current Factory, and the queueing of four Tasks on one Node. These are the numbers to beat.
 1. **Model limits from the model.** Window, output, reasoning, images, compaction share; Server settings for custom models.
-2. **Native streaming** in conversations, embedded Pi first, then boxes.
+2. **Native streaming** in conversations, embedded Pi first, then boxes. This is not optional and not deferred: it ships in the same release.
 3. **Node capacity** instead of one operation per Node; the daemon reports slots.
 4. **The box.** The daemon runs a long-lived Task box with container Pi and its native tools, the model gateway credential per Run, and the Cloudflare container that sleeps and checkpoints on idle.
 5. **Git in the box.** Artifacts or the Node's Git server as remote, LFS on the Server's storage, push to `l4-agent/*` through the egress layer, SHA approval, review diffs read from Git. Removal of `snapshot_json`, the proposal limits and the per-command protocol.
 6. **Windows and secrets.** Presets, Project hosts, Task windows; Project secrets with bound hosts; the TLS-terminating proxy on VPS Nodes.
 7. **Git flow and merge.** Project Git flow settings, merge from the Task, the Agent merge after checks where allowed.
-8. **Destinations: Cloudflare.** The Cloudflare connection for Projects, approved writes for a Worker, its build and domain, and Workers Builds feedback in `factory_feedback`.
-9. **After the release.** Image generation through the gateway with a receipt and the Run's budget, written into the box; a preview of a box port through the Server's address so a person can try a build; Chromium and Playwright in the box image for playtests; the AfterPrompt Destination when its API exists; creating a repository from a Project (needs Administration on the GitHub App, and its behaviour on a personal account must be checked).
+8. **After the release.** Image generation through the gateway with a receipt and the Run's budget, written into the box; a preview of a box port through the Server's address so a person can try a build; Chromium and Playwright in the box image for playtests; creating a repository from a Project (needs Administration on the GitHub App, and its behaviour on a personal account must be checked). Destinations are a separate, later decision.
 
 ## Acceptance
 
 - **Local speed.** A command in the box makes no request to the Server: `git status` in a box takes what it takes on the host.
 - **Parallel work.** Four Tasks on one 4-vCPU VPS Node run at the same time, none waiting on another's command.
 - **Streaming.** The first words of a reply appear in the conversation within a second of the model sending them, on web and phone.
-- **The Telegram experiment.** In a conversation, from a phone, after connecting GitHub and Cloudflare once:
-  - a repository with images and a lockfile;
-  - a bot token as a Project secret;
-  - a Worker with a Durable Object built from `main` on the operator's Cloudflare under a custom domain;
-  - merged from L4.
+- **The Telegram experiment.** In a conversation, from a phone, after connecting GitHub once:
+  - a change with images and a lockfile;
+  - a bot token as a Project secret, used by the Agent against `api.telegram.org` through a window;
+  - a pull request merged from L4.
 
-  Nobody opens GitHub, Cloudflare or a browser on a computer.
-- **A game.** A Task produces a web game with binary sprites committed in Git, and its Agent loads it in the box and reports a screenshot and console errors (with item 9).
+  The repository's own build deploys it. Nobody opens GitHub or a browser on a computer for the code.
+- **A game.** A Task produces a web game with binary sprites committed in Git, and its Agent loads it in the box and reports a screenshot and console errors (with item 8).
 - **Nothing in the box.** No provider key, Git write token or secret value is readable in the box's filesystem, environment or process list; the tests check it.
 
 ## Unknowns
@@ -125,4 +119,5 @@ Each item is a focused PR to `main`; the release ships when items 1 to 8 are mer
 - The security boundary is the box plus its egress layer, as on exe.dev and for Claude Code on a developer's machine. The tests for "nothing in the box" become the most important tests of Factory.
 - `docs/software-factory.md` and `docs/agents.md` are rewritten with item 5; until then they describe the per-command Factory.
 - Codex CLI and Claude Code do not run in the box: the L4 Agent is Pi. A ChatGPT plan keeps working through the gateway; using a Claude subscription inside the product stays out under Anthropic's terms. An external Agent can still work through the Server's MCP.
-- The game flow from #43 is covered by items 5, 6 and 9, and that issue is closed in favour of this plan.
+- The game flow from #43 is covered by items 5, 6 and 8 except publishing to AfterPrompt, which waits for Destinations; that issue is closed in favour of this plan.
+- L4 does not learn how a team deploys. A team on Coolify, Fly, Vercel or Cloudflare keeps its own pipeline and sees its result in the Task.
