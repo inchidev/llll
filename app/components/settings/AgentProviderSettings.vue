@@ -9,6 +9,8 @@ const qc = useQueryClient(), toast = useToast()
 const editing = shallowRef<AgentProviderDTO | null>(null)
 const open = ref(false), busy = ref(false), loadingModels = ref(false), query = ref(''), page = ref(1)
 const availableModels = shallowRef<AgentProviderModel[]>([])
+// Pi's catalog figures for the provider's models, shown where the provider reported no limits.
+const catalogLimits = shallowRef<Record<string, { contextWindow?: number; maxOutputTokens?: number }>>({})
 const modelError = ref('')
 const connection = shallowRef<{ state: string; authorizationUrl: string; expiresAt: number } | null>(null)
 const state = reactive({ kind: 'openrouter' as AgentProviderId, name: providerNames.openrouter, enabled: true, apiKey: '', webSearch: false, shared: false, models: [] as AgentProviderModel[] })
@@ -22,15 +24,19 @@ const providerCards: Record<AgentProviderId, { description: string }> = {
   chatgpt: { description: 'Your ChatGPT plan, for your own requests' },
 }
 // The deployment's own provider (Workers AI or an operator endpoint) is listed like the others.
-type DeploymentState = { available: boolean; name: string | null; enabled: boolean; models: { id: string; label: string; selected: boolean }[]; deploymentModel: string | null }
+type ModelLimits = { contextWindow?: number; maxOutputTokens?: number }
+type DeploymentState = { available: boolean; name: string | null; enabled: boolean; models: { id: string; label: string; selected: boolean }[]; deploymentModel: string | null
+  /** An OpenAI-compatible deployment model: the limits its Owner set, and what Pi's catalog knows. */
+  limits: { owner: ModelLimits | null; catalog: ModelLimits | null } | null }
 const deployment = useQuery({ queryKey: computed(() => ['agent-deployment-provider', props.serverId]), queryFn: () => api<DeploymentState>(`/api/servers/${props.serverId}/agent-providers/deployment`), enabled: computed(() => props.isOwner) })
 const deploymentOpen = ref(false)
-const deploymentDraft = reactive({ enabled: true, selected: [] as string[] })
+const deploymentDraft = reactive({ enabled: true, selected: [] as string[], limits: undefined as ModelLimits | undefined })
 function editDeployment() {
   const value = deployment.data.value
   if (!value) return
   deploymentDraft.enabled = value.enabled
   deploymentDraft.selected = value.models.filter(model => model.selected).map(model => model.id)
+  deploymentDraft.limits = value.limits?.owner ? { ...value.limits.owner } : undefined
   deploymentOpen.value = true
 }
 async function saveDeployment() {
@@ -38,7 +44,9 @@ async function saveDeployment() {
   busy.value = true
   try {
     const all = deployment.data.value.models.length
-    await api(`/api/servers/${props.serverId}/agent-providers/deployment`, { method: 'PUT', body: { enabled: deploymentDraft.enabled, models: all && deploymentDraft.selected.length < all ? deploymentDraft.selected : null } })
+    const model = deployment.data.value.deploymentModel
+    const limits = deployment.data.value.limits && model ? (deploymentDraft.limits ? { model, ...deploymentDraft.limits } : null) : undefined
+    await api(`/api/servers/${props.serverId}/agent-providers/deployment`, { method: 'PUT', body: { enabled: deploymentDraft.enabled, models: all && deploymentDraft.selected.length < all ? deploymentDraft.selected : null, ...(limits !== undefined ? { limits } : {}) } })
     deploymentOpen.value = false
     await Promise.all([deployment.refetch(), refresh()])
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
@@ -59,7 +67,7 @@ function removeModel(id: string) { state.models = state.models.filter(m => m.id 
 watch(() => state.kind, (kind, previous) => { if (!state.name.trim() || state.name === providerNames[previous]) state.name = providerNames[kind] })
 watch(query, () => { page.value = 1 })
 function edit(provider: AgentProviderDTO | null = null) {
-  editing.value = provider; connection.value = null; availableModels.value = []; modelError.value = ''
+  editing.value = provider; connection.value = null; availableModels.value = []; catalogLimits.value = {}; modelError.value = ''
   const kind = provider?.kind ?? (props.isOwner ? 'openrouter' : 'chatgpt')
   Object.assign(state, { kind, name: provider?.name ?? providerNames[kind], enabled: provider?.enabled ?? true, apiKey: '', webSearch: provider?.webSearch ?? false, shared: provider?.shared ?? false, models: provider?.models.map(m => ({ ...m })) ?? [] })
   open.value = true
@@ -70,9 +78,14 @@ async function refresh() { await Promise.all([catalog.refetch(), qc.invalidateQu
 async function loadModels() {
   loadingModels.value = true; modelError.value = ''
   try {
-    const result = await api<{ models: AgentProviderModel[] }>(`/api/servers/${props.serverId}/agent-providers/models`, { method: 'POST', body: { kind: state.kind, connectionId: editing.value?.id, apiKey: state.apiKey || undefined } })
+    const result = await api<{ models: AgentProviderModel[]; catalog?: Record<string, ModelLimits> }>(`/api/servers/${props.serverId}/agent-providers/models`, { method: 'POST', body: { kind: state.kind, connectionId: editing.value?.id, apiKey: state.apiKey || undefined } })
     availableModels.value = result.models
-    state.models = state.models.map(model => result.models.find(option => option.id === model.id) ?? model)
+    catalogLimits.value = result.catalog ?? {}
+    // The provider's fresh description replaces the saved one; the limits the Owner set stay.
+    state.models = state.models.map(model => {
+      const option = result.models.find(candidate => candidate.id === model.id)
+      return option ? { ...option, ...(model.limits ? { limits: model.limits } : {}) } : model
+    })
     if (!result.models.length) modelError.value = 'No compatible models are available for this connection.'
   } catch (error) { modelError.value = errorMessage(error) }
   finally { loadingModels.value = false }
@@ -174,7 +187,10 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
             <li v-for="model in deployment.data.value.models" :key="model.id" class="px-3 py-2"><UCheckbox v-model="deploymentDraft.selected" :value="model.id" :label="model.label" :description="model.id" :disabled="!deploymentDraft.enabled" /></li>
           </ul>
         </UFormField>
-        <p v-else class="text-sm text-muted">Model: {{ deployment.data.value?.deploymentModel }}</p>
+        <template v-else>
+          <p class="text-sm text-muted">Model: {{ deployment.data.value?.deploymentModel }}</p>
+          <SettingsModelLimits v-if="deployment.data.value?.limits" v-model="deploymentDraft.limits" :catalog="deployment.data.value.limits.catalog ?? undefined" :label="deployment.data.value.deploymentModel ?? 'Model'" editable />
+        </template>
       </div>
     </template>
     <template #footer><UButton label="Cancel" color="neutral" variant="ghost" @click="deploymentOpen = false" /><UButton label="Save" :loading="busy" :disabled="deploymentDraft.enabled && Boolean(deployment.data.value?.models.length) && !deploymentDraft.selected.length" @click="saveDeployment" /></template>
@@ -221,10 +237,13 @@ watch(() => state.kind, () => { if (!editing.value) { state.models = []; availab
             </div>
           </UFormField>
           <ul v-if="state.models.length" class="divide-y divide-default rounded-md border border-default" aria-label="Chosen models">
-            <li v-for="model in state.models" :key="model.id" class="flex min-h-10 items-center gap-2 py-1.5 pe-1 ps-3 text-sm">
-              <span class="min-w-0 flex-1 truncate" :title="model.id">{{ model.label ?? model.id }}</span>
-              <AgentsModelCapabilities :inputs="model.inputs" :outputs="model.outputs" :tools="model.tools" :reasoning="model.reasoning" />
-              <UButton icon="i-ph-x" :aria-label="`Remove ${model.label ?? model.id}`" size="xs" color="neutral" variant="ghost" @click="removeModel(model.id)" />
+            <li v-for="model in state.models" :key="model.id" class="py-1.5 pe-1 ps-3 text-sm">
+              <div class="flex min-h-7 items-center gap-2">
+                <span class="min-w-0 flex-1 truncate" :title="model.id">{{ model.label ?? model.id }}</span>
+                <AgentsModelCapabilities :inputs="model.inputs" :outputs="model.outputs" :tools="model.tools" :reasoning="model.reasoning" />
+                <UButton icon="i-ph-x" :aria-label="`Remove ${model.label ?? model.id}`" size="xs" color="neutral" variant="ghost" @click="removeModel(model.id)" />
+              </div>
+              <SettingsModelLimits v-model="model.limits" :reported="model" :catalog="catalogLimits[model.id]" :label="model.label ?? model.id" editable class="pe-2" />
             </li>
           </ul>
           <p v-else class="text-sm text-muted">No models chosen yet.</p>

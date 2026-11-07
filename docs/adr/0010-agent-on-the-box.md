@@ -2,7 +2,7 @@
 
 Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 and Destinations are not. Built differently from the text below, or not yet:
 
-- **Model limits:** the window and answer limit come from what the provider reported, then Pi's catalog, then a default, capped at 200,000 and 32,000 tokens. Reasoning and image input for Pi, and Server settings for a custom model's limits, are not built: Pi is still told the model takes text and does not reason.
+- **Model limits:** the window and answer limit come from what the provider reported, then what the Owner set in Server settings → Models for a model whose provider reported none, then Pi's catalog, then a default, capped at 200,000 and 32,000 tokens. Reasoning and image input for Pi are not built: Pi is still told the model takes text and does not reason.
 - **Streaming from a box:** the box pushes HTTP batches of events to the gateway, about every 150 ms while text flows, instead of holding a WebSocket to the Run's Durable Object. The answers carry cancellation and steering.
 - **Cloudflare checkpoints** at the end of each turn and before a box stops after 10 minutes without a turn, not on every operation. A VPS box stops after 15 minutes; its disk stays.
 - **No Git server on the VPS Node.** The daemon copies the approved commit out of the box with hardened Git in a throwaway container without network, and pushes from that copy with a short token. Git LFS is not built.

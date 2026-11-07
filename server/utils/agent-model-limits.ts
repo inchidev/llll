@@ -1,18 +1,10 @@
 import { parseAgentModelRef, type AgentProviderId } from '../../shared/agent-providers'
+import { resolveModelLimits, type AgentModelLimitDetails, type AgentModelLimits } from '../../shared/agent-model-limits'
 import { loadAgentProvider } from './agent-providers'
+import { deploymentProviderSetting } from './agent-deployment-provider'
 import type { L4Env } from '../../workers/env'
 
-/** What Pi and the model gateway are told about a Run's model. */
-export type AgentModelLimits = { contextWindow: number; maxOutputTokens: number }
-
-/**
- * Pi sends the whole retained context with every call, so a million-token window would spend a
- * Run's token budget in a few calls. Compaction keeps a long Run inside this ceiling instead.
- */
-export const agentContextCeiling = 200_000
-const outputCeiling = 32_000
-/** An unknown model. Pi compacts when a provider reports an overflow, so a generous guess recovers. */
-export const unknownModelLimits: AgentModelLimits = { contextWindow: 128_000, maxOutputTokens: 8_192 }
+export { agentContextCeiling, unknownModelLimits, type AgentModelLimits } from '../../shared/agent-model-limits'
 
 type CatalogModel = { contextWindow?: number; maxTokens?: number }
 type Catalog = Readonly<Record<string, CatalogModel>>
@@ -26,35 +18,53 @@ const catalogs: Record<CatalogKind, () => Promise<Catalog>> = {
   'workers-ai': () => import('@earendil-works/pi-ai/providers/cloudflare-workers-ai.models').then(module => module.CLOUDFLARE_WORKERS_AI_MODELS as unknown as Catalog),
 }
 
-async function catalogModel(kind: CatalogKind | undefined, id: string): Promise<CatalogModel | undefined> {
-  if (!kind) return undefined
+/** Pi's catalog entry for a model, as limits; Anthropic's API lists dated snapshots of the aliases the catalog names. */
+function catalogEntry(catalog: Catalog, id: string) {
+  const model = catalog[id] ?? catalog[id.replace(/-\d{8}$/u, '')]
+  return model ? { contextWindow: model.contextWindow, maxOutputTokens: model.maxTokens } : undefined
+}
+async function catalogModel(kind: CatalogKind | undefined, id: string) {
+  return kind ? catalogEntry(await catalogs[kind](), id) : undefined
+}
+/** What Pi's catalog says about each of these models, for Settings to show beside the provider's own figures. */
+export async function catalogModelLimits(kind: AgentProviderId, ids: readonly string[]) {
   const catalog = await catalogs[kind]()
-  // Anthropic's API lists dated snapshots of the aliases the catalog names.
-  return catalog[id] ?? catalog[id.replace(/-\d{8}$/u, '')]
+  return Object.fromEntries(ids.flatMap(id => { const entry = catalogEntry(catalog, id); return entry ? [[id, entry]] : [] }))
+}
+/** The catalog that knows a deployment model: Workers AI, or OpenRouter behind an OpenAI-compatible endpoint. */
+function deploymentCatalog(env: Pick<L4Env, 'AI_BASE_URL'>, reference: string): CatalogKind | undefined {
+  if (reference.startsWith('@cf/')) return 'workers-ai'
+  return env.AI_BASE_URL?.trim().replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1' ? 'openrouter' : undefined
 }
 
-const positive = (value: number | undefined) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined
+/** What Pi's catalog says about a deployment model, or nothing when no catalog knows it. */
+export async function deploymentCatalogLimits(env: Pick<L4Env, 'AI_BASE_URL'>, reference: string) {
+  return catalogModel(deploymentCatalog(env, reference), reference)
+}
 
 /**
- * A model's real limits: what its provider reported when it was saved, then Pi's catalog, then a
- * generous default. The window is capped at the ceiling above, and the answer at a quarter of it.
+ * A model's limits and where each came from: what its provider reported when it was saved, then what the Owner set
+ * in Server settings → Models (on the saved model, or for the deployment's model next to its provider settings),
+ * then Pi's catalog, then a generous default. See `resolveModelLimits`.
  */
-export async function agentModelLimits(env: Pick<L4Env, 'DB' | 'AI_BASE_URL'>, reference: string): Promise<AgentModelLimits> {
+export async function agentModelLimitDetails(env: Pick<L4Env, 'DB' | 'AI_BASE_URL'>, reference: string): Promise<AgentModelLimitDetails> {
   const parsed = parseAgentModelRef(reference)
-  let saved: { contextWindow?: number; maxOutputTokens?: number } | undefined
-  let catalog: CatalogModel | undefined
   if (parsed) {
     const provider = await loadAgentProvider(env as L4Env, parsed.provider)
-    saved = provider?.models.find(model => model.id === parsed.model)
-    if (!positive(saved?.contextWindow) || !positive(saved?.maxOutputTokens)) catalog = await catalogModel(provider?.kind, parsed.model)
-  } else {
-    // A deployment model: Workers AI, or an OpenAI-compatible endpoint that may be OpenRouter.
-    const openRouter = env.AI_BASE_URL?.trim().replace(/\/+$/u, '') === 'https://openrouter.ai/api/v1'
-    catalog = await catalogModel(reference.startsWith('@cf/') ? 'workers-ai' : openRouter ? 'openrouter' : undefined, reference)
+    const saved = provider?.models.find(model => model.id === parsed.model)
+    const known = resolveModelLimits({ reported: saved, owner: saved?.limits })
+    const catalog = Object.values(known.sources).includes('default') ? await catalogModel(provider?.kind, parsed.model) : undefined
+    return resolveModelLimits({ reported: saved, owner: saved?.limits, catalog })
   }
-  const contextWindow = Math.min(positive(saved?.contextWindow) ?? positive(catalog?.contextWindow) ?? unknownModelLimits.contextWindow, agentContextCeiling)
-  const output = positive(saved?.maxOutputTokens) ?? positive(catalog?.maxTokens) ?? unknownModelLimits.maxOutputTokens
-  return { contextWindow, maxOutputTokens: Math.max(1024, Math.min(output, outputCeiling, Math.floor(contextWindow / 4))) }
+  // A deployment model has no saved record; its Owner limits are a Server setting for that model.
+  const setting = await deploymentProviderSetting(env as L4Env)
+  const owner = setting.limits?.model === reference ? setting.limits : undefined
+  return resolveModelLimits({ owner, catalog: await deploymentCatalogLimits(env, reference) })
+}
+
+export async function agentModelLimits(env: Pick<L4Env, 'DB' | 'AI_BASE_URL'>, reference: string): Promise<AgentModelLimits> {
+  const { contextWindow, maxOutputTokens } = await agentModelLimitDetails(env, reference)
+  return { contextWindow, maxOutputTokens }
 }
 
 /**
