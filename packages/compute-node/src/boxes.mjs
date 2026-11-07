@@ -3,7 +3,8 @@ export const BOX_IDLE_MS = 15 * 60 * 1000
 const MAX_REPORTED = 64, NO_LEASE = '0'.repeat(64)
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value)
 const lease = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
-const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}` })
+const commit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value)
+const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}` })
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'FTP_PROXY', 'ftp_proxy']
 
 /** Another operation of a Run's gateway, next to its tools endpoint. */
@@ -26,9 +27,16 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  *
  * Starting, stopping and releasing a box run one at a time per box, in the background, so a slow source
  * fetch never delays the sync that keeps every other lease alive. A turn runs beside them.
+ *
+ * What a box asks to publish leaves it only through this daemon. A throwaway container with no network and
+ * the box's disk read-only copies the requested commit into a bare repository on a scratch disk with hardened
+ * Git (review-diff.mjs), and for a review writes its diff, which goes to the Server. Once the push is approved,
+ * another throwaway container pushes exactly that commit from the copy to the Task's branch with a short
+ * credential the Server grants for it (push-branch.mjs); a GitHub token is revoked right after. One such
+ * publication runs at a time on a Node, beside turns.
  */
 export function createBoxHost({ docker, poll, disks, fetchSource, records, connection, image, server, capacity, diskFree,
-  fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
+  scratch, upload, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
   const boxes = new Map()
   const labels = (box) => ['--label', `l4.node=${connection.nodeId}`, '--label', `l4.server=${connection.serverId}`, '--label', `l4.box=${box.id}`, '--label', `l4.task=${box.taskId}`]
   let rotation = 0
@@ -189,6 +197,67 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     })()
   }
 
+  // One publication at a time per Node: the scratch disk holds one copy.
+  let publishing = Promise.resolve()
+  const outward = new Set()
+  const hardened = ['--read-only', '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '64', '--memory', '1g', '--cpus', '1',
+    '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000']
+
+  /** Copies the commit out of the box's disk into a fresh bare repository on the scratch disk; with a review, its diff. */
+  async function copyCommit(box, work, directory, review) {
+    const output = await docker(['run', '--rm', '-i', '--name', names(box.id).copy, ...labels(box), '--network', 'none', ...hardened,
+      '--mount', `type=volume,src=${names(box.id).volume},dst=/box,readonly`, '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/review-diff.mjs'],
+    { input: JSON.stringify({ sha: work.sha, baseSha: work.baseSha, review }), timeoutMs: 600000, limit: 2700000 }).catch(error => { throw Object.assign(new Error('Copy failed'), { cause: error, output: error.output }) })
+    return lines(output).at(-1) ?? { ok: false, message: 'The copy gave no answer' }
+  }
+
+  async function reviewPush(box, work) {
+    const id = crypto.randomUUID(), directory = await scratch.ensure(id)
+    try {
+      let result
+      try { result = await copyCommit(box, work, directory, true) } catch { result = { ok: false, message: 'The commit could not be copied from the box' } }
+      await upload(work.approvalId, result.ok ? { ok: true, review: result.review } : { ok: false, message: String(result.message ?? 'The commit could not be reviewed').slice(0, 300) })
+    } finally { await scratch.remove(id).catch(() => {}) }
+  }
+
+  async function publishPush(box, work) {
+    const id = crypto.randomUUID(), directory = await scratch.ensure(id)
+    let grant = null, ok = false, message
+    try {
+      // Claiming the push gives its credential; it never enters the box or the copy's container.
+      grant = await poll({ operation: 'publish', approvalId: work.approvalId })
+      if (grant?.sha !== work.sha || grant.ref !== work.ref) { message = 'The Server granted another push'; return }
+      const copied = await copyCommit(box, work, directory, false).catch(() => ({ ok: false, message: 'The commit could not be copied from the box' }))
+      if (!copied.ok) { message = String(copied.message ?? 'The commit could not be copied').slice(0, 300); return }
+      const output = await docker(['run', '--rm', '-i', '--name', names(box.id).push, ...labels(box), '--network', 'bridge', ...hardened,
+        '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/push-branch.mjs'],
+      { input: JSON.stringify({ remote: grant.remote, ref: grant.ref, sha: grant.sha, expectedOld: grant.expectedOld ?? null, ...(grant.token ? { token: grant.token } : { authorization: grant.authorization }) }), timeoutMs: 600000, limit: 10000 })
+        .catch(() => '')
+      ok = lines(output).at(-1)?.ok === true
+      if (!ok) message = 'The repository refused the push'
+    } catch (error) {
+      // No grant: the Server did not let this push go ahead (already claimed, or the branch moved).
+      if (!grant) { log('compute.box_publish_refused', { boxId: box.id, status: error?.status }); return }
+      message = 'The push failed'
+    } finally {
+      if (grant?.token) await revoke(grant.token).catch(() => {})
+      if (grant) await poll({ operation: 'published', approvalId: work.approvalId, ok, ...(message ? { message } : {}) }).catch(error => log('compute.box_published_failed', { boxId: box.id, status: error?.status }))
+      await scratch.remove(id).catch(() => {})
+    }
+  }
+
+  /** The Server's word on a running box's pushes: make a review, or push what was approved. */
+  function outwardWork(box, answer) {
+    for (const [work, run] of [[answer.review, reviewPush], [answer.publish, publishPush]]) {
+      if (!work || !uuid(work.approvalId) || !commit(work.sha) || !commit(work.baseSha) || outward.has(work.approvalId)) continue
+      if (run === publishPush && !/^refs\/heads\/l4-agent\/[a-f0-9-]{36}$/u.test(work.ref ?? '')) continue
+      outward.add(work.approvalId)
+      publishing = publishing.then(() => run(box, work))
+        .catch(error => log('compute.box_publication_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))
+        .finally(() => outward.delete(work.approvalId))
+    }
+  }
+
   function apply(answer) {
     if (!answer || !uuid(answer.id) || !lease(answer.lease) || !['running', 'stopped', 'released'].includes(answer.want)) return
     let box = boxes.get(answer.id)
@@ -215,6 +284,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     }
     if (turn && box.state === 'starting') box.pending = turn
     if (turn && box.state === 'idle') beginTurn(box, turn)
+    if (['idle', 'running'].includes(box.state) && scratch && upload) outwardWork(box, answer)
   }
 
   return {
@@ -226,8 +296,8 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       for (const box of Array.isArray(answer?.boxes) ? answer.boxes : []) apply(box)
       for (const box of boxes.values()) if (box.state === 'idle' && !box.runId && now() - box.lastActive >= idleMs) { box.state = 'stopping'; enqueue(box, () => stop(box)) }
     },
-    /** Every queued start, stop and release has finished. */
-    async settled() { await Promise.all([...boxes.values()].map(box => box.queue)) },
+    /** Every queued start, stop and release, and every publication, has finished. */
+    async settled() { await Promise.all([...boxes.values()].map(box => box.queue)); await publishing },
     /** A box disk this Node has without a record is reported until the Server says what it is. */
     adopt(id, taskId) { if (uuid(id) && uuid(taskId) && !boxes.has(id)) save(track({ id, lease: NO_LEASE, taskId, ready: false })) },
     /** The daemon stops: boxes stop with it, and their disks stay. */

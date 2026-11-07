@@ -157,6 +157,41 @@ it('refuses a redirect without forwarding the credential to another destination'
   expect(network).toHaveBeenCalledTimes(1)
 })
 
+/** The start of a receive-pack request, as Git writes it: one pkt-line per ref update, a flush, then the pack. */
+const pkt = (line: string) => (line.length + 4).toString(16).padStart(4, '0') + line
+const pushBody = (...commands: string[]) => commands.map((command, index) => pkt(index ? command + '\n' : command + '\0report-status side-band-64k agent=git/2.47\n')).join('') + '0000PACK-the-pack-itself'
+const pushRequest = (body: string) => new Request(source + '/git-receive-pack', { method: 'POST', headers: { 'Content-Type': 'application/x-git-receive-pack-request' }, body })
+
+it('lets a box push only the approved commit to its own branch, adding the push credential itself', async () => {
+  const { id, lease } = await leasedBox()
+  const approved = 'c'.repeat(40), ref = `refs/heads/l4-agent/${id}`, zero = '0'.repeat(40)
+  const worker = outbound(id, lease, { push: { remote: source, token: 'single-repository-push-token', ref, sha: approved } })
+  expect((await worker.fetch(request(source + '/info/refs?service=git-receive-pack'))).status).toBe(200)
+  expect((network.mock.calls[0]![0] as Request).headers.get('Authorization')).toBe('Basic ' + btoa('x-access-token:single-repository-push-token'))
+  const allowed = pushBody(`${zero} ${approved} ${ref}`)
+  expect((await worker.fetch(pushRequest(allowed))).status).toBe(200)
+  const forwarded = network.mock.calls[1]![0] as Request
+  expect(forwarded.headers.get('Authorization')).toBe('Basic ' + btoa('x-access-token:single-repository-push-token'))
+  expect(await forwarded.text()).toBe(allowed)
+  for (const [body, reason] of [
+    [pushBody(`${zero} ${approved} refs/heads/main`), 'Task’s own branch'],
+    [pushBody(`${zero} ${'d'.repeat(40)} ${ref}`), 'approved commit'],
+    [pushBody(`${approved} ${zero} ${ref}`), 'deleted'],
+    [pushBody(`${zero} ${approved} ${ref}`, `${zero} ${approved} refs/heads/main`), 'one ref update'],
+    [pkt(`${zero} ${approved} ${ref}\0report-status push-options\n`) + '0000PACK', 'push-options'],
+    [pkt(`push-cert\0report-status\n`) + '0000', 'Signed'],
+  ] as const) {
+    const refused = await worker.fetch(pushRequest(body))
+    expect(refused.status, reason).toBe(403)
+    expect(await refused.text()).toContain(reason)
+  }
+  // Another repository, or the same push without a grant, never leaves.
+  expect((await worker.fetch(new Request('https://github.com/other/private.git/git-receive-pack', { method: 'POST', body: allowed }))).status).toBe(403)
+  expect((await outbound(id, lease).fetch(pushRequest(allowed))).status).toBe(403)
+  expect((await outbound(id, lease, { push: { remote: source, token: 't', ref: 'refs/heads/l4-agent/' + crypto.randomUUID(), sha: approved } }).fetch(pushRequest(allowed))).status).toBe(403)
+  expect(network).toHaveBeenCalledTimes(2)
+})
+
 it.each(['expired lease', 'another lease', 'paused Node', 'released box'])('refuses every destination after a %s', async change => {
   const { id, lease } = await leasedBox()
   if (change === 'expired lease') f.db.prepare("UPDATE factory_boxes SET lease_until='2000-01-01' WHERE id=?").run(id)
@@ -486,7 +521,7 @@ it.each([undefined, { enabled: false }])('preserves Factory provisioning observa
 
 it('repairs an old image only when Factory has never admitted a Node or Task source', async () => {
   const fixture = await provisioningFixture()
-  f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes')
+  f.db.exec('DELETE FROM factory_approvals; DELETE FROM factory_boxes; DELETE FROM compute_nodes')
   fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
   fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: fixture.state.existingImage, instance_type: 'standard-1' }, scheduling_policy: 'default' }
   await expect(fixture.enable()).resolves.toMatchObject({ image: fixture.expectedImage })
@@ -496,7 +531,7 @@ it('repairs an old image only when Factory has never admitted a Node or Task sou
 
 it('completes an image rollout when the provider expands the reviewed instance size', async () => {
   const fixture = await provisioningFixture()
-  f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes')
+  f.db.exec('DELETE FROM factory_approvals; DELETE FROM factory_boxes; DELETE FROM compute_nodes')
   fixture.state.expandedSize = true
   fixture.state.existingImage = 'old-image'
   fixture.state.application = { id: 'existing', name: 'llll-' + ids.server + '-factory', durable_objects: { namespace_id: 'factory-namespace' }, configuration: { image: 'old-image', vcpu: 0.5, memory_mib: 4096, disk: { size_mb: 8000 } }, scheduling_policy: 'default' }
@@ -516,10 +551,10 @@ it('does not acquire repair authority for an unchanged expanded provider configu
 it.each(['node', 'source'])('preserves the pinned image when existing Factory %s authority remains', async kind => {
   const fixture = await provisioningFixture()
   fixture.state.existingImage = 'registry.cloudflare.com/account/old@sha256:' + 'f'.repeat(64)
-  if (kind === 'node') f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces')
+  if (kind === 'node') f.db.exec('DELETE FROM factory_approvals; DELETE FROM factory_boxes')
   if (kind === 'source') {
-    // Task source kept from the per-operation Factory still counts as authority.
-    f.db.prepare('INSERT INTO factory_workspaces(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    // A Task's box, with its source, still counts as authority.
+    f.db.prepare('INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(crypto.randomUUID(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, run.environmentJson, run.id, new Date().toISOString(), new Date().toISOString())
     f.db.exec("UPDATE compute_nodes SET capabilities_json=json_remove(capabilities_json,'$.provider')")
   }
@@ -528,7 +563,7 @@ it.each(['node', 'source'])('preserves the pinned image when existing Factory %s
   expect(fixture.calls.some(call => call.path.endsWith('/registries/registry.cloudflare.com/credentials'))).toBe(false)
 })
 
-function unusedFactory() { f.db.exec('DELETE FROM factory_actions; DELETE FROM factory_workspaces; DELETE FROM compute_nodes') }
+function unusedFactory() { f.db.exec('DELETE FROM factory_approvals; DELETE FROM factory_boxes; DELETE FROM compute_nodes') }
 const repairQuery = async (sql: string, params: (string | number)[]) => f.db.prepare(sql).all(...params) as { value: string }[]
 
 it('serializes unused repair and fences a superseded installer', async () => {

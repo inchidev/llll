@@ -359,7 +359,6 @@ export const agentTurns = sqliteTable('agent_turns', {
   requestId: text('request_id'),
   status: text('status', { enum: ['queued', 'thinking', 'tool', 'waiting_approval'] }).notNull().default('queued'),
   detail: text('detail'),
-  draftMessageId: text('draft_message_id').references(() => messages.id, { onDelete: 'set null' }),
   approvalJson: text('approval_json'),
   ...isoTimestamps(),
 }, table => [
@@ -1595,51 +1594,6 @@ export const computePairings = sqliteTable('compute_pairings', {
   expiresAt: text('expires_at').notNull(),
 })
 
-export const factoryWorkspaces = sqliteTable('factory_workspaces', {
-  id: text('id').primaryKey(),
-  channelId: text('channel_id').notNull().references(() => channels.id),
-  taskId: text('task_id').notNull().references(() => tasks.id),
-  agentId: text('agent_id').notNull().references(() => agents.userId),
-  initiatedBy: text('initiated_by').notNull().references(() => users.id),
-  nodeId: text('node_id').notNull().references(() => computeNodes.id),
-  environmentJson: text('environment_json').notNull(),
-  originRunId: text('origin_run_id').notNull().references(() => agentRuns.id),
-  status: text('status').notNull().default('new'),
-  snapshotJson: text('snapshot_json'),
-  pullJson: text('pull_json'),
-  commands: integer('commands').notNull().default(0),
-  runtimeMs: integer('runtime_ms').notNull().default(0),
-  publicationCount: integer('publication_count').notNull().default(0),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-}, table => [
-  unique().on(table.taskId, table.agentId, table.initiatedBy),
-])
-
-export const factoryActions = sqliteTable('factory_actions', {
-  id: text('id').primaryKey(),
-  workspaceId: text('workspace_id').notNull().references(() => factoryWorkspaces.id),
-  runId: text('run_id').notNull().references(() => agentRuns.id),
-  callId: text('call_id').notNull(),
-  digest: text('digest').notNull(),
-  requestJson: text('request_json').notNull(),
-  policyJson: text('policy_json').notNull(),
-  status: text('status').notNull(),
-  expiresAt: text('expires_at').notNull(),
-  createdAt: text('created_at').notNull(),
-  decidedBy: text('decided_by').references(() => users.id),
-  decidedAt: text('decided_at'),
-  leaseToken: text('lease_token'),
-  leaseUntil: text('lease_until'),
-  resultJson: text('result_json'),
-  completedAt: text('completed_at'),
-}, table => [
-  unique().on(table.runId, table.callId),
-  index('factory_actions_node_queue').on(table.status, table.createdAt),
-  uniqueIndex('factory_one_active_action').on(table.workspaceId).where(sql`${table.status} IN ('pending','approved','claimed','executing','uncertain')`),
-  check('factory_actions_status_check', sql`${table.status} IN ('pending','approved','claimed','executing','completed','rejected','expired','cancelled','uncertain','failed')`),
-])
-
 /**
  * One box per Task, Agent and initiator, for the life of the Task. The Node holds it under a lease it
  * renews on every sync; `cpu` and `memory_mib` are the share it was admitted with. `run_id` is the Run
@@ -1695,7 +1649,7 @@ export const factoryApprovals = sqliteTable('factory_approvals', {
   unique().on(table.runId, table.callId),
   index('factory_approvals_box').on(table.boxId, table.status),
   check('factory_approvals_kind_check', sql`${table.kind} IN ('plan','publish','window','merge')`),
-  check('factory_approvals_status_check', sql`${table.status} IN ('pending_diff','pending','approved','rejected','expired','completed','failed','uncertain')`),
+  check('factory_approvals_status_check', sql`${table.status} IN ('pending_diff','pending','approved','publishing','rejected','expired','completed','failed','uncertain')`),
 ])
 
 /** The private files bucket's index and its open uploads. */
@@ -1878,8 +1832,6 @@ export const schema = {
   agentWebhooks,
   computeNodes,
   computePairings,
-  factoryWorkspaces,
-  factoryActions,
   fileObjects,
   fileUploads,
   gitConnections,

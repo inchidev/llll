@@ -8,12 +8,29 @@ import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
 import { admitBoxes, BOX_WAITING_DETAIL } from './box-admission'
 import { fail } from './cf'
+import { boxOutwardWork, OPEN_APPROVALS } from './factory-approvals'
 
 /** A Node renews every box it lists on each sync; one that misses a minute of syncs loses its lease and its share. */
 export const BOX_LEASE_MS = 60000
 const ACTIVE = "('starting','running','idle')"
 const secret = () => [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('')
 const leaseUntil = () => new Date(Date.now() + BOX_LEASE_MS).toISOString()
+
+/**
+ * A bearer capability for a trusted component of a Node, bound to one purpose, one box or approval and the
+ * box's current lease: it ends with the lease. Gitea credentials stay on the Server behind it.
+ */
+export async function leaseCapability(env: L4Env, purpose: 'compute-source' | 'compute-publish', id: string, lease: string) {
+  if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'compute_source', 'Server credential encryption is unavailable')
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${purpose}:${id}:${lease}`)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+/** Compares a presented bearer capability with the expected one in constant time. */
+export function sameCapability(presented: string, expected: string) {
+  let difference = presented.length ^ 64
+  for (let index = 0; index < 64; index++) difference |= (presented.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0)
+  return Boolean(expected) && !difference
+}
 
 export type FactoryBox = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; originRunId: string
   runId: string | null; status: string; leaseToken: string | null; leaseUntil: string | null; cpu: number | null; memoryMib: number | null; runtimeMs: number; updatedAt: string }
@@ -106,8 +123,12 @@ export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string) {
   const box = await env.DB.prepare(`INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,run_id,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,agent_id,initiated_by) DO UPDATE SET run_id=excluded.run_id,updated_at=excluded.updated_at
     WHERE factory_boxes.status<>'released' AND factory_boxes.channel_id=excluded.channel_id AND factory_boxes.environment_json=excluded.environment_json AND factory_boxes.node_id=excluded.node_id
-    RETURNING id`).bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, environment, run.id, run.id, now, now).first<{ id: string }>()
+    RETURNING id,runtime_ms AS runtimeMs`).bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, environment, run.id, run.id, now, now).first<{ id: string; runtimeMs: number }>()
   if (!box) fail(403, 'factory_revoked', 'The Task’s box belongs to a different repository snapshot, conversation or Node, or was released when the Task was done. Start a new Task.')
+  if (box.runtimeMs >= ((JSON.parse(run.mandateJson) as RunMandate).execution?.boxRuntimeMs ?? 21600000)) {
+    await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run()
+    fail(403, 'factory_budget', 'This Task’s box has used its runtime. Raise the box runtime limit in Settings → Agents, or start a new Task.')
+  }
   return box.id
 }
 
@@ -117,10 +138,10 @@ export async function releaseBoxTurn(env: L4Env, runId: string) {
   for (const { id } of released.results) await wakeCloudBox(env, id).catch(() => undefined)
 }
 
-/** What still waits for a person before a box's turn may end; the commits themselves are in Git. */
+/** What still waits before a box's turn may end: a person's decision or a push under way. The commits themselves are in Git. */
 export async function boxCompletion(env: L4Env, run: AgentRun) {
-  const pending = await env.DB.prepare("SELECT 1 FROM factory_approvals WHERE run_id=? AND status IN ('pending_diff','pending') AND expires_at>? LIMIT 1").bind(run.id, nowIso()).first()
-  return { pending: Boolean(pending), missingWork: false }
+  const pending = await env.DB.prepare(`SELECT 1 FROM factory_approvals WHERE run_id=? AND status IN ${OPEN_APPROVALS} AND expires_at>? LIMIT 1`).bind(run.id, nowIso()).first()
+  return { pending: Boolean(pending) }
 }
 
 type SyncRow = FactoryBox & { runStatus: string | null }
@@ -206,10 +227,13 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
       // Network windows and Project secrets fill these; until then a box reaches only this Server.
       egress: { revision: 0, hosts: [] as string[], secretHosts: [] as string[] } }
   }
-  const boxes = [
+  const listed = [
     ...rows.filter(row => leased(row) || reported.has(row.id)).map(row => answer(row, reported.get(row.id))),
     ...[...reported.values()].filter(report => !byId.has(report.id)).map(report => answer(undefined, report)),
   ]
+  // A running box's pushes: the review to make of one, or the approved one to push.
+  const outward = await boxOutwardWork(env, listed.filter(box => box.want === 'running').map(box => box.id))
+  const boxes = listed.map(box => ({ ...box, ...outward.get(box.id) }))
   const started = admitted.filter(row => row.status === 'starting' && leases.get(row.id) === row.leaseToken).map(row => row.id)
   return { boxes, admitted: started, released: [...releasedIds] }
 }

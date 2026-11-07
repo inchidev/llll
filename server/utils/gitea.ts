@@ -9,6 +9,7 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { listGitConnections, requireGitSetupOwner } from './git-connections'
 import { writeAudit } from './messages'
 import { fail } from './cf'
+import { inspectReceivePack } from '../../shared/git-pktline'
 
 // The same scope as GitHub connections: one encrypted credential per Server and connection.
 const scope = (server: string, id: string) => `git-connection:${server}:${id}`
@@ -110,6 +111,32 @@ export type GiteaAgentClient = Awaited<ReturnType<typeof giteaAgentClient>>
 /** The clone address of a repository on a connection's Gitea. */
 export async function giteaRemote(env: L4Env, connectionId: string | null | undefined, repository: string) {
   return `${(await giteaCredentials(env, connectionId)).host}/${repository}.git`
+}
+/**
+ * Git smart-HTTP push for one approved update of one repository: its refs advertisement, and a receive-pack
+ * whose commands are exactly `<old> <sha> <ref>`, read before anything is forwarded. The Gitea token is added
+ * here; redirects are refused.
+ */
+export async function giteaPush(env: L4Env, connectionId: string | null | undefined, repository: string, suffix: string, incoming: Request, expected: { ref: string; sha: string }) {
+  const url = new URL(incoming.url)
+  const advertisement = incoming.method === 'GET' && suffix === '/info/refs' && url.searchParams.get('service') === 'git-receive-pack' && [...url.searchParams.keys()].length === 1
+  if (!advertisement && !(incoming.method === 'POST' && suffix === '/git-receive-pack' && !url.search)) return new Response('Repository capability denied', { status: 403 })
+  let body: ReadableStream<Uint8Array> | undefined
+  if (!advertisement) {
+    if (![null, 'identity'].includes(incoming.headers.get('content-encoding'))) return new Response('Compressed pushes are not accepted', { status: 403 })
+    const inspected = await inspectReceivePack(incoming.body, expected)
+    if ('refusal' in inspected) return new Response(inspected.refusal, { status: 403 })
+    body = inspected.body
+  }
+  const credentials = await giteaCredentials(env, connectionId)
+  const headers = new Headers({ Authorization: 'Basic ' + btoa(`${credentials.account}:${credentials.token}`), 'User-Agent': 'L4-publisher' })
+  for (const name of ['content-type', 'accept', 'git-protocol']) { const value = incoming.headers.get(name); if (value) headers.set(name, value) }
+  const response = await fetch(`${credentials.host}/${repository}.git${suffix}${url.search}`, { method: incoming.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(120000),
+    ...(body ? { duplex: 'half' } : {}) } as RequestInit)
+  if (response.status >= 300 && response.status < 400) { await response.body?.cancel(); return new Response('Redirect denied', { status: 502 }) }
+  const out = new Headers({ 'Cache-Control': 'no-store' })
+  for (const name of ['content-type', 'content-encoding']) { const value = response.headers.get(name); if (value) out.set(name, value) }
+  return new Response(response.body, { status: response.status, headers: out })
 }
 /** Git smart-HTTP read access for one repository. Only upload-pack, never receive-pack; redirects are refused. */
 export async function giteaSourceFetch(env: L4Env, connectionId: string | null | undefined, repository: string, suffix: string, incoming: Request) {

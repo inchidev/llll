@@ -18,7 +18,7 @@ CREATE TABLE `factory_approvals` (
 	FOREIGN KEY (`run_id`) REFERENCES `agent_runs`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`decided_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "factory_approvals_kind_check" CHECK("factory_approvals"."kind" IN ('plan','publish','window','merge')),
-	CONSTRAINT "factory_approvals_status_check" CHECK("factory_approvals"."status" IN ('pending_diff','pending','approved','rejected','expired','completed','failed','uncertain'))
+	CONSTRAINT "factory_approvals_status_check" CHECK("factory_approvals"."status" IN ('pending_diff','pending','approved','publishing','rejected','expired','completed','failed','uncertain'))
 );
 --> statement-breakpoint
 CREATE INDEX `factory_approvals_box` ON `factory_approvals` (`box_id`,`status`);--> statement-breakpoint
@@ -77,4 +77,30 @@ CREATE TABLE `project_secrets` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `project_secrets_project_id_name_unique` ON `project_secrets` (`project_id`,`name`);--> statement-breakpoint
 CREATE UNIQUE INDEX `project_secrets_project_id_placeholder_unique` ON `project_secrets` (`project_id`,`placeholder`);--> statement-breakpoint
+DROP TABLE `factory_actions`;--> statement-breakpoint
+DROP TABLE `factory_workspaces`;--> statement-breakpoint
+CREATE TABLE `__new_agent_turns` (
+	`submission_id` text PRIMARY KEY NOT NULL,
+	`agent_id` text NOT NULL,
+	`channel_id` text NOT NULL,
+	`source_message_id` text NOT NULL,
+	`initiated_by` text NOT NULL,
+	`request_id` text,
+	`status` text DEFAULT 'queued' NOT NULL,
+	`detail` text,
+	`approval_json` text,
+	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
+	`updated_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
+	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`user_id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`channel_id`) REFERENCES `channels`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`source_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`initiated_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "agent_turns_status_check" CHECK("__new_agent_turns"."status" in ('queued', 'thinking', 'tool', 'waiting_approval'))
+);
+--> statement-breakpoint
+INSERT INTO `__new_agent_turns`("submission_id", "agent_id", "channel_id", "source_message_id", "initiated_by", "request_id", "status", "detail", "approval_json", "created_at", "updated_at") SELECT "submission_id", "agent_id", "channel_id", "source_message_id", "initiated_by", "request_id", "status", "detail", "approval_json", "created_at", "updated_at" FROM `agent_turns`;--> statement-breakpoint
+DROP TABLE `agent_turns`;--> statement-breakpoint
+ALTER TABLE `__new_agent_turns` RENAME TO `agent_turns`;--> statement-breakpoint
+CREATE INDEX `agent_turns_channel_agent_idx` ON `agent_turns` (`channel_id`,`agent_id`,`created_at`);--> statement-breakpoint
+CREATE UNIQUE INDEX `agent_turns_request_id_unique` ON `agent_turns` (`request_id`);--> statement-breakpoint
 ALTER TABLE `projects` ADD `factory_json` text;

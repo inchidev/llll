@@ -16,7 +16,7 @@ const flag = (args, name) => args.filter((value, index) => args[index - 1] === n
 
 /** Docker as the host sees it: containers, volumes and networks by name, and each box's control socket. */
 function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
-  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = []
+  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = [], pushes = []
   async function docker(args, options = {}) {
     calls.push(args)
     const [command, sub] = args
@@ -35,6 +35,11 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
     if (command === 'run') {
       const name = flag(args, '--name')[0]
       if (sub === '-d') { containers.set(name, args); return 'container\n' }
+      if (args.at(-1) === '/opt/l4/review-diff.mjs') {
+        const request = JSON.parse(options.input)
+        return JSON.stringify(request.review ? { ok: true, review: { sha: request.sha, baseSha: request.baseSha, commits: [], stat: '', patch: '+change', truncated: false } } : { ok: true, sha: request.sha }) + '\n'
+      }
+      if (args.at(-1) === '/opt/l4/push-branch.mjs') { pushes.push(JSON.parse(options.input)); return JSON.stringify({ ok: true }) + '\n' }
       return JSON.stringify({ ok: true })
     }
     if (command === 'exec') {
@@ -50,28 +55,31 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
     }
     throw new Error('Unexpected docker ' + args.join(' '))
   }
-  return { docker, calls, containers, volumes, networks, controls, turns, runs: () => calls.filter(args => args[0] === 'run') }
+  return { docker, calls, containers, volumes, networks, controls, turns, pushes, runs: () => calls.filter(args => args[0] === 'run') }
 }
 
 /** The Server's side of the Node protocol: each sync gets the answer the test sets. */
 function fakeServer() {
-  const syncs = [], sources = [], turnRequests = [], events = []
-  let answer = () => []
+  const syncs = [], sources = [], turnRequests = [], events = [], publications = []
+  let answer = () => [], grant = body => ({ approvalId: body.approvalId, repository: 'inchidev/afterprompt', ref: `refs/heads/l4-agent/${boxId}`, sha: 'd'.repeat(40), baseSha: 'c'.repeat(40), expectedOld: null,
+    remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_single_repository_push' })
   const submission = id => ({ runId: id, sessionId: id, prompt: 'Ship it', computer: true, box: true, timeoutMs: 60000,
     modelGateway: { url: `https://server.example/api/agent-runs/${id}/gateway/v1`, token, model: 'm' }, toolEndpoint: `https://server.example/api/agent-runs/${id}/gateway/tools` })
   const poll = async body => {
     if (body.operation === 'sync') { syncs.push(body); return { boxes: answer(body) } }
     if (body.operation === 'source') { sources.push(body); return { id: body.boxId, repository: 'inchidev/afterprompt', baseSha: 'c'.repeat(40), sourceToken: 'ghs_read' } }
     if (body.operation === 'turn') { turnRequests.push(body); return { submission: submission(body.runId) } }
+    if (body.operation === 'publish') { publications.push(body); return grant(body) }
+    if (body.operation === 'published') { publications.push(body); return { accepted: true } }
     throw new Error('Unexpected operation')
   }
   const fetcher = async (url, init) => { events.push({ url, authorization: init.headers.Authorization, body: JSON.parse(init.body) }); return Response.json({ ack: 0, cancel: false, steer: [] }) }
-  return { poll, fetcher, syncs, sources, turnRequests, events, set answer(value) { answer = value } }
+  return { poll, fetcher, syncs, sources, turnRequests, events, publications, set answer(value) { answer = value }, set grant(value) { grant = value } }
 }
 const want = (overrides = {}) => ({ id: boxId, lease: leaseA, want: 'running', taskId, image, diskBytes: 10737418240, cpu: 1, memoryMiB: 4096,
   egress: { revision: 0, hosts: ['registry.npmjs.org'], secretHosts: [] }, ...overrides })
 
-function host({ docker, server, saved = [], clock = { now: 1_000_000 }, disks } = {}) {
+function host({ docker, server, saved = [], clock = { now: 1_000_000 }, disks, publisher = {} } = {}) {
   const records = new Map(saved.map(record => [record.id, record]))
   const store = { list: () => [...records.values()], save: record => records.set(record.id, { ...record }), forget: id => records.delete(id) }
   const fetched = [], released = []
@@ -79,7 +87,7 @@ function host({ docker, server, saved = [], clock = { now: 1_000_000 }, disks } 
     async ensure(id, create, bytes) { this.ensured.push({ id, create, bytes }); return `/state/box-disks/${id}` },
     async remove(id) { this.removed.push(id) }, async flush(path) { this.flushed.push(path) } }
   const boxes = createBoxHost({ docker: docker.docker, poll: server.poll, fetcher: server.fetcher, disks, records: store, connection, image, server: 'https://server.example',
-    capacity: { cpu: 4, memoryMiB: 16384, boxes: 4 }, diskFree: async () => 5e10, now: () => clock.now,
+    capacity: { cpu: 4, memoryMiB: 16384, boxes: 4 }, diskFree: async () => 5e10, now: () => clock.now, ...publisher,
     fetchSource: async grant => { fetched.push(grant); return { bundle: '/state/source-disks/bundle', release: async () => { released.push(grant.id) } } } })
   return { boxes, records, disks, fetched, released, clock }
 }
@@ -247,4 +255,70 @@ test('a volume another Node or Task labelled is never mounted', async () => {
   assert.equal(h.boxes.boxes.get(boxId).state, 'failed')
   assert.deepEqual(h.disks.ensured, [])
   assert.equal(docker.runs().length, 0)
+})
+
+/** The scratch disk, the review upload and the token revocation a daemon gives the host. */
+function publisher() {
+  const scratched = [], removed = [], uploads = [], revoked = []
+  return { scratched, removed, uploads, revoked, options: {
+    scratch: { ensure: async id => { scratched.push(id); return `/state/publish-disks/${id}` }, remove: async id => { removed.push(id) } },
+    upload: async (approvalId, body) => { uploads.push({ approvalId, body }) }, revoke: async token => { revoked.push(token) } } }
+}
+const approvalId = '00000000-0000-4000-8000-0000000000f1', pushed = 'd'.repeat(40), base = 'c'.repeat(40)
+
+test('a review copies the commit out of the read-only box disk with no network and hands its diff to the Server', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  server.answer = () => [want({ review: { approvalId, sha: pushed, baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.sync(); await h.boxes.settled()
+  const copies = docker.runs().filter(args => args.at(-1) === '/opt/l4/review-diff.mjs')
+  assert.equal(copies.length, 1, 'one review per approval while it runs')
+  const [copy] = copies
+  assert.equal(flag(copy, '--network')[0], 'none')
+  for (const [name, value] of [['--user', '1000:1000'], ['--cap-drop', 'ALL'], ['--security-opt', 'no-new-privileges']]) assert.deepEqual(flag(copy, name), [value], name)
+  assert.ok(copy.includes('--read-only'))
+  assert.ok(copy.includes(`type=volume,src=l4-disk-${boxId},dst=/box,readonly`))
+  assert.ok(copy.includes(`type=bind,src=/state/publish-disks/${p.scratched[0]},dst=/mirror`))
+  assert.deepEqual(p.uploads, [{ approvalId, body: { ok: true, review: { sha: pushed, baseSha: base, commits: [], stat: '', patch: '+change', truncated: false } } }])
+  assert.deepEqual(p.removed, p.scratched)
+  assert.deepEqual(server.publications, [])
+})
+
+test('an approved push takes its grant, pushes exactly that commit from the copy, revokes the token and reports back', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  server.answer = () => [want({ publish: { approvalId, sha: pushed, ref: `refs/heads/l4-agent/${boxId}`, baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(server.publications, [{ operation: 'publish', approvalId }, { operation: 'published', approvalId, ok: true }])
+  const copy = docker.runs().find(args => args.at(-1) === '/opt/l4/review-diff.mjs'), push = docker.runs().find(args => args.at(-1) === '/opt/l4/push-branch.mjs')
+  assert.equal(flag(copy, '--network')[0], 'none')
+  assert.ok(!copy.join(' ').includes('ghs_single_repository_push'))
+  // The push container has the network and the copy, never the box's disk.
+  assert.equal(flag(push, '--network')[0], 'bridge')
+  assert.ok(!push.some(value => value.includes(`l4-disk-${boxId}`)))
+  assert.deepEqual(docker.pushes, [{ remote: 'https://github.com/inchidev/afterprompt.git', ref: `refs/heads/l4-agent/${boxId}`, sha: pushed, expectedOld: null, token: 'ghs_single_repository_push' }])
+  assert.ok(!docker.calls.flat().some(value => value.includes('ghs_single_repository_push')), 'the token goes on stdin only')
+  assert.deepEqual(p.revoked, ['ghs_single_repository_push'])
+  assert.deepEqual(p.removed, p.scratched)
+})
+
+test('a push the Server grants for another commit or ref is not made', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  server.grant = body => ({ approvalId: body.approvalId, ref: `refs/heads/l4-agent/${boxId}`, sha: 'e'.repeat(40), remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_other' })
+  server.answer = () => [want({ publish: { approvalId, sha: pushed, ref: `refs/heads/l4-agent/${boxId}`, baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(docker.pushes, [])
+  assert.deepEqual(server.publications.at(-1), { operation: 'published', approvalId, ok: false, message: 'The Server granted another push' })
+  assert.deepEqual(p.revoked, ['ghs_other'])
+  // A ref other than a box's own branch is ignored before anything runs.
+  server.answer = () => [want({ publish: { approvalId: '00000000-0000-4000-8000-0000000000f2', sha: pushed, ref: 'refs/heads/main', baseSha: base } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(server.publications.filter(entry => entry.operation === 'publish').length, 1)
 })

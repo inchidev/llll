@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:https'
 import { codeState } from '../src/cloud-io.mjs'
-import { snapshot } from '../src/operate.mjs'
 
 const image = process.env.LLLL_FACTORY_CLOUD_TEST_IMAGE
 const inside = process.env.LLLL_CLOUD_STATE_FIXTURE === '1'
@@ -110,17 +109,14 @@ test('Cloudflare code checkpoints retain exact history, staged/dirty/untracked s
 
     git(root, 'add', '-A'); git(root, 'commit', '-m', 'Reviewed coding change')
     const committedHead = git(root, 'rev-parse', 'HEAD')
-    const publication = await snapshot(root, baseSha)
-    assert.equal(publication.headSha, committedHead)
-    assert.equal(publication.commits.length, 1)
-    assert.equal(publication.commits[0].message, 'Reviewed coding change\n')
-    assert.equal(publication.commits[0].parents[0], baseSha)
+    assert.equal(git(root, 'rev-parse', 'HEAD~1'), baseSha)
+    assert.equal(git(root, 'log', '-1', '--format=%s'), 'Reviewed coding change')
     const second = await codeState({ operation: 'checkpoint', remote: origin + '/code.git', baseSha, checkpoint: first.checkpoint })
     await rm(root, { recursive: true, force: true })
     await codeState({ operation: 'restore', remote: origin + '/code.git', baseSha, checkpoint: second.checkpoint })
     assert.equal(git(root, 'rev-parse', 'HEAD'), committedHead)
     assert.equal(git(root, 'status', '--porcelain'), '')
-    assert.deepEqual(await snapshot(root, baseSha), publication)
+    assert.equal(git(root, 'log', '-1', '--format=%s'), 'Reviewed coding change')
     assert.equal(git(join(repositories, 'source.git'), 'rev-parse', 'main'), baseSha)
     await rm(root, { recursive: true, force: true })
     await assert.rejects(codeState({ operation: 'restore', remote: origin + '/code.git', baseSha, checkpoint: first.checkpoint }), /Checkpoint differs/u)

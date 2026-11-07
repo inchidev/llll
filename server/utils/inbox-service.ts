@@ -60,15 +60,16 @@ async function unreadMentions(env: L4Env, member: ServerMembership): Promise<Inb
 async function agentWork(env: L4Env, member: ServerMembership): Promise<Pick<InboxDTO, 'approvals' | 'runs'>> {
   const now = new Date().toISOString()
   const spaces = spaceSql(member.authorization)
-  const approvals = await env.DB.prepare(`SELECT a.id, a.run_id AS runId, a.request_json AS requestJson, a.created_at AS createdAt,
+  // A push waits for a person only once its diff is there to read.
+  const approvals = await env.DB.prepare(`SELECT a.id, a.run_id AS runId, a.kind, a.created_at AS createdAt,
       COALESCE(u.nickname, u.display_name) AS agentName, t.title AS taskTitle
-    FROM factory_actions a
+    FROM factory_approvals a
     JOIN agent_runs r ON r.id = a.run_id
     JOIN users u ON u.id = r.agent_id
     LEFT JOIN tasks t ON t.id = r.task_id
     WHERE r.channel_id IN (SELECT id FROM channels WHERE space_id IN (${spaces})) AND r.initiated_by = ? AND a.status = 'pending' AND a.expires_at > ?
     ORDER BY a.created_at LIMIT 20`).bind(member.user.id, now)
-    .all<{ id: string; runId: string; requestJson: string; createdAt: string; agentName: string; taskTitle: string | null }>()
+    .all<{ id: string; runId: string; kind: string; createdAt: string; agentName: string; taskTitle: string | null }>()
   const publications = await env.DB.prepare(`SELECT p.id, p.run_id AS runId, p.created_at AS createdAt, COALESCE(u.nickname, u.display_name) AS agentName, t.title AS taskTitle
     FROM agent_run_publications p
     JOIN agent_runs r ON r.id = p.run_id
@@ -87,13 +88,9 @@ async function agentWork(env: L4Env, member: ServerMembership): Promise<Pick<Inb
     WHERE c.space_id IN (${spaces}) AND r.initiated_by = ? AND (r.status IN ('queued', 'running') OR r.updated_at > ?)
     ORDER BY r.updated_at DESC LIMIT 30`).bind(member.user.id, new Date(Date.now() - FINISHED_WINDOW_MS).toISOString())
     .all<InboxRunDTO>()
-  const operation = (json: string) => {
-    try { return String((JSON.parse(json) as { operation?: unknown }).operation ?? 'action') }
-    catch { return 'action' }
-  }
   return {
     approvals: [
-      ...(approvals.results ?? []).map(row => ({ id: row.id, kind: 'workspace' as const, runId: row.runId, agentName: row.agentName, taskTitle: row.taskTitle, operation: operation(row.requestJson), createdAt: row.createdAt })),
+      ...(approvals.results ?? []).map(row => ({ id: row.id, kind: 'box' as const, runId: row.runId, agentName: row.agentName, taskTitle: row.taskTitle, operation: row.kind, createdAt: row.createdAt })),
       ...(publications.results ?? []).map(row => ({ id: row.id, kind: 'publication' as const, runId: row.runId, agentName: row.agentName, taskTitle: row.taskTitle, operation: 'share', createdAt: row.createdAt })),
     ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     runs: runs.results ?? [],

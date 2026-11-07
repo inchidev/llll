@@ -158,10 +158,7 @@ function measureRow(element: Element | ComponentPublicInstance | null) {
 function measureContentMargin() {
   if (content.value && scroller.value) contentMargin.value = content.value.getBoundingClientRect().top - scroller.value.getBoundingClientRect().top + scroller.value.scrollTop
 }
-const streamingMessageIds = computed(() => new Set([
-  ...presence.agentTurnsIn(props.channelId).map(turn => turn.draftMessageId).filter((id): id is string => Boolean(id)),
-  ...streamMessages.value.map(message => message.id),
-]))
+const streamingMessageIds = computed(() => new Set(streamMessages.value.map(message => message.id)))
 const threadsQ = useQuery({
   queryKey: computed(() => ['threads', props.channelId]),
   queryFn: () => api<{ threads: ChannelThreadDTO[] }>(`/api/channels/${props.channelId}/threads`),

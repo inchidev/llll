@@ -31,12 +31,12 @@ async function configure(enabled: boolean) {
         <UButton v-if="['ready', 'failed_recovery'].includes(setup.data.value.state)" label="Pause compute node and retain source" color="neutral" variant="outline" :loading="busy" @click="configure(false)" />
       </template>
       <template v-else>
-        <p class="text-sm text-muted">Enable the local executor on this VPS. The verified release installs its service and workspace image and pairs it automatically after the Owner is claimed. Docker shares the host kernel; use trusted code and users. Reserve capacity for your Server.</p>
+        <p class="text-sm text-muted">Enable the local executor on this VPS. The verified release installs its service and box image and pairs it automatically after the Owner is claimed. Docker shares the host kernel; use trusted code and users. Reserve capacity for your Server.</p>
         <p class="text-xs text-muted">{{ setup.data.value.costs }}</p>
         <code class="block select-all overflow-auto rounded bg-elevated p-3 text-xs">{{ setup.data.value.cli }}</code>
         <p class="text-xs text-muted">Use llll compute status, logs, restart, disable or backup on the VPS. Disable preserves Task disks and receipts. Advanced remote Nodes remain available below.</p>
       </template>
-      <p v-if="setup.data.value.usage" class="text-xs text-muted">{{ setup.data.value.usage.retained }} retained Task source stores · {{ setup.data.value.usage.active }} active operations · {{ setup.data.value.usage.recoveryRequired }} outcomes requiring inspection. Review each affected private Run before continuing.</p>
+      <p v-if="setup.data.value.usage" class="text-xs text-muted">{{ setup.data.value.usage.retained }} Task boxes kept · {{ setup.data.value.usage.active }} running now. Each box keeps its checkpoint until its Task is Done.</p>
       <p v-if="setup.data.value.limits" class="text-xs text-muted">Configured policy: {{ setup.data.value.limits.cpu ?? 1 }} CPU · {{ setup.data.value.limits.memoryMiB ?? 1024 }} MiB RAM · {{ setup.data.value.limits.diskBytes }} disk bytes · {{ setup.data.value.limits.processLimit ?? 128 }} processes · {{ (setup.data.value.limits.timeoutMs ?? 120000) / 1000 }} seconds per command.</p>
       <p v-if="setup.data.value.image" class="break-all text-xs text-muted">Released image: {{ setup.data.value.image }}</p>
     </template>

@@ -3,7 +3,7 @@ import { hasPermission, Permission } from '../../shared/permissions'
 import { projectSubjectPermissionAllowed } from '../../shared/project-access'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { computeCapabilities } from '../../shared/software-factory'
-import { newId, nowIso } from '../../shared/ids'
+import { nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
 import { findAgentRun, runAuthorization } from './agent-run-service'
 import { getTask } from './task-service'
@@ -11,8 +11,10 @@ import { requireRunReader } from './agent-tool-security'
 import { fail } from './cf'
 
 export const factoryHash = async (value: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
-export type FactoryWorkspace = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; originRunId: string; status: string; snapshotJson: string | null; pullJson: string | null; commands: number; runtimeMs: number; publicationCount: number }
-export const workspaceColumns = 'id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,origin_run_id AS originRunId,status,snapshot_json AS snapshotJson,pull_json AS pullJson,commands,runtime_ms AS runtimeMs,publication_count AS publicationCount'
+/** A Task's box as the outward actions see it: its branch, what it published and how much it ran. */
+export type TaskBox = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; status: string; runId: string | null
+  leaseToken: string | null; checkpointSha: string | null; headSha: string | null; pullJson: string | null; runtimeMs: number; publicationCount: number; updatedAt: string }
+export const taskBoxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,status,run_id AS runId,lease_token AS leaseToken,checkpoint_sha AS checkpointSha,head_sha AS headSha,pull_json AS pullJson,runtime_ms AS runtimeMs,publication_count AS publicationCount,updated_at AS updatedAt`
 export async function factoryAuthority(env: L4Env, runId: string, actorId?: string, publication = false, readOnly = false) {
   const run = await findAgentRun(env, runId)
   if (!run) fail(404, 'not_found', 'Run not found')
@@ -37,15 +39,16 @@ export async function factoryAuthority(env: L4Env, runId: string, actorId?: stri
   if (!node) fail(403, 'compute_revoked', 'The Compute Node chosen for this repository was removed. Choose another one in Settings → Compute.')
   if (!readOnly && !node.enabled) fail(403, 'compute_revoked', `The Compute Node “${node.name}” is turned off. Turn it on in Settings → Compute, then retry.`)
   const capabilities = computeCapabilities.safeParse(JSON.parse(node.capabilitiesJson))
-  if (!capabilities.success) fail(409, 'compute_unavailable', 'Connect a Docker Compute Node with a pinned workspace image')
+  if (!capabilities.success) fail(409, 'compute_unavailable', 'Connect a Docker Compute Node with a pinned box image')
   return { run, auth, task, environment, capabilities: capabilities.data, nodeLastSeen: node.lastSeen }
 }
-export async function factoryWorkspace(env: L4Env, context: Awaited<ReturnType<typeof factoryAuthority>>) {
+/**
+ * The box of this Run's Task, Agent and initiator, if its first turn made one. It must still be the box of
+ * this conversation, repository snapshot and Node: a Task whose mandate changed starts again in a new Task.
+ */
+export async function taskBox(env: L4Env, context: Awaited<ReturnType<typeof factoryAuthority>>) {
   const { run, environment } = context
-  await env.DB.prepare(`INSERT INTO factory_workspaces(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,agent_id,initiated_by) DO NOTHING`)
-    .bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, environment.computeNodeId, JSON.stringify(environment), run.id, nowIso(), nowIso()).run()
-  const workspace = (await env.DB.prepare(`SELECT ${workspaceColumns} FROM factory_workspaces WHERE task_id=? AND agent_id=? AND initiated_by=?`).bind(run.taskId, run.agentId, run.initiatedBy).first<FactoryWorkspace>())!
-  if (workspace.channelId !== run.channelId || workspace.environmentJson !== JSON.stringify(environment) || workspace.nodeId !== environment.computeNodeId) fail(409, 'factory_base_changed', 'The workspace is pinned to a different repository snapshot. Review upstream changes and start a new Task.')
-  return workspace
+  const box = await env.DB.prepare(`SELECT ${taskBoxColumns} FROM factory_boxes WHERE task_id=? AND agent_id=? AND initiated_by=?`).bind(run.taskId, run.agentId, run.initiatedBy).first<TaskBox>()
+  if (box && (box.channelId !== run.channelId || box.environmentJson !== JSON.stringify(environment) || box.nodeId !== environment.computeNodeId)) fail(409, 'factory_base_changed', 'The Task’s box is pinned to a different repository snapshot. Review upstream changes and start a new Task.')
+  return box
 }

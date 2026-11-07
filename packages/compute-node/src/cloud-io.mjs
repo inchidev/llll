@@ -3,6 +3,8 @@ import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runProcess } from './process.mjs'
+import { copyCommit } from './review-diff.mjs'
+import { pushBranch } from './push-branch.mjs'
 
 // A Cloudflare box keeps its checkout where the box runtime works, /work/repo.
 const base = process.env.LLLL_BOX_ROOT || '/workspace', root = `${base}/repo`
@@ -21,7 +23,25 @@ const git = async (cwd, args, extra = {}) => {
   if (result.code !== 0) throw new Error('Code storage operation failed; check source access, checkpoint capacity and recovery state')
   return result.stdout.toString().trim()
 }
+/**
+ * A push's review, or its push, from a copy of the commit in a bare repository of its own: the checkout's
+ * config, hooks and refs never count. The box's outbound Worker allows only the approved ref update and adds
+ * the credential itself; nothing here holds one.
+ */
+async function publication(input) {
+  const directory = await mkdtemp(join(tmpdir(), 'l4-publish-'))
+  try {
+    const mirror = join(directory, 'repo.git')
+    const copied = await copyCommit({ box: root, mirror, sha: input.sha, baseSha: input.baseSha, review: input.operation === 'review', shared: true })
+    if (input.operation === 'review') return copied
+    return await pushBranch({ mirror, remote: input.remote, ref: input.ref, sha: input.sha, expectedOld: input.expectedOld ?? null }, { outbound: true })
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}
+
 export async function codeState(input) {
+  if (input.operation === 'review' || input.operation === 'publish') {
+    try { return await publication(input) } catch (error) { return { ok: false, message: error instanceof Error ? error.message.slice(0, 300) : 'Publication failed' } }
+  }
   if (!/^[a-f0-9]{40}$/u.test(input.baseSha) || !/^https:\/\//u.test(input.remote)) throw new Error('Invalid code storage identity')
   if (input.operation === 'bootstrap' || input.operation === 'restore') {
     await mkdir(base, { recursive: true })

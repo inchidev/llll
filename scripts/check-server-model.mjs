@@ -5,21 +5,12 @@ const root = resolve(import.meta.dirname, '..')
 // These sources use a coding workspace, not the retired community/account domain.
 // Keep the exception local to the integrated factory and its exact vocabulary.
 const codingWorkspaceSources = new Set([
-  'app/components/settings/FactorySetup.vue', 'server/api/agent-runs/[id]/factory-export.post.ts',
-  'server/api/agent-runs/[id].get.ts', 'server/utils/factory-completion.ts', 'server/utils/factory-setup.ts',
-  'workers/env.ts', 'packages/deployment-core/src/factory.ts', 'packages/deployment-core/src/factory-repair.ts',
-  'app/components/agents/FactoryReview.vue', 'app/components/settings/ComputeNodes.vue',
-  'app/components/settings/ToolsSettings.vue', 'app/pages/runs/[id].vue', 'app/pages/projects/board.vue',
-  'server/utils/agent-tool-security.ts', 'server/utils/agent-tools.ts', 'server/utils/channel-lifecycle.ts', 'server/utils/compute-nodes.ts',
-  'server/utils/factory-actions.ts', 'server/utils/factory-authority.ts', 'server/utils/factory-github.ts',
-  'server/utils/factory-status.ts', 'server/utils/factory-gitea.ts', 'server/utils/github-agent-client.ts',
-  'shared/software-factory.ts', 'shared/workspace-provider.ts', 'workers/agent-pi-durable.ts',
-  'drizzle/server-migrations/0000_baseline.sql', 'drizzle/schema.ts',
-  // Task workspaces on Cloudflare compute, their execution limits, and the
-  // Inbox approvals that review workspace actions.
+  'app/components/settings/ComputeNodes.vue', 'packages/deployment-core/src/factory.ts',
+  // The schema's history: the per-command tables a fresh database creates and the box migration drops.
+  'drizzle/server-migrations/0000_baseline.sql', 'drizzle/server-migrations/0004_agent_box.sql',
   'server/shims.d.ts',
-  'shared/agent-execution-policy.ts', 'app/components/settings/AgentExecutionSettings.vue', 'server/utils/agent-tools-settings.ts', 'shared/agent-templates.ts',
-  'server/utils/inbox-service.ts', 'shared/inbox.ts', 'app/pages/inbox.vue',
+  // Stored execution policies may still carry the per-command limits; they are dropped on read.
+  'shared/agent-execution-policy.ts',
 ])
 // The product line describes shared work; it never names a Server identity.
 const productDescriptionSources = new Set(['app/app.vue', 'shared/app-branding.ts'])
@@ -27,7 +18,7 @@ export function usesRetiredProductTerms(path, text) {
   // GitHub App provider IDs are distinct from the retired product domain.
   let productText = (path + '\n' + text).replace(/\b(?:(?:source|work)InstallationId|installationId)\b|\/app\/installations(?:\/|\?)|\/installation\/(?:token|repositories)|\/installations\/new/g, 'GitHubProviderId')
   if (codingWorkspaceSources.has(path)) {
-    productText = productText.replace(/\b(?:[Ff]actoryWorkspaces?|factory_workspaces|factory_workspace|l4Workspace|LLLL_WORKSPACE_(?:IMAGE|DISK_BYTES)|Dockerfile\.workspace|[Ww]orkspaces?(?:Id|Revision|Columns|Request|Provider|Receipt|Job|Actions|RuntimeMs|Publications)?|workspace_(?:id|failed|ready|exists|unavailable))\b/g, 'CodingCheckout')
+    productText = productText.replace(/\b(?:factory_workspaces|LLLL_WORKSPACE_(?:IMAGE|DISK_BYTES)|Dockerfile\.workspace|[Ww]orkspaces?(?:Actions|RuntimeMs|Publications)?|workspace_id)\b/g, 'CodingCheckout')
   }
   if (productDescriptionSources.has(path)) productText = productText.replace(/\bworkspaces?\b/gi, 'SharedWork')
   return /workspace|installation|apps\/instance/i.test(productText) || /\bInstance\b/.test(productText)

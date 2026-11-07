@@ -3,10 +3,11 @@ import { ids, mcpFixture } from '../helpers/outbound-mcp'
 import { codeEnvironmentSchema, repositoryResourceId, type RunEnvironment } from '../../shared/code-environments'
 import { giteaConnectSchema } from '../../shared/git-connections'
 import { disableGitConnection, listGitConnections } from '../../server/utils/git-connections'
-import { connectGitea, giteaAgentClient, giteaCredentials, giteaRepositories, giteaSourceFetch } from '../../server/utils/gitea'
+import { connectGitea, giteaAgentClient, giteaCredentials, giteaPush, giteaRepositories, giteaSourceFetch } from '../../server/utils/gitea'
 import { discoverRepositories, gitAgentConfigured, repositoryClient } from '../../server/utils/git-provider'
 import { publishGiteaProposal } from '../../server/utils/gitea-proposal'
 import { computeSourceCapability } from '../../server/utils/compute-nodes'
+import { leaseCapability } from '../../server/utils/factory-boxes'
 
 const host = 'https://git.example.test', token = 'a'.repeat(40)
 let f: ReturnType<typeof mcpFixture>
@@ -98,6 +99,32 @@ it('serves Git source read-only and never follows a redirect', async () => {
   expect((await giteaSourceFetch(f.env, connection.id, 'team/app', '/git-receive-pack', new Request('https://server.test/x/git-receive-pack', { method: 'POST', body: 'x' }))).status).toBe(403)
   expect((await giteaSourceFetch(f.env, connection.id, 'team/redirect', '/info/refs', new Request('https://server.test/x/info/refs?service=git-upload-pack'))).status).toBe(502)
   expect(upstream).toHaveBeenCalledTimes(2)
+})
+it('forwards a push to Gitea only for the one approved update, adding the Gitea token itself', async () => {
+  const connection = await connect()
+  const ref = 'refs/heads/l4-agent/00000000-0000-4000-8000-0000000000c1', sha = 'c'.repeat(40), zero = '0'.repeat(40)
+  const pkt = (line: string) => (line.length + 4).toString(16).padStart(4, '0') + line
+  const body = (command: string) => pkt(command + '\0report-status side-band-64k\n') + '0000PACK'
+  const forwarded: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Basic ' + btoa(`l4-bot:${token}`))
+    forwarded.push(String(url) + ' ' + (init?.body ? await new Response(init.body as BodyInit).text() : ''))
+    return new Response('ok', { headers: { 'content-type': 'application/x-git-receive-pack-result' } })
+  }))
+  const post = (text: string) => new Request('https://server.test/x/git-receive-pack', { method: 'POST', body: text, duplex: 'half' } as RequestInit)
+  expect((await giteaPush(f.env, connection.id, 'team/app', '/info/refs', new Request('https://server.test/x/info/refs?service=git-receive-pack'), { ref, sha })).status).toBe(200)
+  expect((await giteaPush(f.env, connection.id, 'team/app', '/git-receive-pack', post(body(`${zero} ${sha} ${ref}`)), { ref, sha })).status).toBe(200)
+  expect(forwarded).toEqual([`${host}/team/app.git/info/refs?service=git-receive-pack `, `${host}/team/app.git/git-receive-pack ${body(`${zero} ${sha} ${ref}`)}`])
+  for (const command of [`${zero} ${sha} refs/heads/main`, `${zero} ${'d'.repeat(40)} ${ref}`, `${sha} ${zero} ${ref}`])
+    expect((await giteaPush(f.env, connection.id, 'team/app', '/git-receive-pack', post(body(command)), { ref, sha })).status, command).toBe(403)
+  expect((await giteaPush(f.env, connection.id, 'team/app', '/info/refs', new Request('https://server.test/x/info/refs?service=git-upload-pack'), { ref, sha })).status).toBe(403)
+  expect(forwarded).toHaveLength(2)
+})
+it('binds a Node’s publish capability to one approval and the box’s lease, apart from its source capability', async () => {
+  const approval = '00000000-0000-4000-8000-0000000000f1'
+  const publish = await leaseCapability(f.env, 'compute-publish', approval, 'lease-a')
+  expect(publish).not.toBe(await leaseCapability(f.env, 'compute-source', approval, 'lease-a'))
+  expect(publish).not.toBe(await leaseCapability(f.env, 'compute-publish', approval, 'lease-b'))
 })
 it('binds the Node source capability to one action and lease', async () => {
   const first = await computeSourceCapability(f.env, ids.owner, 'lease-a')

@@ -19,7 +19,9 @@ const store = await openNodeState(state)
 const boxDiskRoot = join(state,'box-disks'), diskSizes = [1073741824, 10737418240]
 const boxDisks = bytes => new LoopDiskStore(boxDiskRoot,{bytes,maxDisks:64})
 const sourceDisks = new LoopDiskStore(join(state,'source-disks'),{bytes:536870912,maxDisks:1})
-await boxDisks(configuredDiskBytes).initialize(); await sourceDisks.initialize()
+// One commit copy at a time, for a review or a push; it never outlives its publication.
+const publishDisks = new LoopDiskStore(join(state,'publish-disks'),{bytes:2147483648,maxDisks:1})
+await boxDisks(configuredDiskBytes).initialize(); await sourceDisks.initialize(); await publishDisks.initialize()
 const probe = new LoopDiskStore(join(state,'probe-disks'),{bytes:33554432,maxDisks:1})
 await probe.initialize()
 const probeId = crypto.randomUUID()
@@ -56,12 +58,21 @@ const owned=['--filter',`label=l4.node=${connection.nodeId}`,'--filter',`label=l
 const leftovers=(await docker(['ps','-aq',...owned])).trim().split('\n').filter(Boolean)
 for (const id of leftovers) await docker(['rm','-f',id])
 for (const id of (await docker(['network','ls','-q',...owned])).trim().split('\n').filter(Boolean)) await docker(['network','rm',id]).catch(()=>{})
-await sourceDisks.cleanup()
+await sourceDisks.cleanup(); await publishDisks.cleanup()
 
+async function revokeToken(token) {
+  try { await fetch('https://api.github.com/installation/token',{method:'DELETE',redirect:'manual',headers:{Authorization:`Bearer ${token}`,'User-Agent':'L4-node'},signal:AbortSignal.timeout(10000)}) } catch { /* An expiring single-repository grant is never reused. */ }
+}
 async function revokeSource(job) {
   if(typeof job.sourceToken!=='string')return
   const token=job.sourceToken;delete job.sourceToken
-  try { await fetch('https://api.github.com/installation/token',{method:'DELETE',redirect:'manual',headers:{Authorization:`Bearer ${token}`,'User-Agent':'L4-source-broker'},signal:AbortSignal.timeout(10000)}) } catch { /* Expiring single-repository read grant is never reused. */ }
+  await revokeToken(token)
+}
+/** A push's review goes to the Server, which keeps it in R2. */
+async function upload(approvalId,body) {
+  const response=await fetch(`${server}/api/compute-agent/review/${approvalId}`,{method:'PUT',redirect:'manual',headers:{'Content-Type':'application/json',Authorization:`Bearer ${connection.token}`},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)})
+  await response.body?.cancel()
+  if(!response.ok)throw Object.assign(new Error('Server rejected the review'),{status:response.status})
 }
 async function sourceBundle(job,signal) {
   // A Gitea source is fetched through the Server with a lease-bound capability; nothing is revoked at GitHub.
@@ -104,18 +115,14 @@ const disks={
   flush:path=>boxDisks(configuredDiskBytes).command('sync',['--file-system',path]),
 }
 const diskFree=async()=>{const stats=await statfs(state);return Math.floor(Number(stats.bavail)*Number(stats.bsize))}
-const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,
+const scratch={ensure:id=>publishDisks.ensure(id,true),remove:id=>publishDisks.remove(id)}
+const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,scratch,upload,revoke:revokeToken,
   log:(event,detail)=>console.warn(event,detail)})
 // A box disk without a record, from a lost state file, is reported until the Server says what it is.
 for (const name of (await docker(['volume','ls','-q',...owned])).trim().split('\n').filter(Boolean)) {
   const match=/^l4-disk-([a-f0-9-]{36})$/u.exec(name)
   if (!match) continue
   try { host.adopt(match[1],JSON.parse(await docker(['volume','inspect',name]))[0]?.Labels?.['l4.task']) } catch { /* Not a box disk. */ }
-}
-// Re-submit only retained receipts of the per-operation protocol. Never restart a command after process loss.
-for (const saved of store.receipts()) {
-  try { await poll(saved); store.acknowledge(saved.id,saved.lease) }
-  catch { console.warn('compute.retained_receipt_requires_review') }
 }
 let stopping=false,wake
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;wake?.()})

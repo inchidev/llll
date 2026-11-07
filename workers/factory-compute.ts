@@ -7,6 +7,8 @@ import { cloudflareCapabilities, factoryImageAccepted, factoryRepositoryName } f
 import { computeBoxSource } from '../server/utils/compute-nodes'
 import { boxRun, cloudBox, cloudBoxName, computeTurn, syncBoxes, wakeCloudBox, type CloudBox } from '../server/utils/factory-boxes'
 import { giteaRemote } from '../server/utils/gitea'
+import { claimPublication, publishedApproval, submitReview } from '../server/utils/factory-approvals'
+import { githubPushGrant, revokeGithubToken } from '../server/utils/github-agent-client'
 import { readLimitedStream } from './inbound-email-signature'
 import { getServerId } from '../shared/server-id'
 import { nowIso } from '../shared/ids'
@@ -75,6 +77,11 @@ async function firstLine(stream: ReadableStream<Uint8Array> | null, limit = 1000
  *
  * The container reaches nothing but what BoxOutbound allows for the box's lease: the Server's gateway, and
  * the Task's own Artifacts repository or pinned source while a trusted helper restores or checkpoints it.
+ *
+ * What the Agent asks to publish is reviewed and pushed by a trusted helper in the container, from a copy of
+ * the commit in a bare repository of its own. Its push goes out through BoxOutbound with a grant for exactly
+ * that commit and the Task's branch: the outbound Worker reads the push's commands, refuses any other update
+ * and adds the single-repository credential itself. The Server then checks the branch before the PR.
  */
 export class FactoryComputeDurableObject extends DurableObject<L4Env> {
   override async fetch(request: Request): Promise<Response> {
@@ -209,6 +216,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       }
     }
     if (turn && !state.turn) await this.handTurn(box, state, turn)
+    if (state.ready && (answer.review || answer.publish)) await this.outward(box, capabilities, state, answer)
     if (!state.turn && Date.now() - state.lastActive >= CLOUD_BOX_IDLE_MS) {
       await this.stop(box, capabilities, state)
       await this.sync(box, capabilities, state)
@@ -247,14 +255,14 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     return firstLine(process.stdout)
   }
 
-  /** A trusted helper of the box image, run as the box's user while no turn runs: restore, bootstrap and checkpoint. */
-  private async command(input: unknown, processLimit: number) {
+  /** A trusted helper of the box image, run as the box's user: restore, bootstrap and checkpoint between turns, and a push's review or push. */
+  private async command(input: unknown, processLimit: number, outputLimit = 400000) {
     const container = this.ctx.container!
     const process = await container.exec(['/usr/bin/prlimit', `--nproc=${processLimit}`, '--', '/usr/local/bin/node', '--input-type=module', '-e', cloudCodeBridge], {
       user: '1000:1000', stdin: new Response(JSON.stringify(input)).body!, stdout: 'pipe', stderr: 'pipe',
       env: { HOME: '/tmp', PATH: '/usr/local/bin:/usr/bin:/bin', LLLL_BOX_ROOT: '/work', GIT_SSL_CAINFO: CA, NODE_EXTRA_CA_CERTS: CA },
     })
-    const [output] = await Promise.all([readLimitedStream(process.stdout, 400000), discardDiagnostics(process.stderr)])
+    const [output] = await Promise.all([readLimitedStream(process.stdout, outputLimit), discardDiagnostics(process.stderr)])
     if (!output.ok) throw new FactoryIoError('helper_stream_limit')
     if (await process.exitCode !== 0) throw new FactoryIoError('helper_exit')
     try { return JSON.parse(new TextDecoder().decode(output.bytes)) }
@@ -362,6 +370,43 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
       await this.intercept(box.id, state.lease)
       for (const token of tokens) await repo.revokeToken(token).catch(() => undefined)
       repo[Symbol.dispose]()
+    }
+  }
+
+  /**
+   * The box's pushes, as its sync says: the review a person reads of one, or the approved one to push. The
+   * Agent's turn waits on its tool call meanwhile, so this runs while the turn does.
+   */
+  private async outward(box: CloudBox, capabilities: Capabilities, state: BoxState, answer: { review?: { approvalId: string; sha: string; baseSha: string }; publish?: { approvalId: string; sha: string; ref: string; baseSha: string } }) {
+    const failed = (value: unknown, fallback: string) => String((value as { message?: unknown } | null)?.message ?? fallback).slice(0, 300)
+    if (answer.review) {
+      const { approvalId, sha, baseSha } = answer.review
+      const made = await this.command({ operation: 'review', sha, baseSha }, capabilities.processLimit, 2_600_000).catch(() => null) as { ok?: boolean; review?: unknown } | null
+      const body = made?.ok ? { ok: true, review: made.review } : { ok: false, message: failed(made, 'The commit could not be reviewed') }
+      await submitReview(this.env, box.nodeId, approvalId, new TextEncoder().encode(JSON.stringify(body)))
+        .catch(error => console.warn('factory.box_review_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))
+    }
+    if (!answer.publish) return
+    const { approvalId } = answer.publish
+    let claim: Awaited<ReturnType<typeof claimPublication>>
+    try { claim = await claimPublication(this.env, box.nodeId, approvalId) } catch { return }
+    const environment = claim.environment
+    let token: string | undefined, ok = false, message: string | undefined
+    try {
+      const gitea = environment.provider === 'gitea'
+      const remote = gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
+      // Gitea credentials stay in the outbound Worker; a GitHub token lives only in its grant for this push.
+      if (!gitea) token = await githubPushGrant(this.env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, claim.ensure)
+      await this.intercept(box.id, state.lease!, { push: { remote, token: token ?? 'gitea-broker', ref: claim.ref, sha: claim.request.sha } })
+      const pushed = await this.command({ operation: 'publish', remote, ref: claim.ref, sha: claim.request.sha, baseSha: environment.baseSha, expectedOld: claim.expectedOld }, capabilities.processLimit) as { ok?: boolean }
+      ok = pushed.ok === true
+      if (!ok) message = failed(pushed, 'The repository refused the push')
+    } catch { message = 'The push failed' }
+    finally {
+      await this.intercept(box.id, state.lease!).catch(() => undefined)
+      if (token) await revokeGithubToken(token, 'L4-Factory')
+      await publishedApproval(this.env, box.nodeId, approvalId, { ok, ...(message ? { message } : {}) })
+        .catch(error => console.warn('factory.box_publish_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))
     }
   }
 

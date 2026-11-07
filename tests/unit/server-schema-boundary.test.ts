@@ -40,12 +40,14 @@ it('ships only the current schema and no mirrored identities or obsolete Agent r
   try {
     sqlite.exec(INIT_SQL)
     const objects = sqlite.prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL").all()
-    // Task-scoped factory_workspaces are current execution records, not the old
-    // mirrored Workspace/Installation identity model.
+    // A Task's box is a current execution record, not the old mirrored Workspace/Installation identity model;
+    // the per-command Factory's tables are gone with it.
     const names = objects.map(row => row.name)
     for (const legacy of ['workspaces', 'installations', 'identity_keys']) expect(names).not.toContain(legacy)
     expect(JSON.stringify(objects)).not.toMatch(/identity_keys|computer_id/i)
-    expect(names).toContain('factory_workspaces')
+    expect(names).toEqual(expect.arrayContaining(['factory_boxes', 'factory_approvals']))
+    for (const removed of ['factory_workspaces', 'factory_actions']) expect(names).not.toContain(removed)
+    expect(sqlite.prepare("PRAGMA table_info('agent_turns')").all().map(row => row.name)).not.toContain('draft_message_id')
     expect(sqlite.prepare("PRAGMA table_info('auth_accounts')").all().map(row => row.name)).not.toContain('issuer')
     expect(sqlite.prepare("PRAGMA table_info('users')").all().map(row => row.name)).toContain('kind')
   }

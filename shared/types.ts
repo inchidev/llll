@@ -52,7 +52,6 @@ export type AgentTurnDTO = {
   initiatedBy: string
   status: 'queued' | 'thinking' | 'tool' | 'waiting_approval'
   detail: string | null
-  draftMessageId: string | null
   approval: AgentApprovalDTO | null
   createdAt: string
   updatedAt: string

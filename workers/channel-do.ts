@@ -96,10 +96,6 @@ type AgentStream = AgentStreamDTO & { agentId: string; initiatedBy: string; audi
 /** How long a socket's access check serves a stream's updates before it is asked again. */
 const STREAM_ACCESS_MS = 2000
 
-const agentUpdateSchema = agentPostSchema.extend({
-  messageId: z.string().min(8),
-})
-
 const agentReactionSchema = z.object({
   agentId: z.string().min(8),
   messageId: z.string().min(8),
@@ -371,25 +367,6 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     // The finished message replaces the answer that was being written.
     if (body.sourceRunId) await this.endAgentStream(body.sourceRunId)
     return { id, channelId: channel.id }
-  }
-
-  async updateAgentMessage(input: z.infer<typeof agentUpdateSchema>): Promise<void> {
-    const body = agentUpdateSchema.parse(input)
-    const authz = await this.loadAuthz(body.agentId)
-    if (authz?.archived) throw new Error(CHANNEL_ARCHIVED_MESSAGE)
-    if (!authz || !hasPermission(authz.perms, Permission.sendMessages)) throw new Error('Agent cannot edit in this channel')
-    const row = await this.env.DB.prepare(
-      `SELECT m.id
-       FROM messages m
-       JOIN users u ON u.id = m.author_id
-       JOIN agents a ON a.user_id = u.id
-       WHERE m.id = ? AND m.channel_id = ? AND m.author_id = ?
-         AND m.deleted_at IS NULL AND u.kind = 'agent'`,
-    ).bind(body.messageId, this.channelId(), body.agentId).first<{ id: string }>()
-    if (!row) throw new Error('Agent message not found')
-    await this.env.DB.prepare('UPDATE messages SET content = ? WHERE id = ?').bind(body.content, body.messageId).run()
-    const message = await this.loadMessage(body.messageId)
-    if (message) await this.broadcast({ t: 'message.update', message, streaming: true })
   }
 
   async setAgentReaction(input: z.infer<typeof agentReactionSchema>): Promise<void> {

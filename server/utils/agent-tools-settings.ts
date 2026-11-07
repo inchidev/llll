@@ -45,7 +45,7 @@ export async function toolsSettings(env: L4Env, actor: AuthorizationContext, age
     const external = await mcpToolExposure(env, auth)
     result.preview = { agentId, tools: [...builtins, ...external].filter(tool => !toolSecurityReason(tool.name, true, policy.mode)), diagnostics: [
       'Preview uses current Agent and your Role/resource grants. A Task, conversation, Run mandate and current connection revision can narrow access further.',
-      autonomousExecution(policy.mode) ? 'Granted tools execute autonomously within the admitted scope and budgets.' + (policy.mode === 'plan' ? ' Repository workspace operations wait for an approved plan.' : '') + ' Unknown tools remain blocked.' : 'Review mode blocks outbound calls and writes; workspace operations wait for approval.',
+      autonomousExecution(policy.mode) ? 'Granted tools execute autonomously within the admitted scope and budgets.' + (policy.mode === 'plan' ? ' Pushes of a Task’s branch wait for an approved plan.' : '') + ' Unknown tools remain blocked.' : 'Review mode blocks outbound calls and writes; each push of a Task’s branch waits for approval.',
       'Task execution, schedules and repository/computer tools additionally require a suitable active Run.',
       ...[{flag:Permission.readTasks,label:'Read tasks'},{flag:Permission.writeTasks,label:'Write tasks'},{flag:Permission.readData,label:'Read Data'},{flag:Permission.browseWeb,label:'Browse web'},{flag:Permission.useComputer,label:'Use computer'}].flatMap(({flag,label}) => {
         const missing = [!hasPermission(auth.principal.permissions,flag) ? 'Agent Role' : '', !granted(actor,flag) ? 'your Role' : ''].filter(Boolean)

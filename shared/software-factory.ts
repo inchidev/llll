@@ -1,62 +1,31 @@
 import { z } from 'zod'
 
 export const factorySha = z.string().regex(/^[a-f0-9]{40}$/u)
-export const factoryPath = z.string().min(1).max(400).refine(value => !value.startsWith('/') && !value.includes('\\') && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
-  && value.split('/').every(part => part && part !== '.' && part !== '..' && !['.git', '.github'].includes(part.toLowerCase())), 'Protected or invalid path')
-export const workspaceRequest = z.discriminatedUnion('operation', [
-  z.object({ operation: z.literal('bootstrap') }).strict(),
-  z.object({ operation: z.literal('exec'), command: z.string().trim().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(600000).default(30000),
-    networkHosts: z.array(z.string().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/u)).max(5).default([]) }).strict(),
-  z.object({ operation: z.literal('read'), path: factoryPath }).strict(),
-  z.object({ operation: z.literal('write'), path: factoryPath, content: z.string().max(80000) }).strict(),
-  z.object({ operation: z.literal('snapshot') }).strict(),
-  z.object({ operation: z.literal('suspend') }).strict(),
-  z.object({ operation: z.literal('release') }).strict(),
-])
-export const publishRequest = z.object({ operation: z.literal('publish'), snapshotDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-  title: z.string().trim().min(1).max(160), body: z.string().max(12000).default('') }).strict()
-/** The Agent's plan for this Task. Approving it lets the workspace operations it covers run without
- * one review each: up to `operations` of them, egress only to `networkHosts`. Publication still waits. */
-export const planRequest = z.object({ operation: z.literal('plan'), summary: z.string().trim().min(1).max(4000),
-  steps: z.array(z.string().trim().min(1).max(500)).min(1).max(30),
-  networkHosts: z.array(z.string().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/u)).max(5).default([]),
-  operations: z.number().int().min(1).max(1000) }).strict()
-export const factoryRequest = z.union([workspaceRequest, publishRequest, planRequest])
-/** Object-root schema works with providers that cannot accept a union at a function's root. */
-export const factoryToolSchema = z.object({
-  operation: z.enum(['plan','bootstrap','exec','read','write','snapshot','suspend','release','publish']),
-  command: z.string().min(1).max(8000).optional().describe('Required only for exec. Run in the Task checkout.'),
-  timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Exec timeout, default 30000 milliseconds.'),
-  networkHosts: z.array(z.string()).max(5).optional().describe('Exec or plan. Exact public HTTPS hostnames; Browse web permission is required. No egress by default.'),
-  path: factoryPath.optional().describe('Required for read/write. Relative ordinary file path.'),
-  content: z.string().max(80000).optional().describe('Required only for write.'),
-  snapshotDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional().describe('Required only for publish. Use the digest returned by snapshot.'),
-  title: z.string().min(1).max(160).optional().describe('Required only for publish.'),
-  body: z.string().max(12000).optional().describe('Publish description.'),
-  summary: z.string().min(1).max(4000).optional().describe('Required only for plan. What you will change and how you will check it.'),
-  steps: z.array(z.string().min(1).max(500)).min(1).max(30).optional().describe('Required only for plan. The concrete steps, in order.'),
-  operations: z.number().int().min(1).max(1000).optional().describe('Required only for plan. How many workspace operations the plan needs at most.'),
+/** The branch in the original repository a box publishes to; nothing else of the repository is ever written. */
+export const boxBranch = (boxId: string) => `l4-agent/${boxId}`
+/** What the Agent asks to publish: one commit of its box, by SHA. Git's hashes stand for its content. */
+export const publishToolSchema = z.object({
+  sha: factorySha.describe('The full 40-character SHA of the commit in the box’s checkout to publish, from git rev-parse HEAD. It must descend from the Task’s pinned base.'),
+  title: z.string().trim().min(1).max(160).describe('The pull request title.'),
+  body: z.string().max(12000).default('').describe('The pull request description: what changed and how you checked it.'),
 }).strict()
-/** Providers need an object root. Ignore only advertised fields irrelevant to the selected operation. */
-export function parseFactoryToolInput(input: unknown) {
-  const advertised = factoryToolSchema.parse(input)
-  const fields: Record<typeof advertised.operation, string[]> = {
-    bootstrap: [], exec: ['command', 'timeoutMs', 'networkHosts'], read: ['path'], write: ['path', 'content'],
-    snapshot: [], suspend: [], release: [], publish: ['snapshotDigest', 'title', 'body'], plan: ['summary', 'steps', 'networkHosts', 'operations'],
-  }
-  return (advertised.operation === 'publish' ? publishRequest : advertised.operation === 'plan' ? planRequest : workspaceRequest).parse(Object.fromEntries(Object.entries(advertised).filter(([key]) => key === 'operation' || fields[advertised.operation].includes(key))))
-}
-export type FactoryRequest = z.infer<typeof factoryRequest>
-const gitIdentity = z.object({ name: z.string().min(1).max(200), email: z.string().min(1).max(200), date: z.string().min(1).max(80) }).strict()
-const snapshotFile = z.object({ path: factoryPath, content: z.string().max(80000).nullable(), executable: z.boolean() }).strict()
-export const factorySnapshot = z.object({ baseSha: factorySha, headSha: factorySha, treeSha: factorySha,
-  commits: z.array(z.object({ sha: factorySha, tree: factorySha, parents: z.array(factorySha).min(1).max(1), message: z.string().max(12000), author: gitIdentity, committer: gitIdentity, files: z.array(snapshotFile).min(1).max(100) }).strict()).min(1).max(20),
-  files: z.array(snapshotFile).min(1).max(100),
-  diff: z.string().max(180000), evidence: z.array(z.object({ actionId: z.string(), command: z.string().max(8000), exitCode: z.number().int(), outputDigest: z.string() })).max(50),
+/** The Agent's plan for this Task. In plan mode an approved plan covers the publications that follow it. */
+export const planToolSchema = z.object({
+  summary: z.string().trim().min(1).max(4000).describe('What you will change and how you will check it.'),
+  steps: z.array(z.string().trim().min(1).max(500)).min(1).max(30).describe('The concrete steps, in order.'),
 }).strict()
-export type FactorySnapshot = z.infer<typeof factorySnapshot>
-export type FactoryAction = { approvalMode?: 'role' | 'plan' | 'review'; computeImage: string; computeLimits: { cpu: number; memoryMiB: number; processes: number; timeoutMs: number }; diskBytes: number; workspaceRevision: number; id: string; workspaceId: string; runId: string; digest: string; request: FactoryRequest; status: string;
-  expiresAt: string; decidedBy: string | null; decidedAt: string | null; result: unknown; createdAt: string }
+/** A push's review as the Node or box produced it from Git, stored in R2 under the approval. */
+export const reviewDiffSchema = z.object({ sha: factorySha, baseSha: factorySha,
+  commits: z.array(z.object({ sha: factorySha, subject: z.string().max(500) }).strict()).max(200),
+  stat: z.string().max(64000), patch: z.string().max(2000000), truncated: z.boolean() }).strict()
+export type ReviewDiff = z.infer<typeof reviewDiffSchema>
+export type FactoryApprovalKind = 'plan' | 'publish' | 'window' | 'merge'
+/** An outward action of a box as a person reviewing it sees it. The diff itself is read from R2 on demand. */
+export type FactoryApproval = { id: string; boxId: string; runId: string; kind: FactoryApprovalKind; digest: string; status: string
+  request: { sha?: string; ref?: string; title?: string; body?: string; summary?: string; steps?: string[] }
+  /** The review a Node or box produced for a push, kept in R2: only its digest is on the row. */
+  diff: { digest: string } | null
+  decidedBy: string | null; decidedAt: string | null; expiresAt: string; result: unknown; createdAt: string }
 export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null }
 /** What a Node runs at once: the Server admits boxes while their reservations fit (server/utils/box-admission.ts). */
 export const nodeCapacity = z.object({ cpu: z.number().positive().max(1024), memoryMiB: z.number().int().min(256).max(16777216), boxes: z.number().int().min(1).max(64) }).strict()
@@ -74,9 +43,9 @@ export const computeCapabilities = z.union([dockerCapabilities, cloudflareCapabi
 export type ComputeCapabilities = z.infer<typeof computeCapabilities>
 
 /** Artifacts repository names allow 2–63 characters. Two UUIDs do not fit. */
-export function factoryRepositoryName(serverId: string, workspaceId: string) {
+export function factoryRepositoryName(serverId: string, boxId: string) {
   const hex = (value: string) => value.replaceAll('-', '').slice(0, 20)
-  return `l4${hex(serverId)}${hex(workspaceId)}`
+  return `l4${hex(serverId)}${hex(boxId)}`
 }
 
 export function factoryProbeRepositoryName(serverId: string, nonce: string) {
@@ -92,3 +61,8 @@ export function factoryImageAccepted(reported: string | undefined, expected: str
   if (!reported) return true
   return reported.match(digest)?.[0] === expectedDigest
 }
+
+const FACTORY_STATES: Record<string, string> = { approval_pending: 'Waiting for review', publishing: 'Publishing', pr_published: 'Pull request open', publish_failed: 'Publication failed',
+  rejected: 'Publication rejected', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
+/** A Task's code work as its board shows it. */
+export const factoryStateLabel = (state: string) => FACTORY_STATES[state] ?? state.replaceAll('_', ' ')

@@ -30,7 +30,6 @@ export async function probeGateway(input, fetcher = fetch) {
 /**
  * One Server tool call. An outward action (a push, a window, a merge) can wait for a person: the Server
  * answers `outwardPending` and the call is asked again until it is decided, so the model sees one result.
- * The per-command Factory's `factoryPending` waits the same way until that protocol is removed.
  */
 export async function callGatewayTool(input, call, signal, { fetcher = fetch, waitMs = 2000 } = {}) {
   for (;;) {
@@ -44,8 +43,7 @@ export async function callGatewayTool(input, call, signal, { fetcher = fetch, wa
       throw new Error(message)
     }
     const result = await tool.json()
-    const pending = result?.outwardPending === true || (call.name === 'factory_workspace' && result?.factoryPending === true)
-    if (!pending) return result
+    if (result?.outwardPending !== true) return result
     await pause(waitMs, signal)
   }
 }

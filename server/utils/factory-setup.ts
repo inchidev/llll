@@ -80,7 +80,9 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   } else if (existing) {
     await env.DB.batch([
       env.DB.prepare('UPDATE compute_nodes SET enabled=?,last_seen=? WHERE id=?').bind(enabled ? 1 : 0, nowIso(), nodeId),
-      env.DB.prepare("UPDATE factory_actions SET status=CASE WHEN status IN ('claimed','executing') THEN 'uncertain' ELSE 'cancelled' END WHERE workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND status IN ('pending','approved','claimed','executing') AND ?=0").bind(nodeId, enabled ? 1 : 0),
+      // A paused Node pushes nothing; a push it had begun may have happened.
+      env.DB.prepare(`UPDATE factory_approvals SET status=CASE WHEN status='publishing' THEN 'uncertain' ELSE 'expired' END WHERE box_id IN (SELECT id FROM factory_boxes WHERE node_id=?)
+        AND status IN ('pending_diff','pending','approved','publishing') AND kind<>'plan' AND ?=0`).bind(nodeId, enabled ? 1 : 0),
     ])
   }
   return factorySetup(env, auth)

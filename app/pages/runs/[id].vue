@@ -43,7 +43,7 @@ async function downloadFiles() {
 }
 const runQ = useQuery({
   queryKey: computed(() => ['agent-run', route.params.id]),
-  queryFn: () => api<{ agentName?: string | null; task?: { id: string; number: number; title: string } | null; factoryCalls: { callId: string; status: string; argumentsJson: string; error: string | null; createdAt: string }[]; publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
+  queryFn: () => api<{ agentName?: string | null; task?: { id: string; number: number; title: string } | null; outward: { id: string; kind: string; status: string; sha: string | null; title: string | null; decidedAt: string | null; message: string | null; pullUrl: string | null; createdAt: string }[]; publicationHistory: { id: string; status: string; decidedAt: string | null; decidedBy: string | null }[]; publication: RunPublication | null; security: ToolSecurityStatus; delivery: RunDelivery | null; run: Omit<AgentRun, 'instructions' | 'mandateJson' | 'environmentJson' | 'filesKey'> & { hasFiles: boolean; hasFactory: boolean }; canCancel: boolean; canRetry: boolean; modelCalls: { callNumber: number; model: string; status: string; startedAt: string; completedAt: string | null; totalTokens: number | null; error: string | null }[]; events: { sequence: number; event: { type: string; text?: string; message?: string; name?: string; purpose?: string }; createdAt: string }[] }>(`/api/agent-runs/${route.params.id}`),
   refetchInterval: query => ['queued', 'running'].includes(query.state.data?.run.status ?? '') || query.state.data?.delivery?.reportStatus === 'pending' || query.state.data?.delivery?.taskStatus === 'pending' ? 2000 : false,
 })
 const run = computed(() => runQ.data.value?.run)
@@ -91,6 +91,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }); await runQ.refetch() }
   finally { publicationBusy.value = false }
 }
+const outwardLabels: Record<string, string> = { publish: 'Push and pull request', plan: 'Plan', window: 'Network window', merge: 'Merge' }
 </script>
 
 <template>
@@ -123,18 +124,20 @@ async function publicationAction(decision?: 'approve' | 'reject') {
         <UButton v-if="['completed', 'failed', 'cancelled'].includes(run.status)" label="Download transcript" icon="i-ph-file-text" color="neutral" variant="outline" :loading="transcriptDownloading" @click="downloadTranscript" />
         <UButton v-if="run.hasFiles && can(Permission.useComputer)" label="Download working files" icon="i-ph-download" color="neutral" variant="outline" :loading="downloading" @click="downloadFiles" />
       </div>
-      <details v-if="runQ.data.value?.factoryCalls?.length" class="space-y-3 rounded-lg border border-default p-4">
-        <summary class="cursor-pointer font-medium">Private workspace tool audit</summary>
-        <article v-for="call in runQ.data.value.factoryCalls" :key="call.callId" class="space-y-2 border-t border-default pt-3">
-          <p class="break-all text-sm">{{ call.callId }} · {{ call.status }} · {{ new Date(call.createdAt).toLocaleString() }}</p>
-          <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{{ call.argumentsJson }}</pre>
-          <p v-if="call.error" class="break-words text-sm text-warning">{{ call.error }}</p>
+      <details v-if="runQ.data.value?.outward?.length" class="space-y-3 rounded-lg border border-default p-4">
+        <summary class="cursor-pointer font-medium">What this run sent out of its box</summary>
+        <article v-for="item in runQ.data.value.outward" :key="item.id" class="space-y-1 border-t border-default pt-3">
+          <p class="text-sm">{{ outwardLabels[item.kind] ?? item.kind }} · {{ item.status }} · {{ new Date(item.createdAt).toLocaleString() }}</p>
+          <p v-if="item.title" class="break-words text-sm">{{ item.title }}</p>
+          <p v-if="item.sha" class="break-all font-mono text-xs text-muted">{{ item.sha }}</p>
+          <a v-if="item.pullUrl" :href="item.pullUrl" target="_blank" rel="noopener noreferrer" class="text-sm text-primary underline">Open pull request</a>
+          <p v-if="item.message" class="break-words text-sm text-muted">{{ item.message }}</p>
         </article>
       </details>
       <AgentsFactoryReview v-if="run.hasFactory" :run-id="run.id" :active="['queued', 'running'].includes(run.status)" />
       <section v-if="runQ.data.value?.security" class="space-y-3">
         <h2 class="text-sm font-medium">Tool security</h2>
-        <UAlert color="neutral" :title="runQ.data.value.security.mode === 'role' ? 'Autonomous within granted permissions' : runQ.data.value.security.mode === 'plan' ? 'Repository work follows an approved plan' : 'Sensitive actions require review'" :description="runQ.data.value.security.mode === 'role' ? 'The agent can use authorized tools within this Run’s scope and limits. Current project and role permissions are checked on every action.' : runQ.data.value.security.mode === 'plan' ? 'The agent proposes a plan for repository work. After you approve it, the workspace operations it covers run without separate review; opening a pull request still waits for you. Other tools work within this Run’s permissions.' : 'Workspace operations require private review. Other model-selected Server writes and outbound integrations remain blocked.'" />
+        <UAlert color="neutral" :title="runQ.data.value.security.mode === 'role' ? 'Autonomous within granted permissions' : runQ.data.value.security.mode === 'plan' ? 'Pushes follow an approved plan' : 'Pushes and sensitive actions require review'" :description="runQ.data.value.security.mode === 'role' ? 'The agent can use authorized tools within this Run’s scope and limits. Current project and role permissions are checked on every action.' : runQ.data.value.security.mode === 'plan' ? 'The agent works in its box on its own and proposes a plan. After you approve it, its pushes of the Task’s branch go ahead without separate review. Other tools work within this Run’s permissions.' : 'The agent works in its box on its own; each push of its branch waits for you to read its diff and approve it. Other model-selected Server writes and outbound integrations remain blocked.'" />
         <p class="text-xs text-muted">Run content is private to you. Shared chat and Task views receive only a safe notice. These are context-policy decisions; an allowed decision does not mean the operation completed.</p>
         <ul v-if="runQ.data.value.security.decisions.length" class="space-y-1 text-xs text-muted">
           <li v-for="(decision, index) in runQ.data.value.security.decisions.slice(-20)" :key="index" class="break-all">{{ decision.tool }} · {{ decision.effect }} · {{ decision.decision }}<span v-if="decision.untrustedContext"> · Untrusted context</span><span v-if="decision.decision === 'blocked'"> · Human review required</span></li>
@@ -154,7 +157,7 @@ async function publicationAction(decision?: 'approve' | 'reject') {
       <section v-if="run.resultText" class="space-y-2"><h2 class="text-sm font-medium">Result</h2><ChatMarkdownView :content="run.resultText" class="text-sm text-default" /></section>
       <section v-if="run.status === 'completed' && run.resultText?.trim() && can(Permission.approveAgentActions)" class="space-y-3 rounded-lg border border-default p-4">
         <h2 class="text-sm font-medium">Share result</h2>
-        <p class="text-xs text-muted">The result above is private. Sharing posts the exact reviewed text as this Agent in the original conversation. Workspace and GitHub publication actions have their own exact reviews.</p>
+        <p class="text-xs text-muted">The result above is private. Sharing posts the exact reviewed text as this Agent in the original conversation. Pushes from the Agent’s box have their own exact reviews.</p>
         <p v-if="run.resultText.trim().length > 2000" class="text-sm text-muted">Results over 2000 characters cannot be shared through this review.</p>
         <template v-else-if="runQ.data.value?.publication && ['completed', 'executing', 'uncertain'].includes(runQ.data.value.publication.status)">
           <p class="text-sm">Publication: {{ runQ.data.value.publication.status }}</p>

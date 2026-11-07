@@ -130,14 +130,14 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
         throw new Error(message)
       }
 
-        const progress = JSON.parse(output) as { factoryPending?: boolean; delegationPending?: boolean }
-        if (!(definition.name === 'factory_workspace' && progress.factoryPending === true) && !(definition.name === 'delegate_task' && progress.delegationPending === true)) break
+        const progress = JSON.parse(output) as { outwardPending?: boolean; delegationPending?: boolean }
+        if (progress.outwardPending !== true && !(definition.name === 'delegate_task' && progress.delegationPending === true)) break
         await new Promise<void>((resolve, reject) => {
           const signal = context.abortSignal ?? host.signal
           if (signal?.aborted) { reject(new Error('Run cancelled')); return }
           const stop = () => { clearTimeout(timer); reject(new Error('Run cancelled')) }
-          // The Server holds a Factory poll until the Node answers; delegated Runs are checked less often.
-          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, definition.name === 'factory_workspace' ? 250 : 2000)
+          // An outward action waits for a person or its push, and a delegated Run for its result: ask again shortly.
+          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, 2000)
           signal?.addEventListener('abort', stop, { once: true })
         })
       }

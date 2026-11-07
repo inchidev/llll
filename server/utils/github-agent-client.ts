@@ -61,25 +61,44 @@ async function appJwt(env: L4Env, connectionId?: string | null) {
   return await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer(String(config.appId)).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
 }
 
-/** Trusted source-fetch broker only: a single-repository read credential, never an Agent/workspace credential. */
-export async function githubSourceGrant(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number }, ensure: () => Promise<void>) {
+/** Revokes a single-repository GitHub token at once; an unused grant is never delivered or reused. */
+export async function revokeGithubToken(token: string, agent = 'L4-source-broker') {
+  try {
+    const revoked = await fetch('https://api.github.com/installation/token', { method: 'DELETE', redirect: 'manual', signal: AbortSignal.timeout(10000),
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': agent, 'X-GitHub-Api-Version': version } })
+    await revoked.body?.cancel()
+  } catch { /* The single-repository grant expires within the hour regardless. */ }
+}
+
+/** A single-repository Git credential for a trusted component, re-checked after it is issued. */
+async function gitGrant(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number }, contents: 'read' | 'write', agent: string, ensure: () => Promise<void>) {
   await ensure()
   const jwt = await appJwt(env, input.connectionId)
   const response = await decode(await fetch(`https://api.github.com/app/installations/${input.installationId}/access_tokens`, {
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(20000),
-    headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': 'L4-source-broker', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents: 'read' } }),
+    headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': version, 'User-Agent': agent, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repository_ids: [input.repositoryId], permissions: { contents } }),
   })) as { token?: string }
-  if (!response.token) fail(502, 'github_response', 'GitHub did not issue a source capability')
+  if (!response.token) fail(502, 'github_response', contents === 'write' ? 'GitHub did not issue a push capability' : 'GitHub did not issue a source capability')
   try { await ensure() } catch (error) {
-    try {
-      const revoked = await fetch('https://api.github.com/installation/token', { method: 'DELETE', redirect: 'manual', signal: AbortSignal.timeout(10000),
-        headers: { Authorization: `Bearer ${response.token}`, 'User-Agent': 'L4-source-broker', 'X-GitHub-Api-Version': version } })
-      await revoked.body?.cancel()
-    } catch { /* The unused single-repository read capability is never delivered or reused. */ }
+    await revokeGithubToken(response.token, agent)
     throw error
   }
   return response.token
+}
+
+/** Trusted source-fetch broker only: a single-repository read credential, never an Agent/box credential. */
+export async function githubSourceGrant(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number }, ensure: () => Promise<void>) {
+  return gitGrant(env, input, 'read', 'L4-source-broker', ensure)
+}
+
+/**
+ * Trusted publisher only: a single-repository contents write credential for one approved push of a box's
+ * branch. On a VPS Node the daemon pushes with it from its own copy and revokes it; on Cloudflare the box's
+ * outbound Worker adds it to the one push it allows. It never enters a box.
+ */
+export async function githubPushGrant(env: L4Env, input: { connectionId?: string | null; installationId: number; repositoryId: number }, ensure: () => Promise<void>) {
+  return gitGrant(env, input, 'write', 'L4-publisher', ensure)
 }
 
 export type AgentRepository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string }
