@@ -143,8 +143,10 @@ describe('a box on its Node', () => {
     const id = await ensureBox(f.env, run, nodeId)
     const [granted] = (await sync([], 1)).boxes
     f.db.prepare('UPDATE factory_boxes SET lease_until=? WHERE id=?').run(new Date(Date.now() - 1000).toISOString(), id)
-    // While it was gone, another Task took the only box.
-    await ensureBox(f.env, other, nodeId)
+    // While it was gone, another Task queued for the only box. Its earlier place in the queue is explicit:
+    // in one millisecond both rows would tie on updated_at and the order would fall to their random ids.
+    const otherId = await ensureBox(f.env, other, nodeId)
+    f.db.prepare('UPDATE factory_boxes SET updated_at=? WHERE id=?').run(new Date(Date.now() - 500).toISOString(), otherId)
     const late = await sync([{ id, lease: granted!.lease, state: 'running', runId: run.id }], 1)
     expect(late.boxes.find(entry => entry.id === id)).toMatchObject({ want: 'stopped', lease: granted!.lease })
     expect(box(id)).toMatchObject({ status: 'queued', leaseToken: null })
