@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { ProjectSecret } from '~~/shared/project-factory'
+import { dropFromList, putInList } from '~/utils/list-cache'
 const props = defineProps<{ projectId: string; archived: boolean }>()
-const { api } = useApi(), toast = useToast()
-const query = useQuery({ queryKey: computed(() => ['project-secrets', props.projectId]), queryFn: () => api<{ secrets: ProjectSecret[]; canManage: boolean }>(`/api/projects/${props.projectId}/secrets`) })
+const { api } = useApi(), toast = useToast(), cache = useQueryClient()
+const key = computed(() => ['project-secrets', props.projectId])
+const query = useQuery({ queryKey: key, queryFn: () => api<{ secrets: ProjectSecret[]; canManage: boolean }>(`/api/projects/${props.projectId}/secrets`) })
 const editable = computed(() => Boolean(query.data.value?.canManage) && !props.archived)
 const open = ref(false), busy = ref(false), editing = ref<ProjectSecret | null>(null), name = ref(''), value = ref(''), hosts = ref('')
 const hostList = computed(() => [...new Set(hosts.value.split(/[\s,]+/u).map(host => host.trim().toLowerCase().replace(/^https?:\/\//u, '').replace(/\/.*$/u, '')).filter(Boolean))])
@@ -11,15 +13,17 @@ function edit(secret: ProjectSecret | null) { editing.value = secret; name.value
 async function save() {
   busy.value = true
   try {
-    if (editing.value) await api(`/api/projects/${props.projectId}/secrets/${editing.value.id}`, { method: 'PUT', body: { hosts: hostList.value, ...(value.value ? { value: value.value } : {}) } })
-    else await api(`/api/projects/${props.projectId}/secrets`, { method: 'PUT', body: { name: name.value, value: value.value, hosts: hostList.value } })
+    const saved = editing.value
+      ? await api<{ secret: ProjectSecret }>(`/api/projects/${props.projectId}/secrets/${editing.value.id}`, { method: 'PUT', body: { hosts: hostList.value, ...(value.value ? { value: value.value } : {}) } })
+      : await api<{ secret: ProjectSecret }>(`/api/projects/${props.projectId}/secrets`, { method: 'PUT', body: { name: name.value, value: value.value, hosts: hostList.value } })
+    putInList(cache, key.value, 'secrets', saved.secret)
     value.value = ''; open.value = false; await query.refetch()
   } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) } finally { busy.value = false }
 }
 async function remove() {
   if (!editing.value) return
   busy.value = true
-  try { await api(`/api/projects/${props.projectId}/secrets/${editing.value.id}`, { method: 'DELETE' }); open.value = false; await query.refetch() }
+  try { await api(`/api/projects/${props.projectId}/secrets/${editing.value.id}`, { method: 'DELETE' }); dropFromList(cache, key.value, 'secrets', editing.value.id); open.value = false; await query.refetch() }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) } finally { busy.value = false }
 }
 const date = (value: string) => new Date(value).toLocaleString()

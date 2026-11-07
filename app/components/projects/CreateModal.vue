@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import type { Project } from '~~/shared/projects'
+import { putInList } from '~/utils/list-cache'
 const props = defineProps<{ serverId: string }>()
 const open = defineModel<boolean>('open', { default: false })
 const { api } = useApi(), toast = useToast(), cache = useQueryClient()
@@ -9,6 +10,7 @@ async function create() {
   busy.value = true
   try {
     const result = await api<{ project: Project }>(`/api/servers/${props.serverId}/projects`, { method: 'POST', body: { name: name.value, description: description.value } })
+    putInList(cache, ['projects', props.serverId], 'projects', result.project)
     name.value = ''; description.value = ''; open.value = false
     await cache.invalidateQueries({ queryKey: ['projects', props.serverId] })
     await navigateTo(`/projects/${result.project.id}`)
