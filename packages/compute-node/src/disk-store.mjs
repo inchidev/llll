@@ -14,7 +14,7 @@ export class LoopDiskStore {
   async command(name,args) {
     const result=await this.runner(name,args,{timeoutMs:30000,limit:4000})
     if(result.code!==0) {
-      if (/no space left on device|disk quota exceeded/iu.test(result.stderr.toString())) throw new Error('Compute Node disk is full; mark finished Tasks Done to release their workspaces, or move Task storage to a larger disk')
+      if (/no space left on device|disk quota exceeded/iu.test(result.stderr.toString())) throw new Error('Compute Node disk is full; mark finished Tasks Done to release their boxes, or move Task storage to a larger disk')
       throw new Error('Linux disk operation failed; configure loop devices, mount permissions and free capacity')
     }
     return result.stdout.toString().trim()
@@ -30,16 +30,16 @@ export class LoopDiskStore {
     const paths=this.paths(id),result=await this.runner('findmnt',['-rn','--mountpoint',paths.mount,'--output','SOURCE'],{timeoutMs:1000,limit:2000})
     if(result.code!==0)return false
     const devices=(await this.command('losetup',['--list','--noheadings','--output','NAME','--associated',paths.image])).split(/\s/u).filter(Boolean)
-    if(!devices.includes(result.stdout.toString().trim()))throw new Error('Foreign filesystem mounted at workspace disk path')
+    if(!devices.includes(result.stdout.toString().trim()))throw new Error('Foreign filesystem mounted at a box disk path')
     return true
   }
   async ensure(id,create=false) {
     const paths=this.paths(id)
     let exists=false
-    try{const stat=await lstat(paths.image);if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==this.bytes)throw new Error('Invalid workspace disk');exists=true}catch(error){if(error.code!=='ENOENT')throw error}
+    try{const stat=await lstat(paths.image);if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==this.bytes)throw new Error('Invalid box disk');exists=true}catch(error){if(error.code!=='ENOENT')throw error}
     if(!exists){
-      if(!create)throw new Error('Persistent workspace disk is unavailable')
-      if((await readdir(this.root)).filter(name=>name.endsWith('.img')).length>=this.maxDisks)throw new Error('Node disk capacity is occupied; mark finished Tasks Done to release their workspaces')
+      if(!create)throw new Error('Persistent box disk is unavailable')
+      if((await readdir(this.root)).filter(name=>name.endsWith('.img')).length>=this.maxDisks)throw new Error('Node disk capacity is occupied; mark finished Tasks Done to release their boxes')
       try{
         await this.command('fallocate',['--length',String(this.bytes),paths.image]);await chmod(paths.image,0o600)
         await this.command('mkfs.ext4',['-q','-F','-E','nodiscard',paths.image])
@@ -48,7 +48,7 @@ export class LoopDiskStore {
     await mkdir(paths.mount,{recursive:true,mode:0o700})
     if((await lstat(paths.mount)).isSymbolicLink())throw new Error('Unsafe disk mount directory')
     if(!await this.mounted(id))await this.command('mount',['-o','loop,nodev,nosuid',paths.image,paths.mount])
-    if(!await this.mounted(id))throw new Error('Workspace disk mount could not be verified')
+    if(!await this.mounted(id))throw new Error('Box disk mount could not be verified')
     await chown(paths.mount,this.ownerUid,this.ownerGid);await chmod(paths.mount,0o700)
     return paths.mount
   }

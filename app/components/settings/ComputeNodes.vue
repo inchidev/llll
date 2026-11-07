@@ -69,7 +69,7 @@ async function disable(id: string) {
     <div v-if="pairing" class="space-y-2">
       <p class="text-sm">Use this code once in your Node setup. It expires {{ new Date(pairing.expiresAt).toLocaleString() }}. Keep it private.</p>
       <code class="block break-all select-all rounded bg-elevated p-3 text-xs">{{ pairing.token }}</code>
-      <p class="text-sm text-muted">Start a compute node with this Server address, the pairing code and a pinned workspace image. Select the connected node for your repository.</p>
+      <p class="text-sm text-muted">Start a compute node with this Server address, the pairing code and a pinned box image. Select the connected node for your repository.</p>
     </div>
     </div></template></SettingsEditor>
   </section>

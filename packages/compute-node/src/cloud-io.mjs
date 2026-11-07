@@ -7,7 +7,7 @@ import { copyCommit } from './review-diff.mjs'
 import { pushBranch } from './push-branch.mjs'
 
 // A Cloudflare box keeps its checkout where the box runtime works, /work/repo.
-const base = process.env.LLLL_BOX_ROOT || '/workspace', root = `${base}/repo`
+const base = process.env.LLLL_BOX_ROOT || '/work', root = `${base}/repo`
 export async function readCodeInput(stream = process.stdin) {
   const chunks = []; let size = 0
   for await (const chunk of stream) {

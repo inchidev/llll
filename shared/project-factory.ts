@@ -109,4 +109,3 @@ export const windowToolSchema = z.object({
   secrets: z.array(secretName).max(10).default([]).describe('Names of Project secrets to use at this host, such as TELEGRAM_TOKEN; each must be bound to the host. Send the placeholder L4_SECRET_<NAME> and the egress layer puts the value in.'),
   reason: z.string().trim().min(1).max(500).describe('Why the Task needs this host, for the person who decides.'),
 }).strict()
-export type WindowRequest = z.infer<typeof windowToolSchema>

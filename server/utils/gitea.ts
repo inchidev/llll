@@ -108,7 +108,6 @@ export async function giteaAgentClient(env: L4Env, input: { connectionId?: strin
     },
   }
 }
-export type GiteaAgentClient = Awaited<ReturnType<typeof giteaAgentClient>>
 
 /** The clone address of a repository on a connection's Gitea. */
 export async function giteaRemote(env: L4Env, connectionId: string | null | undefined, repository: string) {

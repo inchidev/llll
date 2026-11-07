@@ -52,7 +52,7 @@ export async function openPi(input, { directory, cwd: checkout, emit, callTool, 
       if (tool.name === 'get_tool_details' && input.tools.some(candidate => candidate.deferred && candidate.name === value?.tool?.name)) {
         session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), value.tool.name])])
         emit({ type: 'tool', name: value.tool.name, purpose: typeof value.purpose === 'string' ? value.purpose.slice(0, 240) : undefined })
-        // Container publishing derives files from its isolated workspace; show
+        // Container publishing derives files from its checkout; show
         // the runtime's adapted arguments rather than asking the model for files.
         const selected = customTools.find(candidate => candidate.name === value.tool.name)
         if (selected) value = { ...value, tool: { ...value.tool, parameters: selected.parameters } }

@@ -674,7 +674,7 @@ factory_command() {
       for tool in fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$tool"; done
       if [[ $no_systemd != true ]]; then need systemctl; fi
       [[ $(uname -m) == x86_64 ]] || fail 'The released Compute Node supports Linux amd64.'
-      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 18253611008 ]] || fail 'Compute Node needs 17 GiB free disk capacity for a 10 GiB Task workspace, its image and reserve for the Server.'
+      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 18253611008 ]] || fail 'Compute Node needs 17 GiB free disk capacity for a 10 GiB Task disk, its image and reserve for the Server.'
       [[ $(awk '/MemAvailable:/ {print $2}' /proc/meminfo) -ge 2097152 ]] || fail 'Factory needs 2 GiB available RAM, including reserve for the Server.'
       release_metadata "$version"
       validate_metadata "$version"
@@ -705,14 +705,14 @@ factory_command() {
       install -m 700 -d "$dir/factory" "$dir/factory/releases/$version" "$dir/factory/state"
       tar -xzf "$stage/llll-compute-node-linux-amd64.tgz" --no-same-owner -C "$dir/factory/releases/$version"
       chmod 700 "$dir/factory/releases/$version/node"
-      say 'Loading the workspace image. This can take several minutes.'
+      say 'Loading the box image. This can take several minutes.'
       docker load -i "$stage/llll-workspace-linux-amd64.tar.gz" >/dev/null
       tag="llll-workspace:$version"
-      loaded=$(docker image inspect "$tag" --format '{{.Id}}' 2>/dev/null) || fail "Workspace image $tag was not loaded."
-      workspace_image_accepted "$loaded" || fail "Loaded workspace image $loaded does not match a published Factory digest. Classic and containerd stores report different ids; the release lists image, configDigest and indexDigest."
+      loaded=$(docker image inspect "$tag" --format '{{.Id}}' 2>/dev/null) || fail "Box image $tag was not loaded."
+      workspace_image_accepted "$loaded" || fail "Loaded box image $loaded does not match a published Factory digest. Classic and containerd stores report different ids; the release lists image, configDigest and indexDigest."
       image=$loaded
       architecture=$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')
-      [[ $architecture == linux/amd64 ]] || fail 'Workspace image architecture mismatch'
+      [[ $architecture == linux/amd64 ]] || fail 'Box image architecture mismatch'
       # Probe the actual hard-quota filesystem before installing or pairing the service.
       "$dir/factory/releases/$version/node" --input-type=module - "$dir/factory/releases/$version/src/disk-store.mjs" "$dir/factory/state/probe-disks" <<'PROBE'
 import { pathToFileURL } from 'node:url';
@@ -764,7 +764,7 @@ UNIT
     status) require_factory_systemd; systemctl --no-pager status "$unit" ;;
     logs) require_factory_systemd; journalctl -u "$unit" -n 100 --no-pager || fail 'Could not read Factory logs. systemd journal is unavailable.' ;;
     restart) require_factory_systemd; systemctl restart "$unit" ;;
-    disable) require_factory_systemd; systemctl disable --now "$unit"; say 'Local executor stopped. All source disks and recovery receipts retained.' ;;
+    disable) require_factory_systemd; systemctl disable --now "$unit"; say 'Local executor stopped. All Task disks retained.' ;;
     backup)
       require_factory_systemd
       [[ -d $dir/factory/state ]] || fail 'No local Factory state exists.'
@@ -775,10 +775,10 @@ UNIT
       # Loop-mounted directories are excluded; their complete backing disks are retained.
       tar --one-file-system -czf "$asset.partial" -C "$dir" factory
       mv "$asset.partial" "$asset"; chmod 600 "$asset"
-      say "Factory source disks and private receipts exported to $asset. Executor remains stopped; use llll factory restart to continue."
+      say "Factory Task disks and Node state exported to $asset. Executor remains stopped; use llll factory restart to continue."
       ;;
     remove)
-      [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. Delete source only through explicitly reviewed workspace release actions.'
+      [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. A Task disk is deleted only when its Task is Done.'
       if systemd_available; then
         systemctl disable --now "$unit" 2>/dev/null || true
         rm -f -- "/etc/systemd/system/$unit.service"
@@ -787,7 +787,7 @@ UNIT
         rm -f -- "/etc/systemd/system/$unit.service"
         say 'systemd is not running. No service was stopped. Stop any manual node process yourself.'
       fi
-      say "Service removed. Source, binaries, private receipts and backups retained in $dir/factory and $backup_dir."
+      say "Service removed. Task disks, binaries, Node state and backups retained in $dir/factory and $backup_dir."
       ;;
     *) fail 'Usage: llll factory enable --trust-shared-kernel [--no-systemd]|status|logs|restart|disable|backup|remove --keep-source' ;;
   esac

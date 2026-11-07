@@ -6,11 +6,6 @@ import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { fail } from './cf'
 
 const version = '2026-03-10'
-export async function githubAgentConfigured(env: L4Env, connectionId?: string | null): Promise<boolean> {
-  if (connectionId) return Boolean(await githubConnectionCredentials(env, connectionId))
-  if (env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY) return true
-  return Boolean(await env.DB.prepare("SELECT 1 FROM git_connections WHERE provider='github' AND enabled=1 LIMIT 1").first())
-}
 
 export { githubPkcs8 } from '../../shared/github-key'
 

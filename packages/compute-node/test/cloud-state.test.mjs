@@ -41,7 +41,7 @@ test('Cloudflare code checkpoints retain exact history, staged/dirty/untracked s
   await mkdir(source); await mkdir(repositories)
   const git = (cwd, ...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   // The checkout is where the box runtime works: the image's box root.
-  const root = join(process.env.LLLL_BOX_ROOT || '/workspace', 'repo')
+  const root = join(process.env.LLLL_BOX_ROOT || '/work', 'repo')
   git(source, 'init', '-b', 'main'); git(source, 'config', 'user.name', 'Upstream author'); git(source, 'config', 'user.email', 'upstream@example.invalid')
   await writeFile(join(source, 'answer.txt'), 'original\n')
   await writeFile(join(source, 'asset.bin'), Buffer.from([0, 1, 2, 255]))
@@ -141,8 +141,8 @@ test('Cloud image keeps its root idle supervisor alive while checkpoint cleanup 
     docker('exec', '--user', '1000:1000', container, '/bin/sh', '-c', 'sleep 600 >/dev/null 2>&1 &')
     docker('exec', '--user', '0:0', container, '/usr/bin/pkill', '-KILL', '-u', '1000')
     assert.equal(docker('inspect', '--format', '{{.State.Running}}', container), 'true')
-    docker('exec', '--user', '1000:1000', container, '/usr/local/bin/node', '-e', "const fs=require('node:fs'); fs.writeFileSync('/workspace/checkpoint-proof','retained source'); if(process.getuid()!==1000)process.exit(1)")
-    assert.equal(docker('exec', '--user', '0:0', container, 'cat', '/workspace/checkpoint-proof'), 'retained source')
+    docker('exec', '--user', '1000:1000', container, '/usr/local/bin/node', '-e', "const fs=require('node:fs'); fs.writeFileSync('/work/checkpoint-proof','retained source'); if(process.getuid()!==1000)process.exit(1)")
+    assert.equal(docker('exec', '--user', '0:0', container, 'cat', '/work/checkpoint-proof'), 'retained source')
     assert.equal(docker('inspect', '--format', '{{.State.Running}}', container), 'true')
   } finally { docker('rm', '-f', container) }
 })
