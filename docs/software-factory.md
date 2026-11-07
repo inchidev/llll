@@ -1,5 +1,7 @@
 # Compute nodes and Task workspaces
 
+This page describes the current per-command Factory. It is being replaced by an Agent that works on its own box with real Git; see [The Agent works on its box](adr/0010-agent-on-the-box.md).
+
 A human assigns a repository-backed Task to a Pi Agent. The Agent requests workspace operations, the initiating human reviews their exact arguments, and a connected Docker Node executes approved work on persistent Task disk. The Agent makes normal local Git commits, submits a committed snapshot, and requests separate approval to publish those exact commits to one dedicated branch and draft PR in the original GitHub repository. Existing CI and deployment integrations remain authoritative. A repair uses the same workspace and PR, with a new committed snapshot and publication approval.
 
 Real-provider fresh-install acceptance remains separate from local fixtures; see the reproducible procedure.
