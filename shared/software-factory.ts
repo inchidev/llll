@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { egressHost, secretName } from './project-factory'
 
 export const factorySha = z.string().regex(/^[a-f0-9]{40}$/u)
 /** The branch in the original repository a box publishes to; nothing else of the repository is ever written. */
@@ -13,6 +14,8 @@ export const publishToolSchema = z.object({
 export const planToolSchema = z.object({
   summary: z.string().trim().min(1).max(4000).describe('What you will change and how you will check it.'),
   steps: z.array(z.string().trim().min(1).max(500)).min(1).max(30).describe('The concrete steps, in order.'),
+  hosts: z.array(egressHost).max(10).default([]).describe('Hosts beyond the Project’s network the work needs, such as api.telegram.org. Once the plan is approved, a window for one of them opens without asking again.'),
+  secrets: z.array(secretName).max(10).default([]).describe('Names of Project secrets the work uses, such as TELEGRAM_TOKEN. In plan mode only the secrets an approved plan names are put in.'),
 }).strict()
 /** A push's review as the Node or box produced it from Git, stored in R2 under the approval. */
 export const reviewDiffSchema = z.object({ sha: factorySha, baseSha: factorySha,
@@ -22,7 +25,7 @@ export type ReviewDiff = z.infer<typeof reviewDiffSchema>
 export type FactoryApprovalKind = 'plan' | 'publish' | 'window' | 'merge'
 /** An outward action of a box as a person reviewing it sees it. The diff itself is read from R2 on demand. */
 export type FactoryApproval = { id: string; boxId: string; runId: string; kind: FactoryApprovalKind; digest: string; status: string
-  request: { sha?: string; ref?: string; title?: string; body?: string; summary?: string; steps?: string[] }
+  request: { sha?: string; ref?: string; title?: string; body?: string; summary?: string; steps?: string[]; hosts?: string[]; host?: string; minutes?: number; secrets?: string[]; reason?: string }
   /** The review a Node or box produced for a push, kept in R2: only its digest is on the row. */
   diff: { digest: string } | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; result: unknown; createdAt: string }

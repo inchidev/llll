@@ -5,6 +5,29 @@ import { AGENT_GATEWAY_PATH, agentGateway } from '../server/utils/agent-gateway'
 import { leasedCloudBox } from '../server/utils/factory-boxes'
 import { giteaPush, giteaRemote, giteaSourceFetch } from '../server/utils/gitea'
 import { inspectReceivePack } from '../shared/git-pktline'
+import { boxEgress, EGRESS_BODY_LIMIT, egressBytes, egressSecretValues, markSecretsUsed, replacePlaceholders, scrubStream, scrubText, TEXT_BODY, type CompiledEgress } from '../server/utils/box-egress'
+
+/** Reads a body up to `limit`; past it, what was read and the rest stream on unchanged. */
+async function readPrefix(body: ReadableStream<Uint8Array>, limit: number): Promise<{ bytes: Uint8Array } | { stream: ReadableStream<Uint8Array> }> {
+  const reader = body.getReader(), chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value); size += value.byteLength
+    if (size > limit) {
+      return { stream: new ReadableStream<Uint8Array>({
+        start(controller) { for (const chunk of chunks) controller.enqueue(chunk) },
+        async pull(controller) { const next = await reader.read(); if (next.done) controller.close(); else controller.enqueue(next.value) },
+        cancel(reason) { return reader.cancel(reason) },
+      }) }
+    }
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+  return { bytes }
+}
 
 /**
  * What one Cloudflare box may reach, set by its Durable Object. The lease is checked against the Server's
@@ -29,7 +52,8 @@ function gitService(url: URL, request: Request, remote: URL, service: 'git-uploa
 
 /**
  * The box's only way out. Credentials are added here, never inside the box: the box holds only its Run's
- * gateway capability, and every other destination is refused.
+ * gateway capability and placeholders. Beyond the gateway and a trusted helper's Git grant, the box reaches
+ * only the hosts its Project and open windows allow (server/utils/box-egress.ts); everything else is refused.
  */
 export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
   override async fetch(request: Request): Promise<Response> {
@@ -37,6 +61,8 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
     const box = await leasedCloudBox(this.env, grant.boxId, grant.lease)
     if (!box) return new Response('Box authorization expired', { status: 403 })
     const url = new URL(request.url), headers = new Headers(request.headers)
+    // What the box itself sent, for a host its network opens: its own headers, credentials only as placeholders.
+    const sent = new Headers(request.headers)
     headers.delete('cookie')
     if (url.protocol !== 'https:' || url.port || url.username || url.password) return new Response('HTTPS destination required', { status: 403 })
 
@@ -97,9 +123,55 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
         return this.forward(url, request, headers, body)
       }
     }
-    // Package registries, Project hosts and open windows (item 6) are checked here, each against the Server's
-    // state for this box.
-    return new Response('Destination is not open for this box', { status: 403 })
+    // The Project's network and the Task's open windows, as the box's sync compiles them for a VPS Node too.
+    // This Server is reached only through its gateway above.
+    const egress = (await boxEgress(this.env, [box.id])).get(box.id)
+    if (!egress || !egress.hosts.includes(url.hostname) || servers.includes(url.hostname)) {
+      return new Response(`${url.hostname} is not open for this box. Ask with request_network_window.`, { status: 403 })
+    }
+    return this.window(url, request, sent, egress)
+  }
+
+  /**
+   * A request to an open host. Each placeholder in effect there becomes its value in the URL, the headers and
+   * a text body up to 1 MB; a known placeholder that is not refuses the request with the reason. The answer
+   * has the values taken out again.
+   */
+  private async window(url: URL, request: Request, sent: Headers, egress: CompiledEgress) {
+    const host = url.hostname
+    const values = egress.secretHosts.includes(host) ? await egressSecretValues(this.env, egress, host) : []
+    const refuse = (message: string) => new Response(message, { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+    const target = replacePlaceholders(url.pathname + url.search, host, values, egress.known, 'url')
+    if ('refused' in target) return refuse(target.refused)
+    let changed = target.changed
+    const headers = new Headers()
+    for (const [key, value] of sent) {
+      if (['host', 'content-length', 'accept-encoding'].includes(key)) continue
+      const replaced = replacePlaceholders(value, host, values, egress.known)
+      if ('refused' in replaced) return refuse(replaced.refused)
+      changed ||= replaced.changed
+      headers.set(key, replaced.text)
+    }
+    // Uncompressed answers, so a value an answer repeats can be taken out of it.
+    if (values.length) headers.set('accept-encoding', 'identity')
+    let body: BodyInit | null = null
+    if (request.body && !['GET', 'HEAD'].includes(request.method)) {
+      const read = await readPrefix(request.body, EGRESS_BODY_LIMIT)
+      const encoded = ![null, 'identity'].includes(sent.get('content-encoding')), type = sent.get('content-type')
+      if ('bytes' in read && !encoded && (!type || TEXT_BODY.test(type))) {
+        const replaced = replacePlaceholders(egressBytes.text(read.bytes), host, values, egress.known, 'body')
+        if ('refused' in replaced) return refuse(replaced.refused)
+        changed ||= replaced.changed
+        body = egressBytes.bytes(replaced.text)
+      } else body = 'bytes' in read ? read.bytes as Uint8Array<ArrayBuffer> : read.stream
+    }
+    if (changed && values.length) this.ctx.waitUntil(markSecretsUsed(this.env, values.map(value => value.id)))
+    const response = await fetch(new Request(new URL(target.text, url.origin), { method: request.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(120000),
+      ...(body instanceof ReadableStream ? { duplex: 'half' } : {}) } as RequestInit))
+    if (!values.length) return response
+    const answer = new Headers()
+    for (const [key, value] of response.headers) if (key !== 'content-length') answer.append(key, scrubText(value, values))
+    return new Response(response.body ? response.body.pipeThrough(scrubStream(values)) : null, { status: response.status, statusText: response.statusText, headers: answer })
   }
 
   private async forward(url: URL, request: Request, headers: Headers, body: ReadableStream<Uint8Array> | null = request.body) {

@@ -13,6 +13,7 @@ import type { AgentRun, RuntimeEvent } from '../../shared/agent-execution'
 import { configureCloudflareFactory } from '../../server/utils/factory-setup'
 import { beginUnusedFactoryRepair } from '../../packages/deployment-core/src/factory-repair'
 import { cloudCodeBridge } from '../../workers/factory-code-bridge'
+import { createProjectSecret } from '../../server/utils/project-egress'
 
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class { constructor(protected ctx: unknown, protected env: unknown) {} },
@@ -212,6 +213,54 @@ it('keeps every other host closed and never attaches a credential to it', async 
     expect((await worker.fetch(request(url))).status).toBe(403)
   }
   expect(network).not.toHaveBeenCalled()
+})
+
+it('opens the Project’s network and windows, and puts a bound secret in only there, taking it out of the answer', async () => {
+  const { id, lease } = await leasedBox()
+  const now = new Date().toISOString()
+  f.db.prepare('INSERT INTO projects(id,name,created_by,created_at,updated_at,factory_json) VALUES(?,?,?,?,?,?)').run('bot', 'Bot', ids.owner, now, now, JSON.stringify({ network: { presets: ['npm'], hosts: [] } }))
+  f.db.prepare("INSERT INTO project_repositories(id,project_id,provider,host,external_id,slug,default_branch,environment_id,created_by,created_at) VALUES('repo','bot','github','https://github.com','11','inchidev/afterprompt','main','factory-env',?,?)").run(ids.owner, now)
+  await createProjectSecret(f.env, (await f.actor(ids.owner)), 'bot', { name: 'TELEGRAM_TOKEN', value: '123456:real-token', hosts: ['api.telegram.org'] })
+  const execution = (value: string) => f.db.prepare("UPDATE agent_runs SET mandate_json=json_set(mandate_json,'$.execution.mode',?) WHERE id=?").run(value, run.id)
+  execution('role')
+  const seen: Request[] = []
+  network.mockImplementation(async (input: unknown) => {
+    const request = input as Request
+    seen.push(request.clone())
+    return new Response(`echo ${request.headers.get('authorization')} ${await request.text()}`, { headers: { 'X-Echo': request.headers.get('authorization') ?? '', 'Content-Length': '999' } })
+  })
+  const worker = outbound(id, lease)
+  // A host the network does not open stays closed; an open one without a bound secret gets no value.
+  expect((await worker.fetch(request('https://api.telegram.org/bot/getMe'))).status).toBe(403)
+  expect(await (await worker.fetch(new Request('https://registry.npmjs.org/left-pad'))).text()).toBe('echo null ')
+  const leaked = await worker.fetch(new Request('https://registry.npmjs.org/x', { headers: { Authorization: 'Bearer L4_SECRET_TELEGRAM_TOKEN' } }))
+  expect(leaked.status).toBe(403)
+  expect(await leaked.text()).toContain('not bound to registry.npmjs.org')
+  expect(seen).toHaveLength(1)
+
+  // A window opens the bound host; the value goes into the URL, a header and the body, and comes back out of the answer.
+  const box = f.db.prepare('SELECT run_id AS runId FROM factory_boxes WHERE id=?').get(id) as { runId: string }
+  f.db.prepare(`INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,expires_at,created_at) VALUES(?,?,?,?,'window',?,?,'approved',?,?)`)
+    .run(crypto.randomUUID(), id, box.runId, 'window', JSON.stringify({ host: 'api.telegram.org', minutes: 30, secrets: [], reason: 'Bot' }), 'd', new Date(Date.now() + 600000).toISOString(), now)
+  const answer = await worker.fetch(new Request('https://api.telegram.org/botL4_SECRET_TELEGRAM_TOKEN/sendMessage', { method: 'POST',
+    headers: { Authorization: 'Bearer L4_SECRET_TELEGRAM_TOKEN', 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'L4_SECRET_TELEGRAM_TOKEN' }) }))
+  const sent = seen.at(-1)!
+  expect(sent.url).toBe('https://api.telegram.org/bot123456:real-token/sendMessage')
+  expect(sent.headers.get('authorization')).toBe('Bearer 123456:real-token')
+  expect(await sent.text()).toBe('{"text":"123456:real-token"}')
+  const text = await answer.text()
+  expect(text).toBe('echo Bearer L4_SECRET_TELEGRAM_TOKEN {"text":"L4_SECRET_TELEGRAM_TOKEN"}')
+  expect(answer.headers.get('x-echo')).toBe('Bearer L4_SECRET_TELEGRAM_TOKEN')
+  expect(answer.headers.get('content-length')).toBeNull()
+  expect(f.db.prepare('SELECT last_used_at AS used FROM project_secrets').get()).toMatchObject({ used: expect.any(String) })
+
+  // In review mode the open window without the secret gives the network and nothing else.
+  execution('review')
+  const refused = await worker.fetch(new Request('https://api.telegram.org/botL4_SECRET_TELEGRAM_TOKEN/getMe'))
+  expect(refused.status).toBe(403)
+  expect(await refused.text()).toContain('request_network_window')
+  expect(await (await worker.fetch(new Request('https://api.telegram.org/getMe'))).text()).toBe('echo null ')
+  network.mockReset(); network.mockImplementation(async () => new Response('Provider Git response'))
 })
 
 const kind = (props: BoxEgress) => props.source ? 'source' : props.storage ? props.storage.write ? 'checkpoint' : 'restore' : 'box'

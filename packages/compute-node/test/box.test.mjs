@@ -16,7 +16,7 @@ const flag = (args, name) => args.filter((value, index) => args[index - 1] === n
 
 /** Docker as the host sees it: containers, volumes and networks by name, and each box's control socket. */
 function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
-  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = [], pushes = []
+  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = [], pushes = [], loads = []
   async function docker(args, options = {}) {
     calls.push(args)
     const [command, sub] = args
@@ -40,11 +40,13 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
         return JSON.stringify(request.review ? { ok: true, review: { sha: request.sha, baseSha: request.baseSha, commits: [], stat: '', patch: '+change', truncated: false } } : { ok: true, sha: request.sha }) + '\n'
       }
       if (args.at(-1) === '/opt/l4/push-branch.mjs') { pushes.push(JSON.parse(options.input)); return JSON.stringify({ ok: true }) + '\n' }
+      if (args.at(-1) === '/etc/ssl/certs/ca-certificates.crt') return '-----BEGIN CERTIFICATE-----\nsystem\n-----END CERTIFICATE-----\n'
       return JSON.stringify({ ok: true })
     }
     if (command === 'exec') {
       if (!containers.has(args[2])) throw new Error('No such container')
       const request = JSON.parse(options.input)
+      if (args.at(-1) === 'load') { loads.push(request); return '{"ok":true}\n' }
       controls.push(request)
       if (request.op === 'health') return JSON.stringify(health) + '\n'
       if (request.op === 'cancel') { turns.find(turn => turn.submission.runId === request.runId)?.end({ done: true, ok: true, result: 'error' }); return '{"ok":true}\n' }
@@ -55,12 +57,12 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
     }
     throw new Error('Unexpected docker ' + args.join(' '))
   }
-  return { docker, calls, containers, volumes, networks, controls, turns, pushes, runs: () => calls.filter(args => args[0] === 'run') }
+  return { docker, calls, containers, volumes, networks, controls, turns, pushes, loads, runs: () => calls.filter(args => args[0] === 'run' && args.at(-1) !== '/etc/ssl/certs/ca-certificates.crt') }
 }
 
 /** The Server's side of the Node protocol: each sync gets the answer the test sets. */
 function fakeServer() {
-  const syncs = [], sources = [], turnRequests = [], events = [], publications = []
+  const syncs = [], sources = [], turnRequests = [], events = [], publications = [], secretPolls = []
   let answer = () => [], grant = body => ({ approvalId: body.approvalId, repository: 'inchidev/afterprompt', ref: `refs/heads/l4-agent/${boxId}`, sha: 'd'.repeat(40), baseSha: 'c'.repeat(40), expectedOld: null,
     remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_single_repository_push' })
   const submission = id => ({ runId: id, sessionId: id, prompt: 'Ship it', computer: true, box: true, timeoutMs: 60000,
@@ -71,13 +73,14 @@ function fakeServer() {
     if (body.operation === 'turn') { turnRequests.push(body); return { submission: submission(body.runId) } }
     if (body.operation === 'publish') { publications.push(body); return grant(body) }
     if (body.operation === 'published') { publications.push(body); return { accepted: true } }
+    if (body.operation === 'secrets') { secretPolls.push(body); return { revision: 'r2', known: [{ placeholder: 'L4_SECRET_TOKEN', name: 'TOKEN', hosts: ['api.telegram.org'] }], secrets: [{ placeholder: 'L4_SECRET_TOKEN', hosts: ['api.telegram.org'], value: 'only-in-proxy-memory' }] } }
     throw new Error('Unexpected operation')
   }
   const fetcher = async (url, init) => { events.push({ url, authorization: init.headers.Authorization, body: JSON.parse(init.body) }); return Response.json({ ack: 0, cancel: false, steer: [] }) }
-  return { poll, fetcher, syncs, sources, turnRequests, events, publications, set answer(value) { answer = value }, set grant(value) { grant = value } }
+  return { poll, fetcher, syncs, sources, turnRequests, events, publications, secretPolls, set answer(value) { answer = value }, set grant(value) { grant = value } }
 }
 const want = (overrides = {}) => ({ id: boxId, lease: leaseA, want: 'running', taskId, image, diskBytes: 10737418240, cpu: 1, memoryMiB: 4096,
-  egress: { revision: 0, hosts: ['registry.npmjs.org'], secretHosts: [] }, ...overrides })
+  egress: { revision: 'r1', hosts: ['registry.npmjs.org'], secretHosts: [] }, ...overrides })
 
 function host({ docker, server, saved = [], clock = { now: 1_000_000 }, disks, publisher = {} } = {}) {
   const records = new Map(saved.map(record => [record.id, record]))
@@ -86,10 +89,13 @@ function host({ docker, server, saved = [], clock = { now: 1_000_000 }, disks, p
   disks ??= { ensured: [], removed: [], flushed: [],
     async ensure(id, create, bytes) { this.ensured.push({ id, create, bytes }); return `/state/box-disks/${id}` },
     async remove(id) { this.removed.push(id) }, async flush(path) { this.flushed.push(path) } }
-  const boxes = createBoxHost({ docker: docker.docker, poll: server.poll, fetcher: server.fetcher, disks, records: store, connection, image, server: 'https://server.example',
+  const egress = { policies: [], cas: [], removed: [],
+    async prepare(id) { return { policy: `/state/box-egress/${id}/policy`, ca: `/state/box-egress/${id}/ca` } },
+    async writePolicy(id, policy) { this.policies.push({ id, policy }) }, async writeCa(id, cert, bundle) { this.cas.push({ id, cert, bundle }) }, async remove(id) { this.removed.push(id) } }
+  const boxes = createBoxHost({ docker: docker.docker, poll: server.poll, fetcher: server.fetcher, disks, records: store, connection, image, server: 'https://server.example', egressFiles: egress,
     capacity: { cpu: 4, memoryMiB: 16384, boxes: 4 }, diskFree: async () => 5e10, now: () => clock.now, ...publisher,
     fetchSource: async grant => { fetched.push(grant); return { bundle: '/state/source-disks/bundle', release: async () => { released.push(grant.id) } } } })
-  return { boxes, records, disks, fetched, released, clock }
+  return { boxes, records, disks, fetched, released, clock, egress }
 }
 
 test('a box starts on the Server’s word: disk, checkout, closed network, then its turn through docker exec', async () => {
@@ -110,7 +116,14 @@ test('a box starts on the Server’s word: disk, checkout, closed network, then 
   assert.deepEqual(checkout.slice(-3), [image, 'node', '/opt/agent/src/checkout.mjs'])
   // The proxy reaches this Server and the hosts the Server allows; the box reaches only the proxy.
   assert.ok(docker.calls.some(args => args[0] === 'network' && args[1] === 'create' && args.includes('--internal') && args.at(-1) === `l4-boxnet-${boxId}`))
-  assert.deepEqual(JSON.parse(flag(egress, '--env').find(value => value.startsWith('LLLL_EGRESS_HOSTS=')).slice(18)), ['server.example', 'registry.npmjs.org'])
+  assert.deepEqual(h.egress.policies.at(-1), { id: boxId, policy: { revision: 'r1', hosts: ['server.example', 'registry.npmjs.org'], secretHosts: [] } })
+  assert.ok(egress.includes(`type=bind,src=/state/box-egress/${boxId}/policy,dst=/run/l4-policy,readonly`))
+  // The box trusts its own authority, never holds its key; the proxy got the key by docker exec.
+  assert.ok(box.includes(`type=bind,src=/state/box-egress/${boxId}/ca,dst=/run/l4-ca,readonly`))
+  assert.ok(flag(box, '--env').includes('NODE_EXTRA_CA_CERTS=/run/l4-ca/ca.pem') && flag(box, '--env').includes('GIT_SSL_CAINFO=/run/l4-ca/bundle.pem'))
+  assert.match(h.egress.cas[0].bundle, /BEGIN CERTIFICATE/u)
+  assert.ok(!h.egress.cas[0].cert.includes('PRIVATE KEY') && !box.join(' ').includes('PRIVATE KEY'))
+  assert.match(docker.loads[0].ca.key, /PRIVATE KEY/u)
   assert.equal(flag(box, '--network')[0], `l4-boxnet-${boxId}`)
   assert.ok(flag(box, '--env').includes('HTTPS_PROXY=http://172.30.0.2:8080'))
   // The box keeps the rules of the per-operation container, with its reservation as limits.
@@ -321,4 +334,22 @@ test('a push the Server grants for another commit or ref is not made', async () 
   server.answer = () => [want({ publish: { approvalId: '00000000-0000-4000-8000-0000000000f2', sha: pushed, ref: 'refs/heads/main', baseSha: base } })]
   await h.boxes.sync(); await h.boxes.settled()
   assert.equal(server.publications.filter(entry => entry.operation === 'publish').length, 1)
+})
+
+test('a new egress revision reloads the proxy’s secrets by docker exec, then rewrites its policy file', async () => {
+  const docker = fakeDocker(), server = fakeServer()
+  const h = host({ docker, server })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(server.secretPolls.length, 0, 'no bound host, no values')
+  const egress = { revision: 'r2', hosts: ['registry.npmjs.org', 'api.telegram.org'], secretHosts: ['api.telegram.org'] }
+  server.answer = () => [want({ egress })]
+  await h.boxes.sync(); await h.boxes.settled()
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(server.secretPolls, [{ operation: 'secrets', boxId, lease: leaseA }])
+  assert.deepEqual(docker.loads.at(-1).secrets, [{ placeholder: 'L4_SECRET_TOKEN', hosts: ['api.telegram.org'], value: 'only-in-proxy-memory' }])
+  assert.deepEqual(h.egress.policies.at(-1).policy, { revision: 'r2', hosts: ['server.example', 'registry.npmjs.org', 'api.telegram.org'], secretHosts: ['api.telegram.org'] })
+  // The value went only through the exec's stdin: no docker argument and no file carries it.
+  assert.ok(!docker.calls.flat().some(value => value.includes('only-in-proxy-memory')))
+  assert.ok(!JSON.stringify(h.egress.policies).includes('only-in-proxy-memory') && !JSON.stringify(h.egress.cas).includes('only-in-proxy-memory'))
 })

@@ -13,6 +13,8 @@ import { githubPushGrant } from './github-agent-client'
 import { publishedHead, publishedPull, type PullReceipt } from './factory-github'
 import { giteaCredentials } from './gitea'
 import { leaseCapability, wakeCloudBox } from './factory-boxes'
+import { boxEgress } from './box-egress'
+import { windowToolSchema } from '../../shared/project-factory'
 import { fail } from './cf'
 
 /**
@@ -27,8 +29,12 @@ import { fail } from './cf'
  * A trusted component pushes the approved SHA to `l4-agent/<box id>`: the daemon on a VPS Node, or the box's
  * outbound Worker on Cloudflare, which allows only that ref update. The Server then reads the branch back and
  * opens or updates the Task's draft pull request only if it is at that SHA.
+ *
+ * `request_network_window` asks for one more host for a while (box-egress.ts). The Project's network is open
+ * already; a host outside it always needs a person, unless an approved plan named it in plan mode. Once
+ * approved, a window stays open for the Task's box until its time runs out, across the Task's Runs.
  */
-export const OUTWARD_TOOLS = new Set(['factory_publish', 'factory_plan'])
+export const OUTWARD_TOOLS = new Set(['factory_publish', 'factory_plan', 'request_network_window'])
 
 type ApprovalRow = { id: string; boxId: string; runId: string; callId: string; kind: FactoryApprovalKind; requestJson: string; digest: string; status: string; diffKey: string | null; diffDigest: string | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; resultJson: string | null; createdAt: string }
@@ -47,9 +53,10 @@ const visible = (row: ApprovalRow): FactoryApproval => ({ id: row.id, boxId: row
 export async function expireApprovals(env: L4Env) {
   const now = nowIso()
   await env.DB.batch([
-    // An approved plan keeps covering the Task; everything else waits no longer than its Run.
+    // An approved plan keeps covering the Task, and an open window stays open for its time; everything else
+    // waits no longer than its Run.
     env.DB.prepare("UPDATE factory_approvals SET status='expired' WHERE (status IN ('pending_diff','pending') OR (status='approved' AND kind<>'plan')) AND expires_at<=?").bind(now),
-    env.DB.prepare("UPDATE factory_approvals SET status='expired' WHERE (status IN ('pending_diff','pending') OR (status='approved' AND kind<>'plan')) AND run_id IN (SELECT id FROM agent_runs WHERE status<>'running')"),
+    env.DB.prepare("UPDATE factory_approvals SET status='expired' WHERE (status IN ('pending_diff','pending') OR (status='approved' AND kind NOT IN ('plan','window'))) AND run_id IN (SELECT id FROM agent_runs WHERE status<>'running')"),
     // A push whose Node never said how it went may have happened: a person looks at the branch.
     env.DB.prepare("UPDATE factory_approvals SET status='uncertain' WHERE status='publishing' AND expires_at<=?").bind(now),
   ])
@@ -58,10 +65,12 @@ export async function expireApprovals(env: L4Env) {
 /** What the Agent's tool call answers for an approval: its outcome, or that it still waits. */
 function answer(row: ApprovalRow) {
   const result = row.resultJson ? JSON.parse(row.resultJson) as Record<string, unknown> : null
-  if (row.kind === 'plan' && row.status === 'approved') return result ?? { approved: true }
+  if ((row.kind === 'plan' || row.kind === 'window') && row.status === 'approved') return result ?? { approved: true }
   if (row.status === 'completed' && result) return result
   if (row.status === 'rejected') return { outwardPending: false, approvalId: row.id, status: row.status,
-    message: row.kind === 'plan' ? 'The plan was rejected. Ask the person what to change, then propose a revised plan.' : 'The person rejected this publication. Ask what to change; do not push the same commit again.' }
+    message: row.kind === 'plan' ? 'The plan was rejected. Ask the person what to change, then propose a revised plan.'
+      : row.kind === 'window' ? 'The person did not open this host. Do the work without it, or ask what they would allow.' : 'The person rejected this publication. Ask what to change; do not push the same commit again.' }
+  if (row.kind === 'window' && row.status === 'expired' && result) return { ...result, open: false, outwardPending: false, message: 'This window has closed. Ask again if the Task still needs the host.' }
   if (['expired', 'failed', 'uncertain'].includes(row.status)) return { outwardPending: false, approvalId: row.id, status: row.status,
     message: typeof result?.message === 'string' ? result.message : row.status === 'uncertain' ? 'The push may have happened. Ask the person to check the branch before publishing again.' : 'This request did not complete. It will not be repeated.' }
   return { outwardPending: true, approvalId: row.id, status: row.status, reviewUrl: `/runs/${row.runId}` }
@@ -88,6 +97,7 @@ async function showTurn(env: L4Env, run: { id: string; channelId: string; agentI
 export async function outwardToolCall(env: L4Env, runId: string, name: string, callId: string, input: unknown) {
   const isPlan = name === 'factory_plan'
   if (!OUTWARD_TOOLS.has(name)) fail(404, 'tool_unavailable', 'Unknown outward action')
+  if (name === 'request_network_window') return windowToolCall(env, runId, callId, input)
   const request = isPlan ? planToolSchema.parse(input) : publishToolSchema.parse(input)
   const context = await factoryAuthority(env, runId, undefined, !isPlan)
   await expireApprovals(env)
@@ -127,7 +137,58 @@ export async function outwardToolCall(env: L4Env, runId: string, name: string, c
   return answer(row)
 }
 
-/** A person's decision on a plan or a push, against the exact digest they reviewed. */
+/** An open window: until when, and what the Agent reads about it. */
+function openWindow(request: z.infer<typeof windowToolSchema>) {
+  const expiresAt = new Date(Date.now() + request.minutes * 60000).toISOString()
+  const secrets = request.secrets.map(name => `L4_SECRET_${name}`)
+  return { expiresAt, result: { open: true, host: request.host, until: expiresAt, secrets,
+    message: `${request.host} is open for this Task until ${expiresAt}.${secrets.length ? ` Send ${secrets.join(', ')} where the value belongs (header, URL or body); the egress layer puts it in on requests to ${request.host}. Never print or store the value.` : ''}` } }
+}
+
+/**
+ * `request_network_window`: one host for a while, with the Project secrets named for it. The Project's own
+ * network needs no window; a host outside it waits for a person, except one an approved plan named in plan
+ * mode. Every secret must be a Project secret bound to the host.
+ */
+async function windowToolCall(env: L4Env, runId: string, callId: string, input: unknown) {
+  const request = windowToolSchema.parse(input)
+  const context = await factoryAuthority(env, runId)
+  await expireApprovals(env)
+  const box = await taskBox(env, context)
+  if (!box || box.status === 'released') fail(409, 'box_unavailable', 'This Task has no box. Its first turn makes one.')
+  const encoded = JSON.stringify(request)
+  const existing = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND call_id=?`).bind(runId, callId).first<ApprovalRow>()
+  if (existing) {
+    if (existing.requestJson !== encoded) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
+    return answer(existing)
+  }
+  const egress = (await boxEgress(env, [box.id])).get(box.id)
+  if (!egress?.projectId) fail(409, 'window_unavailable', 'This Task’s repository is not attached to a Project, so its box reaches only this Server. Ask a person to attach the repository to a Project.')
+  for (const name of request.secrets) {
+    const secret = egress.known.find(entry => entry.name === name)
+    if (!secret) fail(400, 'window_secret_unknown', `The Project has no secret named ${name}.${egress.known.length ? ` Its secrets: ${egress.known.map(entry => entry.name).join(', ')}.` : ' Ask a person to add it in the Project’s Secrets.'}`)
+    if (!secret.hosts.includes(request.host)) fail(400, 'window_secret_unbound', `${name} is bound to ${secret.hosts.join(', ')}, not ${request.host}. Ask a person to bind it in the Project’s Secrets.`)
+  }
+  const mode = (JSON.parse(context.run.mandateJson) as RunMandate).execution?.mode ?? 'review'
+  const plan = await env.DB.prepare("SELECT status,request_json AS requestJson FROM factory_approvals WHERE box_id=? AND kind='plan' ORDER BY created_at DESC,id DESC LIMIT 1").bind(box.id).first<{ status: string; requestJson: string }>()
+  const planned = plan?.status === 'approved' ? JSON.parse(plan.requestJson) as { hosts?: string[]; secrets?: string[] } : null
+  const listed = egress.listed.includes(request.host)
+  // The Project's network is open already: in role mode, or without a secret, its window needs nobody.
+  const automatic = (listed && (mode === 'role' || !request.secrets.length))
+    || (mode === 'plan' && Boolean(planned) && (listed || (planned!.hosts ?? []).includes(request.host)) && request.secrets.every(name => (planned!.secrets ?? []).includes(name)))
+  const id = newId(), now = nowIso(), opened = automatic ? openWindow(request) : null
+  const expiresAt = opened?.expiresAt ?? context.run.deadline
+  const digest = await factoryHash(JSON.stringify({ id, boxId: box.id, runId, callId, kind: 'window', request: encoded, expiresAt: context.run.deadline }))
+  const inserted = await env.DB.prepare(`INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,decided_at,expires_at,result_json,created_at)
+    VALUES(?,?,?,?,'window',?,?,?,?,?,?,?) ON CONFLICT(run_id,call_id) DO NOTHING RETURNING ${approvalColumns}`)
+    .bind(id, box.id, runId, callId, encoded, digest, automatic ? 'approved' : 'pending', automatic ? now : null, expiresAt, opened ? JSON.stringify(opened.result) : null, now).first<ApprovalRow>()
+  const row = inserted ?? await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND call_id=?`).bind(runId, callId).first<ApprovalRow>()
+  if (!row || row.requestJson !== encoded) fail(409, 'factory_call_changed', 'A tool call identity cannot change its arguments')
+  if (inserted && !automatic) await showTurn(env, context.run, true)
+  return answer(row)
+}
+
+/** A person's decision on a plan, a push or a window, against the exact digest they reviewed. */
 export async function decideApproval(env: L4Env, runId: string, actorId: string, request: { id: string; digest: string; decision: 'approve' | 'reject' }) {
   await expireApprovals(env)
   const row = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE id=? AND run_id=?`).bind(request.id, runId).first<ApprovalRow>()
@@ -135,10 +196,13 @@ export async function decideApproval(env: L4Env, runId: string, actorId: string,
   const context = await factoryAuthority(env, runId, actorId, row.kind === 'publish')
   if (row.status !== 'pending') return visible(row)
   const approve = request.decision === 'approve'
+  // A window's time starts when the person opens it.
+  const opened = row.kind === 'window' && approve ? openWindow(windowToolSchema.parse(JSON.parse(row.requestJson))) : null
   const result = row.kind === 'plan' && approve ? JSON.stringify({ approved: true,
-    message: 'The person approved this plan. Publications of this Task now go ahead without separate review until you propose a new plan.' }) : null
-  const updated = await env.DB.prepare(`UPDATE factory_approvals SET status=?,decided_by=?,decided_at=?,result_json=COALESCE(?,result_json) WHERE id=? AND status='pending' AND expires_at>? RETURNING ${approvalColumns}`)
-    .bind(approve ? 'approved' : 'rejected', actorId, nowIso(), result, row.id, nowIso()).first<ApprovalRow>()
+    message: 'The person approved this plan. Publications of this Task now go ahead without separate review until you propose a new plan.' }) : opened ? JSON.stringify(opened.result) : null
+  const updated = await env.DB.prepare(`UPDATE factory_approvals SET status=?,decided_by=?,decided_at=?,result_json=COALESCE(?,result_json),expires_at=COALESCE(?,expires_at)
+    WHERE id=? AND status='pending' AND expires_at>? RETURNING ${approvalColumns}`)
+    .bind(approve ? 'approved' : 'rejected', actorId, nowIso(), result, opened?.expiresAt ?? null, row.id, nowIso()).first<ApprovalRow>()
   if (!updated) fail(409, 'factory_settled', 'This request was already decided')
   if (row.kind === 'publish') await setTaskState(env, context.run, approve ? 'publishing' : 'rejected')
   await showTurn(env, context.run, false)

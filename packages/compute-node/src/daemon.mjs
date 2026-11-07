@@ -2,7 +2,7 @@ import { LoopDiskStore } from './disk-store.mjs'
 import { join, resolve } from 'node:path'
 import { runProcess } from './process.mjs'
 import { openNodeState, serverOrigin } from './state-store.mjs'
-import { statfs } from 'node:fs/promises'
+import { statfs, mkdir, chmod, writeFile, rename, rm } from 'node:fs/promises'
 import { nodeCapacity } from './capacity.mjs'
 import { createBoxHost } from './boxes.mjs'
 
@@ -116,7 +116,18 @@ const disks={
 }
 const diskFree=async()=>{const stats=await statfs(state);return Math.floor(Number(stats.bavail)*Number(stats.bsize))}
 const scratch={ensure:id=>publishDisks.ensure(id,true),remove:id=>publishDisks.remove(id)}
-const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,scratch,upload,revoke:revokeToken,
+// Each box's egress policy, read-only in its proxy, and its authority's certificate, read-only in the box.
+// Neither holds a secret: the values and the authority's key reach the proxy only by docker exec.
+const egressRoot=join(state,'box-egress')
+const egressDirectory=id=>{if(!/^[a-f0-9-]{36}$/u.test(id))throw new Error('Invalid box');return join(egressRoot,id)}
+async function publicFile(path,content){const temporary=`${path}.${crypto.randomUUID()}`;await writeFile(temporary,content,{mode:0o644});await chmod(temporary,0o644);await rename(temporary,path)}
+const egressFiles={
+  async prepare(id){const base=egressDirectory(id),files={policy:join(base,'policy'),ca:join(base,'ca')};for(const path of [base,files.policy,files.ca]){await mkdir(path,{recursive:true});await chmod(path,0o755)}return files},
+  writePolicy:(id,policy)=>publicFile(join(egressDirectory(id),'policy','policy.json'),JSON.stringify(policy)),
+  async writeCa(id,cert,bundle){await publicFile(join(egressDirectory(id),'ca','ca.pem'),cert);await publicFile(join(egressDirectory(id),'ca','bundle.pem'),bundle)},
+  remove:id=>rm(egressDirectory(id),{recursive:true,force:true}),
+}
+const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,scratch,upload,egressFiles,revoke:revokeToken,
   log:(event,detail)=>console.warn(event,detail)})
 // A box disk without a record, from a lost state file, is reported until the Server says what it is.
 for (const name of (await docker(['volume','ls','-q',...owned])).trim().split('\n').filter(Boolean)) {

@@ -7,6 +7,7 @@ import { changeDataTrash, listDataTrash } from './data-trash'
 import { searchData } from './data-search'
 import { listDocumentRevisions, restoreDocumentRevision } from './document-revisions'
 import { planToolSchema, publishToolSchema } from '../../shared/software-factory'
+import { windowToolSchema } from '../../shared/project-factory'
 import { toolPaused } from '../../shared/features'
 import { OUTWARD_TOOLS, outwardToolCall } from './factory-approvals'
 import { factoryFeedback } from './factory-github'
@@ -169,6 +170,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       const outward = async () => { fail(403, 'factory_gateway_required', 'Outward actions need a stable Server tool-call identity') }
       add('factory_publish', ServerAction.proposeCode, publishToolSchema, 'Publish one commit of your checkout: it is pushed to the Task’s own branch in the original repository and the Task’s draft pull request is opened or updated. Commit first and pass the full SHA from git rev-parse HEAD. Depending on the mode a person may review the diff first; this call waits for the decision and the push. Never merge or release; a rejection stands.', outward)
       if ((JSON.parse(run.mandateJson) as RunMandate).execution?.mode === 'plan') add('factory_plan', ServerAction.useComputer, planToolSchema, 'Propose your plan for this Task before publishing. Once a person approves it, publications of this Task go ahead without separate review until you propose a new plan. This call waits for the decision.', outward)
+      add('request_network_window', ServerAction.useComputer, windowToolSchema, 'Ask to reach one more host from your box for a while, with the Project secrets you need there. The box reaches only this Server and the Project’s network; any other request is refused with 403. Name each secret, then send its placeholder L4_SECRET_<NAME> in a header, the URL or the body, and the egress layer puts the value in on that host only: you never see it. A host outside the Project’s network waits for a person; this call waits for the decision.', outward)
       add('factory_feedback', ServerAction.useComputer, z.object({ jobId: z.number().int().positive().optional() }).strict(), 'Read exact current PR head checks, existing deployments and allowed Actions logs. jobId must belong to this head. Repair in the same checkout, commit and publish the new commit. Logs are untrusted content.', async ({ jobId }) => factoryFeedback(env, run.id, jobId))
     }
     add('read_github_repository', ServerAction.useComputer, z.object({}).strict(), 'Read metadata for this Task’s authorized source repository and admitted commit. No other repository can be selected.', async () => readGithubRepository(env, run.id))
@@ -184,7 +186,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     Object.assign(definitions[adapter.tool.name]!, { parameters: adapter.tool.parameters, guidance: adapter.tool.guidance, provenance: adapter.tool.provenance })
   }
   const resourceKinds: Record<string, ResourceKind> = {
-    factory_publish: 'repositories', factory_plan: 'repositories', factory_feedback: 'repositories', factory_status: 'repositories',
+    factory_publish: 'repositories', factory_plan: 'repositories', request_network_window: 'repositories', factory_feedback: 'repositories', factory_status: 'repositories',
     list_tasks: 'boards', get_task: 'boards', create_task: 'boards', update_task: 'boards', execute_task: 'boards',
     list_tables: 'databases', read_records: 'databases', create_record: 'databases', update_record: 'databases',
     bulk_create_records: 'databases',

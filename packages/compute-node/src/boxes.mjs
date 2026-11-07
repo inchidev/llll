@@ -1,3 +1,5 @@
+import { createBoxCa } from './box-ca.mjs'
+
 /** A box with no turn for this long stops; its disk stays until its Task is Done. */
 export const BOX_IDLE_MS = 15 * 60 * 1000
 const MAX_REPORTED = 64, NO_LEASE = '0'.repeat(64)
@@ -6,6 +8,8 @@ const lease = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value
 const commit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value)
 const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}` })
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'FTP_PROXY', 'ftp_proxy']
+/** Where the box finds its own authority: Node adds it to its roots, the rest read the bundle with the system roots. */
+const BOX_CA = ['--env', 'NODE_EXTRA_CA_CERTS=/run/l4-ca/ca.pem', ...['SSL_CERT_FILE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'].flatMap(key => ['--env', `${key}=/run/l4-ca/bundle.pem`])]
 
 /** Another operation of a Run's gateway, next to its tools endpoint. */
 function gatewayUrl(submission, operation) {
@@ -34,9 +38,15 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  * another throwaway container pushes exactly that commit from the copy to the Task's branch with a short
  * credential the Server grants for it (push-branch.mjs); a GitHub token is revoked right after. One such
  * publication runs at a time on a Node, beside turns.
+ *
+ * The box's network is what the Server's sync names (box-egress.ts on the Server): this daemon writes it to a
+ * policy file its proxy reads, read-only, and rewrites it whenever its revision changes. For a host with a bound
+ * Project secret the proxy terminates TLS with the box's own authority, made fresh for each start; the box gets
+ * only its certificate. The authority's key and the secrets' values go to the proxy through its control socket
+ * by docker exec, never through a disk, an environment variable or the box.
  */
 export function createBoxHost({ docker, poll, disks, fetchSource, records, connection, image, server, capacity, diskFree,
-  scratch, upload, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
+  scratch, upload, egressFiles, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
   const boxes = new Map()
   const labels = (box) => ['--label', `l4.node=${connection.nodeId}`, '--label', `l4.server=${connection.serverId}`, '--label', `l4.box=${box.id}`, '--label', `l4.task=${box.taskId}`]
   let rotation = 0
@@ -98,6 +108,43 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     } finally { await fetched.release() }
   }
 
+  let systemRoots = null
+  /** The image's own public roots, which the box's bundle adds its authority to. */
+  async function rootsOfImage() {
+    systemRoots ??= docker(['run', '--rm', '--network', 'none', '--read-only', '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', image, 'cat', '/etc/ssl/certs/ca-certificates.crt'],
+      { timeoutMs: 60000, limit: 4000000 }).catch(error => { systemRoots = null; throw error })
+    return systemRoots
+  }
+  /** The policy the proxy reads: this Server always, and what the Server's sync allows. */
+  const policyOf = egress => {
+    const hosts = [...new Set([new URL(server).hostname, ...(Array.isArray(egress?.hosts) ? egress.hosts : [])])]
+    return { revision: String(egress?.revision ?? ''), hosts, secretHosts: (Array.isArray(egress?.secretHosts) ? egress.secretHosts : []).filter(host => hosts.includes(host)) }
+  }
+  /** Hands the proxy its authority and the secrets in effect; only a policy with a bound host needs their values. */
+  async function loadEgress(box, policy) {
+    const secrets = policy.secretHosts.length ? await poll({ operation: 'secrets', boxId: box.id, lease: box.lease }) : { revision: policy.revision, known: [], secrets: [] }
+    const input = JSON.stringify({ revision: secrets.revision, ca: box.ca, known: secrets.known ?? [], secrets: secrets.secrets ?? [] })
+    for (let attempt = 0; ; attempt++) {
+      const answer = lines(await docker(['exec', '-i', names(box.id).egress, 'node', '/opt/l4/proxy.mjs', 'load'], { input, timeoutMs: 15000, limit: 10000 }).catch(() => '')).at(-1)
+      if (answer?.ok === true) return
+      if (attempt >= 20) throw new Error('The egress proxy did not take its policy')
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+  }
+  /** A new revision from the Server: values first, so a closed window takes its secret with it, then the hosts. */
+  function refreshEgress(box, egress) {
+    const policy = policyOf(egress)
+    if (!box.ca || box.egressRevision === policy.revision || box.egressPending === policy.revision) return
+    box.egressPending = policy.revision
+    box.egressQueue = (box.egressQueue ?? Promise.resolve()).then(async () => {
+      if (!box.ca || !['idle', 'running'].includes(box.state)) return
+      await loadEgress(box, policy)
+      await egressFiles.writePolicy(box.id, policy)
+      box.egressRevision = policy.revision
+    }).catch(error => log('compute.box_egress_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))
+      .finally(() => { if (box.egressPending === policy.revision) box.egressPending = null })
+  }
+
   async function removeContainers(box) {
     const { box: name, egress, network } = names(box.id)
     await docker(['rm', '-f', name]).catch(() => {})
@@ -121,19 +168,27 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       if (!box.ready) { await bootstrap(box); box.ready = true; save(box) }
       await removeContainers(box)
       // The box reaches only its egress proxy; the proxy reaches only this Server and the hosts the Server allows.
-      const hosts = [...new Set([new URL(server).hostname, ...(want.egress?.hosts ?? [])])]
+      // A fresh authority for each start: its key never touches a disk.
+      box.ca = createBoxCa(box.id)
+      box.egressRevision = null
+      const policy = policyOf(want.egress), files = await egressFiles.prepare(box.id)
+      await egressFiles.writeCa(box.id, box.ca.cert, `${(await rootsOfImage()).trimEnd()}\n${box.ca.cert}`)
+      await egressFiles.writePolicy(box.id, policy)
       await docker(['network', 'create', '--internal', '--opt', 'com.docker.network.bridge.inhibit_ipv4=true', ...labels(box), network])
-      await docker(['run', '-d', '--name', egress, ...labels(box), '--network', network, '--network-alias', 'l4-egress', '--read-only', '--cap-drop', 'ALL',
-        '--security-opt', 'no-new-privileges', '--memory', '64m', '--pids-limit', '64', '--env', `LLLL_EGRESS_HOSTS=${JSON.stringify(hosts)}`,
-        ...PROXY_VARIABLES.slice(0, 3).flatMap(key => ['--env', `${key}=`]), image, 'node', '/opt/l4/proxy.mjs'])
+      await docker(['run', '-d', '--name', egress, ...labels(box), '--network', network, '--network-alias', 'l4-egress', '--read-only', '--user', '1000:1000', '--cap-drop', 'ALL',
+        '--security-opt', 'no-new-privileges', '--memory', '128m', '--pids-limit', '64', '--mount', `type=bind,src=${files.policy},dst=/run/l4-policy,readonly`,
+        '--tmpfs', '/run/egress:rw,noexec,nosuid,size=1m,uid=1000,gid=1000', ...PROXY_VARIABLES.slice(0, 3).flatMap(key => ['--env', `${key}=`]), image, 'node', '/opt/l4/proxy.mjs'])
       await docker(['network', 'connect', 'bridge', egress])
       const address = JSON.parse(await docker(['inspect', egress]))[0]?.NetworkSettings?.Networks?.[network]?.IPAddress
       if (typeof address !== 'string' || !/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(address)) throw new Error('Egress proxy has no address')
       const proxy = `http://${address}:8080`
+      await loadEgress(box, policy)
+      box.egressRevision = policy.revision
       await docker(['run', '-d', '--name', name, ...labels(box), '--network', network, '--dns', '127.0.0.1', '--init', '--read-only', '--user', '1000:1000',
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', `${want.memoryMiB}m`, '--memory-swap', `${want.memoryMiB}m`, '--cpus', String(Math.max(0.01, Math.round(want.cpu * 100) / 100)),
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=512m,uid=1000,gid=1000', '--tmpfs', '/run/l4:rw,noexec,nosuid,size=1m,uid=1000,gid=1000',
-        '--mount', `type=volume,src=${volume},dst=/work`, ...PROXY_VARIABLES.flatMap(key => ['--env', `${key}=${proxy}`]), '--env', 'NO_PROXY=', '--env', 'no_proxy=',
+        '--mount', `type=volume,src=${volume},dst=/work`, '--mount', `type=bind,src=${files.ca},dst=/run/l4-ca,readonly`, ...BOX_CA,
+        ...PROXY_VARIABLES.flatMap(key => ['--env', `${key}=${proxy}`]), '--env', 'NO_PROXY=', '--env', 'no_proxy=',
         '--env', 'NODE_USE_ENV_PROXY=1', '--env', 'HOME=/tmp', image, 'node', '/opt/agent/src/box.mjs'])
       const health = (await control(box, { op: 'health' })).at(-1)
       if (health?.status !== 'ready' || health.checkout !== true) throw new Error('The box did not become ready')
@@ -143,6 +198,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     } catch (error) {
       await removeContainers(box)
       box.state = 'failed'
+      box.ca = null
       log('compute.box_start_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' })
       const runId = box.pending
       box.pending = null
@@ -154,6 +210,8 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
 
   async function stop(box, state = 'stopped') {
     await removeContainers(box)
+    box.ca = null
+    box.egressRevision = null
     if (box.mount) await disks.flush(box.mount).catch(() => {})
     box.runtimeMs = runtime(box)
     box.upSince = null
@@ -167,6 +225,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     const { volume } = names(box.id)
     await docker(['volume', 'rm', volume]).catch(() => {})
     await disks.remove(box.id)
+    await egressFiles.remove(box.id).catch(() => {})
     boxes.delete(box.id)
     records.forget(box.id)
   }
@@ -283,6 +342,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       return
     }
     if (turn && box.state === 'starting') box.pending = turn
+    if (['idle', 'running'].includes(box.state) && answer.egress) refreshEgress(box, answer.egress)
     if (turn && box.state === 'idle') beginTurn(box, turn)
     if (['idle', 'running'].includes(box.state) && scratch && upload) outwardWork(box, answer)
   }
@@ -297,7 +357,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       for (const box of boxes.values()) if (box.state === 'idle' && !box.runId && now() - box.lastActive >= idleMs) { box.state = 'stopping'; enqueue(box, () => stop(box)) }
     },
     /** Every queued start, stop and release, and every publication, has finished. */
-    async settled() { await Promise.all([...boxes.values()].map(box => box.queue)); await publishing },
+    async settled() { await Promise.all([...boxes.values()].flatMap(box => [box.queue, box.egressQueue])); await publishing },
     /** A box disk this Node has without a record is reported until the Server says what it is. */
     adopt(id, taskId) { if (uuid(id) && uuid(taskId) && !boxes.has(id)) save(track({ id, lease: NO_LEASE, taskId, ready: false })) },
     /** The daemon stops: boxes stop with it, and their disks stay. */

@@ -8,7 +8,8 @@ import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
 import { admitBoxes, BOX_WAITING_DETAIL } from './box-admission'
 import { fail } from './cf'
-import { boxOutwardWork, OPEN_APPROVALS } from './factory-approvals'
+import { boxOutwardWork } from './factory-approvals'
+import { boxEgress, egressSecretValues, markSecretsUsed } from './box-egress'
 
 /** A Node renews every box it lists on each sync; one that misses a minute of syncs loses its lease and its share. */
 export const BOX_LEASE_MS = 60000
@@ -57,6 +58,7 @@ export const boxSyncInput = z.object({ operation: z.literal('sync'),
     runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12) }).strict()).max(64) }).strict()
 export const boxTurnInput = z.object({ operation: z.literal('turn'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), runId: z.string().uuid() }).strict()
 export const boxSourceInput = z.object({ operation: z.literal('source'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
+export const boxSecretsInput = z.object({ operation: z.literal('secrets'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
 
 /**
  * A box its Node holds under a live lease, while its Run's turn is running: what a source fetch needs.
@@ -138,9 +140,13 @@ export async function releaseBoxTurn(env: L4Env, runId: string) {
   for (const { id } of released.results) await wakeCloudBox(env, id).catch(() => undefined)
 }
 
-/** What still waits before a box's turn may end: a person's decision or a push under way. The commits themselves are in Git. */
+/**
+ * What still waits before a box's turn may end: a person's decision or a push under way. The commits themselves
+ * are in Git. An approved plan or window is settled: it covers what follows and holds no turn.
+ */
 export async function boxCompletion(env: L4Env, run: AgentRun) {
-  const pending = await env.DB.prepare(`SELECT 1 FROM factory_approvals WHERE run_id=? AND status IN ${OPEN_APPROVALS} AND expires_at>? LIMIT 1`).bind(run.id, nowIso()).first()
+  const pending = await env.DB.prepare(`SELECT 1 FROM factory_approvals WHERE run_id=? AND expires_at>?
+    AND (status IN ('pending_diff','pending') OR (kind IN ('publish','merge') AND status IN ('approved','publishing'))) LIMIT 1`).bind(run.id, nowIso()).first()
   return { pending: Boolean(pending) }
 }
 
@@ -223,17 +229,21 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
       cpu: row?.cpu ?? reservation.cpu, memoryMiB: row?.memoryMib ?? reservation.memoryMiB,
       ...(turnRunId ? { turn: { runId: turnRunId } } : {}),
       // The Node is running a turn that is no longer the box's: cancelled, failed or replaced.
-      ...(report?.runId && report.runId !== turnRunId ? { cancelRunId: report.runId } : {}),
-      // Network windows and Project secrets fill these; until then a box reaches only this Server.
-      egress: { revision: 0, hosts: [] as string[], secretHosts: [] as string[] } }
+      ...(report?.runId && report.runId !== turnRunId ? { cancelRunId: report.runId } : {}) }
   }
   const listed = [
     ...rows.filter(row => leased(row) || reported.has(row.id)).map(row => answer(row, reported.get(row.id))),
     ...[...reported.values()].filter(report => !byId.has(report.id)).map(report => answer(undefined, report)),
   ]
-  // A running box's pushes: the review to make of one, or the approved one to push.
-  const outward = await boxOutwardWork(env, listed.filter(box => box.want === 'running').map(box => box.id))
-  const boxes = listed.map(box => ({ ...box, ...outward.get(box.id) }))
+  // A running box's pushes: the review to make of one, or the approved one to push. And what its egress
+  // layer lets out: the hosts in effect and those with a bound secret; the values only through `secrets`.
+  const running = listed.filter(box => box.want === 'running').map(box => box.id)
+  const [outward, egress] = await Promise.all([boxOutwardWork(env, running), boxEgress(env, running)])
+  const closed = { revision: 'closed', hosts: [] as string[], secretHosts: [] as string[] }
+  const boxes = listed.map(box => {
+    const compiled = egress.get(box.id)
+    return { ...box, egress: compiled ? { revision: compiled.revision, hosts: compiled.hosts, secretHosts: compiled.secretHosts } : closed, ...outward.get(box.id) }
+  })
   const started = admitted.filter(row => row.status === 'starting' && leases.get(row.id) === row.leaseToken).map(row => row.id)
   return { boxes, admitted: started, released: [...releasedIds] }
 }
@@ -249,4 +259,20 @@ export async function computeTurn(env: L4Env, nodeId: string, input: z.infer<typ
   const submission = await boxRun(env, input.runId).boxSubmission(input.runId)
   if (!submission) fail(409, 'box_turn_unavailable', 'The Run has not handed over its turn yet')
   return { submission }
+}
+
+/**
+ * A VPS Node's proxy asks for the values of the secrets in effect for its box, under the box's live lease.
+ * They go to the daemon, which hands them to the box's proxy over its control socket; the proxy keeps them in
+ * memory only. Every Project placeholder comes with its bound hosts, so a placeholder sent where it is not in
+ * effect is refused with a reason.
+ */
+export async function computeSecrets(env: L4Env, nodeId: string, input: z.infer<typeof boxSecretsInput>) {
+  const box = await env.DB.prepare(`SELECT id FROM factory_boxes WHERE id=? AND node_id=? AND lease_token=? AND lease_until>? AND status IN ${ACTIVE}`)
+    .bind(input.boxId, nodeId, input.lease, nowIso()).first<{ id: string }>()
+  if (!box) fail(403, 'box_secrets_denied', 'This box holds no lease on this Node')
+  const egress = (await boxEgress(env, [box.id])).get(box.id)!
+  const values = await egressSecretValues(env, egress)
+  await markSecretsUsed(env, values.map(value => value.id))
+  return { revision: egress.revision, known: egress.known, secrets: values.map(({ placeholder, hosts, value }) => ({ placeholder, hosts, value })) }
 }

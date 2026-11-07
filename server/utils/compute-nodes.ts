@@ -9,7 +9,7 @@ import { computePublish, expireApprovals, publishedApproval } from './factory-ap
 import { githubSourceGrant } from './github-agent-client'
 import { giteaCredentials } from './gitea'
 import { fail } from './cf'
-import { boxSourceInput, boxSyncInput, boxTurnInput, computeSync, computeTurn, leaseCapability, leasedBox } from './factory-boxes'
+import { boxSecretsInput, boxSourceInput, boxSyncInput, boxTurnInput, computeSecrets, computeSync, computeTurn, leaseCapability, leasedBox } from './factory-boxes'
 import type { RunEnvironment } from '../../shared/code-environments'
 
 /** A Gitea token never reaches a Node. The Node fetches through this Server with a capability bound to
@@ -64,6 +64,7 @@ export const computePollSchema = z.discriminatedUnion('operation', [
   boxSyncInput,
   boxTurnInput,
   boxSourceInput,
+  boxSecretsInput,
   z.object({ operation: z.literal('publish'), approvalId }).strict(),
   z.object({ operation: z.literal('published'), approvalId, ok: z.boolean(), message: z.string().max(500).optional() }).strict(),
 ])
@@ -92,6 +93,7 @@ export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typ
   if (input.operation === 'sync') return computeSync(env, nodeId, input)
   if (input.operation === 'turn') return computeTurn(env, nodeId, input)
   if (input.operation === 'source') return computeBoxSource(env, nodeId, input)
+  if (input.operation === 'secrets') return computeSecrets(env, nodeId, input)
   await expireApprovals(env)
   if (input.operation === 'publish') return computePublish(env, nodeId, input.approvalId)
   return publishedApproval(env, nodeId, input.approvalId, input)

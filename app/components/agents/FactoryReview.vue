@@ -40,6 +40,15 @@ async function decide(approval: FactoryApproval, decision: 'approve' | 'reject')
   finally { busy.value = false }
 }
 const message = (approval: FactoryApproval) => (approval.result as { message?: string } | null)?.message ?? null
+const heading = (approval: FactoryApproval) => approval.kind === 'plan' ? 'Plan' : approval.kind === 'window' ? `Network window to ${approval.request.host}` : approval.request.title
+const windowStatus = (approval: FactoryApproval) => approval.kind === 'window' && approval.status === 'approved' ? approval.expiresAt > new Date().toISOString() ? `Open until ${new Date(approval.expiresAt).toLocaleString()}` : 'Closed' : null
+const warnings: Record<string, string> = {
+  plan: 'Approving lets the agent push its branch and update the Task’s draft pull request without asking each time, until it proposes a new plan. A window for a host or secret the plan names then opens without asking. It grants no merge or release.',
+  window: 'Approving lets the agent’s box reach this host for the stated time. Each named secret is put in only on requests to this host; the agent never sees its value.',
+  publish: 'Approving pushes exactly this commit to the Task’s own branch and opens or updates its draft pull request. It grants no merge or release.',
+}
+const confirmations: Record<string, string> = { plan: 'I reviewed this plan.', window: 'I reviewed this host and the secrets it may receive.', publish: 'I reviewed this commit and its diff.' }
+const approveLabels: Record<string, string> = { plan: 'Approve plan', window: 'Open window', publish: 'Approve push' }
 </script>
 <template>
   <section v-if="box || query.error.value" class="space-y-4 rounded-lg border border-default p-4">
@@ -66,11 +75,17 @@ const message = (approval: FactoryApproval) => (approval.result as { message?: s
         <ul class="space-y-1"><li v-for="(preview, index) in feedback.previews" :key="index"><a v-if="preview.url" :href="preview.url" target="_blank" rel="noopener noreferrer" class="text-primary underline">{{ preview.source }}</a><span v-else>{{ preview.source }}</span> · {{ preview.state }}</li></ul>
       </div>
       <article v-for="approval in query.data.value?.approvals" :key="approval.id" class="space-y-2 rounded border border-default p-3">
-        <p class="text-sm font-medium">{{ approval.kind === 'plan' ? 'Plan' : approval.request.title }} · {{ statuses[approval.status] ?? approval.status }}</p>
+        <p class="text-sm font-medium">{{ heading(approval) }} · {{ windowStatus(approval) ?? statuses[approval.status] ?? approval.status }}</p>
         <p class="text-xs text-muted">{{ new Date(approval.createdAt).toLocaleString() }}<template v-if="approval.decidedAt"> · decided {{ new Date(approval.decidedAt).toLocaleString() }}</template></p>
         <template v-if="approval.kind === 'plan'">
           <p class="whitespace-pre-wrap text-sm">{{ approval.request.summary }}</p>
           <ol class="list-decimal space-y-1 ps-5 text-sm"><li v-for="(step, index) in approval.request.steps" :key="index">{{ step }}</li></ol>
+          <p v-if="approval.request.hosts?.length" class="break-all text-xs text-muted">Hosts: {{ approval.request.hosts.join(', ') }}</p>
+          <p v-if="approval.request.secrets?.length" class="break-all text-xs text-muted">Secrets: {{ approval.request.secrets.join(', ') }}</p>
+        </template>
+        <template v-else-if="approval.kind === 'window'">
+          <p class="whitespace-pre-wrap break-words text-sm">{{ approval.request.reason }}</p>
+          <p class="text-xs text-muted">{{ approval.request.minutes }} minutes<template v-if="approval.request.secrets?.length"> · secrets {{ approval.request.secrets.join(', ') }}</template></p>
         </template>
         <template v-else>
           <p class="break-all font-mono text-xs">{{ approval.request.sha }} → {{ approval.request.ref }}</p>
@@ -86,9 +101,9 @@ const message = (approval: FactoryApproval) => (approval.result as { message?: s
           </details>
         </template>
         <template v-if="approval.status === 'pending' && can(Permission.approveAgentActions)">
-          <p class="text-xs text-warning">{{ approval.kind === 'plan' ? 'Approving lets the agent push its branch and update the Task’s draft pull request without asking each time, until it proposes a new plan. It grants no merge or release.' : 'Approving pushes exactly this commit to the Task’s own branch and opens or updates its draft pull request. It grants no merge or release.' }}</p>
-          <UCheckbox v-model="confirmed[approval.id]" :label="approval.kind === 'plan' ? 'I reviewed this plan.' : 'I reviewed this commit and its diff.'" />
-          <div class="flex flex-wrap gap-2"><UButton :label="approval.kind === 'plan' ? 'Approve plan' : 'Approve push'" :disabled="!confirmed[approval.id]" :loading="busy" @click="decide(approval, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(approval, 'reject')" /></div>
+          <p class="text-xs text-warning">{{ warnings[approval.kind] }}</p>
+          <UCheckbox v-model="confirmed[approval.id]" :label="confirmations[approval.kind]" />
+          <div class="flex flex-wrap gap-2"><UButton :label="approveLabels[approval.kind]" :disabled="!confirmed[approval.id]" :loading="busy" @click="decide(approval, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(approval, 'reject')" /></div>
         </template>
         <p v-if="message(approval)" class="text-sm" :class="approval.status === 'uncertain' ? 'text-warning' : 'text-muted'">{{ message(approval) }}</p>
       </article>
