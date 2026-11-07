@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mcpFixture, ids, remoteMcp } from '../helpers/outbound-mcp'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import { executeRunTool, toolsForRun } from '../../server/utils/agent-tools'
-import { markUntrustedContext, runToolSecurity, untrustedContext, requireRunReader, runReport } from '../../server/utils/agent-tool-security'
+import { markUntrustedContext, runToolSecurity, untrustedContext, requireRunReader, runReport, runStreamAudience } from '../../server/utils/agent-tool-security'
 
 let f: ReturnType<typeof mcpFixture>
 beforeEach(() => {
@@ -100,6 +100,19 @@ it('keeps untrusted final output private instead of copying it into a shared rep
   expect(report.text).not.toContain('PRIVATE_RECORD_CONTENT')
   expect(() => requireRunReader(run, ids.member)).toThrow()
   expect(() => requireRunReader(run, run.initiatedBy)).not.toThrow()
+})
+
+it('streams an answer to the conversation only while its finished text would be posted there', async () => {
+  // Review mode never posts the text itself, so only the initiator watches it being written.
+  const { run: reviewed } = await f.run()
+  expect(await runStreamAudience(f.env, reviewed)).toBe('initiator')
+  f.db.prepare("UPDATE server_settings SET value=? WHERE key='agents.executionPolicy'").run(JSON.stringify({ mode: 'role' }))
+  const { run } = await f.run()
+  expect(await runStreamAudience(f.env, run)).toBe('channel')
+  // After a private read, the rest of the answer is the initiator's alone, as the posted report is.
+  f.db.prepare("INSERT INTO agent_run_tools(run_id,call_id,name,arguments_json,status,created_at) VALUES(?,?,?,?,?,?)").run(run.id, 'private-read', 'search_data', '{}', 'completed', new Date().toISOString())
+  expect(await runStreamAudience(f.env, run)).toBe('initiator')
+  expect((await runReport(f.env, { ...run, status: 'completed', resultText: 'PRIVATE_RECORD_CONTENT' })).restricted).toBe(true)
 })
 
 it('keeps model/runtime errors out of broad Agent audit metadata', async () => {

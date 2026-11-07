@@ -2,7 +2,7 @@ name: Pi runtime
 on:
   pull_request:
     branches: [main]
-    paths: ['packages/agent-runtime/**', 'packages/agent-runner/**', 'packages/compute-node/**', 'scripts/test-pi-runtime.mjs', 'scripts/test-factory-workspace.mjs', 'pnpm-lock.yaml', '.github/workflows/agent-runtime.yml']
+    paths: ['packages/agent-runtime/**', 'packages/agent-runner/**', 'packages/compute-node/**', 'scripts/test-pi-runtime.mjs', 'scripts/test-factory-workspace.mjs', 'scripts/test-factory-git-server.mjs', 'scripts/test-box-isolation.mjs', 'pnpm-lock.yaml', '.github/workflows/agent-runtime.yml']
 permissions:
   contents: read
 jobs:
@@ -23,6 +23,8 @@ jobs:
       - run: pnpm --filter @llll/compute-node test
       - run: docker build -t l4-workspace:test -f packages/compute-node/Dockerfile.workspace .
       - run: node scripts/test-factory-workspace.mjs
+      - name: Find no credential or secret in a box
+        run: node scripts/test-box-isolation.mjs
       - name: Build the fixed root idle supervisor for Cloudflare
         run: docker build --build-arg WORKSPACE_IMAGE=l4-workspace:test -t l4-workspace:cloud-test -f packages/compute-node/Dockerfile.cloud .
       - name: Verify code checkpoints, replacement restore and process cleanup

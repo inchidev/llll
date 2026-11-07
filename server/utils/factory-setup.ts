@@ -15,12 +15,15 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   const limits = cloud ? JSON.parse(cloud.capabilitiesJson) : env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : null
   const resources = Boolean(env.FACTORY_COMPUTE && env.FACTORY_CODE && env.FACTORY_IMAGE)
   const serverId = await getServerId(env.DB)
-  const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_workspaces WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status IN ('claimed','executing')) AS active, (SELECT count(*) FROM factory_actions a JOIN factory_workspaces w ON w.id=a.workspace_id WHERE w.node_id=? AND a.status='uncertain') AS recoveryRequired").bind(cloud.id, cloud.id, cloud.id).first<{ retained: number; active: number; recoveryRequired: number }>() : null
-  return { placement, resources, usage, state: cloud ? cloud.enabled ? usage?.recoveryRequired ? 'failed_recovery' : 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
+  // Boxes kept with their checkpoints, and boxes running now. A box that fails to start ends its turn and starts again on the next one.
+  const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status IN ('starting','running','idle')) AS active").bind(cloud.id, cloud.id).first<{ retained: number; active: number }>() : null
+  return { placement, resources, usage, state: cloud ? cloud.enabled ? 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
     nodeId: cloud?.id ?? null, image: env.FACTORY_IMAGE ?? limits?.image ?? null, limits,
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
     cli: placement === 'vps' ? 'sudo llll compute enable --trust-shared-kernel' : null,
-    durability: 'Task code, Git history and pending source edits are checkpointed. Dependencies, build output, process memory and running services are disposable.',
+    durability: placement === 'vps'
+      ? 'Each Task’s disk keeps its checkout, dependencies and build output until the Task is Done. Process memory and running services end when its box stops.'
+      : 'Task code, Git history and pending source edits are checkpointed. Dependencies, build output, process memory and running services are disposable.',
     costs: placement === 'vps'
       ? 'This VPS executor uses your host CPU, disk and network. Model-provider usage is billed separately.'
       : 'Cloudflare compute, code storage and network usage are billed separately from model-provider usage. Activation does not upgrade your plan.' }
@@ -64,9 +67,12 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
     } finally { await env.FACTORY_CODE.delete(name).catch(() => undefined) }
   }
   const existing = await env.DB.prepare("SELECT id,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='cloudflare-containers' ORDER BY created_at LIMIT 1").first<{ id: string; capabilitiesJson: string }>()
-  const limits = env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) : { diskBytes: 8000000000, cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000 }
-  const capabilities = cloudflareCapabilities.parse({ provider: 'cloudflare-containers', diskBytes: 8000000000, docker: false, durableDisk: false, isolation: 'container-vm',
-    image: env.FACTORY_IMAGE, maxParallel: 1, protocol: 1, cpu: 0.5, memoryMiB: 4096, processLimit: 128, codeBytes: 500000000, timeoutMs: 120000, ...limits })
+  // One container is one box. The application runs at most maxBoxes of them, so that is the Node's capacity;
+  // a policy provisioned before boxes allows one container.
+  const { maxBoxes = 1, ...limits } = env.FACTORY_POLICY ? JSON.parse(env.FACTORY_POLICY) as Record<string, number> : { diskBytes: 8000000000, cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000 }
+  const size = { cpu: 0.5, memoryMiB: 4096, processLimit: 128, timeoutMs: 120000, diskBytes: 8000000000, ...limits }
+  const capabilities = cloudflareCapabilities.parse({ provider: 'cloudflare-containers', docker: false, durableDisk: false, isolation: 'container-vm',
+    image: env.FACTORY_IMAGE, protocol: 2, codeBytes: 500000000, ...size, capacity: { cpu: size.cpu * maxBoxes, memoryMiB: size.memoryMiB * maxBoxes, boxes: maxBoxes } })
   const nodeId = existing?.id ?? newId()
   if (existing && existing.capabilitiesJson !== JSON.stringify(capabilities)) fail(409, 'factory_image_changed', 'The Factory image changed. Preserve/export existing Task source and explicitly configure a new provider for new Tasks.')
   if (!existing && enabled) {
@@ -76,16 +82,10 @@ export async function configureCloudflareFactory(env: L4Env, auth: Authorization
   } else if (existing) {
     await env.DB.batch([
       env.DB.prepare('UPDATE compute_nodes SET enabled=?,last_seen=? WHERE id=?').bind(enabled ? 1 : 0, nowIso(), nodeId),
-      env.DB.prepare("UPDATE factory_actions SET status=CASE WHEN status IN ('claimed','executing') THEN 'uncertain' ELSE 'cancelled' END WHERE workspace_id IN (SELECT id FROM factory_workspaces WHERE node_id=?) AND status IN ('pending','approved','claimed','executing') AND ?=0").bind(nodeId, enabled ? 1 : 0),
+      // A paused Node pushes nothing; a push it had begun may have happened.
+      env.DB.prepare(`UPDATE factory_approvals SET status=CASE WHEN status='publishing' THEN 'uncertain' ELSE 'expired' END WHERE box_id IN (SELECT id FROM factory_boxes WHERE node_id=?)
+        AND status IN ('pending_diff','pending','approved','publishing') AND kind<>'plan' AND ?=0`).bind(nodeId, enabled ? 1 : 0),
     ])
   }
   return factorySetup(env, auth)
-}
-export async function dispatchCloudflareFactory(env: L4Env, actionId: string, workspaceId: string, nodeId: string) {
-  const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
-  if (!env.FACTORY_COMPUTE) return
-  if (node && JSON.parse(node.capabilitiesJson).provider === 'cloudflare-containers') {
-    const result = await env.FACTORY_COMPUTE.getByName(`workspace:${workspaceId}`).fetch(new Request(`http://factory/${actionId}`, { method: 'POST' }))
-    if (!result.ok) fail(503, 'factory_dispatch_failed', 'Factory is unavailable; the approved action remains recorded')
-  }
 }

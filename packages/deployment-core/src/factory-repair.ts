@@ -2,7 +2,7 @@ import { createError } from './errors.js'
 
 type Query = (sql: string, params: (string | number)[]) => Promise<{ value: string }[]>
 const key = 'factory.provisioning'
-const unused = "NOT EXISTS(SELECT 1 FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='cloudflare-containers') AND NOT EXISTS(SELECT 1 FROM factory_workspaces)"
+const unused = "NOT EXISTS(SELECT 1 FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='cloudflare-containers') AND NOT EXISTS(SELECT 1 FROM factory_boxes)"
 
 /** This marker fences Server activation. A failed/expired repair stays closed to
  * activation; another installer may take it over only while no authority exists. */

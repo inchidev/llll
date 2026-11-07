@@ -1,4 +1,5 @@
 import { advanceChatRead, chatAttention } from './chat-attention'
+import { AGENT_ANSWER_MAX } from '../shared/agent-execution'
 import { authorizedPublicationMessage } from '../server/utils/run-publication'
 import { retryDeletedFiles } from '../shared/file-cleanup'
 import { messageDeleteRole, messageSendRate, removeChannelMessage, takeRate } from '../server/utils/message-service'
@@ -6,7 +7,7 @@ import { parseResourceAccess, resourceAccessAllows } from '../shared/resource-ac
 import { getServerId } from '../shared/server-id'
 import { DurableObject } from 'cloudflare:workers'
 import { z } from 'zod'
-import type { AttachmentDTO, LiveState, MessageDTO, PublicUser, ServerMsg } from '../shared/types'
+import type { AgentStreamDTO, AttachmentDTO, LiveState, MessageDTO, PublicUser, ServerMsg } from '../shared/types'
 import { extractMentionIds } from '../shared/mentions'
 import { canAccessAgentConversation, dmFrozen, isDmType } from '../shared/dm'
 import { ALL_PERMISSIONS, directMessagePermissions, hasPermission, Permission } from '../shared/permissions'
@@ -79,12 +80,21 @@ const agentPostSchema = z.object({
   sourceRunId: z.string().uuid().optional(),
   sourcePublicationId: z.string().uuid().optional(),
   agentId: z.string().min(8),
-  content: z.string().trim().min(1).max(2000),
+  // A Run's answer can be long; a person's message stays at 2,000 characters.
+  content: z.string().trim().min(1).max(AGENT_ANSWER_MAX),
 })
 
-const agentUpdateSchema = agentPostSchema.extend({
-  messageId: z.string().min(8),
+const agentStreamSchema = z.object({
+  runId: z.string().uuid(),
+  agentId: z.string().min(8),
+  initiatedBy: z.string().min(8),
+  audience: z.enum(['channel', 'initiator']),
+  // The whole current turn: a conversation that was evicted from memory recovers from any update.
+  text: z.string().max(200_000),
 })
+type AgentStream = AgentStreamDTO & { agentId: string; initiatedBy: string; audience: 'channel' | 'initiator' }
+/** How long a socket's access check serves a stream's updates before it is asked again. */
+const STREAM_ACCESS_MS = 2000
 
 const agentReactionSchema = z.object({
   agentId: z.string().min(8),
@@ -188,6 +198,78 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
     await this.broadcast(msg)
   }
 
+  /** Answers being written. Memory only: nothing of a stream reaches D1, and the finished message replaces it. */
+  private agentStreams = new Map<string, AgentStream>()
+  private streamAccess = new Map<string, { ok: boolean; at: number }>()
+  private streamQueue: Promise<void> = Promise.resolve()
+
+  /** A Run's current turn, as Pi writes it. Updates are applied in order, one at a time. */
+  async streamAgentReply(input: z.infer<typeof agentStreamSchema>): Promise<void> {
+    const body = agentStreamSchema.parse(input)
+    const work = this.streamQueue.then(() => this.applyAgentStream(body))
+    this.streamQueue = work.catch(() => undefined)
+    await work
+  }
+
+  async endAgentStream(runId: string): Promise<void> {
+    const work = this.streamQueue.then(async () => {
+      const stream = this.agentStreams.get(runId)
+      if (!stream) return
+      this.agentStreams.delete(runId)
+      // Ending shows nothing, so it reaches everyone who may have seen the stream.
+      await this.sendAgentStream({ t: 'agent.stream.end', runId }, () => true)
+    })
+    this.streamQueue = work.catch(() => undefined)
+    await work
+  }
+
+  private async applyAgentStream(body: z.infer<typeof agentStreamSchema>) {
+    let stream = this.agentStreams.get(body.runId)
+    if (!stream) {
+      const authz = await this.loadAuthz(body.agentId)
+      if (!authz || authz.archived || !hasPermission(authz.perms, Permission.sendMessages)) return
+      const author = await this.env.DB.prepare("SELECT id, kind, display_name as displayName, avatar_r2_key as avatarR2Key FROM users WHERE id = ? AND kind = 'agent' AND status = 'active'")
+        .bind(body.agentId).first<PublicUser>()
+      if (!author) return
+      stream = { runId: body.runId, agentId: body.agentId, initiatedBy: body.initiatedBy, audience: body.audience, author, text: '', startedAt: nowIso() }
+      this.agentStreams.set(body.runId, stream)
+    }
+    // Once the Run reads a private source, the rest of its answer is the initiator's alone.
+    if (stream.audience === 'channel' && body.audience === 'initiator') {
+      await this.sendAgentStream({ t: 'agent.stream.end', runId: stream.runId }, userId => userId !== stream!.initiatedBy)
+      stream.audience = 'initiator'
+    }
+    const continues = body.text.startsWith(stream.text)
+    const at = continues ? stream.text.length : 0
+    const delta = continues ? body.text.slice(stream.text.length) : body.text
+    if (continues && !delta && stream.text) return
+    stream.text = body.text
+    await this.sendAgentStream({ t: 'agent.stream', stream: { runId: stream.runId, author: stream.author, startedAt: stream.startedAt }, at, text: delta },
+      userId => stream!.audience === 'channel' || userId === stream!.initiatedBy)
+  }
+
+  /**
+   * Streams send many small updates, so each socket's access check is reused for a moment instead of
+   * asked of D1 on every one. The finished message goes through the full check of every broadcast.
+   */
+  private async sendAgentStream(msg: ServerMsg, audience: (userId: string) => boolean) {
+    const payload = JSON.stringify(msg)
+    const now = Date.now()
+    for (const ws of this.ctx.getWebSockets()) {
+      const sock = ws.deserializeAttachment() as Sock | null
+      if (!sock?.userId || !audience(sock.userId)) continue
+      const key = JSON.stringify([sock.userId, sock.sessionId ?? null])
+      let access = this.streamAccess.get(key)
+      if (!access || now - access.at > STREAM_ACCESS_MS) {
+        access = { ok: await this.socketMayReceive(sock.userId, sock).catch(() => false), at: now }
+        this.streamAccess.set(key, access)
+      }
+      if (!access.ok) continue
+      try { ws.send(payload) }
+      catch { /* ignore */ }
+    }
+  }
+
   async postAgentMessage(input: z.infer<typeof agentPostSchema>): Promise<{ id: string, channelId: string }> {
     const body = agentPostSchema.parse(input)
     const authz = await this.loadAuthz(body.agentId)
@@ -282,26 +364,9 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       attachmentCount: 0,
     }))
     await this.broadcast({ t: 'message', message })
+    // The finished message replaces the answer that was being written.
+    if (body.sourceRunId) await this.endAgentStream(body.sourceRunId)
     return { id, channelId: channel.id }
-  }
-
-  async updateAgentMessage(input: z.infer<typeof agentUpdateSchema>): Promise<void> {
-    const body = agentUpdateSchema.parse(input)
-    const authz = await this.loadAuthz(body.agentId)
-    if (authz?.archived) throw new Error(CHANNEL_ARCHIVED_MESSAGE)
-    if (!authz || !hasPermission(authz.perms, Permission.sendMessages)) throw new Error('Agent cannot edit in this channel')
-    const row = await this.env.DB.prepare(
-      `SELECT m.id
-       FROM messages m
-       JOIN users u ON u.id = m.author_id
-       JOIN agents a ON a.user_id = u.id
-       WHERE m.id = ? AND m.channel_id = ? AND m.author_id = ?
-         AND m.deleted_at IS NULL AND u.kind = 'agent'`,
-    ).bind(body.messageId, this.channelId(), body.agentId).first<{ id: string }>()
-    if (!row) throw new Error('Agent message not found')
-    await this.env.DB.prepare('UPDATE messages SET content = ? WHERE id = ?').bind(body.content, body.messageId).run()
-    const message = await this.loadMessage(body.messageId)
-    if (message) await this.broadcast({ t: 'message.update', message, streaming: true })
   }
 
   async setAgentReaction(input: z.infer<typeof agentReactionSchema>): Promise<void> {
@@ -1014,7 +1079,10 @@ export class ChannelDurableObject extends DurableObject<L4Env> {
       participants = await this.loadDmParticipants()
     }
     const agentTurns = authz.canManageAgents ? await listAgentTurns(this.env, this.channelId()) : []
-    this.send(ws, { t: 'hello', channelId: this.channelId(), you: user, live, frozen: authz.frozen, participants, agentTurns })
+    const agentStreams = authz.frozen ? [] : [...this.agentStreams.values()]
+      .filter(stream => stream.audience === 'channel' || stream.initiatedBy === user.id)
+      .map(({ runId, author, text, startedAt }) => ({ runId, author, text, startedAt }))
+    this.send(ws, { t: 'hello', channelId: this.channelId(), you: user, live, frozen: authz.frozen, participants, agentTurns, agentStreams })
   }
 
   private async authTimeout(ws: WebSocket) {

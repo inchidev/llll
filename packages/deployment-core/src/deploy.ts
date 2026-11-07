@@ -5,7 +5,7 @@ import { createError, InstallerError } from './errors.js'
 import { durableObjectMigrations } from './migrations.js'
 import { randomBase64Url } from './random.js'
 import { ensureCloudflareAccess, ensureWorkersHostname } from './access.js'
-import { factoryInstanceType, factoryScriptContainer } from './factory-bindings.js'
+import { factoryInstanceType, factoryMaxBoxes, factoryScriptContainer } from './factory-bindings.js'
 import { workerObservability } from './observability.js'
 import { databasePlacement } from './placement.js'
 export { workerObservability } from './observability.js'
@@ -690,7 +690,7 @@ export async function deployL4Update(
   const metadata: Record<string, unknown> = {
     main_module: 'llll-worker.mjs',
     ...(existing.bindings?.some(binding => binding.name === 'FACTORY_COMPUTE') ? { containers: [existing.bindings.find(binding => binding.name === 'FACTORY_IMAGE')?.text
-      ? factoryScriptContainer(workerName, existing.bindings.find(binding => binding.name === 'FACTORY_IMAGE')!.text!, factoryInstanceType(existing.bindings.find(binding => binding.name === 'FACTORY_POLICY')?.text))
+      ? factoryScriptContainer(workerName, existing.bindings.find(binding => binding.name === 'FACTORY_IMAGE')!.text!, factoryInstanceType(existing.bindings.find(binding => binding.name === 'FACTORY_POLICY')?.text), factoryMaxBoxes(existing.bindings.find(binding => binding.name === 'FACTORY_POLICY')?.text))
       : { class_name: 'FactoryComputeDurableObject' }] } : {}),
     compatibility_date: release.manifest.compatibilityDate,
     compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],

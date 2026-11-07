@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import type { FactoryAction, FactorySnapshot } from '~~/shared/software-factory'
+import type { FactoryApproval, ReviewDiff } from '~~/shared/software-factory'
 import { Permission } from '~~/shared/permissions'
+import { GIT_MERGE_LABELS, type ProjectGitFlow } from '~~/shared/project-factory'
+type TaskBox = { id: string; taskId: string; status: string; nodeId: string; repository: string; baseBranch: string; baseSha: string; branch: string; headSha: string | null; runtimeMs: number
+  gitFlow: ProjectGitFlow; pushedSha: string | null; publicationCount: number; updatedAt: string; pull: { url: string; number: number; commit: string } | null }
 const props = defineProps<{ runId: string; active: boolean }>(), { api } = useApi(), { can } = useRoleGrants(), toast = useToast()
-const query = useQuery({ queryKey: computed(() => ['factory', props.runId]), queryFn: () => api<{ recovery: { checkpoint: { sha: string; updatedAt: string } | null; recovery: string } | null; actions: FactoryAction[]; workspace: { repository: string; baseBranch: string; branch: string; connectionId: string; taskId: string; agentId: string; initiatedBy: string; id: string; status: string; nodeId: string; commands: number; runtimeMs: number; publicationCount: number; snapshot: FactorySnapshot | null; snapshotDigest: string | null; pull: { url: string; number: number; commit: string } | null } | null }>(`/api/agent-runs/${props.runId}/factory`), refetchInterval: () => props.active ? 2000 : false })
+const query = useQuery({ queryKey: computed(() => ['factory', props.runId]), queryFn: () => api<{ box: TaskBox | null; approvals: FactoryApproval[] }>(`/api/agent-runs/${props.runId}/factory`), refetchInterval: () => props.active ? 2000 : false })
 watch(() => props.active, active => { if (!active) void query.refetch() })
+const box = computed(() => query.data.value?.box ?? null)
+const busy = ref(false), confirmed = ref<Record<string, boolean>>({})
+const boxStates: Record<string, string> = { new: 'Not started yet', queued: 'Waiting for a free box', starting: 'Starting', running: 'Working', idle: 'Idle', stopped: 'Stopped, its disk kept', released: 'Released with its Task', failed: 'Could not start' }
+const statuses: Record<string, string> = { pending_diff: 'Preparing the diff', pending: 'Waiting for your decision', approved: 'Approved', publishing: 'Pushing', completed: 'Published', rejected: 'Rejected', expired: 'Expired', failed: 'Failed', uncertain: 'Outcome uncertain' }
+
 const feedback = ref<{ state?: string; commit?: string; providerMergeState?: string; previewState?: string; previewReason?: string; checks?: { name: string; state: string; url: string | null }[]; previews?: { state: string; url: string | null; source: string }[] } | null>(null)
 async function refreshFeedback() {
   busy.value = true
@@ -19,67 +27,91 @@ async function exportSource() {
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false }
 }
-const confirmed = ref<Record<string, boolean>>({}), busy = ref(false)
-async function decide(action: FactoryAction, decision: 'approve' | 'reject') {
+/** A push's commits and diff, read from storage when the person opens them. */
+const reviews = ref<Record<string, ReviewDiff>>({})
+async function loadReview(approval: FactoryApproval) {
+  if (reviews.value[approval.id]) return
+  try { reviews.value[approval.id] = await api<ReviewDiff>(`/api/agent-runs/${props.runId}/factory-review`, { query: { approval: approval.id } }) }
+  catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
+}
+async function decide(approval: FactoryApproval, decision: 'approve' | 'reject') {
   busy.value = true
-  try { await api(`/api/agent-runs/${action.runId}/factory`, { method: 'POST', body: { id: action.id, digest: action.digest, decision } }); await query.refetch() }
+  try { await api(`/api/agent-runs/${approval.runId}/factory`, { method: 'POST', body: { id: approval.id, digest: approval.digest, decision } }); await query.refetch() }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }); await query.refetch() }
   finally { busy.value = false }
 }
+const message = (approval: FactoryApproval) => (approval.result as { message?: string } | null)?.message ?? null
+const heading = (approval: FactoryApproval) => approval.kind === 'plan' ? 'Plan' : approval.kind === 'window' ? `Network window to ${approval.request.host}`
+  : approval.kind === 'merge' ? `Merge of pull request #${approval.request.number} by ${approval.request.by === 'agent' ? 'the Agent' : 'a person'}` : approval.request.title
+const status = (approval: FactoryApproval) => approval.kind === 'merge' ? ({ publishing: 'Merging', completed: 'Merged', failed: 'Refused', uncertain: 'Outcome uncertain' } as Record<string, string>)[approval.status] ?? approval.status
+  : approval.kind === 'publish' && approval.status === 'completed' && approval.request.direct ? 'Pushed' : statuses[approval.status] ?? approval.status
+const windowStatus = (approval: FactoryApproval) => approval.kind === 'window' && approval.status === 'approved' ? approval.expiresAt > new Date().toISOString() ? `Open until ${new Date(approval.expiresAt).toLocaleString()}` : 'Closed' : null
+const warnings: Record<string, string> = {
+  plan: 'Approving lets the agent push its branch and update the Task’s draft pull request without asking each time, until it proposes a new plan. A window for a host or secret the plan names then opens without asking. It grants no merge or release.',
+  window: 'Approving lets the agent’s box reach this host for the stated time. Each named secret is put in only on requests to this host; the agent never sees its value.',
+  publish: 'Approving pushes exactly this commit to the Task’s own branch and opens or updates its draft pull request. It grants no merge or release.',
+  direct: 'Approving pushes exactly this commit straight to the base branch, as a fast-forward, without a pull request. Whatever builds from that branch takes it from there.',
+}
+const confirmations: Record<string, string> = { plan: 'I reviewed this plan.', window: 'I reviewed this host and the secrets it may receive.', publish: 'I reviewed this commit and its diff.' }
+const approveLabels: Record<string, string> = { plan: 'Approve plan', window: 'Open window', publish: 'Approve push' }
 </script>
 <template>
-  <section v-if="query.data.value?.workspace || query.error.value" class="space-y-4 rounded-lg border border-default p-4">
-    <h2 class="font-medium">Task workspace</h2>
-    <LayoutLoadError v-if="query.error.value" message="Private workspace actions did not load." :retry="query.refetch" />
-    <template v-if="query.data.value?.workspace">
-      <p class="break-all text-sm">Repository: {{ query.data.value.workspace.repository }} · {{ query.data.value.workspace.baseBranch }} → {{ query.data.value.workspace.branch }}</p>
-      <p class="break-all text-xs text-muted">Task {{ query.data.value.workspace.taskId }} · Agent {{ query.data.value.workspace.agentId }} · Initiator {{ query.data.value.workspace.initiatedBy }} · Connection {{ query.data.value.workspace.connectionId }} · Node {{ query.data.value.workspace.nodeId }}</p>
-      <p class="break-all text-sm">Workspace {{ query.data.value.workspace.id }} · {{ query.data.value.workspace.status }}</p>
-      <p class="text-xs text-muted">{{ query.data.value.workspace.commands }}/50 operations · {{ Math.ceil(query.data.value.workspace.runtimeMs / 1000) }}/3600 seconds · {{ query.data.value.workspace.publicationCount }}/10 publications. Action requests expire with their Run. This review is private to you.</p>
-      <div v-if="query.data.value.recovery" class="space-y-2 text-sm">
-        <p>Code recovery: {{ query.data.value.recovery.recovery }} · checkpoint {{ query.data.value.recovery.checkpoint?.sha || 'Not acknowledged yet' }}</p>
+  <section v-if="box || query.error.value" class="space-y-4 rounded-lg border border-default p-4">
+    <h2 class="font-medium">The Agent’s box</h2>
+    <LayoutLoadError v-if="query.error.value" message="The Task’s box did not load." :retry="query.refetch" />
+    <template v-if="box">
+      <p class="text-sm">{{ boxStates[box.status] ?? box.status }} · {{ Math.ceil(box.runtimeMs / 60000) }} minutes of work · {{ box.publicationCount }} {{ box.publicationCount === 1 ? 'push' : 'pushes' }}</p>
+      <p class="break-all text-sm">{{ box.repository }} · {{ box.gitFlow.merge === 'direct_push' ? `pushes straight to ${box.baseBranch}` : `${box.baseBranch} → ${box.branch}` }} · {{ GIT_MERGE_LABELS[box.gitFlow.merge].label }}</p>
+      <p class="break-all font-mono text-xs text-muted">Base {{ box.baseSha }}<template v-if="box.headSha"> · last saved {{ box.headSha }}</template></p>
+      <AgentsTaskMerge v-if="box.pull || box.pushedSha" :key="`${box.taskId}-${box.pull?.commit ?? box.pushedSha}`" :task-id="box.taskId" />
+      <div class="flex flex-wrap gap-2">
+        <UButton v-if="box.pull" label="Refresh checks and preview" color="neutral" variant="outline" :loading="busy" @click="refreshFeedback" />
         <UButton label="Export private Task code" color="neutral" variant="outline" :loading="busy" @click="exportSource" />
-        <div v-if="exported" class="space-y-2 rounded border border-default p-3">
-          <p class="text-xs text-muted">{{ exported.instruction }} Expires {{ new Date(exported.expiresAt).toLocaleString() }}.</p>
-          <code class="block select-all break-all text-xs">{{ exported.remote }}</code>
-          <details><summary class="cursor-pointer text-sm">Show private read token</summary><code class="block select-all break-all text-xs">{{ exported.token }}</code></details>
-        </div>
       </div>
-      <a v-if="query.data.value.workspace.pull" :href="query.data.value.workspace.pull.url" target="_blank" rel="noopener noreferrer" class="text-primary underline">Open canonical GitHub PR #{{ query.data.value.workspace.pull.number }}</a>
-      <UButton v-if="query.data.value.workspace.pull" label="Refresh existing CI and Preview" color="neutral" variant="outline" :loading="busy" @click="refreshFeedback" />
+      <div v-if="exported" class="space-y-2 rounded border border-default p-3">
+        <p class="text-xs text-muted">{{ exported.instruction }} Expires {{ new Date(exported.expiresAt).toLocaleString() }}.</p>
+        <code class="block select-all break-all text-xs">{{ exported.remote }}</code>
+        <details><summary class="cursor-pointer text-sm">Show private read token</summary><code class="block select-all break-all text-xs">{{ exported.token }}</code></details>
+      </div>
       <div v-if="feedback" class="space-y-2 text-sm">
-        <p class="break-all">CI: {{ feedback.state }} · Head {{ feedback.commit }} · GitHub merge state: {{ feedback.providerMergeState }}</p>
+        <p class="break-all">Checks: {{ feedback.state }} · Head {{ feedback.commit }} · Merge state: {{ feedback.providerMergeState }}</p>
         <p>Preview: {{ feedback.previewState }} {{ feedback.previewReason }}</p>
         <ul class="space-y-1"><li v-for="check in feedback.checks" :key="check.name"><a v-if="check.url" :href="check.url" target="_blank" rel="noopener noreferrer" class="text-primary underline">{{ check.name }}</a><span v-else>{{ check.name }}</span> · {{ check.state }}</li></ul>
         <ul class="space-y-1"><li v-for="(preview, index) in feedback.previews" :key="index"><a v-if="preview.url" :href="preview.url" target="_blank" rel="noopener noreferrer" class="text-primary underline">{{ preview.source }}</a><span v-else>{{ preview.source }}</span> · {{ preview.state }}</li></ul>
       </div>
-      <div v-if="query.data.value.workspace.snapshot" class="space-y-2">
-        <p class="break-all text-xs">Base: {{ query.data.value.workspace.snapshot.baseSha }}<br>Head: {{ query.data.value.workspace.snapshot.headSha }}<br>Snapshot digest: {{ query.data.value.workspace.snapshotDigest }}</p>
-        <details><summary class="cursor-pointer text-sm">Review exact diff, commits and test evidence</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{{ query.data.value.workspace.snapshot.diff }}</pre><pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(query.data.value.workspace.snapshot.commits.map(commit => ({ sha: commit.sha, parents: commit.parents, message: commit.message })), null, 2) }}
-{{ JSON.stringify(query.data.value.workspace.snapshot.evidence, null, 2) }}</pre></details>
-      </div>
-      <article v-for="action in query.data.value.actions" :key="action.id" class="space-y-2 rounded border border-default p-3">
-        <p class="text-sm">{{ action.request.operation }} · {{ action.status }} · {{ action.approvalMode === 'role' ? 'Authorized by Run permissions' : action.approvalMode === 'plan' ? 'Covered by the approved plan' : 'Human review' }}</p>
-        <p class="break-all text-xs text-muted">Action {{ action.id }} · Run {{ action.runId }} · expires {{ new Date(action.expiresAt).toLocaleString() }}</p>
-        <p class="break-all text-xs text-muted">Image {{ action.computeImage }} · Workspace revision {{ action.workspaceRevision }} · {{ action.computeLimits.cpu }} CPU, {{ action.computeLimits.memoryMiB }} MiB memory, {{ action.computeLimits.processes }} processes, {{ Math.round(action.diskBytes / 1048576) }} MiB hard disk capacity; commands up to {{ action.computeLimits.timeoutMs / 1000 }} seconds.</p>
-        <div v-if="action.request.operation === 'plan'" class="space-y-2 text-sm">
-          <p class="whitespace-pre-wrap">{{ action.request.summary }}</p>
-          <ol class="list-decimal space-y-1 ps-5"><li v-for="(step, index) in action.request.steps" :key="index">{{ step }}</li></ol>
-          <p class="text-muted">Up to {{ action.request.operations }} workspace operations · network: {{ action.request.networkHosts.length ? action.request.networkHosts.join(', ') : 'none' }}</p>
-        </div>
-        <pre v-else class="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(action.request, null, 2) }}</pre>
-        <template v-if="action.status === 'pending' && can(Permission.approveAgentActions) && action.request.operation === 'plan'">
-          <p class="text-xs text-warning">Approving lets the agent run up to {{ action.request.operations }} workspace operations in this Task without asking each time: commands, file edits and snapshots, with network access only to the hosts listed. Anything else, and opening a pull request, still waits for you. Current permissions are checked on every operation.</p>
-          <UCheckbox v-model="confirmed[action.id]" label="I reviewed this plan and its limits." />
-          <div class="flex flex-wrap gap-2"><UButton label="Approve plan" :disabled="!confirmed[action.id]" :loading="busy" @click="decide(action, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(action, 'reject')" /></div>
+      <article v-for="approval in query.data.value?.approvals" :key="approval.id" class="space-y-2 rounded border border-default p-3">
+        <p class="text-sm font-medium">{{ heading(approval) }} · {{ windowStatus(approval) ?? status(approval) }}</p>
+        <p class="text-xs text-muted">{{ new Date(approval.createdAt).toLocaleString() }}<template v-if="approval.decidedAt"> · decided {{ new Date(approval.decidedAt).toLocaleString() }}</template></p>
+        <template v-if="approval.kind === 'plan'">
+          <p class="whitespace-pre-wrap text-sm">{{ approval.request.summary }}</p>
+          <ol class="list-decimal space-y-1 ps-5 text-sm"><li v-for="(step, index) in approval.request.steps" :key="index">{{ step }}</li></ol>
+          <p v-if="approval.request.hosts?.length" class="break-all text-xs text-muted">Hosts: {{ approval.request.hosts.join(', ') }}</p>
+          <p v-if="approval.request.secrets?.length" class="break-all text-xs text-muted">Secrets: {{ approval.request.secrets.join(', ') }}</p>
         </template>
-        <template v-else-if="action.status === 'pending' && can(Permission.approveAgentActions)">
-          <p class="text-xs text-warning">Approval applies only to these arguments, Task, repository snapshot and Node. Commands can change or delete workspace files. Approved network hosts may receive source data. Publication writes the exact reviewed commits to a dedicated GitHub branch and draft PR; it grants no merge or release.</p>
-          <UCheckbox v-model="confirmed[action.id]" label="I reviewed this exact operation, destination, changes and effects." />
-          <div class="flex flex-wrap gap-2"><UButton label="Approve exact action" :disabled="!confirmed[action.id]" :loading="busy" @click="decide(action, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(action, 'reject')" /></div>
+        <template v-else-if="approval.kind === 'window'">
+          <p class="whitespace-pre-wrap break-words text-sm">{{ approval.request.reason }}</p>
+          <p class="text-xs text-muted">{{ approval.request.minutes }} minutes<template v-if="approval.request.secrets?.length"> · secrets {{ approval.request.secrets.join(', ') }}</template></p>
         </template>
-        <p v-if="action.status === 'uncertain'" class="text-sm text-warning">Outcome uncertain. Inspect the Node and GitHub before doing further work. This operation will not be replayed.</p>
-        <details v-if="action.result"><summary class="cursor-pointer text-sm">Private operation receipt</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{{ JSON.stringify(action.result, null, 2) }}</pre></details>
+        <p v-else-if="approval.kind === 'merge'" class="break-all font-mono text-xs">{{ approval.request.sha }} · {{ approval.request.method }}</p>
+        <template v-else>
+          <p class="break-all font-mono text-xs">{{ approval.request.sha }} → {{ approval.request.ref }}<span v-if="approval.request.direct" class="font-sans text-warning"> · base branch, no pull request</span></p>
+          <p v-if="approval.request.body" class="whitespace-pre-wrap break-words text-sm text-muted">{{ approval.request.body }}</p>
+          <details v-if="approval.diff" @toggle="loadReview(approval)">
+            <summary class="cursor-pointer text-sm">Review commits and diff</summary>
+            <template v-if="reviews[approval.id]">
+              <ul class="mt-2 space-y-1 text-xs"><li v-for="item in reviews[approval.id]!.commits" :key="item.sha" class="break-all"><span class="font-mono">{{ item.sha.slice(0, 12) }}</span> {{ item.subject }}</li></ul>
+              <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{{ reviews[approval.id]!.stat }}</pre>
+              <pre class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{{ reviews[approval.id]!.patch }}</pre>
+              <p v-if="reviews[approval.id]!.truncated" class="text-xs text-warning">The diff is longer than shown. Approve only what you have read, or review the commit in a clone.</p>
+            </template>
+          </details>
+        </template>
+        <template v-if="approval.status === 'pending' && can(Permission.approveAgentActions)">
+          <p class="text-xs text-warning">{{ warnings[approval.request.direct ? 'direct' : approval.kind] }}</p>
+          <UCheckbox v-model="confirmed[approval.id]" :label="confirmations[approval.kind]" />
+          <div class="flex flex-wrap gap-2"><UButton :label="approveLabels[approval.kind]" :disabled="!confirmed[approval.id]" :loading="busy" @click="decide(approval, 'approve')" /><UButton label="Reject" color="neutral" variant="outline" :loading="busy" @click="decide(approval, 'reject')" /></div>
+        </template>
+        <p v-if="message(approval)" class="text-sm" :class="approval.status === 'uncertain' ? 'text-warning' : 'text-muted'">{{ message(approval) }}</p>
       </article>
     </template>
   </section>

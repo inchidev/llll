@@ -14,8 +14,13 @@ await copyFile(process.execPath, join(staging, 'node'))
 await copyFile(resolve(import.meta.dirname, '../packages/compute-node/LICENSE.node'), join(staging, 'LICENSE.node'))
 await copyFile(resolve(import.meta.dirname, '../LICENSE'), join(staging, 'LICENSE'))
 execFileSync('tar', ['-czf', join(output, 'llll-compute-node-linux-amd64.tgz'), '-C', staging, 'node', 'src', 'LICENSE', 'LICENSE.node'])
+// The box image: Pi from packages/agent-runtime with its tools, and the trusted helpers the daemon runs.
+// Its tag and asset names stay as installers and L4 Cloud pin them.
 const image = `llll-workspace:${version}`
 execFileSync('docker', ['build', '--platform', 'linux/amd64', '-t', image, '-f', 'packages/compute-node/Dockerfile.workspace', '.'], { stdio: 'inherit' })
+// A box that cannot load Pi, or whose entry points are missing, must never be published.
+execFileSync('docker', ['run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--read-only', '--user', '1000:1000', image, 'node', '--input-type=module', '-e',
+  "await import('/opt/agent/src/box.mjs'); await import('/opt/agent/src/pi.mjs'); for (const entry of ['/opt/agent/src/control.mjs', '/opt/agent/src/checkout.mjs', '/opt/l4/proxy.mjs', '/opt/l4/fetch-source.mjs']) (await import('node:fs')).accessSync(entry)"], { stdio: 'inherit' })
 const imageId = execFileSync('docker', ['image', 'inspect', image, '--format', '{{.Id}}'], { encoding: 'utf8' }).trim()
 execFileSync('docker', ['save', '-o', join(output, 'workspace.tar'), image], { stdio: 'inherit' })
 const workspaceExtracted = join(output, 'workspace-image')

@@ -118,14 +118,19 @@ factory_command status
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
-function factoryEnable(loadedId: string, pins: { image: string; configDigest?: string; indexDigest?: string }) {
+function factoryEnable(loadedId: string, pins: { image: string; configDigest?: string; indexDigest?: string }, options: { existing?: string; systemd?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'llll-factory-load-'))
   const installed = join(directory, 'installed')
   const stage = join(directory, 'stage')
   const assets = join(directory, 'release')
   const source = join(directory, 'source')
   const calls = join(directory, 'calls')
-  mkdirSync(installed); mkdirSync(stage); mkdirSync(assets); mkdirSync(join(source, 'src'), { recursive: true })
+  const units = join(directory, 'units')
+  mkdirSync(installed); mkdirSync(stage); mkdirSync(assets); mkdirSync(units); mkdirSync(join(source, 'src'), { recursive: true })
+  if (options.existing !== undefined) {
+    mkdirSync(join(installed, 'factory/releases/8.0.0'), { recursive: true })
+    writeFileSync(join(installed, 'factory/factory.env'), options.existing)
+  }
   writeFileSync(join(installed, '.env'), "PUBLIC_ORIGIN='http://127.0.0.1:8081'\n")
   writeFileSync(join(source, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
   chmodSync(join(source, 'node'), 0o755)
@@ -168,9 +173,11 @@ docker() {
   fi
   printf 'docker %s\\n' "$*" >> ${JSON.stringify(calls)}
 }
-factory_command enable --trust-shared-kernel --no-systemd
+LLLL_SYSTEMD_DIR=${JSON.stringify(units)}
+LLLL_UNIT_DIR=${JSON.stringify(units)}
+factory_command enable --trust-shared-kernel${options.systemd ? '' : ' --no-systemd'}
 `)
-  return { directory, installed, calls, harness }
+  return { directory, installed, calls, harness, units }
 }
 
 it('accepts the config digest on a classic store and the index id on containerd', () => {
@@ -201,4 +208,96 @@ it('refuses a loaded image that matches none of the published digests', () => {
     expect(rejection).toContain('does not match a published Factory digest')
     expect(() => readFileSync(join(fixture.installed, 'factory/factory.env'))).toThrow()
   } finally { rmSync(fixture.directory, { recursive: true, force: true }) }
+})
+
+it('replaces an installed Node of an earlier release in place instead of refusing its changed image', () => {
+  const index = 'sha256:' + 'c'.repeat(64)
+  const earlier = 'sha256:' + '1'.repeat(64)
+  const existing = `LLLL_SERVER_ORIGIN=http://127.0.0.1:8081\nLLLL_NODE_STATE=/opt/llll/factory/state\nLLLL_WORKSPACE_IMAGE=${earlier}\nLLLL_SHARED_KERNEL_TRUSTED=1\nLLLL_NODE_BOXES=2\nLLLL_EXTRA=$(id)\n`
+  const manual = factoryEnable(index, { image: index }, { existing })
+  try {
+    const output = execFileSync('bash', [manual.harness], { env: { ...process.env, FACTORY_LOADED_ID: index }, encoding: 'utf8', timeout: 15000 })
+    const config = readFileSync(join(manual.installed, 'factory/factory.env'), 'utf8')
+    expect(config).toContain('LLLL_WORKSPACE_IMAGE=' + index)
+    expect(config).not.toContain(earlier)
+    expect(config).toContain('LLLL_NODE_BOXES=2\n')
+    expect(config).not.toContain('LLLL_EXTRA')
+    expect(output).toContain('without systemd')
+  } finally { rmSync(manual.directory, { recursive: true, force: true }) }
+  const service = factoryEnable(index, { image: index }, { existing, systemd: true })
+  try {
+    const output = execFileSync('bash', [service.harness], { env: { ...process.env, FACTORY_LOADED_ID: index }, encoding: 'utf8', timeout: 15000 })
+    expect(output).toContain('Local Compute Node replaced with ' + version)
+    const calls = readFileSync(service.calls, 'utf8')
+    expect(calls.indexOf('systemctl stop llll-factory-factory-fixture')).toBeLessThan(calls.indexOf('systemctl enable --now llll-factory-factory-fixture'))
+    expect(calls).toContain('docker image rm ' + earlier)
+    const unit = readFileSync(join(service.units, 'llll-factory-factory-fixture.service'), 'utf8')
+    expect(unit).toContain(`factory/releases/${version}/src/daemon.mjs`)
+    expect(unit).toContain(`factory/releases/${version}/src/pair-local.mjs`)
+    expect(() => readFileSync(join(service.installed, 'factory/releases/8.0.0'))).toThrow(/ENOENT/)
+  } finally { rmSync(service.directory, { recursive: true, force: true }) }
+})
+
+it('keeps the same release installed when its image is unchanged, without dropping its own box image', () => {
+  const index = 'sha256:' + 'c'.repeat(64)
+  const fixture = factoryEnable(index, { image: index }, { existing: `LLLL_WORKSPACE_IMAGE=${index}\n`, systemd: true })
+  try {
+    const output = execFileSync('bash', [fixture.harness], { env: { ...process.env, FACTORY_LOADED_ID: index }, encoding: 'utf8', timeout: 15000 })
+    expect(output).toContain('Local Factory installed.')
+    expect(readFileSync(fixture.calls, 'utf8')).not.toContain('image rm')
+  } finally { rmSync(fixture.directory, { recursive: true, force: true }) }
+})
+
+it('replaces the local Node after a Server upgrade only while its service is installed, and never fails the upgrade for it', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'llll-upgrade-node-'))
+  try {
+    mkdirSync(join(directory, 'factory')); mkdirSync(join(directory, 'units'))
+    writeFileSync(join(directory, 'factory/factory.env'), 'LLLL_WORKSPACE_IMAGE=sha256:' + '1'.repeat(64) + '\n')
+    const setup = `
+dir=${JSON.stringify(directory)}
+project=factory-fixture
+version=8.0.0
+pinned_version=${version}
+LLLL_UNIT_DIR=${JSON.stringify(join(directory, 'units'))}
+`
+    const removed = run(setup + `factory_command() { printf 'called %s\\n' "$*"; }\nupgrade_factory\n`)
+    expect(removed).not.toContain('called')
+    expect(removed).toContain('sudo llll compute enable --trust-shared-kernel')
+    writeFileSync(join(directory, 'units/llll-factory-factory-fixture.service'), '[Unit]\n')
+    const replaced = run(setup + `factory_command() { printf 'called %s with %s\\n' "$*" "$version"; }\nupgrade_factory\n`)
+    expect(replaced).toContain(`called enable --trust-shared-kernel with ${version}`)
+    const failed = run(setup + `factory_command() { fail 'Box image was not loaded.'; }\nupgrade_factory\nprintf 'upgrade continued\\n'\n`)
+    expect(failed).toContain('The local Compute Node was not replaced')
+    expect(failed).toContain('upgrade continued')
+    expect(run(`dir=${JSON.stringify(join(directory, 'missing'))}\nfactory_command() { printf called; }\nupgrade_factory\n`)).toBe('')
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
+
+it('keeps the per-command workspace disks until the operator releases them explicitly', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'llll-old-disks-'))
+  const disks = join(directory, 'factory/state/workspace-disks')
+  const ids = ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2']
+  try {
+    mkdirSync(disks, { recursive: true })
+    writeFileSync(join(directory, '.env'), "SERVER_ID='00000000-0000-4000-8000-000000000001'\n")
+    for (const id of ids) { writeFileSync(join(disks, id + '.img'), 'disk'); mkdirSync(join(disks, id)) }
+    writeFileSync(join(disks, 'not-a-disk.img'), 'other')
+    const setup = `
+dir=${JSON.stringify(directory)}
+findmnt() { [[ $3 == *a1 ]]; }
+umount() { printf 'umount %s\\n' "$1"; }
+docker() { if [[ $2 == inspect ]]; then [[ $3 == *a1 ]] && printf '00000000-0000-4000-8000-000000000001\\n' || printf 'another\\n'; else printf 'docker %s\\n' "$*" >> "$dir/calls"; fi; }
+`
+    const listed = run(setup + 'old_disks_notice\nrelease_old_disks\n')
+    expect(listed).toContain('2 workspace disks of the per-command Factory')
+    expect(listed).toContain('Nothing was deleted')
+    expect(readFileSync(join(disks, ids[0] + '.img'), 'utf8')).toBe('disk')
+    const released = run(setup + 'release_old_disks --yes\n')
+    expect(released).toContain('umount ' + join(disks, ids[0]))
+    expect(readFileSync(join(directory, 'calls'), 'utf8')).toBe(`docker volume rm l4-ws-${ids[0]}\n`)
+    expect(released).toContain('Released 2 workspace disks')
+    for (const id of ids) expect(() => readFileSync(join(disks, id + '.img'))).toThrow(/ENOENT/)
+    expect(readFileSync(join(disks, 'not-a-disk.img'), 'utf8')).toBe('other')
+    expect(run(setup + 'release_old_disks --yes\n')).toContain('No workspace disks of the per-command Factory remain.')
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })

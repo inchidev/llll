@@ -21,6 +21,7 @@ import type {
 import { SHOTS_BOARD_NAME, type RecordingClip, type RecordingLimitsDTO } from '~~/shared/task-recordings'
 import { BOARD_ROUTE, boardPath } from '~~/shared/paths'
 import { boardOrderAfterMove } from '~~/shared/project-navigation'
+import { factoryStateLabel } from '~~/shared/software-factory'
 
 definePageMeta({ layout: 'server', middleware: ['auth', 'manage-tasks'] })
 
@@ -786,7 +787,7 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
                 </div>
                 <div v-if="task.dueAt" class="text-[11px] text-muted">{{ formatDate(task.dueAt) }}</div>
                 <UAlert v-if="task.lastError" color="error" :description="task.lastError" />
-                <p v-if="task.factoryState" class="text-xs text-muted">Workspace: {{ task.factoryState }}</p>
+                <p v-if="task.factoryState" class="text-xs text-muted">Code: {{ factoryStateLabel(task.factoryState) }}</p>
                 <div v-if="task.resultSummary" class="text-xs border-t border-default pt-2 line-clamp-3">{{ task.resultSummary }}</div>
                 <div v-if="!showArchived && can(Permission.writeTasks, task.projectId)" class="flex items-center gap-1 pt-1" @click.stop>
                   <USelect
@@ -952,7 +953,10 @@ const taskSwipe = useSwipeToClose(() => { selectedTaskId.value = null })
             </div>
           </section>
 
-          <p v-if="selectedTask.factoryState" v-show="onPhoneTab('more')" class="text-sm">Workspace: {{ selectedTask.factoryState }}</p>
+          <section v-if="selectedTask.factoryState" v-show="onPhoneTab('more')" class="space-y-2">
+            <p class="text-sm">Code: {{ factoryStateLabel(selectedTask.factoryState) }}</p>
+            <AgentsTaskMerge :key="`merge-${selectedTask.id}-${selectedTask.factoryState}`" :task-id="selectedTask.id" />
+          </section>
           <section v-if="selectedTask.resultSummary || selectedTask.resultDetails" v-show="onPhoneTab('more')">
             <div class="mb-2 text-sm font-medium">Result</div>
             <div class="space-y-2 rounded-lg border border-default p-3 text-sm">

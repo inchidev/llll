@@ -107,4 +107,4 @@ async function runScheduled(env: L4Env): Promise<void> {
 }
 
 export { FactoryComputeDurableObject } from '../workers/factory-compute'
-export { FactoryOutbound } from '../workers/factory-outbound'
+export { BoxOutbound } from '../workers/factory-outbound'

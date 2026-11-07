@@ -1,12 +1,31 @@
-FROM node:24.19.0-bookworm-slim
+# The Agent's box: Pi with its own tools, Git and the usual build tools, working in the Task's disk at
+# /work. The daemon runs it read-only as uid 1000 without capabilities; the trusted helpers in /opt/l4 run
+# in their own containers from the same image (source checkout, egress proxy, Cloudflare operations).
+FROM node:26.13.0-bookworm-slim AS agent
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm install --global --ignore-scripts pnpm@10.30.3
+WORKDIR /src
+COPY --chmod=0644 package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --chmod=0644 packages/agent-runtime/package.json packages/agent-runtime/package.json
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    pnpm install --filter @llll/agent-runtime --frozen-lockfile --ignore-scripts
+COPY --chmod=0644 packages/agent-runtime/src packages/agent-runtime/src
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    pnpm --config.inject-workspace-packages=true --filter @llll/agent-runtime deploy --prod /out
+
+FROM node:26.13.0-bookworm-slim
 RUN --mount=type=secret,id=proxy_ca \
     proxy_ca_bundle=/etc/ssl/certs/ca-certificates.crt; \
     if [ -s /run/secrets/proxy_ca ]; then proxy_ca_bundle=/run/secrets/proxy_ca; fi; \
     apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" update && \
     apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends git python3 ripgrep ca-certificates procps util-linux && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /workspace /opt/l4 && chown node:node /workspace
-COPY --chmod=0644 packages/compute-node/src/operate.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/fetch-source.mjs packages/compute-node/src/cloud-io.mjs /opt/l4/
+RUN mkdir -p /work /opt/l4 /run/l4 && chown node:node /work /run/l4
+COPY --from=agent /out /opt/agent
+COPY --chmod=0644 packages/compute-node/src/review-diff.mjs packages/compute-node/src/push-branch.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/box-ca.mjs packages/compute-node/src/fetch-source.mjs packages/compute-node/src/cloud-io.mjs /opt/l4/
 USER node
-WORKDIR /workspace
-ENV HOME=/tmp
-CMD ["node", "/opt/l4/operate.mjs"]
+WORKDIR /work
+ENV HOME=/tmp LLLL_BOX_ROOT=/work LLLL_BOX_SOCKET=/run/l4/control.sock
+CMD ["node", "/opt/agent/src/box.mjs"]

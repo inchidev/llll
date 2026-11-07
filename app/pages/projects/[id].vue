@@ -115,6 +115,9 @@ async function remove(id: string) {
      <UFormField label="Coding environment" help="Configure GitHub access in Server settings → Git, then link the matching configuration. Other providers are references until their execution adapter is available."><USelect v-model="environmentId" :items="[{ label: 'Reference only', value: null }, ...(environments.data.value?.environments ?? []).map(e => ({ label: e.name + ' · ' + e.sourceRepo, value: e.id }))]" class="w-full" /></UFormField>
      <UButton type="submit" label="Attach reference" :disabled="!slug || !host" :loading="busy" />
     </form></template></UModal>
+    <ProjectsGitFlow :key="`git-flow-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
+    <ProjectsNetwork :key="`network-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
+    <ProjectsSecrets :key="`secrets-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
     </section>
    </section>
   </main>

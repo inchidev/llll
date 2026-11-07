@@ -17,7 +17,7 @@ let env: L4Env
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:'); sqlite.exec(INIT_SQL)
-  // Read-only fixtures: sessions, workspaces and environments are irrelevant to what the Inbox shows.
+  // Read-only fixtures: sessions, boxes and environments are irrelevant to what the Inbox shows.
   sqlite.exec('PRAGMA foreign_keys = OFF')
   const future = new Date(Date.now() + 3_600_000).toISOString()
   const recent = new Date(Date.now() - 3_600_000).toISOString()
@@ -42,10 +42,11 @@ beforeEach(() => {
       ('run-old','s','${agent}','chat','${me}','k3','completed','p','m','i','{}','${future}','${old}','${old}'),
       ('run-theirs','s','${agent}','chat','${other}','k4','running','p','m','i','{}','${future}','${recent}','${recent}');
     INSERT INTO agent_code_proposals(run_id,environment_id,input_hash,branch,pull_number,created_at,updated_at) VALUES('run-done','env','h','l4-agent/run-done',42,'${recent}','${recent}');
-    INSERT INTO factory_actions(id,workspace_id,run_id,call_id,digest,request_json,policy_json,status,expires_at,created_at) VALUES
-      ('act-mine','w1','run-mine','c1','d','{"operation":"exec"}','{}','pending','${future}','${recent}'),
-      ('act-expired','w2','run-mine','c2','d','{"operation":"write"}','{}','pending','${recent}','${recent}'),
-      ('act-theirs','w3','run-theirs','c3','d','{"operation":"exec"}','{}','pending','${future}','${recent}');
+    INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,expires_at,created_at) VALUES
+      ('act-mine','b1','run-mine','c1','publish','{}','d','pending','${future}','${recent}'),
+      ('act-diff','b1','run-mine','c4','publish','{}','d','pending_diff','${future}','${recent}'),
+      ('act-expired','b2','run-mine','c2','publish','{}','d','pending','${recent}','${recent}'),
+      ('act-theirs','b3','run-theirs','c3','plan','{}','d','pending','${future}','${recent}');
     INSERT INTO task_boards(id,name,created_by) VALUES('board','Roadmap','${other}');
     INSERT INTO tasks(id,board_id,title,status,assignee_id,created_by) VALUES
       ('t-assigned','board','Fix login','ready','${me}','${other}'),
@@ -65,7 +66,7 @@ describe('Inbox', () => {
 
   it('shows this member’s live approvals and recent Runs, never another member’s', async () => {
     const inbox = await loadInbox(env, await requireMemberForUser(env, user(me), serverId))
-    expect(inbox.approvals).toEqual([expect.objectContaining({ id: 'act-mine', kind: 'workspace', runId: 'run-mine', agentName: 'Jev', operation: 'exec' })])
+    expect(inbox.approvals).toEqual([expect.objectContaining({ id: 'act-mine', kind: 'box', runId: 'run-mine', agentName: 'Jev', operation: 'publish' })])
     expect(inbox.runs.map(run => run.id).sort()).toEqual(['run-done', 'run-mine'])
     expect(inbox.runs.find(run => run.id === 'run-done')?.pullNumber).toBe(42)
   })

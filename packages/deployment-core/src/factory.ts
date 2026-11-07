@@ -3,7 +3,7 @@ import { cloudflareApi, cloudflareClient } from './cloudflare-client.js'
 import { readL4Server } from './servers.js'
 import { loadL4Release, releaseManifestUrl } from './release.js'
 import { createError } from './errors.js'
-import { factoryApplicationSizeMatches, factoryScriptContainer, type FactoryApplicationConfiguration } from './factory-bindings.js'
+import { FACTORY_DEFAULT_BOXES, factoryApplicationSizeMatches, factoryScriptContainer, type FactoryApplicationConfiguration } from './factory-bindings.js'
 import { beginUnusedFactoryRepair } from './factory-repair.js'
 import { workerObservability } from './observability.js'
 
@@ -52,7 +52,7 @@ async function ensureArtifactsNamespace(accessToken: string, accountId: string, 
 }
 
 /** Browser-session grant only. No account token is persisted in the customer Server. */
-export async function enableL4Factory(accessToken: string, accountId: string, workerName: string, paidConsent: boolean, policy: { size?: 'small' | 'standard' | 'large'; timeoutSeconds?: number; processes?: number } = {}) {
+export async function enableL4Factory(accessToken: string, accountId: string, workerName: string, paidConsent: boolean, policy: { size?: 'small' | 'standard' | 'large'; timeoutSeconds?: number; processes?: number; boxes?: number } = {}) {
   if (!paidConsent) throw createError({ statusCode: 400, statusMessage: 'Review and explicitly authorize paid Containers and Artifacts usage first' })
   const server = await readL4Server(accessToken, accountId, workerName)
   if (!server?.version) throw createError({ statusCode: 404, statusMessage: 'Select an installed L4 Server' })
@@ -61,9 +61,11 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   const namespace = `${workerName}-factory`
   await ensureArtifactsNamespace(accessToken, accountId, namespace)
   const sizes = { small: { instance_type: 'basic', cpu: 0.25, memoryMiB: 1024, diskBytes: 4000000000 }, standard: { instance_type: 'standard-1', cpu: 0.5, memoryMiB: 4096, diskBytes: 8000000000 }, large: { instance_type: 'standard-2', cpu: 1, memoryMiB: 6144, diskBytes: 12000000000 } }
-  const size = sizes[policy.size ?? 'standard'], timeoutSeconds = policy.timeoutSeconds ?? 120, processes = policy.processes ?? 128
-  if (!size || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 600 || !Number.isInteger(processes) || processes < 32 || processes > 512) throw new Error('Invalid Factory resource policy')
-  const limits = { cpu: size.cpu, memoryMiB: size.memoryMiB, diskBytes: size.diskBytes, timeoutMs: timeoutSeconds * 1000, processLimit: processes }
+  const size = sizes[policy.size ?? 'standard'], timeoutSeconds = policy.timeoutSeconds ?? 120, processes = policy.processes ?? 128, maxBoxes = policy.boxes ?? FACTORY_DEFAULT_BOXES
+  if (!size || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 600 || !Number.isInteger(processes) || processes < 32 || processes > 512
+    || !Number.isInteger(maxBoxes) || maxBoxes < 1 || maxBoxes > 64) throw new Error('Invalid Factory resource policy')
+  // Each Task's box is one container of this size; the Server admits at most maxBoxes at once.
+  const limits = { cpu: size.cpu, memoryMiB: size.memoryMiB, diskBytes: size.diskBytes, timeoutMs: timeoutSeconds * 1000, processLimit: processes, maxBoxes }
   const release = await loadL4Release(releaseManifestUrl(server.version))
   const descriptor = release.manifest.factory
   if (!descriptor) throw createError({ statusCode: 409, statusMessage: 'Update this Server to a published release with Factory installer artifacts first' })
@@ -145,7 +147,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
   // Re-upload only the installed, checksum-verified immutable release. Keep original data, assets, secrets and integrations.
   const form = new FormData()
   form.append('metadata', JSON.stringify({ main_module: 'llll-worker.mjs', compatibility_date: release.manifest.compatibilityDate, compatibility_flags: release.manifest.compatibilityFlags,
-    bindings, keep_assets: true, observability: current.observability ?? workerObservability, ...('placement' in current && current.placement ? { placement: current.placement } : {}), containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), factoryScriptContainer(workerName, image, size.instance_type)], tags: current.tags, annotations: current.annotations }))
+    bindings, keep_assets: true, observability: current.observability ?? workerObservability, ...('placement' in current && current.placement ? { placement: current.placement } : {}), containers: [...('containers' in current && Array.isArray(current.containers) ? current.containers.filter((item: { class_name?: string }) => item.class_name !== 'FactoryComputeDurableObject') : []), factoryScriptContainer(workerName, image, size.instance_type, maxBoxes)], tags: current.tags, annotations: current.annotations }))
   form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
   await cloudflareApi(accessToken, `/accounts/${accountId}/workers/scripts/${workerName}?excludeScript=true&bindings_inherit=strict`, { method: 'PUT', body: form })
   const deployed = await client.workers.scripts.scriptAndVersionSettings.get(workerName, { account_id: accountId })
@@ -167,7 +169,7 @@ export async function enableL4Factory(accessToken: string, accountId: string, wo
       await new Promise(resolve => setTimeout(resolve, 1000))
     }
   }
-  if (!application) await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications`, { method: 'POST', body: JSON.stringify({ name, configuration: { image, instance_type: size.instance_type }, instances: 0, max_instances: 1, scheduling_policy: 'default', durable_objects: { namespace_id: binding.namespace_id } }) })
+  if (!application) await cloudflareApi(accessToken, `/accounts/${accountId}/containers/applications`, { method: 'POST', body: JSON.stringify({ name, configuration: { image, instance_type: size.instance_type }, instances: 0, max_instances: maxBoxes, scheduling_policy: 'default', durable_objects: { namespace_id: binding.namespace_id } }) })
   await repair?.complete()
   return { state: 'provisioning', image, origin: server.origin, message: 'Optional Factory resources provisioned. Return to Server Settings → Repositories and activate Factory once provider resources are ready. No R2 migration or plan upgrade was performed.' }
   } catch (error) { await repair?.failed().catch(() => undefined); throw error }

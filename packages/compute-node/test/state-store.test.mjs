@@ -25,25 +25,6 @@ test('Node journal binds one validated connection to the configured Server and s
     assert.equal((await stat(directory)).mode & 0o777,0o700)
   } finally {store?.close();await rm(directory,{recursive:true,force:true})}
 })
-test('receipts persist exactly once, preserve evidence, reject changed identity and acknowledge only the exact lease',async()=>{
-  const directory=await mkdtemp(join(tmpdir(),'l4-receipts-'))
-  const receipt={operation:'result',id:randomUUID(),lease:'b'.repeat(64),result:{ok:false,exitCode:1,output:'test failed; ; $(not a command)',runtimeMs:1000}}
-  let store
-  try {
-    store=await openNodeState(directory);store.retain(receipt);store.retain(receipt)
-    assert.throws(()=>store.retain({...receipt,lease:'c'.repeat(64)}),/identity/u)
-    assert.throws(()=>store.retain({...receipt,result:{...receipt.result,output:'changed'}}),/identity/u)
-    assert.throws(()=>store.retain({...receipt,id:'../../escape'}))
-    assert.throws(()=>store.retain({...receipt,id:randomUUID(),result:{...receipt.result,output:'x'.repeat(64001)}}))
-    store.close();store=await openNodeState(directory)
-    assert.deepEqual(store.receipts(),[receipt])
-    store.acknowledge(receipt.id,'c'.repeat(64));assert.equal(store.receipts().length,1)
-    store.acknowledge(receipt.id,receipt.lease);assert.deepEqual(store.receipts(),[])
-    for(let i=0;i<128;i++)store.retain({...receipt,id:randomUUID()})
-    assert.throws(()=>store.retain({...receipt,id:randomUUID()}),/capacity/u)
-    assert.equal(store.receipts().length,128)
-  } finally {store?.close();await rm(directory,{recursive:true,force:true})}
-})
 test('Node state rejects symlinks and requires a safe explicit Server origin',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'l4-state-path-'))
   try {
@@ -126,14 +107,12 @@ for (const [column, invalid] of [
   })
 }
 
-test('finalizing a matching local pairing clears its intent durably and preserves recovery receipts', async () => {
+test('finalizing a matching local pairing clears its intent durably', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'l4-local-finalize-'))
-  const receipt = { operation: 'result', id: randomUUID(), lease: 'b'.repeat(64), result: { ok: true, exitCode: 0, output: 'Retained receipt', runtimeMs: 10 } }
   let store
   try {
     store = await openNodeState(directory)
     const intent = store.localPairing('https://server.example'), serverId = randomUUID()
-    store.retain(receipt)
     assert.throws(() => store.pair('https://server.example', { ...intent, serverId: '../invalid-server' }), /Invalid Node pairing response/u)
     assert.deepEqual(store.localPairing('https://server.example'), intent)
     store.pair('https://server.example', { ...intent, serverId })
@@ -141,7 +120,6 @@ test('finalizing a matching local pairing clears its intent durably and preserve
     store.close(); store = await openNodeState(directory)
     assert.deepEqual(store.connection('https://server.example'), { server: 'https://server.example', ...intent, serverId })
     assert.equal(inspectState(directory, db => db.prepare('SELECT count(*) AS total FROM local_pairing').get()).total, 0)
-    assert.deepEqual(store.receipts(), [receipt])
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }) }
 })
 
@@ -163,4 +141,19 @@ test('a failed intent finalization rolls back its connection and leaves the same
     assert.deepEqual(store.connection('https://server.example'), { server: 'https://server.example', ...connection })
     assert.equal(inspectState(directory, db => db.prepare('SELECT count(*) AS total FROM local_pairing').get()).total, 0)
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }) }
+})
+test('box records survive a restart with their lease and runtime, and only valid ones are kept',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'l4-boxes-'))
+  const box={id:randomUUID(),lease:'c'.repeat(64),taskId:randomUUID(),ready:false,runtimeMs:0}
+  let store
+  try {
+    store=await openNodeState(directory)
+    for(const invalid of [{...box,id:'../escape'},{...box,lease:'short'},{...box,taskId:'task'},{...box,runtimeMs:-1}])assert.throws(()=>store.boxes.save(invalid),/Invalid box record/u)
+    store.boxes.save(box)
+    store.boxes.save({...box,lease:'d'.repeat(64),ready:true,runtimeMs:4000})
+    store.close();store=await openNodeState(directory)
+    assert.deepEqual(store.boxes.list(),[{...box,lease:'d'.repeat(64),ready:true,runtimeMs:4000}])
+    store.boxes.forget(box.id)
+    assert.deepEqual(store.boxes.list(),[])
+  } finally {store?.close();await rm(directory,{recursive:true,force:true})}
 })

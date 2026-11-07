@@ -4,6 +4,7 @@ import { loadAgentProvider, agentProviderScope } from '../../../../utils/agent-p
 import { chatGPTAccessToken } from '../../../../utils/agent-chatgpt'
 import { decryptSecret } from '../../../../../shared/encrypted-secret'
 import { discoverAgentModels } from '../../../../utils/agent-provider-models'
+import { catalogModelLimits } from '../../../../utils/agent-model-limits'
 import { providerManager } from '../../../../utils/agent-provider-access'
 import { cf, fail } from '../../../../utils/cf'
 import { parseBody } from '../../../../utils/validate'
@@ -18,5 +19,7 @@ export default defineEventHandler(async event => {
   if (body.kind === 'chatgpt') key = await chatGPTAccessToken(env, body.connectionId ?? '', actor.user.id)
   else if (!key && saved?.secret && env.AUTH_SECRET) key = await decryptSecret(env.AUTH_SECRET, agentProviderScope(body.connectionId!), saved.secret)
   setHeader(event, 'Cache-Control', 'no-store')
-  return { models: await discoverAgentModels(body.kind, key) }
+  const models = await discoverAgentModels(body.kind, key)
+  // Pi's catalog figures, so Settings shows the limits a Run will use where the provider reported none.
+  return { models, catalog: await catalogModelLimits(body.kind, models.map(model => model.id)) }
 })

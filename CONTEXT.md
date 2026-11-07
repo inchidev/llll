@@ -50,7 +50,7 @@ A Mailbox is a shared inbox with its own access rules and email address. An Emai
 
 ## Inbox
 
-The Server rail's Inbox is one Member's queue of what is waiting on them in the active Space: decisions on Runs they started (review-mode workspace actions and sharing reviews), unread mentions, their Agent work, Tasks assigned to them or waiting for their review, unread mail in Mailboxes they can read, and unread chats. A Mailbox's Inbox folder is a different thing: received email in one Mailbox. Say "Inbox" for the rail section and "the Mailbox's Inbox folder" for mail.
+The Server rail's Inbox is one Member's queue of what is waiting on them in the active Space: decisions on Runs they started (pushes, plans and network windows that wait for them, and sharing reviews), unread mentions, their Agent work, Tasks assigned to them or waiting for their review, unread mail in Mailboxes they can read, and unread chats. A Mailbox's Inbox folder is a different thing: received email in one Mailbox. Say "Inbox" for the rail section and "the Mailbox's Inbox folder" for mail.
 
 ## Agent
 
@@ -88,7 +88,21 @@ A Provider supplies an optional capability such as email delivery, inference or 
 
 ## Compute Node and L4 Compute
 
-A Compute Node is where an Agent's repository work runs: it pairs with the Server and polls for work. It runs on the operator's own VPS, in their own Cloudflare account as Containers or, coming, as **L4 Compute**: a box per Task started and stopped by llll.gg and paid by the hour of agent work and billed by the minute, the only thing L4 sells, with no cap on how many Agents work at once. The workspace is free; a Server holds no provider key. Prices live only on [Pricing](https://llll.gg/pricing).
+A Compute Node is where an Agent's repository work runs: it pairs with the Server, announces its capacity (CPU, memory and boxes) and syncs its boxes with it. It runs on the operator's own VPS, in their own Cloudflare account as Containers or, coming, as **L4 Compute**: a box per Task started and stopped by llll.gg and paid by the hour of agent work and billed by the minute, the only thing L4 sells, with no cap on how many Agents work at once. The workspace is free; a Server holds no provider key. Prices live only on [Pricing](https://llll.gg/pricing).
+
+## Box
+
+The machine one Task's code work runs on: a container on a Compute Node with an ordinary Git checkout, kept for the life of the Task and released when the Task is Done. The Agent runs inside it with its own file and shell tools; commands make no request to the Server. A box holds no provider key, Git write token or secret value. What leaves it (a push, a merge, a request to a host) passes the Node's egress layer and is gated by the Server. Say "box", not container or sandbox, in the product. See [ADR 0011](docs/adr/0011-agent-on-the-box.md).
+
+## Network window and Project secret
+
+A box is closed by default. Its **Project's network** (presets such as npm, and hosts an Owner or Project manager names) is open for every box of the Project. A **network window** opens one more host for one Task for a stated time, once a person or the execution mode allows it.
+
+A **Project secret** is a value entered once for a Project and bound to the hosts it may go to. Nobody reads it back, Agents included. The Agent sees only its placeholder, `L4_SECRET_<NAME>`, and the egress layer puts the value in on a request to a bound host. A window without a secret gives the network and nothing else.
+
+## Git flow
+
+A Project's rules for how an Agent's work reaches each repository's base branch: the Agent's branch prefix, who merges (a person, the Agent after checks pass, or a direct push for experiments) and the merge method. The repository's own branch protection stays the ceiling. A **merge from L4** merges a Task's pull request at the exact head a person or the Agent saw.
 
 ## Conversations
 

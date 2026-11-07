@@ -50,7 +50,7 @@ export async function loadSpaceAttention(env: L4Env, member: ServerMembership): 
 
   const now = new Date().toISOString()
   const [approvals, publications] = await env.DB.batch<{ spaceId: string }>([
-    env.DB.prepare(`SELECT DISTINCT c.space_id AS spaceId FROM factory_actions a JOIN agent_runs r ON r.id = a.run_id JOIN channels c ON c.id = r.channel_id
+    env.DB.prepare(`SELECT DISTINCT c.space_id AS spaceId FROM factory_approvals a JOIN agent_runs r ON r.id = a.run_id JOIN channels c ON c.id = r.channel_id
       WHERE c.space_id IN (${spaces}) AND r.initiated_by = ? AND a.status = 'pending' AND a.expires_at > ?`).bind(me, now),
     env.DB.prepare(`SELECT DISTINCT c.space_id AS spaceId FROM agent_run_publications p JOIN agent_runs r ON r.id = p.run_id JOIN channels c ON c.id = r.channel_id
       WHERE c.space_id IN (${spaces}) AND r.initiated_by = ? AND p.status = 'pending' AND p.expires_at > ?`).bind(me, now),

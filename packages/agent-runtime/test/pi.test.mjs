@@ -107,10 +107,85 @@ for (const name of ['write', 'edit', 'bash', 'read', 'grep', 'find', 'ls']) test
   } finally { model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); await rm(directory, { recursive: true, force: true }) }
 })
 
-test('a stale computer mandate cannot enable native tools on direct session open', async () => {
+for (const mode of [{ computer: true }, { computer: true, box: false }, { box: true }, { computer: false, box: true }]) test(`native tools are refused outside a box (${JSON.stringify(mode)})`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'llll-pi-stale-computer-'))
   try {
-    await assert.rejects(openPi({ computer: true }, { directory, emit: () => {}, callTool: async () => {} }), /exact Server review/u)
+    await assert.rejects(openPi({ ...mode, tools: [] }, { directory, cwd: directory, emit: () => {}, callTool: async () => {} }), /only on the Task’s box/u)
     await assert.rejects(readFile(join(directory, 'auth.json')), { code: 'ENOENT' })
   } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+/** A model that answers each request with the next scripted reply: a tool call or text. */
+async function scriptedModel(replies) {
+  const requests = []
+  const model = createServer(async (request, response) => {
+    const chunks = []; for await (const chunk of request) chunks.push(chunk)
+    requests.push(JSON.parse(Buffer.concat(chunks).toString()))
+    const reply = replies[Math.min(requests.length, replies.length) - 1]
+    if (reply.delayMs) await new Promise(resolve => setTimeout(resolve, reply.delayMs))
+    const delta = reply.tool ? { role: 'assistant', tool_calls: [{ index: 0, id: `call-${requests.length}`, type: 'function', function: { name: reply.tool, arguments: JSON.stringify(reply.arguments) } }] } : { role: 'assistant', content: reply.text }
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    for (const choice of [{ delta, finish_reason: null }, { delta: {}, finish_reason: reply.tool ? 'tool_calls' : 'stop' }]) response.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, ...choice }] })}\n\n`)
+    response.end('data: [DONE]\n\n')
+  })
+  await new Promise(resolve => model.listen(0, '127.0.0.1', resolve))
+  return { requests, url: `http://127.0.0.1:${model.address().port}/v1`, close: async () => { model.closeAllConnections(); await new Promise(resolve => model.close(resolve)) } }
+}
+
+test('on its box, Pi writes and runs commands in the Task checkout with its own tools', async () => {
+  const model = await scriptedModel([
+    { tool: 'write', arguments: { path: 'notes/answer.txt', content: 'forty-two\n' } },
+    { tool: 'bash', arguments: { command: 'cat notes/answer.txt && pwd' } },
+    { text: 'Wrote and checked the answer.' },
+  ])
+  const directory = await mkdtemp(join(tmpdir(), 'llll-pi-box-')), checkout = join(directory, 'repo')
+  try {
+    const events = [], calls = []
+    const pi = await openPi({ modelGateway: { url: model.url, model: 'fixture', token: 'fixture-gateway-token' }, instructions: 'Work in the checkout.', computer: true, box: true, maxSteps: 5,
+      tools: [{ name: 'list_tasks', description: 'Read tasks', parameters: { type: 'object', properties: {} } }] },
+    { directory: join(directory, 'pi'), cwd: checkout, emit: event => events.push(event), callTool: async call => { calls.push(call.name); return {} } })
+    assert.equal((await pi.run('Write the answer')).text, 'Wrote and checked the answer.')
+    const names = (model.requests[0].tools ?? []).map(tool => tool.function.name).sort()
+    assert.deepEqual(names, ['bash', 'edit', 'list_tasks', 'read', 'write'])
+    assert.equal(await readFile(join(checkout, 'notes/answer.txt'), 'utf8'), 'forty-two\n')
+    // The command ran in the checkout, and its output went back to the model.
+    const output = JSON.stringify(model.requests[2].messages.filter(message => message.role === 'tool'))
+    assert.ok(output.includes('forty-two') && output.includes(checkout), output)
+    assert.deepEqual(calls, [])
+    assert.deepEqual(events.filter(event => event.type === 'tool').map(event => event.name), ['write', 'bash'])
+    // Pi's own state stays beside the checkout, never in it.
+    await assert.rejects(readFile(join(checkout, 'auth.json')), { code: 'ENOENT' })
+  } finally { await model.close(); await rm(directory, { recursive: true, force: true }) }
+})
+
+test('a Server tool cannot take the name of a native one on a box', async () => {
+  const model = await scriptedModel([{ text: 'Ready.' }])
+  const directory = await mkdtemp(join(tmpdir(), 'llll-pi-box-names-'))
+  try {
+    const pi = await openPi({ modelGateway: { url: model.url, model: 'fixture', token: 'fixture-gateway-token' }, instructions: '', computer: true, box: true, maxSteps: 2,
+      tools: [{ name: 'bash', description: 'privateServerMarker', parameters: { type: 'object', properties: {} } }] },
+    { directory: join(directory, 'pi'), cwd: join(directory, 'repo'), emit: () => {}, callTool: async () => { throw new Error('Unexpected Server tool') } })
+    await pi.run('Hello')
+    assert.ok(!JSON.stringify(model.requests[0].tools).includes('privateServerMarker'))
+  } finally { await model.close(); await rm(directory, { recursive: true, force: true }) }
+})
+
+test('steering sent during a box turn reaches the model before its next call', async () => {
+  const model = await scriptedModel([{ tool: 'bash', arguments: { command: 'sleep 0.3' }, delayMs: 50 }, { text: 'Done, with the change asked for.' }])
+  const directory = await mkdtemp(join(tmpdir(), 'llll-pi-steer-'))
+  try {
+    const pi = await openPi({ modelGateway: { url: model.url, model: 'fixture', token: 'fixture-gateway-token' }, instructions: '', computer: true, box: true, maxSteps: 4, tools: [] },
+      { directory: join(directory, 'pi'), cwd: join(directory, 'repo'), emit: () => {}, callTool: async () => ({}) })
+    // Before the prompt begins a message waits, and Pi reads it with the prompt.
+    pi.steer('Keep the public API')
+    const running = pi.run('Fix the bug')
+    // While the command runs, the next message is read before the following model call.
+    while (model.requests.length < 1) await new Promise(resolve => setTimeout(resolve, 10))
+    pi.steer('Also update the changelog')
+    assert.equal((await running).text, 'Done, with the change asked for.')
+    assert.equal(model.requests.length, 2)
+    assert.ok(JSON.stringify(model.requests[0].messages).includes('Keep the public API'))
+    assert.ok(!JSON.stringify(model.requests[0].messages).includes('Also update the changelog'))
+    assert.ok(JSON.stringify(model.requests[1].messages).includes('Also update the changelog'))
+  } finally { await model.close(); await rm(directory, { recursive: true, force: true }) }
 })

@@ -129,11 +129,18 @@ watchEffect(() => {
 // Discord removes deleted messages; one that started a thread stays as a placeholder.
 const rootMessage = computed(() => q.data.value?.pages[0]?.rootMessage ?? null)
 watch(rootMessage, message => emit('rootMessage', message), { immediate: true })
+// An Agent's answer while it is written: a message of its own at the end, replaced by the finished one.
+const STREAM_PREFIX = 'tmp:stream:'
+const isStream = (message: MessageDTO) => message.id.startsWith(STREAM_PREFIX)
+const streamMessages = computed(() => presence.agentStreamsIn(props.channelId).map((stream): MessageDTO => ({
+  id: STREAM_PREFIX + stream.runId, channelId: props.channelId, serverId: '', author: stream.author, content: stream.text,
+  replyTo: null, mentions: [], attachments: [], reactions: [], pin: null, threadId: null, editedAt: null, deletedAt: null, createdAt: stream.startedAt,
+})))
 const messages = computed(() => {
   const pages = q.data.value?.pages ?? []
   const replies = [...pages].reverse().flatMap((p) => p.messages).filter(message => !message.deletedAt || message.threadId)
   // Show the original at the beginning of the full thread, after older replies load.
-  return rootMessage.value && !q.hasNextPage.value ? [rootMessage.value, ...replies] : replies
+  return [...(rootMessage.value && !q.hasNextPage.value ? [rootMessage.value, ...replies] : replies), ...streamMessages.value]
 })
 const contentMargin = ref(0)
 const virtualizer = useVirtualizer(computed(() => ({
@@ -151,9 +158,7 @@ function measureRow(element: Element | ComponentPublicInstance | null) {
 function measureContentMargin() {
   if (content.value && scroller.value) contentMargin.value = content.value.getBoundingClientRect().top - scroller.value.getBoundingClientRect().top + scroller.value.scrollTop
 }
-const streamingMessageIds = computed(() => new Set(
-  presence.agentTurnsIn(props.channelId).map(turn => turn.draftMessageId).filter((id): id is string => Boolean(id)),
-))
+const streamingMessageIds = computed(() => new Set(streamMessages.value.map(message => message.id)))
 const threadsQ = useQuery({
   queryKey: computed(() => ['threads', props.channelId]),
   queryFn: () => api<{ threads: ChannelThreadDTO[] }>(`/api/channels/${props.channelId}/threads`),
@@ -266,7 +271,7 @@ function scrollToBottom(smooth = false) {
 }
 
 function markReadIfVisible() {
-  const message = messages.value.at(-1)
+  const message = messages.value.findLast(item => !isStream(item))
   if (leaveUnread.value || !scroller.value || !message || message.channelId !== props.channelId || ui.searchOpen || document.hidden || !document.hasFocus()) return
   if (distanceFromBottom() > BOTTOM_SLACK || message.id === lastRead || message.id.startsWith('tmp:')) return
   if (readGeneration === undefined && (!readSnapshot.isFetchedAfterMount.value || readSnapshot.isFetching.value)) return
@@ -283,7 +288,7 @@ watch(() => messages.value.at(-1)?.id, async (id, previous) => {
   const sentByMe = Boolean(last && last.author.id === session.user?.id && last.id.startsWith('tmp:'))
   await nextTick()
   if (pinned.value || sentByMe) scrollToBottom()
-  else if (id && previous && last && last.author.id !== session.user?.id) unseen.value += 1
+  else if (id && previous && last && last.author.id !== session.user?.id && !isStream(last)) unseen.value += 1
   // Another tab's Mark unread holds reads back only until something newer arrives.
   if (readGeneration !== undefined && id && !id.startsWith('tmp:') && lastRead && id > lastRead) {
     readGeneration = Math.max(readGeneration, readSnapshot.data.value?.readGeneration ?? 0, qc.getQueryData<number>(['chat-read-generation', props.channelId]) ?? 0)

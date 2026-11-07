@@ -1,4 +1,4 @@
-import type { AgentRun, RunMandate } from '../../shared/agent-execution'
+import { AGENT_ANSWER_MAX, type AgentRun, type RunMandate } from '../../shared/agent-execution'
 import { autonomousExecution, type AgentExecutionMode } from '../../shared/agent-execution-policy'
 import { CUSTOM_MCP_PROVIDER } from '../../shared/outbound-mcp'
 import type { L4Env } from '../../workers/env'
@@ -7,7 +7,12 @@ import { fail } from './cf'
 
 export type ToolEffect = 'control' | 'read' | 'write' | 'external' | 'unknown'
 const controls = new Set(['get_current_time', 'search_tools', 'get_tool_details'])
-const reads = new Set(['search_data', 'list_data_trash', 'list_item_revisions', 'get_delegated_run', 'list_project_agents', 'list_public_project_repositories', 'inspect_public_project_repository', 'list_private_project_repositories', 'inspect_private_project_repository', 'read_private_project_file', 'factory_status', 'factory_workspace', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_items', 'list_data', 'get_item', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal', 'list_app_drafts', 'get_app_draft'])
+/**
+ * factory_publish, factory_plan and request_network_window carry their own review: the execution mode gates
+ * what leaves the box. factory_merge is the Project's own choice: only its agent_after_checks Git flow offers
+ * it, and only once every check of the pull request's head passed.
+ */
+const reads = new Set(['search_data', 'list_data_trash', 'list_item_revisions', 'get_delegated_run', 'list_project_agents', 'list_public_project_repositories', 'inspect_public_project_repository', 'list_private_project_repositories', 'inspect_private_project_repository', 'read_private_project_file', 'factory_status', 'factory_publish', 'factory_plan', 'request_network_window', 'factory_merge', 'factory_feedback', 'list_tasks', 'get_task', 'list_tables', 'list_items', 'list_data', 'get_item', 'read_records', 'list_schedules', 'read_code_tree', 'read_github_repository', 'check_code_proposal', 'list_app_drafts', 'get_app_draft'])
 const writes = new Set(['bulk_create_records', 'trash_data', 'restore_data', 'restore_item_revision', 'delegate_task', 'create_task', 'update_task', 'execute_task', 'create_table', 'create_record', 'update_record', 'move_item', 'create_item', 'update_item', 'create_reminder', 'update_reminder', 'cancel_schedule', 'publish_code_changes', 'create_app_draft', 'update_app_draft'])
 const external = new Set(['read_url', 'search_web', 'read_code_file', 'read_github_issue', 'read_github_pull_request'])
 const publicReads = new Set(['list_public_project_repositories', 'inspect_public_project_repository', 'list_project_agents'])
@@ -121,9 +126,19 @@ export async function runReport(env: L4Env, run: AgentRun): Promise<{ text: stri
   if (!run.taskId && run.status === 'completed' && run.resultText && autonomousExecution(mandate.execution?.mode)
     // A custom connection's answer stays here: the Owner granted it to the person asking, for use where they ask.
     && (!await readPrivateSource(env, run) || await initiatorOnlyAudience(env, run))) {
-    return { restricted: false, text: run.resultText.slice(0, 12000) }
+    return { restricted: false, text: run.resultText.slice(0, AGENT_ANSWER_MAX) }
   }
   return { restricted: true, text: `Run ${run.status}. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})` }
+}
+/**
+ * Who may watch a Run's answer while it is written, by the rule that decides whether it is posted:
+ * everyone in the conversation only when the finished text would be posted there as it is.
+ * Otherwise only the initiating Member, who may read the private Run anyway.
+ */
+export async function runStreamAudience(env: L4Env, run: AgentRun): Promise<'channel' | 'initiator'> {
+  const mandate = JSON.parse(run.mandateJson) as RunMandate
+  if (run.taskId || !autonomousExecution(mandate.execution?.mode)) return 'initiator'
+  return !await readPrivateSource(env, run) || await initiatorOnlyAudience(env, run) ? 'channel' : 'initiator'
 }
 /** A direct conversation between the initiator and this Agent, including its threads. */
 async function initiatorOnlyAudience(env: L4Env, run: AgentRun): Promise<boolean> {

@@ -37,6 +37,12 @@ Models listed for a connection appear in Agent and conversation model pickers. M
 > [!TIP]
 > Models chosen before L4 recorded model capabilities may show none. Open the Provider and select **Save** once to refresh them.
 
+### Context window and answer limit
+
+Each chosen model shows the context window and answer limit an Agent's Run will use, and where each comes from: **reported by the provider**, **set by you**, **from Pi's catalog** or **default** (128,000 and 8,192 tokens). A Run uses at most 200,000 tokens of window and 32,000 for an answer, and at most a quarter of the window for an answer.
+
+When the provider did not report a limit, for example for a private model, select **Set limits** beside it and enter the window or answer limit in tokens, then **Save**. What a provider reported is always used as reported. The model that comes with the deployment, an OpenAI-compatible endpoint set by the operator, has the same **Set limits** under its entry at the top of the list; those figures apply only while the deployment uses that model.
+
 ### Exa web search
 
 An Exa key is the other way to search. Enter it in **Server settings → Integrations → Web search**. It takes precedence over OpenRouter.

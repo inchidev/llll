@@ -1,20 +1,22 @@
-# Compute nodes and Task workspaces
+# Software Factory: the Agent on its box
 
-A human assigns a repository-backed Task to a Pi Agent. The Agent requests workspace operations, the initiating human reviews their exact arguments, and a connected Docker Node executes approved work on persistent Task disk. The Agent makes normal local Git commits, submits a committed snapshot, and requests separate approval to publish those exact commits to one dedicated branch and draft PR in the original GitHub repository. Existing CI and deployment integrations remain authoritative. A repair uses the same workspace and PR, with a new committed snapshot and publication approval.
+A person assigns a repository-backed Task to a Pi Agent. The Task gets one **box** for its whole life: a container with an ordinary Git checkout, where Pi runs with its own read, write, edit and shell tools. Commands, tests, builds and commits run in the box at local speed and make no request to the Server. What leaves the box is gated: pushes, network windows, Project secrets and merges. Factory ends at the merge. Whatever builds from the target branch (Workers Builds, Coolify, Fly, Vercel or anything else) stays the repository's own business.
 
-Real-provider fresh-install acceptance remains separate from local fixtures; see the reproducible procedure.
+The decision behind this is [The Agent works on its box](adr/0011-agent-on-the-box.md). Where compute comes from, and why it is the only thing L4 sells, is [Compute is the business](adr/0009-compute-as-the-business.md).
 
-A Server knows one kind of Node, the Compute Node described here, and three ways to get one: the operator's own VPS (this Docker Node), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task started and stopped by llll.gg and paid by the hour of agent work, which is coming. The Docker Node is the one open interface for running L4 work anywhere; nothing provider-specific lives in this repository, and provisioning and billing live only in `llll-cloud`. Lizard provisioning moved to `llll-cloud` as L4 Compute. See [Compute is the business](adr/0009-compute-as-the-business.md).
+A Server knows one kind of Node, the Compute Node, and three ways to get one: the operator's own VPS (the Docker Node below), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task from llll.gg paid by the hour of agent work, which is coming. All of them speak Node protocol 2. A Node of protocol 1, which ran one command at a time, is refused, and **Server settings → Compute** marks it **Needs this release’s Compute Node** with what to do. The Server's own VPS Node is replaced in place (below); any other Node is paired again. Nothing provider-specific lives in this repository; provisioning and billing live only in `llll-cloud`.
 
-## Recommended setup
+## Set up on a VPS
 
-**Cloudflare:** install ordinary L4 on Workers Free with Basic KV and no R2 if desired. In Settings → Git choose Enable Factory, connect the owning Cloudflare account, review the optional Containers/Artifacts charges and choose compute size, timeout and process limits. Workers Paid and provider availability are required; the installer never upgrades a plan. The Cloudflare consent includes Artifacts Read and Artifacts Write (`artifacts.read`, `artifacts.write`). Provisioning stops with a reconnect message when that grant is missing. It uploads only checksum-verified released image layers, records the released image on the Server's container, and keeps the same immutable installed Server module, preserving original secrets, UUID, D1, files and Git connections. Return to Settings and activate after the provider probe succeeds. A failed activation stays on the card. R2 is independent.
+Opt in during a fresh install with `LLLL_FACTORY=true LLLL_SHARED_KERNEL_TRUSTED=1`, or later:
 
-Each Cloud Task uses an isolated code repository in the Server's Artifacts namespace. Every operation starts the fixed released image, restores the last acknowledged checkpoint, executes as UID/GID 1000, terminates Task processes, and stores full Git history plus staged, unstaged and untracked source before acknowledging its receipt. Private checkpoint commits stay off the upstream commit chain. Dependencies, node_modules, default build/cache directories and process memory are disposable. A container is stopped after the checkpoint, including during subsequent approval waits. There is no assumed uninterrupted container lifetime or nested Docker capability. Default L4 policy is one operation, 0.5 CPU/4 GiB RAM/8 GB temporary disk, 128 processes, 120 seconds per command and a 500 MB retained-object budget; supported activation choices set other size/time/process limits. These are L4 policies, not platform maxima.
+```sh
+sudo llll compute enable --trust-shared-kernel
+```
 
-Cloud source and Task-repo tokens stay in the outbound Worker. Every request rechecks the exact action lease/current authority and the single repo/service or reviewed HTTPS destination. No original write token, App key or Cloudflare account credential enters the Task. Completed code/checkpoint evidence and receipts persist outside compute. A lost command/checkpoint is uncertain and never replayed automatically. The private Run exposes acknowledged checkpoint/recovery state and an explicit five-minute read capability for exporting just that Task's private code. Pause stops new work/compute and retains source; separately reviewed workspace release deletes source. Image/policy changes require explicit provider replacement and new Tasks after exporting retained work.
+`llll factory` is the same command. It downloads the verified Compute Node and box image from the release, so no Git clone, source build or registry is needed. Preflight requires Linux amd64, local Docker, 17 GiB free disk, 2 GiB available RAM and working loop mounts (`fallocate`, `mkfs.ext4`, `mount`, `umount`, `findmnt`, `losetup`). The service needs systemd as process 1 and checks it before writing anything. After the Owner is claimed, the service pairs itself with a narrowly scoped host signature and keeps only its private Node connection.
 
-**VPS:** the published installer can opt in with `LLLL_FACTORY=true LLLL_SHARED_KERNEL_TRUSTED=1`; existing installations use `sudo llll factory enable --trust-shared-kernel`. Verified release assets include the Node executable, Compute Node service and workspace image. No Git clone, source build or registry is needed. Preflight requires supported Linux amd64, local Docker, at least 17 GiB free disk/2 GiB available RAM and actual loop/mount support. The service path also requires systemd as process 1 (`/run/systemd/system`) and checks that before it writes executor files. A host without systemd — a container, or a machine whose process 1 is not systemd — uses `sudo llll factory enable --trust-shared-kernel --no-systemd`. That downloads the same verified release, loads the workspace image and writes `factory/factory.env`. Start it yourself, from `factory/releases/<version>/`:
+A host without systemd, such as a container, adds `--no-systemd`. That writes `factory/factory.env` with four variables (`LLLL_SERVER_ORIGIN`, `LLLL_NODE_STATE`, `LLLL_WORKSPACE_IMAGE`, `LLLL_SHARED_KERNEL_TRUSTED`); start the Node yourself:
 
 ```sh
 set -a; . /opt/llll/factory/factory.env; set +a
@@ -22,112 +24,164 @@ set -a; . /opt/llll/factory/factory.env; set +a
 /opt/llll/factory/releases/VERSION/node /opt/llll/factory/releases/VERSION/src/daemon.mjs
 ```
 
-The environment file has four variables: `LLLL_SERVER_ORIGIN`, `LLLL_NODE_STATE`, `LLLL_WORKSPACE_IMAGE` and `LLLL_SHARED_KERNEL_TRUSTED`. `llll factory status` and `logs` fail with that explanation when systemd is not running. The trusted root service, when systemd is present, pairs automatically after Owner claim using a narrowly scoped host signature, then stores only its private Node connection. Original account secrets are never forwarded to the daemon or Task. Select the recommended connected executor for the repository environment.
+Use `llll compute status|logs|restart|disable|backup|release-old-disks [--yes]|remove --keep-source`. `status` and `logs` say so when systemd is not running. Disable and remove keep Task disks. Factory backups are separate from the Server backup and include the backing disk images; copy them encrypted off the host.
 
-The workspace image pin accepts the loaded image id when it equals the published image id, the image config digest, or the OCI index digest. Classic Docker's image store and containerd report different ids for one release; both are checked. The executor records the id that the local daemon actually loaded.
+The image pin accepts the loaded image id when it equals the published image id, config digest or OCI index digest, since the classic Docker image store and containerd report different ids for one release.
 
-Use `llll factory status|logs|restart|disable|backup` on the VPS. Disable and `remove --keep-source` retain disks and receipts. Factory backups are separate from the Server database/files backup and include backing disk images; copy them encrypted off-host. Changing the image fails before stopping the existing pinned executor: export source and explicitly revoke/pair a replacement for new Tasks. Existing remote Nodes remain available under Advanced setup. A fresh Server install keeps going when only this optional Factory step fails, and says how to retry. Running the installer again with `LLLL_FACTORY=true` on a Server that has no executor prints the same enable command.
+### Updating the VPS Node
 
-The following manual pairing/image instructions are the advanced remote-provider path.
+The local Node always runs the release of its Server. `llll upgrade` replaces it after the Server is up and healthy, while its service is installed; `sudo llll compute enable --trust-shared-kernel` does the same at any time, for example after a failed attempt or for a Node whose service was removed. Both take the daemon and box image from the release being installed, verified like a fresh install. The running Node stops only after the new files, image and disk probe check out; then `factory.env` and the service point at the new release, `LLLL_NODE_BOXES` and `LLLL_WORKSPACE_DISK_BYTES` are kept, and the earlier release's files and box image are removed. A failed replacement never rolls back the Server; the command to retry is printed.
 
-## Set up the Server
+As it starts, the Node signs its new capabilities with its own credential and the host signature, so the Server updates the same Node: its ID, pairing, repository environments, boxes and box disks stay. That is also how a protocol 1 Node of an earlier release becomes a protocol 2 Node. A Node an Owner disabled and revoked stays off; its start fails and says so.
 
-1. Install or update the Server normally. Migrations apply automatically.
-2. As the Server Owner, open Settings → Git and create a dedicated GitHub App connection. For first acceptance, select only `inchidev/afterprompt` in GitHub. Existing Apps need **Actions read** and **Deployments read**, in addition to the existing Contents/Pull requests/Issues/Checks/Statuses permissions. These read scopes observe existing automation; they do not configure or deploy it. No administration or protection-bypass permission is requested.
-3. Under Compute Nodes, create a one-use pairing code. It expires after ten minutes. Install the Node below on your Linux Docker host. The same outbound protocol works for a Cloudflare Server and a VPS/celld Server; the Server does not need Docker or an inbound route to the Node.
-4. Create a repository environment using the original repository for both Source and Working repository, its base branch, exact additional CI check names and allowed preview status domains. Select the connected Compute Node. Assign this environment to a Project repository reference and Task using the existing interfaces.
-5. Give the Agent an explicit Role with Read projects, Read tasks, Execute assigned tasks, Use a computer, Send messages and Propose code changes. Scope Projects, boards and repositories to the intended resources. The initiating human must hold the corresponding grants plus Approve Agent actions. Owner invocation never upgrades the Agent Role. Changing Project, repository environment, Task assignment or current grants revokes pending work.
+At its first start the new daemon removes the containers, networks and `l4-ws-*` volumes the per-command Factory labelled for this Node. Their workspaces were dropped with migration `0004`, but their disk images stay in `factory/state/workspace-disks` until the operator releases them: `llll compute release-old-disks` lists them, `llll compute backup` exports them, and `llll compute release-old-disks --yes` unmounts and deletes them. A disk-space check for a replacement asks for 8 GiB instead of 17, since the Node's Task disks already exist.
 
-No connected provider means no coding execution. Optional Cloudflare activation and the VPS installer prepare recommended providers; advanced remote Nodes remain supported. Base installation has no Containers dependency, paid fallback or credential fallback. Executable factory publication supports GitHub and Gitea/Forgejo. Gitea publication fetches source through the Server broker and must reproduce each approved commit SHA exactly; new executable files and signed commits cannot be published there. GitLab/Cursor references remain available as metadata.
+### A remote Docker Node
 
-## Install a trusted Linux Compute Node
-
-The Node is trusted infrastructure with Docker control. Run it under a dedicated operator account on a host used for compute, with Node 24, Docker, `fallocate`, `mkfs.ext4`, `mount`, `umount`, `findmnt` and `losetup`. Run this trusted service as root with loop-device/mount access; it already controls Docker. These privileges are never given to a workspace. Its state directory and private connection file must never be mounted into an Agent container. The workspace image includes Node, Git, Python and ripgrep. Extend and review that image if your repository needs another toolchain.
-
-Build the image from the candidate checkout, push it to your own registry and record its immutable registry digest. The daemon requires `repository@sha256:…` and refuses mutable tags. Build/publish commands below concern your compute image, not an official L4 deployment or production promotion.
+Any trusted Linux Docker host can be a Node. It connects out to the Server, so the Server needs no Docker and no inbound route to it. Create a one-use pairing code in **Server settings → Compute → Add compute → Connect node** (it expires after ten minutes), build the box image from the release you run, push it to your registry and start the daemon with its immutable digest:
 
 ```sh
-docker build -f packages/compute-node/Dockerfile.workspace -t YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE .
-docker push YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE
-docker image inspect YOUR_REGISTRY/l4-workspace:REVIEWED_CANDIDATE --format '{{json .RepoDigests}}'
-```
-
-Configure a private environment file or service manager. To enter the initial pairing code in Bash without putting it in command history:
-
-```sh
-export LLLL_SERVER_ORIGIN=https://YOUR_SERVER
-export LLLL_NODE_STATE=/PRIVATE/COMPUTE_STATE
-export LLLL_WORKSPACE_IMAGE=YOUR_REGISTRY/l4-workspace@sha256:THE_REVIEWED_REGISTRY_DIGEST
-export LLLL_SHARED_KERNEL_TRUSTED=1
-read -r -s -p 'One-use pairing code: ' LLLL_PAIRING_TOKEN
-export LLLL_PAIRING_TOKEN
+docker build -f packages/compute-node/Dockerfile.workspace -t YOUR_REGISTRY/l4-box:VERSION .
+docker push YOUR_REGISTRY/l4-box:VERSION
+export LLLL_SERVER_ORIGIN=https://YOUR_SERVER LLLL_NODE_STATE=/PRIVATE/COMPUTE_STATE LLLL_SHARED_KERNEL_TRUSTED=1
+export LLLL_WORKSPACE_IMAGE=YOUR_REGISTRY/l4-box@sha256:DIGEST
+read -r -s -p 'One-use pairing code: ' LLLL_PAIRING_TOKEN; export LLLL_PAIRING_TOKEN
 sudo --preserve-env=LLLL_SERVER_ORIGIN,LLLL_NODE_STATE,LLLL_WORKSPACE_IMAGE,LLLL_SHARED_KERNEL_TRUSTED,LLLL_PAIRING_TOKEN node packages/compute-node/src/daemon.mjs
 ```
 
-`LLLL_SHARED_KERNEL_TRUSTED=1` explicitly selects the trusted-code Docker threat model below. HTTPS is required for a remote Server; HTTP is accepted only for local loopback development. Keep `LLLL_SERVER_ORIGIN` configured on every start: restored credentials must match that exact operator-selected origin. The Node stores its validated revocable credential and recovery receipts in `node-state.sqlite` with mode 0600 in a 0700 state directory. Node.js 24's built-in SQLite provides full-synchronous transactions; no additional Node dependency is required. Subsequent starts reuse that connection and do not need the pairing code. No public Node port or public Docker socket is opened. Disable and revoke the old Node in the Server before pairing a replacement; update the repository environment and start a new Task after an image/provider change.
+The daemon refuses mutable tags and needs Node 24. A remote Server must use HTTPS; plain HTTP is accepted only on loopback. Keep `LLLL_SERVER_ORIGIN` set on every start: the stored credential must match it. The credential and the box records live in `node-state.sqlite`, mode 0600, in a 0700 directory. No public port or Docker socket is opened.
 
-Idle Nodes poll for approved work. Every job is claimed once, then started once under a short lease. Heartbeats recheck current authority. A disconnect, revoke, Run stop, deadline or expired lease aborts the operation. Restart removes only containers labelled with this paired Node and Server, resubmits retained receipts, and never restarts uncertain commands. A validated receipt commits before its callback; acknowledgement removes only the exact action and lease. The private journal holds at most 128 receipts and 64 MiB, and the daemon stops accepting work if it cannot retain a receipt. Retained receipts are private operator evidence; a receipt rejection means inspect the outcome rather than rerun the operation. The host process launcher exposes only fixed Git/Docker/Linux disk tools with separate argument arrays and a trusted PATH. Only the separate container entrypoint interprets an approved shell script, through stdin with fixed shell arguments.
+## Set up on Cloudflare
 
-## Source credentials and Git history
+In **Server settings → Compute → Server compute setup**, choose **Enable compute node in Cloudflare**. The official installer opens with a fresh Cloudflare consent that includes Artifacts Read and Write; without that grant it stops and asks you to connect again. It needs Workers Paid and Containers access and never changes your plan. Choose the box size (small, standard or large), how many boxes may run at once (4 by default, at most 64) and the process limit. The number of boxes becomes the container application's `max_instances` and the Node's capacity. The installer uploads only checksum-verified released image layers and keeps the installed Server module, its secrets, UUID, D1, files and Git connections. Return to Settings, confirm the authorization and choose **Activate compute node**. **Pause compute node and retain source** stops the boxes and keeps their checkpoints. R2 is independent of all this.
 
-The App private key and every upstream Git **write** credential stay in the L4 Server broker. Bootstrap issues a short-lived, single-repository **read** capability to the trusted source-fetch component of the Node. This component runs stock Git in a separate, trusted non-root fetch container with a read-only root, fixed 512 MiB source filesystem, CPU/memory/process/time limits and no Agent execution. It fetches the pinned SHA and its history into a temporary bare repository, exports a Git bundle, attempts immediate token revocation, and deletes temporary source data. It does not implement a Git HTTP proxy.
+## Set up the Server side
 
-Only the bundle enters the workspace, through a read-only mount. The read capability is never passed to an Agent, container environment, Git configuration, named volume or receipt. There is no upstream remote in the Agent checkout. Normal local `git log/status/diff/add/commit/rebase` works against the pinned history. Repository or branch changes need a renewed Task; upstream base divergence blocks publication. The source fetch has a time and capacity limit; an oversized history fails explicitly.
+1. In **Server settings → Git**, connect a dedicated GitHub App or a Gitea bot account. The App needs Contents, Pull requests, Issues, Checks, Commit statuses, Actions and Deployments as described in [Agents](agents.md#github-code-work). It never needs administration or protection bypass.
+2. Add a repository environment in **Git → Environments**: the repository, its base branch, the Compute Node, any required check names and allowed preview domains.
+3. Attach the repository to a Project. A repository outside a Project has no network beyond this Server and no Git flow settings but the defaults.
+4. Give the Agent a Role with Read projects, Read tasks, Execute assigned tasks, Use a computer, Send messages and Propose code changes. The person who starts the work needs the same, and Approve agent actions to approve pushes and windows or to merge.
 
-Treat this trusted source-fetch component as part of the provider credential broker. Operators who require every Git read credential to remain physically on the Server machine need a separately operated bundle source; that topology is not implemented by the first Docker Node.
+Without a connected Node there is no box. The Agent can then still read the repository and propose text-file changes through `publish_code_changes`; see [Agents](agents.md#github-code-work).
 
-## Run, review and repair
+## The box
 
-In plan mode (Settings → Agents → Execution) the Agent first proposes a plan for the Task; one approval covers the workspace operations it lists, within its operation count and network hosts, while publication still needs its own approval. See [Agents](agents.md).
+**Capacity.** A Node announces its CPU, memory and number of boxes. A VPS Node reads them from the host: one box per CPU while each still gets 1 GiB, or `LLLL_NODE_BOXES` (1 to 64). A Cloudflare Node has one container size times its number of boxes. The Server admits waiting boxes in order while a box is free and an equal share of CPU and memory fits beside the running ones; the rest wait, and the Task says "Waiting for a free box". Four Tasks on a 4-vCPU Node run at the same time.
 
-Start the Agent on the Task and open its private Run. `factory_workspace` is an object-schema tool compatible with embedded and container Pi. Native Pi shell/filesystem tools remain disabled. Each factory operation records a SHA-256 digest over its exact arguments, Run/Agent/initiator, Task/channel/workspace, frozen repository/base/connection, current authority, pinned image, workspace revision and expiry.
+**Lease.** A VPS Node syncs about every two seconds, a Cloudflare box's object every 15 seconds. Each sync reports its boxes and renews the lease of every box it lists for a minute. A box whose lease ended must stop or take a new one, so two Nodes never run one box. A Done Task's box is released.
 
-The Run and Task indicate review is required. The private Software Factory panel displays destination repository/ref, identities, Node, image, exact command or file content, timeout, selected network hosts and the committed diff/test receipts. Select the explicit acknowledgement and approve or reject. Approval is for that action only; it does not approve later commands, changed arguments, merge or release. An approved publication must retain exact local Git commit and tree SHAs; a provider mismatch stops before branch publication.
+**VPS.** Each box is one long-lived container, `l4-box-<id>`, with the Task's 10 GiB hard-quota disk at `/work` and the checkout at `/work/repo`. It runs as uid 1000 with a read-only root, no capabilities, no-new-privileges, 512 processes, its CPU and memory share, no Docker socket and no Git credential. Its only way out is its own egress proxy, `l4-egress-<id>`, on an internal network. On the first start the trusted fetch broker brings the pinned commit and its history with a short read grant, and a throwaway container with no network clones it into the disk. A box with no turn stops after 15 minutes; its disk stays until the Task is Done.
 
-Pi waits using the same durable call identity. Gateway polls only observe that one action; they do not create new commands. Rejected, expired, cancelled, changed or uncertain actions never execute through retries. A completed receipt is idempotent. One active action per workspace and one claimed/executing action per Node prevent concurrent workspace mutations.
+**Cloudflare.** Each box is one Durable Object and one container from the same image and runtime. There is no daemon: the box's object syncs its own box through the same admission. The box runtime runs as uid 1000 through `setpriv`. The checkout is restored from the Task's Artifacts repository, or cloned from the pinned source on the first start. The container's disk is temporary, so the work is checkpointed to Artifacts when a turn ends, and again before a box stops after 10 minutes without a turn. Dependencies, build output and running processes are not kept. A Done Task's box releases its container and its Artifacts repository.
 
-Typical Agent sequence:
+**A turn.** The Run's turn reaches the box through `control.mjs`, which the daemon runs by `docker exec` (the Cloudflare object execs the same). Pi runs in the checkout with the model behind the Server's gateway and a credential scoped to the Run; provider keys, budgets and the audit stay on the Server. The box pushes its events to the gateway in batches, about every 150 ms while text flows and every 10 s otherwise. It resends from the last acknowledged event, and each answer carries cancellation and steering. The Run streams the events into the conversation as embedded Pi does. A turn begun in a box that stopped ends with an error instead of running twice.
 
-1. `factory_status` to select bootstrap or resume. For a new workspace request `bootstrap`, then `read` or `exec` to inspect the checkout/history.
-2. `write` or `exec` for the bounded edit; `exec` tests and a normal local commit. Every operation receives its own human review.
-3. `snapshot` after the worktree is clean. The result includes an immutable snapshot digest, exact linear commits, final text changes and independently stored command receipt digests.
-4. `publish` with that snapshot digest, title and description. After approval, the Server reconstructs and verifies each exact Git object, updates only `l4-agent/<workspace-id>`, and creates/reconciles one draft PR in the original repository. It never moves main, force-pushes, merges, releases or deploys.
-5. `factory_feedback` observes exact-head checks, commit statuses, Actions jobs/logs and existing deployments. Old green results cannot satisfy a new SHA. Missing/skipped/running/failing evidence stays distinct. Draft PRs may have no preview; no URL is invented. The human can also refresh feedback from the private Run after inference ends.
-6. On failure, inspect an allowed job's logs, edit/test/commit in the same workspace, snapshot and approve publication again. The same canonical PR branch advances by fast-forward. Treat repository and CI content as untrusted; it never authorizes egress or writes.
+The Agent's L4 tools in a box are `factory_status`, `factory_publish`, `factory_feedback`, `request_network_window`, `factory_plan` in plan mode and `factory_merge` where the Git flow allows it.
 
-GitHub's native merge state and protections remain authoritative. Configured check names are additional local requirements, not a replacement for classic branch protection or rulesets. An unavailable native protection assessment is unknown, not permission to merge. Feedback pagination/capacity limits are reported as incomplete and prevent a readiness claim. Provider reviews/merge remain on GitHub.
+## Git and publication
 
-## Limits, persistence and isolation
+The checkout is an ordinary repository. Binary files, lockfiles and large changes are ordinary commits. Git LFS is not supported yet. D1 keeps only SHAs, statuses and digests; review diffs are in R2.
 
-New VPS workspaces use a preallocated 10 GiB ext4 image mounted by the trusted Node and exposed through a Task-labelled Docker named volume. Existing 1 GiB Nodes retain their original disks and remain supported; replacing a Node is explicit. The filesystem itself enforces capacity, including dependency caches, and is remounted from its persistent image after host restart. The Node permits at most four workspace disks and one temporary source disk; each disk is allocated when needed, and allocation or mount failure never falls back to unbounded host storage. Reserve at least 17 GiB free for the image, one new workspace and Server headroom, and more for concurrent retained Tasks.
+The Agent commits, then calls `factory_publish {sha, title, body}`. Each request is a row in `factory_approvals`. The Agent's tool call waits once, until it is settled.
 
-Each workspace is bound to one Task, Agent, initiating human, original conversation and exact repository environment. Another human, Task, Server, Node lease or changed conversation cannot inherit it. The named volume retains the checkout and dependency cache while fresh per-operation containers are removed, including after suspend. `release` explicitly deletes that Task disk only after review. Back up Node volumes separately; a Server database backup preserves authorization/audit records, not Docker volume contents.
+**On a VPS Node** the daemon copies the commit out of the box. A throwaway container with no network and the box's disk read-only fetches it into a bare repository on a scratch disk with hardened Git: no system or global config, hooks, fsmonitor, replace objects, external diff or textconv, and every object checked. The commit must descend from the Task's pinned base. For a review it writes the diff (up to 2 MB of patch) and sends it to the Server. Once the push is approved, the daemon claims a grant: a single-repository Contents write token on GitHub, or a Server-proxied `git-receive-pack` with a capability bound to the approval and the box's lease on Gitea. Another throwaway container pushes exactly that commit with `--force-with-lease` on the head this Task last published. The GitHub token is revoked afterwards.
 
-Commands have 1 CPU, 1 GiB memory, 128 PIDs, a read-only root, non-root UID 1000, dropped capabilities, no privilege escalation and bounded temporary files/output. A Task is limited to 50 operations, 3600 execution seconds and ten publications; a snapshot has at most twenty linear commits and 100 bounded ordinary text files. Workflow paths, binary/symlink changes and large proposals are rejected. Cleanup remains possible after a Task budget is exhausted. Existing Run model/token/daily budgets still apply, and review expires within the Run deadline.
+**On Cloudflare** a trusted helper makes the copy and the push, reading the checkout's objects as an alternate. BoxOutbound reads the ref commands at the start of the `git-receive-pack` request, refuses anything but `<old> <approved sha> refs/heads/<prefix><box id>` and adds the credential itself.
 
-Default command networking is disabled. Explicitly reviewed HTTPS hosts use a separate allowlisted CONNECT proxy; private/rebinding/numeric destinations are denied, DNS cannot bypass the proxy, and no host port is published. Hosts can receive data under an approved command, so review network requests together with that command's contents and repository trust. No background process survives into the next operation.
+After either push the Server reads the branch back. It opens or updates the Task's draft pull request only if the branch is at the approved commit. Anything else is **uncertain**: nothing is retried, and a person looks at the repository. When a push fails, Git's own reason comes back with its credentials removed.
 
-Docker shares the host kernel. This provider is for trusted operators/code and is not a hard boundary for hostile public tenants. Use a VM/microVM provider and a separate policy before admitting untrusted multi-tenant code. New workspace disk capacity is a hard 10 GiB block-filesystem ceiling; temporary source fetches have a separate hard 512 MiB filesystem. The Linux Node requires loop/mount support and fails closed when unavailable. Fixed filesystems limit disk consumption but do not make Docker or Git object parsing a safe boundary for hostile public tenants. Do not declare hostile-code or stronger-isolation acceptance based on this Docker path.
+`factory_feedback` reads the checks, commit statuses, Actions jobs and logs, and deployments of exactly the pull request's head. Old results never count for a new SHA. To repair, the Agent edits, commits and publishes again on the same branch.
 
-Windows/macOS hosts, local browser/desktop capabilities, workspace HTTP port previews, shared caches across Tasks, live relocation and provider-neutral VM implementations are outside this Linux MVP. Canonical repository previews are observed through the existing CI provider instead.
+## Approvals by mode
 
-## Verification and Grok handoff
+The Server's execution mode (**Server settings → Agents → Execution**) gates what leaves the box, not commands. Every decision approves an exact commit SHA, host or plan, read from Git or the request.
+
+| | Push of the Agent's branch | Window to a host in the Project's network | Window to another host | Project secret at its bound host |
+| --- | --- | --- | --- | --- |
+| `role` (default) | Needs nobody | Needs nobody | A person | Used on its own |
+| `plan` | Covered by the latest approved plan | Needs nobody without secrets; covered by the plan | Covered if the plan names it, else a person | Only those the plan names |
+| `review` | A person, after reading the diff | Needs nobody without secrets, else a person | A person | Only through a window a person opened |
+
+`factory_plan` names the plan's steps, hosts and secrets. A person approves it once in the Inbox or the Run, and it covers the Task until the Agent proposes a new one. A window that names a secret, once a person opens it, allows that secret at its host in any mode. Decisions are made by the person who started the Run, in the Inbox or on the Run page. A Task may publish 50 times by default and its box may run six hours in all; both are execution settings.
+
+## Network windows and Project secrets
+
+A box reaches this Server and nothing else until its Project opens more. On the Project page, under Repositories, whoever may manage the Project sets:
+
+- **Presets:** npm, PyPI, crates.io and GitHub read. None carries a credential.
+- **Hosts:** public DNS names only, at most 50, such as an API the code talks to. No IP addresses, ports, wildcards or local names.
+- **Secrets:** a name, a value and the hosts it is bound to. The value is encrypted on the Server and never shown again, to anyone. The API (`GET|PUT|DELETE /api/projects/:id/secrets[/:secretId]`) returns names, placeholders, hosts and dates, never a value.
+
+For anything else the Agent calls `request_network_window {host, minutes, secrets, reason}`, for 1 to 480 minutes. An open window lasts its minutes from the decision, across the Task's Runs. A window without a secret gives the box the network and nothing else.
+
+The Agent sees a placeholder such as `L4_SECRET_TELEGRAM_TOKEN`. The egress layer replaces it in headers, the URL and text bodies up to 1 MB, only on a request to a bound host where the secret is in effect, and takes the value out of the answer again. A request that carries a known placeholder to a host where it is not in effect is refused with 403, telling the Agent which window to ask for. A token pasted into a conversation is history its members can read and is sent to the model; a Project secret is the place for it instead.
+
+**On a VPS Node** each sync carries the compiled hosts and their revision. The daemon writes them to a policy file the proxy reads read-only. It fetches the values in effect and hands them, with the box's certificate authority, to the proxy's control socket by `docker exec`; they live only in the proxy's memory. The authority is new for each start, and only its certificate is installed in the box, through `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `GIT_SSL_CAINFO` and `REQUESTS_CA_BUNDLE`. The proxy terminates TLS only for hosts with a bound secret and verifies the real host itself. Every other open host stays a plain CONNECT tunnel, so a package manager that pins certificates still works there. On a terminated connection only the response headers the proxy knows reach the box, such as content, caching, rate-limit and GitHub headers; any other is dropped. Private, numeric and rebinding destinations are refused.
+
+**On Cloudflare** BoxOutbound checks every request against the same list and does the same replacement and scrubbing. It also checks the box's lease on every request.
+
+## Git flow and merge
+
+Each Project sets its Git flow on the Project page, with the same permission as its network:
+
+- **Agent branch prefix:** `l4-agent/` by default. A push goes to `<prefix><box id>`.
+- **Who merges:** a person (the default); the Agent after checks pass; or a direct push to the base branch, for experiments.
+- **Merge method:** squash (default), merge or rebase. The repository must allow it.
+
+The target is always the repository's base branch. Branch protection on GitHub or Gitea stays the ceiling: a push or merge it refuses comes back with its reason and is never worked around.
+
+**A person merges** from the Task, on the board or on the Run page, where they may approve Agent actions in the repository's Project (`POST /api/tasks/:id/merge` with the head SHA they saw). The Server reads the checks again at that head. When any check or status exists, every one must have passed, along with every required check of the repository environment. When the provider reports no checks, statuses or Actions jobs at all and the environment requires none, the person may still merge; the Task and the answer say plainly that no checks were reported. Right after a push CI may not have registered its checks yet, so for two minutes after the Server confirmed the push of that head (`pushedAt` on the pull request's receipt) no checks counts as pending and the Task shows "Waiting for checks to register…". A receipt without a recorded push gets no grace. The provider is asked to merge exactly that head with the Project's method, after a draft is made ready (GitHub) or the `WIP:` prefix is removed (Gitea). A merge marks the Task's code work Merged and leaves the Task's status to its people.
+
+**The Agent merges** with `factory_merge`, offered only under "the Agent after checks". It needs at least one passing check, none failed or pending, and every required check passed. An Agent never merges unchecked code.
+
+**A direct push** sends the approved commit to the base branch as a fast-forward only. The Server reads the branch's head when the push is claimed; the pusher checks that the commit descends from it and pushes with a lease on it, and the receive-pack check allows only `<that head> <approved sha>`. Afterwards the Server compares the two heads; only a fast-forward to exactly the approved commit completes. There is no pull request.
+
+Every merge attempt is a `factory_approvals` row of kind `merge`, completed, failed or uncertain.
+
+## Limits
+
+| | VPS Node | Cloudflare |
+| --- | --- | --- |
+| Box CPU and memory | An equal share of the host | 0.25 CPU/1 GiB, 0.5 CPU/4 GiB or 1 CPU/6 GiB |
+| Boxes at once | One per CPU while each gets 1 GiB, or `LLLL_NODE_BOXES` (≤ 64) | Chosen at setup, 4 by default (≤ 64) |
+| Task disk | 10 GiB hard quota (or 1 GiB with `LLLL_WORKSPACE_DISK_BYTES`), kept until Done | 4, 8 or 12 GB temporary; the checkout is checkpointed |
+| Processes | 512 per box | Chosen at setup, 128 by default |
+| Idle stop | 15 minutes without a turn | 10 minutes without a turn |
+
+Per Task: 50 publications and six hours of box runtime by default. Per review: 2 MB of patch and 200 commits shown; more is marked truncated. A window lasts at most eight hours and names at most ten secrets. The Run's own model, token and duration budgets apply as for any Run.
+
+## Isolation, and what it does not protect against
+
+The box holds no provider key, Git write token or secret value. `scripts/test-box-isolation.mjs` plants canaries for the Run capability's source, a GitHub token and a Project secret, and finds none in the box's environment, `/proc/*/environ`, `/proc/*/cmdline`, filesystem or Docker's view of it, while the secret still reaches its bound host through the proxy from Node, Python and Git.
+
+What the boundary does not cover:
+
+- **Docker shares the host kernel.** A VPS Node is for code and people the operator trusts. Commands from untrusted authors need a VM or microVM provider; do not admit hostile public tenants to the Docker path.
+- **An open host can receive anything the box has.** That includes the repository and, at its bound host, a secret's effect. Open hosts and bind secrets with that in mind.
+- **The Run's own credential is in the box.** It lets the box call the model and the Run's tools through the gateway, within the Run's authority and budgets, until the Run ends.
+- **Repository content is untrusted.** Code, CI logs and pull request text never authorize a push, window or merge. Trusted components read the box's repository only through the hardened copy in throwaway containers.
+- **Review approves a SHA, not intent.** A person who approves a push should read its diff; Git's hashes guarantee only that what was read is what is pushed.
+
+Windows and macOS hosts, a preview of a box port, Chromium in the box, Git LFS and Destinations (setting up deployment from L4) are not built.
+
+## Verification
 
 ```sh
 corepack pnpm install --frozen-lockfile
 corepack pnpm test
 corepack pnpm --filter @llll/agent-runtime test
 corepack pnpm --filter @llll/compute-node test
-docker build -t l4-workspace:test -f packages/compute-node/Dockerfile.workspace .
-node scripts/test-factory-workspace.mjs
 corepack pnpm typecheck
 corepack pnpm lint
-corepack pnpm db:migrations:check --base 77d551f9765d28c0d3b6f819625e317e38bc34de
 corepack pnpm model:check
-corepack pnpm build:deployment
-corepack pnpm test:server
+corepack pnpm db:schema:check
+corepack pnpm db:migrations:check
+corepack pnpm build:deployment && corepack pnpm test:server
+docker build -t l4-workspace:test -f packages/compute-node/Dockerfile.workspace .
+node scripts/test-factory-workspace.mjs
+node scripts/test-box-isolation.mjs
+docker build --build-arg WORKSPACE_IMAGE=l4-workspace:test -t l4-workspace:cloud-test -f packages/compute-node/Dockerfile.cloud .
+LLLL_FACTORY_CLOUD_TEST_IMAGE=l4-workspace:cloud-test LLLL_FACTORY_CLOUD_LIFECYCLE_IMAGE=l4-workspace:cloud-test node --test packages/compute-node/test/cloud-state.test.mjs
 ```
 
-The GitHub fixture independently computes Git object SHAs, exercises a failing CI result followed by repair on one PR, rejects old-head logs, unapproved egress, revocation, changed arguments/base, cross-Node leases and uncertain publication replay. The Docker smoke uses real persistent volumes and containers for history, edits, failing commands, commits, snapshot/resume, cross-Task separation, non-root/no-socket/no-credential checks and egress denial. These tests do not authorize a real GitHub installation.
-
-Grok must validate the candidate SHA on a test Server with an explicitly selected `inchidev/afterprompt` installation, actual Pi/model interactions, one deliberately failing CI test and repair, existing preview integration or explicit absence, desktop/mobile review UI, restart/revoke/cancellation and both Cloudflare Server → VPS Node and VPS Server → local Docker topologies. Verify candidate CI and native Server/web Previews without a production release. Keep #307/#310/#309/#336 open until their acceptance criteria are demonstrated; real Linux loop-backed quota/reboot verification and the stronger-isolation policy must remain explicit in the acceptance record.
+`test:server` includes `scripts/test-factory-transport.mjs`, which syncs as a protocol 2 Node over HTTP and is refused for forged operations, unknown fields, boxes it holds no lease on, another Server and after revocation. `test-factory-workspace.mjs` runs a real box in Docker against a stand-in Git server: history, edits, a commit, the hardened copy, a review diff, a push to the Task's branch and a fast-forward push to main. The Docker steps run in the Pi runtime workflow on pull requests that touch the runtime, the Node or these scripts. None of these tests authorize a real GitHub installation; acceptance with a real repository, model and phone is a separate record (ADR 0011, Acceptance).

@@ -41,10 +41,10 @@ it('requires distinct connection-qualified identities instead of selecting the f
 
 it('ranks every exact permitted identity ahead of overlapping names and repeated description keywords', () => {
   const tools = [
-    make('factory_status', 'Workspace evidence'),
-    make('factory_workspace', 'Request a Task workspace operation', 'write'),
-    make('factory_workspace_status', 'factory workspace status '.repeat(40)),
-    make('mcp_docs_factory_workspace', 'External workspace status'),
+    make('factory_status', 'Box evidence'),
+    make('factory_publish', 'Publish a commit of the box', 'write'),
+    make('factory_publish_status', 'factory publish status '.repeat(40)),
+    make('mcp_docs_factory_publish', 'External publish status'),
     ...catalog,
   ]
   for (const tool of tools) {
@@ -53,8 +53,8 @@ it('ranks every exact permitted identity ahead of overlapping names and repeated
   }
 })
 it.each(['repository', 'coding', 'compute node', 'github', 'computer', 'git commit'])('surfaces permitted Factory tools for %s without relying on their descriptions', query => {
-  const tools = [make('factory_status', 'Task workspace evidence'), make('factory_workspace', 'Request a Task operation', 'write'),
+  const tools = [make('factory_status', 'Task box evidence'), make('factory_publish', 'Publish a commit', 'write'),
     make('factory_feedback', 'Inspect current checks'), make('read_code_tree', 'Read the selected source tree')]
-  expect(searchToolCatalog(tools, query, 8).map(tool => tool.name)).toEqual(expect.arrayContaining(['factory_status', 'factory_workspace', 'factory_feedback']))
+  expect(searchToolCatalog(tools, query, 8).map(tool => tool.name)).toEqual(expect.arrayContaining(['factory_status', 'factory_publish', 'factory_feedback']))
   expect(searchToolCatalog(tools.filter(tool => !tool.name.startsWith('factory_')), query, 8).some(tool => tool.name.startsWith('factory_'))).toBe(false)
 })

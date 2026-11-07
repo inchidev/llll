@@ -46,7 +46,7 @@ export async function deletionBlocker(env: L4Env, id: string): Promise<string | 
         OR source_message_id IN (SELECT id FROM messages WHERE channel_id IN ${scope})) AS runs,
       EXISTS (SELECT 1 FROM agent_sessions WHERE channel_id IN ${scope}) AS sessions,
       EXISTS (SELECT 1 FROM agent_schedules WHERE channel_id IN ${scope}) AS schedules,
-      EXISTS (SELECT 1 FROM factory_workspaces WHERE channel_id IN ${scope}) AS coding`)
+      EXISTS (SELECT 1 FROM factory_boxes WHERE channel_id IN ${scope}) AS coding`)
     .bind(...Array(10).fill(id)).first<{ runs: number, sessions: number, schedules: number, coding: number }>()
   if (row?.runs || row?.sessions || row?.coding) return 'This conversation has Agent Runs, which are kept as audit records, so it cannot be deleted.'
   if (row?.schedules) return 'This conversation has Schedules. Delete them before deleting the conversation.'

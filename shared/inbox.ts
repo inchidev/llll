@@ -2,8 +2,8 @@ import { dmTitle } from './dm'
 import type { ChannelDTO, PublicUser, SidebarThreadDTO, TaskPriority, TaskStatus } from './types'
 
 export type InboxMentionDTO = { messageId: string; path: string; conversation: string; author: PublicUser; excerpt: string; createdAt: string }
-/** A decision only the initiating Member can make: a review-mode workspace action, or sharing a private result. */
-export type InboxApprovalDTO = { id: string; kind: 'workspace' | 'publication'; runId: string; agentName: string; taskTitle: string | null; operation: string; createdAt: string }
+/** A decision only the initiating Member can make: what an Agent's box asks to send out, or sharing a private result. */
+export type InboxApprovalDTO = { id: string; kind: 'box' | 'publication'; runId: string; agentName: string; taskTitle: string | null; operation: string; createdAt: string }
 export type InboxRunDTO = { id: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; createdAt: string; updatedAt: string; agentName: string; taskTitle: string | null; conversation: string; pullNumber: number | null }
 export type InboxTaskDTO = { id: string; number: number; title: string; status: TaskStatus; priority: TaskPriority; dueAt: string | null; boardName: string }
 export type InboxDTO = { approvals: InboxApprovalDTO[]; mentions: InboxMentionDTO[]; runs: InboxRunDTO[]; assigned: InboxTaskDTO[]; review: InboxTaskDTO[] }

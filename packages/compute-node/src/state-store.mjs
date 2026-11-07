@@ -13,21 +13,6 @@ function connectionRecord(server, value) {
   if (!value || !uuid(value.nodeId) || !uuid(value.serverId) || !capability(value.token)) throw new Error('Invalid Node pairing response')
   return { server: serverOrigin(server), nodeId: value.nodeId, serverId: value.serverId, token: value.token }
 }
-function receiptRecord(value) {
-  const result = value?.result
-  if (value?.operation !== 'result' || !uuid(value.id) || !capability(value.lease) || !result
-    || typeof result.ok !== 'boolean' || !Number.isSafeInteger(result.exitCode) || result.exitCode < -1 || result.exitCode > 255
-    || typeof result.output !== 'string' || result.output.length > 64000
-    || !Number.isSafeInteger(result.runtimeMs) || result.runtimeMs < 0 || result.runtimeMs > 180000) throw new Error('Invalid retained receipt')
-  const saved = { ok: result.ok, exitCode: result.exitCode, output: result.output, runtimeMs: result.runtimeMs }
-  if (result.snapshot !== undefined) {
-    if (!result.snapshot || typeof result.snapshot !== 'object' || Array.isArray(result.snapshot) || Buffer.byteLength(JSON.stringify(result.snapshot)) > 340000) throw new Error('Invalid retained snapshot')
-    saved.snapshot = result.snapshot
-  }
-  if (Buffer.byteLength(JSON.stringify(saved)) > 400000) throw new Error('Receipt size limit reached')
-  return { operation: 'result', id: value.id, lease: value.lease, result: saved }
-}
-
 /** One private, bounded, transactional journal; never executes restored data. */
 export async function openNodeState(directory) {
   await mkdir(directory,{recursive:true,mode:0o700})
@@ -43,7 +28,8 @@ export async function openNodeState(directory) {
   db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA max_page_count=16384;
     CREATE TABLE IF NOT EXISTS connection(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,server_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
     CREATE TABLE IF NOT EXISTS local_pairing(singleton INTEGER PRIMARY KEY CHECK(singleton=1),server TEXT NOT NULL,node_id TEXT NOT NULL,token TEXT NOT NULL) STRICT;
-    CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,lease TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL) STRICT;`)
+    DROP TABLE IF EXISTS receipts;
+    CREATE TABLE IF NOT EXISTS boxes(id TEXT PRIMARY KEY,lease TEXT NOT NULL,task_id TEXT NOT NULL,ready INTEGER NOT NULL,runtime_ms INTEGER NOT NULL) STRICT;`)
   return {
     connection(server) {
       const row = db.prepare('SELECT server,node_id AS nodeId,server_id AS serverId,token FROM connection WHERE singleton=1').get()
@@ -71,24 +57,19 @@ export async function openNodeState(directory) {
         db.exec('COMMIT')
       } catch(error) { db.exec('ROLLBACK'); throw error }
     },
-    retain(value) {
-      const saved = receiptRecord(value), encoded = JSON.stringify(saved.result)
-      db.exec('BEGIN IMMEDIATE')
-      try {
-        const before = db.prepare('SELECT lease,result_json FROM receipts WHERE id=?').get(saved.id)
-        if (before && (before.lease !== saved.lease || before.result_json !== encoded)) throw new Error('Receipt identity changed')
-        if (!before) {
-          if (db.prepare('SELECT count(*) AS total FROM receipts').get().total >= 128) throw new Error('Retained receipt capacity reached')
-          db.prepare('INSERT INTO receipts(id,lease,result_json,created_at) VALUES(?,?,?,?)').run(saved.id,saved.lease,encoded,Date.now())
-        }
-        db.exec('COMMIT')
-      } catch(error) { db.exec('ROLLBACK'); throw error }
+    /** The boxes whose disks this Node holds, with the lease each last held and how long it has run. */
+    boxes: {
+      list() {
+        return db.prepare('SELECT id,lease,task_id AS taskId,ready,runtime_ms AS runtimeMs FROM boxes ORDER BY id LIMIT 512').all()
+          .filter(row => uuid(row.id) && capability(row.lease) && uuid(row.taskId)).map(row => ({ ...row, ready: row.ready === 1 }))
+      },
+      save(box) {
+        if (!uuid(box.id) || !capability(box.lease) || !uuid(box.taskId) || !Number.isSafeInteger(box.runtimeMs) || box.runtimeMs < 0) throw new Error('Invalid box record')
+        db.prepare('INSERT INTO boxes(id,lease,task_id,ready,runtime_ms) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET lease=excluded.lease,ready=excluded.ready,runtime_ms=excluded.runtime_ms')
+          .run(box.id,box.lease,box.taskId,box.ready?1:0,box.runtimeMs)
+      },
+      forget(id) { db.prepare('DELETE FROM boxes WHERE id=?').run(id) },
     },
-    receipts() {
-      return db.prepare('SELECT id,lease,result_json FROM receipts ORDER BY created_at,id LIMIT 128').all()
-        .map(row => receiptRecord({ operation:'result',id:row.id,lease:row.lease,result:JSON.parse(row.result_json) }))
-    },
-    acknowledge(id,lease) { db.prepare('DELETE FROM receipts WHERE id=? AND lease=?').run(id,lease) },
     close() { db.close() },
   }
 }

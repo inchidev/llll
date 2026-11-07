@@ -64,7 +64,7 @@ it.each(['tar', 'gzip'])('builds a portable Node payload and valid OCI layers fr
     writeFileSync(join(dockerArchive, 'manifest.json'), JSON.stringify([{ Config: 'config.json', RepoTags: [`llll-workspace:${version}`], Layers: layers.map(layer => layer.name) }]))
     // The production build script still creates all tar/gzip/OCI assets. Only its
     // trusted Docker boundary is deterministic; no registry or cloud calls occur.
-    writeFileSync(join(bin, 'docker'), `#!${process.execPath}\nconst {execFileSync}=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='build')process.exit(0);if(args[0]==='image'&&args[1]==='inspect'){process.stdout.write(${JSON.stringify(imageId)});process.exit(0)}if(args[0]==='save'){execFileSync('tar',['-cf',args[args.indexOf('-o')+1],'-C',${JSON.stringify(dockerArchive)},'.']);process.exit(0)}process.exit(1)\n`, { mode: 0o755 })
+    writeFileSync(join(bin, 'docker'), `#!${process.execPath}\nconst {execFileSync}=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='build')process.exit(0);if(args[0]==='run'&&args[args.indexOf('--network')+1]==='none')process.exit(0);if(args[0]==='image'&&args[1]==='inspect'){process.stdout.write(${JSON.stringify(imageId)});process.exit(0)}if(args[0]==='save'){execFileSync('tar',['-cf',args[args.indexOf('-o')+1],'-C',${JSON.stringify(dockerArchive)},'.']);process.exit(0)}process.exit(1)\n`, { mode: 0o755 })
     execFileSync(process.execPath, [script], { cwd: directory, env: { ...process.env, PATH: bin + ':' + process.env.PATH }, timeout: 30000, stdio: 'pipe' })
     const output = join(directory, '.installer/factory')
     const manifest = JSON.parse(readFileSync(join(output, 'llll-factory.json'), 'utf8'))
@@ -115,7 +115,7 @@ it.each(['tar', 'gzip'])('builds a portable Node payload and valid OCI layers fr
     expect(JSON.parse(readFileSync(join(saved, 'manifest.json'), 'utf8'))[0].Layers).toEqual(layers.map(layer => layer.name))
   } finally { rmSync(directory, { recursive: true, force: true }) }
 }, 45000)
-it('refuses a changed released image before stopping the pinned service or modifying retained Task state', () => {
+it('replaces a changed released image only after it verifies, keeping the running service, its Node journal and Task disks until then', () => {
   const directory = mkdtempSync(join(tmpdir(), 'llll-factory-pin-'))
   const installed = join(directory, 'installed'), stage = join(directory, 'stage'), assets = join(directory, 'release'), source = join(directory, 'source')
   try {
@@ -150,6 +150,7 @@ manifest_hash() { sha256sum "$FACTORY_TEST_ASSETS/$1" | cut -d' ' -f1; }
 fetch() { cp -- "$1" "$2"; }
 systemctl() { printf '%s\\n' "$*" >> "$FACTORY_TEST_CALLS"; }
 docker() { printf '%s\\n' "$*" >> "$FACTORY_TEST_CALLS"; }
+LLLL_SYSTEMD_DIR="$FACTORY_TEST_STAGE"
 factory_command enable --trust-shared-kernel
 `)
     let rejection = ''
@@ -158,10 +159,11 @@ factory_command enable --trust-shared-kernel
     } catch (error) {
       rejection = String((error as { stderr?: Buffer }).stderr)
     }
-    expect(rejection).toContain('released image changed')
+    // The stand-in Docker loads nothing, so the new image never verifies.
+    expect(rejection).toContain('does not match a published Factory digest')
     expect(readFileSync(join(installed, 'factory/factory.env'), 'utf8')).toBe(privateEnv)
     expect(readFileSync(join(installed, 'factory/state/node-state.sqlite'), 'utf8')).toBe('retained private journal fixture')
     expect(readFileSync(join(installed, 'factory/state/task.img'), 'utf8')).toBe('retained Task disk fixture')
-    expect(() => readFileSync(join(directory, 'host-calls'))).toThrow()
+    expect(readFileSync(join(directory, 'host-calls'), 'utf8')).not.toContain('stop')
   } finally { rmSync(directory, { recursive: true, force: true }) }
 }, 15000)

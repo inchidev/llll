@@ -52,6 +52,15 @@ class FakeWebSocket {
 }
 
 const outstandingMessages = ref(0)
+const presence = {
+  markTyping: vi.fn(),
+  setAgentTurns: vi.fn(),
+  hydrateAgentTurns: vi.fn(),
+  hydrateAgentStreams: vi.fn(),
+  applyAgentStream: vi.fn(),
+  endAgentStream: vi.fn(),
+  apply: vi.fn(),
+}
 let useChannelSocket: typeof ChannelSocketFactory
 let apiResponder: (path: string) => Promise<unknown> = async () => ({ token: 'test-token' })
 const queryData = new Map<string, unknown>()
@@ -87,12 +96,7 @@ beforeAll(async () => {
   })
   vi.stubGlobal('onUnmounted', () => {})
   vi.stubGlobal('onMounted', () => {})
-  vi.stubGlobal('usePresenceStore', () => ({
-    markTyping: vi.fn(),
-    setAgentTurns: vi.fn(),
-    hydrateAgentTurns: vi.fn(),
-    apply: vi.fn(),
-  }))
+  vi.stubGlobal('usePresenceStore', () => presence)
   vi.stubGlobal('useLiveStore', () => ({ setState: vi.fn() }))
   vi.stubGlobal('useUiStore', () => ({ dmFrozen: false, liveSetupOpen: false }))
   vi.stubGlobal('useToast', () => ({ add: vi.fn() }))
@@ -144,6 +148,21 @@ describe('channel read reconnect delivery', () => {
       t: 'read',
       messageId: '01990000-0000-7000-8000-000000000001',
     })
+    channel.disconnect()
+  })
+
+  it('hands answers being written to the presence store, from the snapshot and each update', async () => {
+    const channel = useChannelSocket(ref('channel-1'))
+    await flush()
+    const socket = FakeWebSocket.instances[0]!
+    socket.open()
+    const stream = { runId: 'run-1', author: { id: 'agent-1', kind: 'agent', displayName: 'Pi', avatarR2Key: null }, startedAt: '2026-11-07T10:00:00.000Z' }
+    socket.message({ t: 'hello', channelId: 'channel-1', you: { id: 'user-1', displayName: 'A', avatarR2Key: null }, agentStreams: [{ ...stream, text: 'Hel' }] })
+    expect(presence.hydrateAgentStreams).toHaveBeenCalledWith('channel-1', [{ ...stream, text: 'Hel' }])
+    socket.message({ t: 'agent.stream', stream, at: 3, text: 'lo' })
+    expect(presence.applyAgentStream).toHaveBeenCalledWith('channel-1', stream, 3, 'lo')
+    socket.message({ t: 'agent.stream.end', runId: 'run-1' })
+    expect(presence.endAgentStream).toHaveBeenCalledWith('channel-1', 'run-1')
     channel.disconnect()
   })
 

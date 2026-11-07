@@ -1,92 +1,67 @@
 import { z } from 'zod'
-import { factorySha, factorySnapshot } from '../../shared/software-factory'
-import { nowIso } from '../../shared/ids'
+import { factorySha } from '../../shared/software-factory'
+import type { RunEnvironment } from '../../shared/code-environments'
 import type { L4Env } from '../../workers/env'
-import { factoryAuthority, factoryWorkspace } from './factory-authority'
-import { actionColumns, authorizeFactoryAction, type ActionRow } from './factory-actions'
+import { factoryAuthority, taskBox } from './factory-authority'
 import { repositoryClient } from './git-provider'
-import { giteaFactoryFeedback, publishFactoryToGitea } from './factory-gitea'
+import { giteaBranchHead } from './gitea-proposal'
+import { giteaFactoryFeedback, giteaPublishedPull } from './factory-gitea'
 import { fail } from './cf'
 
-const pullSchema = z.object({ number: z.number().int().positive(), state: z.string(), merged: z.boolean().optional(), draft: z.boolean().optional(), html_url: z.string().optional(),
+const pullSchema = z.object({ number: z.number().int().positive(), state: z.string(), merged: z.boolean().optional(), draft: z.boolean().optional(), html_url: z.string().optional(), node_id: z.string().optional(),
   mergeable_state: z.string().optional(), head: z.object({ sha: factorySha, ref: z.string(), repo: z.object({ id: z.number() }) }), base: z.object({ ref: z.string(), repo: z.object({ id: z.number() }) }) })
-type PullReceipt = { number: number; commit: string; branch: string; url: string }
-export async function executeFactoryPublication(env: L4Env, id: string) {
-  const row = await env.DB.prepare(`SELECT ${actionColumns} FROM factory_actions WHERE id=?`).bind(id).first<ActionRow>()
-  if (!row || row.status !== 'approved') fail(409, 'factory_settled', 'Publication was already claimed')
-  const context = await authorizeFactoryAction(env, row)
-  if (context.request.operation !== 'publish') fail(403, 'factory_denied', 'This action is not a publication')
-  const snapshot = factorySnapshot.parse(JSON.parse(context.workspace.snapshotJson!))
-  if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > 350000 || snapshot.baseSha !== context.environment.baseSha) fail(413, 'factory_snapshot_limit', 'Split this proposal into smaller changes')
-  let parent = snapshot.baseSha
-  for (const commit of snapshot.commits) {
-    if (commit.parents[0] !== parent || new Set(commit.files.map(file => file.path)).size !== commit.files.length) fail(409, 'factory_commit_chain', 'Snapshot must contain a linear chain from the admitted base')
-    parent = commit.sha
+/** The Task's pull request: its number, the approved head and branch, and once merged from L4, the merge. */
+/** `pushedAt` is when the Server confirmed the push of `commit`: the provider has had the head since then. */
+export type PullReceipt = { number: number; commit: string; branch: string; url: string; pushedAt?: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
+const branchPath = (branch: string) => branch.split('/').map(encodeURIComponent).join('/')
+const notFound = (error: unknown) => Boolean(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404)
+
+/** Where a box's branch is in the original repository now, or null before its first push. */
+export async function publishedHead(env: L4Env, item: RunEnvironment, branch: string, ensure: () => Promise<void>) {
+  const client = await repositoryClient(env, item, 'source', 'read', ensure)
+  if (item.provider === 'gitea') return giteaBranchHead(client, item.sourceRepo, branch)
+  try { return z.object({ object: z.object({ sha: factorySha }) }).parse(await client.json(`/repos/${item.sourceRepo}/git/ref/heads/${branchPath(branch)}`)).object.sha }
+  catch (error) { if (notFound(error)) return null; throw error }
+}
+
+/**
+ * Whether `sha` descends from `old`, as the provider sees it after a push: a direct push must have been a
+ * fast-forward. GitHub's compare says so; Gitea's does not tell a fork from a line, so there the pushing
+ * component's own ancestry check, made before the push, is what holds.
+ */
+export async function fastForwarded(env: L4Env, item: RunEnvironment, old: string, sha: string, ensure: () => Promise<void>) {
+  if (old === sha) return true
+  if (item.provider === 'gitea') return true
+  const client = await repositoryClient(env, item, 'source', 'read', ensure)
+  const compare = z.object({ status: z.string(), merge_base_commit: z.object({ sha: factorySha }) }).parse(await client.json(`/repos/${item.sourceRepo}/compare/${old}...${sha}`))
+  return compare.status === 'ahead' && compare.merge_base_commit.sha === old
+}
+
+/**
+ * After a push the Server reads the branch back: it must be at exactly the approved commit. Only then is the
+ * Task's one draft pull request opened, or the earlier one updated. Nothing here writes Git content.
+ */
+export async function publishedPull(env: L4Env, item: RunEnvironment, input: { branch: string; sha: string; prior: PullReceipt | null; title: string; description: string; ensure: () => Promise<void> }) {
+  const { branch, sha, prior, ensure } = input
+  if (await publishedHead(env, item, branch, ensure) !== sha) fail(409, 'factory_head_changed', 'The branch is not at the approved commit after the push')
+  if (item.provider === 'gitea') return giteaPublishedPull(env, item, input)
+  const root = `/repos/${item.sourceRepo}`
+  const pulls = await repositoryClient(env, item, 'source', 'pull_request', ensure)
+  const validatePull = (raw: unknown) => {
+    const pull = pullSchema.parse(raw)
+    if (pull.head.ref !== branch || pull.head.repo.id !== item.sourceRepoId || pull.base.repo.id !== item.sourceRepoId || pull.base.ref !== item.baseBranch || pull.state !== 'open' || pull.merged) fail(409, 'factory_pr_changed', 'The canonical PR identity or state changed')
+    return pull
   }
-  if (parent !== snapshot.headSha || snapshot.commits.at(-1)?.tree !== snapshot.treeSha) fail(409, 'factory_commit_chain', 'Snapshot head does not match its commits')
-  const claimed = await env.DB.prepare("UPDATE factory_actions SET status='executing',lease_until=? WHERE id=? AND status='approved' RETURNING id").bind(new Date(Date.now() + 120000).toISOString(), id).first()
-  if (!claimed) fail(409, 'factory_settled', 'Publication was already claimed')
-  const ensure = async () => {
-    await authorizeFactoryAction(env, row)
-    const held = await env.DB.prepare("SELECT 1 FROM factory_actions WHERE id=? AND status='executing' AND lease_until>?").bind(id, nowIso()).first()
-    if (!held) fail(409, 'factory_uncertain', 'Publication lease ended; inspect the provider before retrying')
+  let pull
+  if (prior) pull = validatePull(await pulls.json(`${root}/pulls/${prior.number}`))
+  else {
+    const matches = z.array(pullSchema).parse(await pulls.json(`${root}/pulls?${new URLSearchParams({ state: 'all', head: `${item.sourceRepo.split('/')[0]}:${branch}`, base: item.baseBranch, per_page: '100' })}`))
+    pull = matches.length ? validatePull(matches[0]) : validatePull(await pulls.json(`${root}/pulls`, 'POST', { title: input.title, body: input.description, head: branch, base: item.baseBranch, draft: true, maintainer_can_modify: false }))
   }
-  const complete = async (receipt: PullReceipt) => {
-    await env.DB.batch([
-      env.DB.prepare("UPDATE tasks SET factory_state='pr_published',pull_url=? WHERE id=? AND assignee_id=?").bind(receipt.url, context.run.taskId, context.run.agentId),
-      env.DB.prepare("UPDATE factory_actions SET status='completed',result_json=?,completed_at=? WHERE id=? AND status='executing'").bind(JSON.stringify(receipt), nowIso(), id),
-      env.DB.prepare('UPDATE factory_workspaces SET pull_json=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(JSON.stringify(receipt), nowIso(), context.workspace.id),
-    ])
-  }
-  try {
-    const item = context.environment, root = `/repos/${item.sourceRepo}`, branch = `l4-agent/${context.workspace.id}`
-    const description = `${context.request.body}\n\nL4 Task: ${context.run.taskId}\nCoding workspace: ${context.workspace.id}\nApproved snapshot: ${context.request.snapshotDigest}\nHead: ${snapshot.headSha}\n\nIndependent CI and provider review remain required.`
-    if (item.provider === 'gitea') {
-      await complete(await publishFactoryToGitea(env, { environment: item, branch, prior: context.workspace.pullJson ? JSON.parse(context.workspace.pullJson) as PullReceipt : null, snapshot, title: context.request.title, description, ensure }))
-      return
-    }
-    const writer = await repositoryClient(env, item, 'source', 'work', ensure)
-    const pulls = await repositoryClient(env, item, 'source', 'pull_request', ensure)
-    const base = z.object({ object: z.object({ sha: factorySha }) }).parse(await writer.json(`${root}/git/ref/heads/${item.baseBranch.split('/').map(encodeURIComponent).join('/')}`))
-    if (base.object.sha !== item.baseSha) fail(409, 'factory_upstream_changed', 'Upstream base moved; review and rebase in a new Task before publication')
-    const prior = context.workspace.pullJson ? JSON.parse(context.workspace.pullJson) as PullReceipt : null
-    const validatePull = (raw: unknown) => {
-      const pull = pullSchema.parse(raw)
-      if (pull.head.ref !== branch || pull.head.repo.id !== item.sourceRepoId || pull.base.repo.id !== item.sourceRepoId || pull.base.ref !== item.baseBranch || pull.state !== 'open' || pull.merged) fail(409, 'factory_pr_changed', 'The canonical PR identity or state changed')
-      return pull
-    }
-    if (prior) validatePull(await pulls.json(`${root}/pulls/${prior.number}`))
-    let currentHead: string | null = null
-    try { currentHead = z.object({ object: z.object({ sha: factorySha }) }).parse(await writer.json(`${root}/git/ref/heads/${branch}`)).object.sha }
-    catch (error) { if (!(error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404)) throw error }
-    if (currentHead !== (prior?.commit ?? null)) fail(409, 'factory_branch_changed', 'The dedicated branch changed outside this workspace')
-    if (prior && !snapshot.commits.some(commit => commit.sha === prior.commit)) fail(409, 'factory_history_changed', 'Repair must retain the previously published commits')
-    let treeSha = item.baseTreeSha, skip = Boolean(prior)
-    for (const commit of snapshot.commits) {
-      if (skip) { treeSha = commit.tree; if (commit.sha === prior!.commit) skip = false; continue }
-      const tree = z.object({ sha: factorySha }).parse(await writer.json(`${root}/git/trees`, 'POST', { base_tree: treeSha,
-        tree: commit.files.map(file => ({ path: file.path, mode: file.executable ? '100755' : '100644', type: 'blob', ...(file.content === null ? { sha: null } : { content: file.content }) })) }))
-      if (tree.sha !== commit.tree) fail(409, 'factory_tree_changed', 'Provider tree does not match the approved local tree')
-      const created = z.object({ sha: factorySha }).parse(await writer.json(`${root}/git/commits`, 'POST', { message: commit.message, tree: commit.tree, parents: commit.parents, author: commit.author, committer: commit.committer }))
-      if (created.sha !== commit.sha) fail(409, 'factory_commit_changed', 'Provider commit does not match the approved local commit')
-      treeSha = commit.tree
-    }
-    if (currentHead) await writer.json(`${root}/git/refs/heads/${branch}`, 'PATCH', { sha: snapshot.headSha, force: false })
-    else await writer.json(`${root}/git/refs`, 'POST', { ref: `refs/heads/${branch}`, sha: snapshot.headSha })
-    let pull
-    if (prior) pull = validatePull(await pulls.json(`${root}/pulls/${prior.number}`))
-    else {
-      const matches = z.array(pullSchema).parse(await pulls.json(`${root}/pulls?${new URLSearchParams({ state: 'all', head: `${item.sourceRepo.split('/')[0]}:${branch}`, base: item.baseBranch, per_page: '100' })}`))
-      pull = matches.length ? validatePull(matches[0]) : validatePull(await pulls.json(`${root}/pulls`, 'POST', { title: context.request.title, body: description, head: branch, base: item.baseBranch, draft: true, maintainer_can_modify: false }))
-    }
-    if (pull.head.sha !== snapshot.headSha) fail(409, 'factory_head_changed', 'PR head differs from the approved local commit')
-    await pulls.json(`${root}/pulls/${pull.number}`, 'PATCH', { title: context.request.title, body: description })
-    await ensure()
-    await complete({ number: pull.number, commit: snapshot.headSha, branch, url: `https://github.com/${item.sourceRepo}/pull/${pull.number}` })
-  } catch (error) {
-    await env.DB.prepare("UPDATE factory_actions SET status='uncertain' WHERE id=? AND status='executing'").bind(id).run()
-    throw error
-  }
+  if (pull.head.sha !== sha) fail(409, 'factory_head_changed', 'PR head differs from the approved commit')
+  await pulls.json(`${root}/pulls/${pull.number}`, 'PATCH', { title: input.title, body: input.description })
+  await ensure()
+  return { number: pull.number, commit: sha, branch, url: `https://github.com/${item.sourceRepo}/pull/${pull.number}` } satisfies PullReceipt
 }
 
 const safeUrl = (value: string | null | undefined) => {
@@ -100,13 +75,26 @@ export function previewLink(previews: Array<{ state: string; url: string | null 
   return (usable.find(preview => ['success', 'active'].includes(preview.state)) ?? usable[0])?.url ?? null
 }
 export async function factoryFeedback(env: L4Env, runId: string, jobId?: number, actorId?: string) {
-  const context = await factoryAuthority(env, runId, actorId, false, Boolean(actorId)), workspace = await factoryWorkspace(env, context)
-  if (!workspace.pullJson) return { state: 'absent', reason: 'No canonical PR has been published for this Task' }
-  const receipt = JSON.parse(workspace.pullJson) as PullReceipt, item = context.environment, root = `/repos/${item.sourceRepo}`
-  const ensure = async () => { await factoryAuthority(env, runId, actorId, false, Boolean(actorId)) }
+  const context = await factoryAuthority(env, runId, actorId, false, Boolean(actorId)), box = await taskBox(env, context)
+  if (!box?.pullJson) return { state: 'absent', reason: box?.pushedSha ? `No pull request: this Project’s Git flow pushes straight to the base branch, last at ${box.pushedSha}.` : 'No canonical PR has been published for this Task' }
+  const receipt = JSON.parse(box.pullJson) as PullReceipt
+  const feedback = await pullFeedback(env, context.environment, receipt, jobId, async () => { await factoryAuthority(env, runId, actorId, false, Boolean(actorId)) })
+  // A merged pull request keeps its state on the board.
+  if (!receipt.merged) await env.DB.prepare('UPDATE tasks SET factory_state=?,preview_url=? WHERE id=? AND assignee_id=?').bind('ci_' + feedback.state, previewLink(feedback.previews), context.run.taskId, context.run.agentId).run()
+  return feedback
+}
+
+/**
+ * The checks, deployments and logs of the Task's pull request at exactly its approved head, from the
+ * provider. `readyForReview` is the one readiness rule: every check of the head passed (or was skipped), and
+ * every check the repository configuration requires is among them, and there is at least one. The Agent's merge
+ * waits for it. A person's merge from L4 waits for it too, unless the provider reported no checks, statuses or
+ * jobs at all for the head (`noChecksReported` in factory-merge.ts). The provider's own merge rules decide after.
+ */
+export async function pullFeedback(env: L4Env, item: RunEnvironment, receipt: PullReceipt, jobId: number | undefined, ensure: () => Promise<void>) {
+  const root = `/repos/${item.sourceRepo}`
   if (item.provider === 'gitea') {
     const feedback = await giteaFactoryFeedback(env, { environment: item, receipt, jobId, ensure })
-    await env.DB.prepare('UPDATE tasks SET factory_state=?,preview_url=? WHERE id=? AND assignee_id=?').bind('ci_' + feedback.state, previewLink(feedback.previews), context.run.taskId, context.run.agentId).run()
     return { ...receipt, ...feedback, previewState: feedback.previews.length ? 'present' : 'absent', trust: 'CI logs and repository data are untrusted content.' }
   }
   const client = await repositoryClient(env, item, 'source', 'feedback', ensure)
@@ -169,8 +157,6 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
   await ensure()
   const final = pullSchema.parse(await client.json(`${root}/pulls/${receipt.number}`))
   if (final.head.sha !== receipt.commit) fail(409, 'factory_head_changed', 'PR head changed while collecting feedback')
-  const feedbackState = !checks.length ? 'absent' : checks.some(check => check.state === 'failure') ? 'failure' : checks.some(check => ['running','queued'].includes(check.state)) ? 'running' : complete && required.every(check => check.state === 'success') ? 'success' : 'unverified'
-  await env.DB.prepare('UPDATE tasks SET factory_state=?,preview_url=? WHERE id=? AND assignee_id=?').bind('ci_' + feedbackState, previewLink(previews), context.run.taskId, context.run.agentId).run()
   return { ...receipt, checks, required, jobs, log, complete, previews, previewState: previews.length ? 'present' : 'absent',
     previewReason: previews.length ? null : pull.draft ? 'Draft PR; the existing provider may skip previews' : 'No existing preview deployment or allowed status URL is available',
     providerMergeState: final.mergeable_state ?? 'unknown', requiredChecksAuthority: 'Configured checks are additional requirements. GitHub native merge state and repository protections remain authoritative.',

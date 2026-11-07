@@ -583,6 +583,7 @@ apply_upgrade() {
   if [[ $result != 0 ]]; then rollback; fail 'Upgrade did not succeed; previous Server restored.'; fi
   install -m 700 "$dir/llll" /usr/local/bin/llll
   say "Upgraded $version -> $pinned_version; backup: $backup_result"
+  upgrade_factory
 }
 restore_server() {
   preflight
@@ -621,7 +622,7 @@ uninstall_server() {
   fi
   check_owned_volumes
   if [[ $backup == true ]]; then backup_stack; fi
-  if [[ -f /etc/systemd/system/$(factory_service).service ]] && systemd_available; then systemctl disable --now "$(factory_service)"; fi
+  if [[ -f $(factory_unit_file) ]] && systemd_available; then systemctl disable --now "$(factory_service)"; fi
   compose down --remove-orphans >/dev/null
   if [[ $purge == true ]]; then
     for key in rustfs-data celld-data caddy-data caddy-config; do docker volume rm "${project}_$key" >/dev/null; done
@@ -630,6 +631,7 @@ uninstall_server() {
   say "Stopped $project. Live volumes purged: $purge. Configuration: $dir. Backups: $backup_dir"
 }
 factory_service() { printf 'llll-factory-%s' "$project"; }
+factory_unit_file() { printf '%s/%s.service' "${LLLL_UNIT_DIR:-/etc/systemd/system}" "$(factory_service)"; }
 systemd_available() { [[ -d ${LLLL_SYSTEMD_DIR:-/run/systemd/system} ]]; }
 require_factory_systemd() {
   systemd_available || fail 'Factory status, logs, restart, disable and backup need systemd as PID 1 (/run/systemd/system). On a host without systemd, start the released node by hand. See the Software Factory docs. Source disks stay on disk.'
@@ -641,6 +643,21 @@ workspace_image_accepted() {
     [[ -n $pin && $loaded == "$pin" ]] && return 0
   done < <(jq -r '[.image, .configDigest, .indexDigest] | .[] | select(. != null and . != "")' "$stage/llll-factory.json")
   return 1
+}
+# A Server update replaces the local Compute Node from the same verified release, so the Node never
+# lags the Server's protocol. A Node whose service was removed is left as the operator left it.
+upgrade_factory() {
+  [[ -f $dir/factory/factory.env ]] || return 0
+  version=$pinned_version
+  if [[ ! -f $(factory_unit_file) ]]; then
+    say 'The local Compute Node files are from an earlier release, and its service is not installed, so the update left them alone. Replace them with: sudo llll compute enable --trust-shared-kernel (add --no-systemd on a host without systemd)'
+    return 0
+  fi
+  say "Replacing the local Compute Node with $version."
+  # The Server is upgraded and healthy; a failed Node replacement must not roll it back.
+  if ! (trap - EXIT; factory_command enable --trust-shared-kernel); then
+    say 'Server upgraded. The local Compute Node was not replaced and gets no work until it is. Retry with: sudo llll compute enable --trust-shared-kernel'
+  fi
 }
 factory_rerun_notice() {
   if [[ ${LLLL_FACTORY:-false} == true && ! -f $dir/factory/factory.env ]]; then
@@ -661,7 +678,7 @@ factory_command() {
   unit=$(factory_service)
   case "$action" in
     enable)
-      local trust=false no_systemd=false option tool tag loaded
+      local trust=false no_systemd=false option tool tag loaded replacing='' kept='' free_bytes=18253611008
       for option in "${@:2}"; do
         case "$option" in
           --trust-shared-kernel) trust=true ;;
@@ -674,7 +691,9 @@ factory_command() {
       for tool in fallocate mkfs.ext4 mount umount findmnt losetup tar; do need "$tool"; done
       if [[ $no_systemd != true ]]; then need systemctl; fi
       [[ $(uname -m) == x86_64 ]] || fail 'The released Compute Node supports Linux amd64.'
-      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge 18253611008 ]] || fail 'Compute Node needs 17 GiB free disk capacity for a 10 GiB Task workspace, its image and reserve for the Server.'
+      # A Node being replaced already holds its Task disks; it needs room for the new box image only.
+      [[ -f $dir/factory/factory.env ]] && free_bytes=8589934592
+      [[ $(df --output=avail -B1 "$dir" | tail -1 | tr -d ' ') -ge $free_bytes ]] || fail "Compute Node needs $((free_bytes / 1073741824)) GiB free disk capacity for its box image, a 10 GiB Task disk when it is new and reserve for the Server."
       [[ $(awk '/MemAvailable:/ {print $2}' /proc/meminfo) -ge 2097152 ]] || fail 'Factory needs 2 GiB available RAM, including reserve for the Server.'
       release_metadata "$version"
       validate_metadata "$version"
@@ -695,24 +714,26 @@ factory_command() {
       done || fail 'Unsafe Compute Node archive'
       tar -tvzf "$stage/llll-compute-node-linux-amd64.tgz" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" {exit 1}' || fail 'Unsafe Compute Node archive links'
       if [[ -f $dir/factory/factory.env ]]; then
+        # An installed Node of another release is replaced in place: the same Node and pairing, its
+        # boxes and their disks, with this release's daemon and box image. Its own tuning is kept.
         expected=$(sed -n 's/^LLLL_WORKSPACE_IMAGE=//p' "$dir/factory/factory.env")
-        workspace_image_accepted "$expected" || fail 'The released image changed. Existing executor and source remain pinned. Export source, disable/revoke this Node in Server settings, and pair a replacement for new Tasks before changing images.'
+        workspace_image_accepted "$expected" || replacing=$expected
+        kept=$(grep -E '^LLLL_(NODE_BOXES|WORKSPACE_DISK_BYTES)=[0-9]+$' "$dir/factory/factory.env" || true)
       fi
       if [[ $no_systemd != true ]] && ! systemd_available; then
         fail 'Factory needs systemd as PID 1 (/run/systemd/system) before it writes executor files. The Server install can continue without Factory. For a manual executor: llll factory enable --trust-shared-kernel --no-systemd'
       fi
-      if [[ $no_systemd != true ]]; then systemctl stop "$unit" 2>/dev/null || true; fi
       install -m 700 -d "$dir/factory" "$dir/factory/releases/$version" "$dir/factory/state"
       tar -xzf "$stage/llll-compute-node-linux-amd64.tgz" --no-same-owner -C "$dir/factory/releases/$version"
       chmod 700 "$dir/factory/releases/$version/node"
-      say 'Loading the workspace image. This can take several minutes.'
+      say 'Loading the box image. This can take several minutes.'
       docker load -i "$stage/llll-workspace-linux-amd64.tar.gz" >/dev/null
       tag="llll-workspace:$version"
-      loaded=$(docker image inspect "$tag" --format '{{.Id}}' 2>/dev/null) || fail "Workspace image $tag was not loaded."
-      workspace_image_accepted "$loaded" || fail "Loaded workspace image $loaded does not match a published Factory digest. Classic and containerd stores report different ids; the release lists image, configDigest and indexDigest."
+      loaded=$(docker image inspect "$tag" --format '{{.Id}}' 2>/dev/null) || fail "Box image $tag was not loaded."
+      workspace_image_accepted "$loaded" || fail "Loaded box image $loaded does not match a published Factory digest. Classic and containerd stores report different ids; the release lists image, configDigest and indexDigest."
       image=$loaded
       architecture=$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')
-      [[ $architecture == linux/amd64 ]] || fail 'Workspace image architecture mismatch'
+      [[ $architecture == linux/amd64 ]] || fail 'Box image architecture mismatch'
       # Probe the actual hard-quota filesystem before installing or pairing the service.
       "$dir/factory/releases/$version/node" --input-type=module - "$dir/factory/releases/$version/src/disk-store.mjs" "$dir/factory/state/probe-disks" <<'PROBE'
 import { pathToFileURL } from 'node:url';
@@ -721,12 +742,15 @@ const store = new LoopDiskStore(process.argv[3], { bytes: 33554432, maxDisks: 1 
 await store.initialize(); const id = crypto.randomUUID();
 try { await store.ensure(id, true) } finally { await store.remove(id) }
 PROBE
+      # The running Node stops only once this release's files and image are verified and its disk probe passed.
+      if [[ $no_systemd != true ]]; then systemctl stop "$unit" 2>/dev/null || true; fi
       cat > "$stage/factory.env" <<CONFIG
 LLLL_SERVER_ORIGIN=$(get_env PUBLIC_ORIGIN)
 LLLL_NODE_STATE=$dir/factory/state
 LLLL_WORKSPACE_IMAGE=$image
 LLLL_SHARED_KERNEL_TRUSTED=1
 CONFIG
+      [[ -z $kept ]] || printf '%s\n' "$kept" >> "$stage/factory.env"
       install -m 600 "$stage/factory.env" "$dir/factory/factory.env"
       if [[ $no_systemd == true ]]; then
         say 'Local Factory files are ready without systemd. Claim the Server Owner, then start the executor with the environment file above:'
@@ -755,16 +779,26 @@ MemoryMax=256M
 [Install]
 WantedBy=multi-user.target
 UNIT
-      install -m 644 "$stage/$unit.service" "/etc/systemd/system/$unit.service"
+      install -m 644 "$stage/$unit.service" "$(factory_unit_file)"
       systemctl daemon-reload
       systemctl enable --now "$unit"
-      say 'Local Factory installed. Claim the Server Owner first if needed; pairing then happens automatically. Open Settings → Repositories to select this executor. Existing remote providers are preserved.'
+      if [[ -n $replacing ]]; then
+        # The service runs this release now; the earlier release's binaries and box image are ours to drop.
+        for asset in "$dir/factory/releases"/*; do
+          if [[ -d $asset && $(basename "$asset") != "$version" ]]; then rm -rf -- "$asset"; fi
+        done
+        docker image rm "$replacing" >/dev/null 2>&1 || true
+        say "Local Compute Node replaced with $version. It keeps its pairing, its boxes and their Task disks; it pairs again with this release's protocol as it starts."
+      else
+        say 'Local Factory installed. Claim the Server Owner first if needed; pairing then happens automatically. Open Settings → Repositories to select this executor. Existing remote providers are preserved.'
       fi
+      fi
+      old_disks_notice
       ;;
     status) require_factory_systemd; systemctl --no-pager status "$unit" ;;
     logs) require_factory_systemd; journalctl -u "$unit" -n 100 --no-pager || fail 'Could not read Factory logs. systemd journal is unavailable.' ;;
     restart) require_factory_systemd; systemctl restart "$unit" ;;
-    disable) require_factory_systemd; systemctl disable --now "$unit"; say 'Local executor stopped. All source disks and recovery receipts retained.' ;;
+    disable) require_factory_systemd; systemctl disable --now "$unit"; say 'Local executor stopped. All Task disks retained.' ;;
     backup)
       require_factory_systemd
       [[ -d $dir/factory/state ]] || fail 'No local Factory state exists.'
@@ -775,22 +809,57 @@ UNIT
       # Loop-mounted directories are excluded; their complete backing disks are retained.
       tar --one-file-system -czf "$asset.partial" -C "$dir" factory
       mv "$asset.partial" "$asset"; chmod 600 "$asset"
-      say "Factory source disks and private receipts exported to $asset. Executor remains stopped; use llll factory restart to continue."
+      say "Factory Task disks and Node state exported to $asset. Executor remains stopped; use llll factory restart to continue."
       ;;
+    release-old-disks) release_old_disks "${2:-}" ;;
     remove)
-      [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. Delete source only through explicitly reviewed workspace release actions.'
+      [[ ${2:-} == --keep-source ]] || fail 'Use llll factory remove --keep-source. A Task disk is deleted only when its Task is Done.'
       if systemd_available; then
         systemctl disable --now "$unit" 2>/dev/null || true
-        rm -f -- "/etc/systemd/system/$unit.service"
+        rm -f -- "$(factory_unit_file)"
         systemctl daemon-reload || fail 'Could not reload systemd after removing the Factory service.'
       else
-        rm -f -- "/etc/systemd/system/$unit.service"
+        rm -f -- "$(factory_unit_file)"
         say 'systemd is not running. No service was stopped. Stop any manual node process yourself.'
       fi
-      say "Service removed. Source, binaries, private receipts and backups retained in $dir/factory and $backup_dir."
+      say "Service removed. Task disks, binaries, Node state and backups retained in $dir/factory and $backup_dir."
       ;;
-    *) fail 'Usage: llll factory enable --trust-shared-kernel [--no-systemd]|status|logs|restart|disable|backup|remove --keep-source' ;;
+    *) fail 'Usage: llll factory enable --trust-shared-kernel [--no-systemd]|status|logs|restart|disable|backup|release-old-disks [--yes]|remove --keep-source' ;;
   esac
+}
+# The per-command Factory before 0.0.10 kept a workspace disk per Task in workspace-disks. The Server
+# dropped those workspaces in migration 0004, so no Node uses them; they stay until the operator releases them.
+old_workspace_disks() {
+  local image name
+  for image in "$dir/factory/state/workspace-disks"/*.img; do
+    [[ -f $image ]] || continue
+    name=$(basename "$image" .img)
+    if [[ $name =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then printf '%s\n' "$name"; fi
+  done
+  return 0
+}
+old_disks_notice() {
+  local count
+  count=$(old_workspace_disks | wc -l | tr -d ' ')
+  [[ $count == 0 ]] || say "$count workspace disks of the per-command Factory before 0.0.10 are kept in $dir/factory/state/workspace-disks. No Task uses them now. Export them with llll compute backup, then delete them with llll compute release-old-disks --yes."
+}
+release_old_disks() {
+  local root=$dir/factory/state/workspace-disks name server_id count
+  count=$(old_workspace_disks | wc -l | tr -d ' ')
+  if [[ $count == 0 ]]; then say 'No workspace disks of the per-command Factory remain.'; return 0; fi
+  if [[ ${1:-} != --yes ]]; then
+    say "$count workspace disks of the per-command Factory are kept in $root. Nothing was deleted. Export them with llll compute backup first; llll compute release-old-disks --yes deletes them permanently."
+    return 0
+  fi
+  server_id=$(get_env SERVER_ID)
+  while IFS= read -r name; do
+    if findmnt -rn --mountpoint "$root/$name" >/dev/null 2>&1; then umount "$root/$name" || fail "Could not unmount $root/$name; stop whatever uses it and retry."; fi
+    # Its Docker volume was a bind entry; only one this Server labelled is removed.
+    if [[ $(docker volume inspect "l4-ws-$name" --format '{{index .Labels "l4.server"}}' 2>/dev/null) == "$server_id" ]]; then docker volume rm "l4-ws-$name" >/dev/null 2>&1 || true; fi
+    rm -rf -- "${root:?}/$name"
+    rm -f -- "$root/$name.img"
+  done < <(old_workspace_disks)
+  say "Released $count workspace disks of the per-command Factory. Box disks of current Tasks are untouched."
 }
 
 # Diagnostic commands are bounded, use only the local daemon and never print

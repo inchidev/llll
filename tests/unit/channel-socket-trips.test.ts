@@ -171,3 +171,43 @@ it("keeps a Task's discussion, and its Threads, to those who may read Tasks", as
   sqlite.exec(`UPDATE roles SET permissions_bitmask = ${send | Permission.readTasks} WHERE id = 'member-role'`)
   await expect(attempt('open', 'member')).resolves.toMatchObject({ error: null, delivered: true })
 })
+
+it("streams an Agent's answer to who may watch it, narrows it after a private read and ends it", async () => {
+  sqlite.exec("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('pi-agent','agent','Pi','active','member-role','2026-01-01')")
+  sqlite.exec("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('member-1','human','Member One','active','member-role','2026-01-01')")
+  sqlite.exec("INSERT OR IGNORE INTO space_members(space_id,user_id,role,joined_at) SELECT s.id,u.id,'member','2026-01-01' FROM spaces s CROSS JOIN users u")
+  sqlite.prepare("INSERT INTO auth_sessions(id,user_id,token,expires_at,created_at,updated_at) VALUES(?,?,?,?,0,0)").run('session-member-1', 'member-1', 'token-member-1', Date.now() + 3_600_000)
+  // Someone outside the Space may not read the conversation.
+  sqlite.exec("DELETE FROM space_members WHERE user_id = 'reader'")
+  const member = socket('member-1'), other = socket('other'), reader = socket('reader')
+  const object = channelObject('thread', [member, other, reader])
+  const runId = '01990000-0000-4000-8000-000000000001'
+  const update = (text: string, audience: 'channel' | 'initiator' = 'channel') => object.streamAgentReply({ runId, agentId: 'pi-agent', initiatedBy: 'member-1', audience, text })
+  const streamed = (s: Socket) => s.sent.filter(message => message.t.startsWith('agent.stream')) as unknown as Array<{ t: string; at?: number; text?: string }>
+  await update('')
+  await update('Hel')
+  await update('Hello')
+  expect(streamed(other).map(({ t, at, text }) => ({ t, at, text }))).toEqual([
+    { t: 'agent.stream', at: 0, text: '' }, { t: 'agent.stream', at: 0, text: 'Hel' }, { t: 'agent.stream', at: 3, text: 'lo' },
+  ])
+  expect(streamed(reader)).toEqual([])
+  await update('Hello there', 'initiator')
+  expect(streamed(other).at(-1)).toMatchObject({ t: 'agent.stream.end' })
+  expect(streamed(member).at(-1)).toMatchObject({ t: 'agent.stream', at: 5, text: ' there' })
+  await object.endAgentStream(runId)
+  expect(streamed(member).at(-1)).toMatchObject({ t: 'agent.stream.end', runId })
+  expect(streamed(other).filter(message => message.t === 'agent.stream')).toHaveLength(3)
+})
+
+it("posts an Agent's long answer whole, while a person's message keeps its limit", async () => {
+  sqlite.exec("INSERT INTO users(id,kind,display_name,status,role_id,joined_at) VALUES('pi-agent','agent','Pi','active','member-role','2026-01-01'); INSERT INTO agents(user_id,created_by) VALUES('pi-agent','owner')")
+  const reader = socket('other')
+  const object = channelObject('open', [reader])
+  const answer = 'A long answer. '.repeat(300)
+  await object.postAgentMessage({ agentId: 'pi-agent', content: answer })
+  expect(reader.sent.find(message => message.t === 'message')?.message?.content).toBe(answer.trim())
+  await expect(object.postAgentMessage({ agentId: 'pi-agent', content: 'x'.repeat(12_001) })).rejects.toThrow()
+  const person = socket('member')
+  await sendOn(channelObject('open', [person]), person, 'y'.repeat(2001))
+  expect(person.sent.some(message => message.t === 'message')).toBe(false)
+})

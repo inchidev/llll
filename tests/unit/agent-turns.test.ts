@@ -40,7 +40,6 @@ beforeEach(() => {
       request_id TEXT,
       status TEXT NOT NULL,
       detail TEXT,
-      draft_message_id TEXT,
       approval_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -52,7 +51,7 @@ beforeEach(() => {
 afterEach(() => sqlite.close())
 
 describe('agent turn state', () => {
-  it('persists queue, streaming draft, and approval state for cold reconnects', async () => {
+  it('persists queue and approval state for cold reconnects', async () => {
     const env = { DB: db }
     await putAgentTurn(env as never, {
       submissionId: 'submission-1',
@@ -66,7 +65,6 @@ describe('agent turn state', () => {
     await patchAgentTurn(env as never, 'submission-1', {
       requestId: 'request-1',
       status: 'waiting_approval',
-      draftMessageId: 'draft-1',
       approval: {
         executionId: 'execution-1',
         action: 'mail_reply',
@@ -80,8 +78,7 @@ describe('agent turn state', () => {
       expect.objectContaining({
         submissionId: 'submission-1',
         status: 'waiting_approval',
-        draftMessageId: 'draft-1',
-        approval: expect.objectContaining({ executionId: 'execution-1' }),
+          approval: expect.objectContaining({ executionId: 'execution-1' }),
       }),
     ])
 

@@ -224,13 +224,15 @@ async function saveAgent(event: FormSubmitEvent<AgentForm>) {
       await api(`/api/servers/${props.serverId}/agents/${result.agent.id}/avatar`, { method: 'DELETE' })
       result.agent.avatarR2Key = null
     }
-    open.value = false
-    emit('saved', result.agent)
+    // The directory lists Members, not what this answer holds, so the dialog closes once the lists have the
+    // agent: closing first showed "No agents yet" for the second or more the refetch takes.
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['agents', props.serverId] }),
       qc.invalidateQueries({ queryKey: ['members', props.serverId] }),
       qc.invalidateQueries({ queryKey: ['roles', props.serverId] }),
     ])
+    open.value = false
+    emit('saved', result.agent)
     selectAgent(result.agent)
     toast.add({ title: creating ? 'Agent created' : 'Agent updated', color: 'success' })
   }

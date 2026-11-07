@@ -15,7 +15,9 @@ export interface EmbeddedPiSubmission {
   toolEndpoint?: string
   prompt: string
   instructions: string
-  modelGateway: { url: string, token: string, model: string }
+  /** Limits come from the model itself; a submission saved before they existed uses the old defaults. */
+  modelGateway: { url: string, token: string, model: string, contextWindow?: number, maxOutputTokens?: number,
+    compaction?: { reserveTokens: number, keepRecentTokens: number, backgroundTokens: number } }
   /** JSONL transcript from earlier attempts; each line: { kind, model: Message[] }. */
   transcript?: string | null
 }
@@ -90,8 +92,8 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       reasoning: false,
-      contextWindow: 24000,
-      maxTokens: 4096,
+      contextWindow: input.modelGateway.contextWindow ?? 24000,
+      maxTokens: input.modelGateway.maxOutputTokens ?? 4096,
     }],
     api: {
       ...completions,
@@ -128,14 +130,14 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
         throw new Error(message)
       }
 
-        const progress = JSON.parse(output) as { factoryPending?: boolean; delegationPending?: boolean }
-        if (!(definition.name === 'factory_workspace' && progress.factoryPending === true) && !(definition.name === 'delegate_task' && progress.delegationPending === true)) break
+        const progress = JSON.parse(output) as { outwardPending?: boolean; delegationPending?: boolean }
+        if (progress.outwardPending !== true && !(definition.name === 'delegate_task' && progress.delegationPending === true)) break
         await new Promise<void>((resolve, reject) => {
           const signal = context.abortSignal ?? host.signal
           if (signal?.aborted) { reject(new Error('Run cancelled')); return }
           const stop = () => { clearTimeout(timer); reject(new Error('Run cancelled')) }
-          // The Server holds a Factory poll until the Node answers; delegated Runs are checked less often.
-          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, definition.name === 'factory_workspace' ? 250 : 2000)
+          // An outward action waits for a person or its push, and a delegated Run for its result: ask again shortly.
+          const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve() }, 2000)
           signal?.addEventListener('abort', stop, { once: true })
         })
       }
@@ -153,7 +155,7 @@ export async function runEmbeddedPi(input: EmbeddedPiSubmission, storage: Durabl
   }))
   const registry = createRegistry()
   registry.install({ name: 'l4', tools })
-  const harness = await Harness.open(storageImplementation, { models, registry, settings: { compaction: { reserveTokens: 4096, keepRecentTokens: 6000 } }, ...(host.alarmDriven ? { onWake: () => undefined } : {}) }, BACKGROUND_CONTEXT)
+  const harness = await Harness.open(storageImplementation, { models, registry, settings: { compaction: input.modelGateway.compaction ?? { reserveTokens: 4096, keepRecentTokens: 6000 } }, ...(host.alarmDriven ? { onWake: () => undefined } : {}) }, BACKGROUND_CONTEXT)
   const transcriptLines: string[] = String(input.transcript ?? '').split('\n').filter(Boolean)
   let cancel: (() => void) | undefined
   let stream: Awaited<ReturnType<typeof watchEvents>> | undefined

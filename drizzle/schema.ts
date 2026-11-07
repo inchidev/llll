@@ -359,7 +359,6 @@ export const agentTurns = sqliteTable('agent_turns', {
   requestId: text('request_id'),
   status: text('status', { enum: ['queued', 'thinking', 'tool', 'waiting_approval'] }).notNull().default('queued'),
   detail: text('detail'),
-  draftMessageId: text('draft_message_id').references(() => messages.id, { onDelete: 'set null' }),
   approvalJson: text('approval_json'),
   ...isoTimestamps(),
 }, table => [
@@ -1083,10 +1082,23 @@ export const projects = sqliteTable('projects', {
   spaceId: text('space_id').notNull().default(DEFAULT_SPACE_ID),
   id: text('id').primaryKey(), name: text('name').notNull(), description: text('description').notNull().default(''),
   archivedAt: text('archived_at'), version: integer('version').notNull().default(1),
+  /** The Project's Git flow and network for its Agents' boxes; null keeps the defaults (a person merges, network closed). */
+  factoryJson: text('factory_json'),
   createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, table => [
   index('projects_space_idx').on(table.spaceId),
 ])
+/**
+ * A value an Owner or admin entered once; nobody reads it back. The box sees only the placeholder, and its
+ * egress layer puts the value in on a request to one of the bound hosts. Encrypted with scope `project-secret:<id>`.
+ */
+export const projectSecrets = sqliteTable('project_secrets', {
+  id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), placeholder: text('placeholder').notNull(), hostsJson: text('hosts_json').notNull().default('[]'),
+  secretCiphertext: text('secret_ciphertext').notNull(), secretIv: text('secret_iv').notNull(), secretVersion: integer('secret_version').notNull().default(1),
+  createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+  lastUsedAt: text('last_used_at'),
+}, table => [unique().on(table.projectId, table.name), unique().on(table.projectId, table.placeholder)])
 export const projectRepositories = sqliteTable('project_repositories', {
   id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(), host: text('host').notNull(), externalId: text('external_id').notNull(),
@@ -1582,7 +1594,12 @@ export const computePairings = sqliteTable('compute_pairings', {
   expiresAt: text('expires_at').notNull(),
 })
 
-export const factoryWorkspaces = sqliteTable('factory_workspaces', {
+/**
+ * One box per Task, Agent and initiator, for the life of the Task. The Node holds it under a lease it
+ * renews on every sync; `cpu` and `memory_mib` are the share it was admitted with. `run_id` is the Run
+ * whose turn the box should be running, if any.
+ */
+export const factoryBoxes = sqliteTable('factory_boxes', {
   id: text('id').primaryKey(),
   channelId: text('channel_id').notNull().references(() => channels.id),
   taskId: text('task_id').notNull().references(() => tasks.id),
@@ -1591,40 +1608,50 @@ export const factoryWorkspaces = sqliteTable('factory_workspaces', {
   nodeId: text('node_id').notNull().references(() => computeNodes.id),
   environmentJson: text('environment_json').notNull(),
   originRunId: text('origin_run_id').notNull().references(() => agentRuns.id),
+  runId: text('run_id').references(() => agentRuns.id),
   status: text('status').notNull().default('new'),
-  snapshotJson: text('snapshot_json'),
+  leaseToken: text('lease_token'),
+  leaseUntil: text('lease_until'),
+  cpu: real('cpu'),
+  memoryMib: integer('memory_mib'),
+  checkpointSha: text('checkpoint_sha'),
+  headSha: text('head_sha'),
   pullJson: text('pull_json'),
-  commands: integer('commands').notNull().default(0),
+  /** The commit a direct_push Git flow last pushed to the base branch; such a box has no pull request. */
+  pushedSha: text('pushed_sha'),
   runtimeMs: integer('runtime_ms').notNull().default(0),
   publicationCount: integer('publication_count').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, table => [
   unique().on(table.taskId, table.agentId, table.initiatedBy),
+  index('factory_boxes_node').on(table.nodeId, table.status),
+  index('factory_boxes_run').on(table.runId),
+  check('factory_boxes_status_check', sql`${table.status} IN ('new','queued','starting','running','idle','stopped','released','failed')`),
 ])
 
-export const factoryActions = sqliteTable('factory_actions', {
+/** What leaves a box waits here for a person when the mode asks: a plan, a push, a network window or a merge. Diffs live in R2. */
+export const factoryApprovals = sqliteTable('factory_approvals', {
   id: text('id').primaryKey(),
-  workspaceId: text('workspace_id').notNull().references(() => factoryWorkspaces.id),
+  boxId: text('box_id').notNull().references(() => factoryBoxes.id),
   runId: text('run_id').notNull().references(() => agentRuns.id),
   callId: text('call_id').notNull(),
-  digest: text('digest').notNull(),
+  kind: text('kind').notNull(),
   requestJson: text('request_json').notNull(),
-  policyJson: text('policy_json').notNull(),
+  digest: text('digest').notNull(),
   status: text('status').notNull(),
-  expiresAt: text('expires_at').notNull(),
-  createdAt: text('created_at').notNull(),
+  diffKey: text('diff_key'),
+  diffDigest: text('diff_digest'),
   decidedBy: text('decided_by').references(() => users.id),
   decidedAt: text('decided_at'),
-  leaseToken: text('lease_token'),
-  leaseUntil: text('lease_until'),
+  expiresAt: text('expires_at').notNull(),
   resultJson: text('result_json'),
-  completedAt: text('completed_at'),
+  createdAt: text('created_at').notNull(),
 }, table => [
   unique().on(table.runId, table.callId),
-  index('factory_actions_node_queue').on(table.status, table.createdAt),
-  uniqueIndex('factory_one_active_action').on(table.workspaceId).where(sql`${table.status} IN ('pending','approved','claimed','executing','uncertain')`),
-  check('factory_actions_status_check', sql`${table.status} IN ('pending','approved','claimed','executing','completed','rejected','expired','cancelled','uncertain','failed')`),
+  index('factory_approvals_box').on(table.boxId, table.status),
+  check('factory_approvals_kind_check', sql`${table.kind} IN ('plan','publish','window','merge')`),
+  check('factory_approvals_status_check', sql`${table.status} IN ('pending_diff','pending','approved','publishing','rejected','expired','completed','failed','uncertain')`),
 ])
 
 /** The private files bucket's index and its open uploads. */
@@ -1807,8 +1834,6 @@ export const schema = {
   agentWebhooks,
   computeNodes,
   computePairings,
-  factoryWorkspaces,
-  factoryActions,
   fileObjects,
   fileUploads,
   gitConnections,

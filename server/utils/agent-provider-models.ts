@@ -24,12 +24,19 @@ export async function discoverAgentModels(kind: AgentProviderId, apiKey?: string
 }
 
 /** What a model accepts and whether it reasons, as the provider catalog reports it. */
-function capabilities(kind: AgentProviderId, row: Record<string, unknown>): Pick<AgentProviderModel, 'tools' | 'inputs' | 'outputs' | 'reasoning'> {
+function capabilities(kind: AgentProviderId, row: Record<string, unknown>): Pick<AgentProviderModel, 'tools' | 'inputs' | 'outputs' | 'reasoning' | 'contextWindow' | 'maxOutputTokens'> {
+  const tokens = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined
+  // Kept when the catalog reports them (OpenRouter: the window and its top provider's answer limit);
+  // otherwise the Run takes them from Pi's catalog.
+  const top = row.top_provider && typeof row.top_provider === 'object' ? row.top_provider as Record<string, unknown> : null
+  const contextWindow = tokens(kind === 'anthropic' ? row.max_input_tokens : row.context_length)
+  const maxOutputTokens = tokens(kind === 'anthropic' ? row.max_tokens : top?.max_completion_tokens)
+  const limits = { ...(contextWindow ? { contextWindow } : {}), ...(maxOutputTokens ? { maxOutputTokens } : {}) }
   // Every current Claude and ChatGPT/Codex model reads images; their catalogs do not list modalities.
-  if (kind !== 'openrouter') return { inputs: ['text', 'image', ...(kind === 'anthropic' ? ['file' as const] : [])] }
+  if (kind !== 'openrouter') return { inputs: ['text', 'image', ...(kind === 'anthropic' ? ['file' as const] : [])], ...limits }
   const parameters = Array.isArray(row.supported_parameters) ? row.supported_parameters : null
   const architecture = row.architecture && typeof row.architecture === 'object' ? row.architecture as Record<string, unknown> : null
   const known = (value: unknown) => Array.isArray(value) ? value.filter((item): item is AgentModelInput => agentModelInputs.includes(item as AgentModelInput)) : null
   const inputs = known(architecture?.input_modalities), outputs = known(architecture?.output_modalities)
-  return { ...(parameters ? { tools: parameters.includes('tools'), reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort') } : {}), ...(inputs ? { inputs } : {}), ...(outputs ? { outputs } : {}) }
+  return { ...(parameters ? { tools: parameters.includes('tools'), reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort') } : {}), ...(inputs ? { inputs } : {}), ...(outputs ? { outputs } : {}), ...limits }
 }

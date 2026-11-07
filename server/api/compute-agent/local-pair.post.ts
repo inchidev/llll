@@ -2,7 +2,7 @@ import { toWebRequest } from 'h3'
 import { readLimitedStream } from '../../../workers/inbound-email-signature'
 import { z } from 'zod'
 import { cf, fail } from '../../utils/cf'
-import { dockerCapabilities } from '../../../shared/software-factory'
+import { dockerCapabilities, LOCAL_NODE_NAME } from '../../../shared/software-factory'
 import { factoryHash } from '../../utils/factory-authority'
 import { getServerId } from '../../../shared/server-id'
 import { nowIso } from '../../../shared/ids'
@@ -26,10 +26,14 @@ export default defineEventHandler(async event => {
   if (!owner) fail(409, 'owner_required', 'Claim the Server Owner before local pairing')
   const hash = await factoryHash(input.token)
   await env.DB.prepare(`INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at)
-    VALUES(?,'Local VPS executor',?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
-    .bind(input.nodeId, hash, JSON.stringify(input.capabilities), nowIso(), owner.id, nowIso()).run()
-  const node = await env.DB.prepare('SELECT token_hash AS hash,enabled,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=?').bind(input.nodeId).first<{ hash: string; enabled: number; capabilitiesJson: string }>()
-  if (!node?.enabled || node.hash !== hash || node.capabilitiesJson !== JSON.stringify(input.capabilities)) fail(409, 'local_compute_changed', 'Local pairing was already consumed or revoked')
+    VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
+    .bind(input.nodeId, LOCAL_NODE_NAME, hash, JSON.stringify(input.capabilities), nowIso(), owner.id, nowIso()).run()
+  // The paired local Node, with its own credential, says what it runs now: an update from a release replaces its
+  // daemon and box image (and an earlier protocol) in place, so its boxes, disks and repository environments stay.
+  // A disabled Node's credential no longer matches, and nothing revives it.
+  const node = await env.DB.prepare('UPDATE compute_nodes SET capabilities_json=?,last_seen=? WHERE id=? AND token_hash=? AND enabled=1 RETURNING id')
+    .bind(JSON.stringify(input.capabilities), nowIso(), input.nodeId, hash).first()
+  if (!node) fail(409, 'local_compute_changed', 'Local pairing was already consumed or revoked')
   setHeader(event, 'Cache-Control', 'private, no-store')
   return { serverId: await getServerId(env.DB) }
 })

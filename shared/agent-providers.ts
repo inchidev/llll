@@ -8,11 +8,18 @@ export type AgentModelInput = typeof agentModelInputs[number]
 export const agentEfforts = ['auto', 'low', 'medium', 'high'] as const
 export type AgentEffort = typeof agentEfforts[number]
 export const agentConnectionId = z.string().regex(/^[a-z0-9-]{1,64}$/u)
+const tokenCount = z.number().int().min(1024).max(100_000_000)
+/** A model's context window and answer limit as the Owner sets them; either may stay empty. */
+export const agentModelLimitsInput = z.object({ contextWindow: tokenCount.optional(), maxOutputTokens: tokenCount.optional() }).strict()
 export const agentModelSchema = z.object({ id: z.string().trim().min(1).max(160), label: z.string().max(200).optional(), tools: z.boolean().optional(),
   /** Input modalities reported by the provider catalog; absent when it does not report them. */
   inputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(),
   /** Output modalities, such as image for models that draw. */
-  outputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(), reasoning: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat') })
+  outputs: z.array(z.enum(agentModelInputs)).max(agentModelInputs.length).optional(), reasoning: z.boolean().optional(), api: z.enum(['chat', 'responses', 'anthropic']).default('chat'),
+  /** Context window and answer limit in tokens, as the provider catalog reports them. */
+  contextWindow: z.number().int().positive().max(100_000_000).optional(), maxOutputTokens: z.number().int().positive().max(100_000_000).optional(),
+  /** The same limits set by the Owner in Server settings → Models, for a model whose provider did not report them. */
+  limits: agentModelLimitsInput.optional() })
 export const agentProviderSchema = z.object({
   // An empty connection name falls back to the provider name; the field shows that name rather than a placeholder.
   kind: z.enum(agentProviderIds).optional(), name: z.string().trim().max(80, 'Connection name must be 80 characters or fewer').optional(),

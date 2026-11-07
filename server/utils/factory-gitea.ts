@@ -1,38 +1,19 @@
 import { z } from 'zod'
-import type { FactorySnapshot } from '../../shared/software-factory'
 import type { RunEnvironment } from '../../shared/code-environments'
 import type { L4Env } from '../../workers/env'
 import { pullPath, repositoryClient } from './git-provider'
-import { giteaBranchHead, giteaCommitResponse, giteaCreateBranch, giteaDraftTitle, giteaFileOperations, giteaFindPull, giteaPull } from './gitea-proposal'
+import { giteaDraftTitle, giteaFindPull, giteaPull } from './gitea-proposal'
 import { fail } from './cf'
 
 type PullReceipt = { number: number; commit: string; branch: string; url: string }
-/** Gitea cannot write a prepared commit object, so each approved commit is written again with its
- * exact message, identities and dates. The resulting SHA must equal the approved one, or publication stops. */
-export async function publishFactoryToGitea(env: L4Env, input: { environment: RunEnvironment; branch: string; prior: PullReceipt | null; snapshot: FactorySnapshot; title: string; description: string; ensure: () => Promise<void> }) {
-  const { environment: item, branch, prior, snapshot, ensure } = input
-  const writer = await repositoryClient(env, item, 'source', 'work', ensure)
+/** The Gitea half of a publication: the branch was pushed and checked; open or update its pull request. */
+export async function giteaPublishedPull(env: L4Env, item: RunEnvironment, input: { branch: string; sha: string; prior: PullReceipt | null; title: string; description: string; ensure: () => Promise<void> }) {
+  const { branch, prior, ensure } = input
   const pulls = await repositoryClient(env, item, 'source', 'pull_request', ensure)
-  if (await giteaBranchHead(writer, item.sourceRepo, item.baseBranch) !== item.baseSha) fail(409, 'factory_upstream_changed', 'Upstream base moved; review and rebase in a new Task before publication')
   const validatePull = (raw: unknown) => {
     const pull = giteaPull.parse(raw)
     if (pull.head.ref !== branch || pull.head.repo.id !== item.sourceRepoId || pull.base.repo.id !== item.sourceRepoId || pull.base.ref !== item.baseBranch || pull.state !== 'open' || pull.merged) fail(409, 'factory_pr_changed', 'The canonical PR identity or state changed')
     return pull
-  }
-  if (prior) validatePull(await pulls.json(`/repos/${item.sourceRepo}/pulls/${prior.number}`))
-  const currentHead = await giteaBranchHead(writer, item.sourceRepo, branch)
-  if (currentHead !== (prior?.commit ?? null)) fail(409, 'factory_branch_changed', 'The dedicated branch changed outside this task checkout')
-  if (prior && !snapshot.commits.some(commit => commit.sha === prior.commit)) fail(409, 'factory_history_changed', 'Repair must retain the previously published commits')
-  if (!currentHead) await giteaCreateBranch(writer, item.sourceRepo, branch, snapshot.baseSha)
-  let skip = Boolean(prior)
-  for (const commit of snapshot.commits) {
-    if (skip) { if (commit.sha === prior!.commit) skip = false; continue }
-    const files = await giteaFileOperations(writer, item.sourceRepo, branch, commit.files, true)
-    if (!files.length) fail(409, 'factory_commit_changed', 'Gitea cannot write a commit without file changes')
-    const created = giteaCommitResponse.parse(await writer.json(`/repos/${item.sourceRepo}/contents`, 'POST', { branch, message: commit.message, files,
-      author: { name: commit.author.name, email: commit.author.email }, committer: { name: commit.committer.name, email: commit.committer.email },
-      dates: { author: commit.author.date, committer: commit.committer.date } }))
-    if (created.commit.sha !== commit.sha) fail(409, 'factory_commit_changed', 'Gitea wrote a different commit than the approved one. New executable files and signed commits cannot be published to Gitea; inspect the branch before retrying.')
   }
   let pull
   if (prior) pull = validatePull(await pulls.json(`/repos/${item.sourceRepo}/pulls/${prior.number}`))
@@ -40,10 +21,10 @@ export async function publishFactoryToGitea(env: L4Env, input: { environment: Ru
     const match = await giteaFindPull(pulls, item.sourceRepo, candidate => candidate.head.ref === branch && candidate.head.repo.id === item.sourceRepoId && candidate.base.ref === item.baseBranch)
     pull = validatePull(match ?? await pulls.json(`/repos/${item.sourceRepo}/pulls`, 'POST', { title: giteaDraftTitle(input.title), body: input.description, head: branch, base: item.baseBranch }))
   }
-  if (pull.head.sha !== snapshot.headSha) fail(409, 'factory_head_changed', 'PR head differs from the approved local commit')
+  if (pull.head.sha !== input.sha) fail(409, 'factory_head_changed', 'PR head differs from the approved commit')
   await pulls.json(`/repos/${item.sourceRepo}/pulls/${pull.number}`, 'PATCH', { title: giteaDraftTitle(input.title), body: input.description })
   await ensure()
-  return { number: pull.number, commit: snapshot.headSha, branch, url: pulls.web(pullPath('gitea', pull.number)) } satisfies PullReceipt
+  return { number: pull.number, commit: input.sha, branch, url: pulls.web(pullPath('gitea', pull.number)) } satisfies PullReceipt
 }
 
 const safeUrl = (value: string | null | undefined) => {

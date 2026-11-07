@@ -41,7 +41,7 @@ describe('conversation navigation and Inbox', () => {
     const empty: InboxDTO = { approvals: [], mentions: [], runs: [], assigned: [], review: [] }
     expect(inboxAttention(undefined)).toBe(0)
     expect(inboxAttention({ ...empty, runs: [{ id: 'r', status: 'running', createdAt: '', updatedAt: '', agentName: 'Jev', taskTitle: null, conversation: 'general', pullNumber: null }] })).toBe(0)
-    expect(inboxAttention({ ...empty, approvals: [{ id: 'a', kind: 'workspace', runId: 'r', agentName: 'Jev', taskTitle: null, operation: 'exec', createdAt: '' }],
+    expect(inboxAttention({ ...empty, approvals: [{ id: 'a', kind: 'box', runId: 'r', agentName: 'Jev', taskTitle: null, operation: 'publish', createdAt: '' }],
       mentions: [{ messageId: 'm', path: '/channels/c', conversation: 'general', author: agent, excerpt: '@Owner look', createdAt: '' }] })).toBe(2)
   })
 

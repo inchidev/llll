@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:https'
 import { codeState } from '../src/cloud-io.mjs'
-import { snapshot } from '../src/operate.mjs'
 
 const image = process.env.LLLL_FACTORY_CLOUD_TEST_IMAGE
 const inside = process.env.LLLL_CLOUD_STATE_FIXTURE === '1'
@@ -41,7 +40,8 @@ test('Cloudflare code checkpoints retain exact history, staged/dirty/untracked s
   const source = join(directory, 'source'), repositories = join(directory, 'repositories')
   await mkdir(source); await mkdir(repositories)
   const git = (cwd, ...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  const root = '/workspace/repo'
+  // The checkout is where the box runtime works: the image's box root.
+  const root = join(process.env.LLLL_BOX_ROOT || '/work', 'repo')
   git(source, 'init', '-b', 'main'); git(source, 'config', 'user.name', 'Upstream author'); git(source, 'config', 'user.email', 'upstream@example.invalid')
   await writeFile(join(source, 'answer.txt'), 'original\n')
   await writeFile(join(source, 'asset.bin'), Buffer.from([0, 1, 2, 255]))
@@ -110,17 +110,14 @@ test('Cloudflare code checkpoints retain exact history, staged/dirty/untracked s
 
     git(root, 'add', '-A'); git(root, 'commit', '-m', 'Reviewed coding change')
     const committedHead = git(root, 'rev-parse', 'HEAD')
-    const publication = await snapshot(root, baseSha)
-    assert.equal(publication.headSha, committedHead)
-    assert.equal(publication.commits.length, 1)
-    assert.equal(publication.commits[0].message, 'Reviewed coding change\n')
-    assert.equal(publication.commits[0].parents[0], baseSha)
+    assert.equal(git(root, 'rev-parse', 'HEAD~1'), baseSha)
+    assert.equal(git(root, 'log', '-1', '--format=%s'), 'Reviewed coding change')
     const second = await codeState({ operation: 'checkpoint', remote: origin + '/code.git', baseSha, checkpoint: first.checkpoint })
     await rm(root, { recursive: true, force: true })
     await codeState({ operation: 'restore', remote: origin + '/code.git', baseSha, checkpoint: second.checkpoint })
     assert.equal(git(root, 'rev-parse', 'HEAD'), committedHead)
     assert.equal(git(root, 'status', '--porcelain'), '')
-    assert.deepEqual(await snapshot(root, baseSha), publication)
+    assert.equal(git(root, 'log', '-1', '--format=%s'), 'Reviewed coding change')
     assert.equal(git(join(repositories, 'source.git'), 'rev-parse', 'main'), baseSha)
     await rm(root, { recursive: true, force: true })
     await assert.rejects(codeState({ operation: 'restore', remote: origin + '/code.git', baseSha, checkpoint: first.checkpoint }), /Checkpoint differs/u)
@@ -144,8 +141,8 @@ test('Cloud image keeps its root idle supervisor alive while checkpoint cleanup 
     docker('exec', '--user', '1000:1000', container, '/bin/sh', '-c', 'sleep 600 >/dev/null 2>&1 &')
     docker('exec', '--user', '0:0', container, '/usr/bin/pkill', '-KILL', '-u', '1000')
     assert.equal(docker('inspect', '--format', '{{.State.Running}}', container), 'true')
-    docker('exec', '--user', '1000:1000', container, '/usr/local/bin/node', '-e', "const fs=require('node:fs'); fs.writeFileSync('/workspace/checkpoint-proof','retained source'); if(process.getuid()!==1000)process.exit(1)")
-    assert.equal(docker('exec', '--user', '0:0', container, 'cat', '/workspace/checkpoint-proof'), 'retained source')
+    docker('exec', '--user', '1000:1000', container, '/usr/local/bin/node', '-e', "const fs=require('node:fs'); fs.writeFileSync('/work/checkpoint-proof','retained source'); if(process.getuid()!==1000)process.exit(1)")
+    assert.equal(docker('exec', '--user', '0:0', container, 'cat', '/work/checkpoint-proof'), 'retained source')
     assert.equal(docker('inspect', '--format', '{{.State.Running}}', container), 'true')
   } finally { docker('rm', '-f', container) }
 })

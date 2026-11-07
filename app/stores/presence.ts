@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
-import type { AgentTurnDTO, PresenceStatus } from '~~/shared/types'
+import type { AgentStreamDTO, AgentTurnDTO, PresenceStatus } from '~~/shared/types'
 
 export const usePresenceStore = defineStore('presence', () => {
   const byUser = ref<Record<string, PresenceStatus>>({})
   const selfUserId = ref<string | null>(null)
   const typing = ref<Record<string, Record<string, boolean>>>({})
   const agentTurns = ref<Record<string, Record<string, AgentTurnDTO[]>>>({})
+  /** Answers being written, by conversation and Run. They exist only on the socket. */
+  const agentStreams = ref<Record<string, Record<string, AgentStreamDTO>>>({})
   const typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function apply(users: Array<{ userId: string; status: PresenceStatus }>) {
@@ -63,6 +65,28 @@ export const usePresenceStore = defineStore('presence', () => {
     return Object.keys(agentTurns.value[channelId] ?? {})
   }
 
+  /** `at` is the length the delta follows; a missed update waits for the next connection's snapshot. */
+  function applyAgentStream(channelId: string, stream: Omit<AgentStreamDTO, 'text'>, at: number, text: string) {
+    const channel = agentStreams.value[channelId] ?? {}
+    const current = channel[stream.runId]
+    if (at !== 0 && current?.text.length !== at) return
+    agentStreams.value = { ...agentStreams.value, [channelId]: { ...channel, [stream.runId]: { ...stream, text: at === 0 ? text : current!.text + text } } }
+  }
+
+  function endAgentStream(channelId: string, runId: string) {
+    const channel = agentStreams.value[channelId]
+    if (!channel?.[runId]) return
+    agentStreams.value = { ...agentStreams.value, [channelId]: Object.fromEntries(Object.entries(channel).filter(([id]) => id !== runId)) }
+  }
+
+  function hydrateAgentStreams(channelId: string, streams: AgentStreamDTO[]) {
+    agentStreams.value = { ...agentStreams.value, [channelId]: Object.fromEntries(streams.map(stream => [stream.runId, stream])) }
+  }
+
+  function agentStreamsIn(channelId: string): AgentStreamDTO[] {
+    return Object.values(agentStreams.value[channelId] ?? {}).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  }
+
   function statusOf(userId: string): PresenceStatus {
     const agentActive = Object.values(agentTurns.value).some(channel => Boolean(channel[userId]?.length))
     return agentActive ? 'online' : byUser.value[userId] ?? (userId === selfUserId.value ? 'online' : 'offline')
@@ -72,5 +96,5 @@ export const usePresenceStore = defineStore('presence', () => {
     selfUserId.value = userId
   }
 
-  return { byUser, typing, agentTurns, apply, markTyping, typingIn, setAgentTurns, hydrateAgentTurns, agentTurnsIn, agentsActiveIn, statusOf, setSelf }
+  return { byUser, typing, agentTurns, agentStreams, apply, markTyping, typingIn, setAgentTurns, hydrateAgentTurns, agentTurnsIn, agentsActiveIn, applyAgentStream, endAgentStream, hydrateAgentStreams, agentStreamsIn, statusOf, setSelf }
 })
