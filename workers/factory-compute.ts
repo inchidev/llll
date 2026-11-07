@@ -128,7 +128,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     const capabilities = cloudflareCapabilities.parse(context.capabilities)
     if (!this.env.FACTORY_CODE || !this.ctx.container || capabilities.image !== this.env.FACTORY_IMAGE) throw new Error('Factory resources or pinned image unavailable')
     const claimed = await computePoll(this.env, context.workspace.nodeId, { operation: 'claim' }, actionId)
-    if (!claimed.job) { await this.ctx.storage.setAlarm(Date.now() + 3000); return }
+    if (!('job' in claimed) || !claimed.job) { await this.ctx.storage.setAlarm(Date.now() + 3000); return }
     const claim = claimed.job
     await this.ctx.storage.put({ started: true, nodeId: context.workspace.nodeId })
     // An alarm left behind by process loss observes uncertainty instead of executing again.

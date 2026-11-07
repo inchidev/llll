@@ -9,6 +9,7 @@ import { actionColumns, authorizeFactoryAction, expireFactoryActions, type Actio
 import { githubSourceGrant } from './github-agent-client'
 import { giteaCredentials } from './gitea'
 import { fail } from './cf'
+import { boxSyncInput, boxTurnInput, computeSync, computeTurn } from './factory-boxes'
 
 /** A Gitea token never reaches a Node. The Node fetches through this Server with a capability bound to
  * one executing bootstrap and its lease, so it ends with the lease. */
@@ -57,6 +58,9 @@ export async function requireComputeNode(env: L4Env, credential: string) {
   return node
 }
 export const computePollSchema = z.discriminatedUnion('operation', [
+  // Protocol 2: a Node syncs its boxes and fetches their turns. The per-operation jobs below go with the old Factory.
+  boxSyncInput,
+  boxTurnInput,
   z.object({ operation: z.literal('claim') }).strict(),
   z.object({ operation: z.literal('workspaces') }).strict(),
   z.object({ operation: z.enum(['begin', 'heartbeat']), id: z.string().uuid(), lease: z.string().min(32).max(100) }).strict(),
@@ -71,6 +75,8 @@ export async function releaseFinishedTaskWork(env: L4Env, nodeId: string) {
     AND NOT EXISTS(SELECT 1 FROM factory_actions a WHERE a.workspace_id=factory_workspaces.id AND a.status IN ('pending','approved','claimed','executing'))`).bind(nowIso(), nodeId).run()
 }
 export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typeof computePollSchema>, scopedActionId: string | null = null) {
+  if (input.operation === 'sync') return computeSync(env, nodeId, input)
+  if (input.operation === 'turn') return computeTurn(env, nodeId, input)
   await expireFactoryActions(env)
   if (input.operation === 'workspaces') {
     // A Node keeps one disk per Task workspace and has room for only a few. It removes every disk

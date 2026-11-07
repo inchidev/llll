@@ -1,0 +1,171 @@
+import { z } from 'zod'
+import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-execution'
+import { runtimeEventSchema } from '../../shared/agent-execution'
+import type { RunEnvironment } from '../../shared/code-environments'
+import { dockerCapabilities, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
+import { newId, nowIso } from '../../shared/ids'
+import { asRpc, type L4Env } from '../../workers/env'
+import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
+import { admitBoxes, BOX_WAITING_DETAIL } from './box-admission'
+import { fail } from './cf'
+
+/** A Node renews every box it lists on each sync; one that misses a minute of syncs loses its lease and its share. */
+export const BOX_LEASE_MS = 60000
+const ACTIVE = "('starting','running','idle')"
+const secret = () => [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('')
+const leaseUntil = () => new Date(Date.now() + BOX_LEASE_MS).toISOString()
+
+export type FactoryBox = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; originRunId: string
+  runId: string | null; status: string; leaseToken: string | null; leaseUntil: string | null; cpu: number | null; memoryMib: number | null; runtimeMs: number; updatedAt: string }
+const boxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,origin_run_id AS originRunId,
+  run_id AS runId,status,lease_token AS leaseToken,lease_until AS leaseUntil,cpu,memory_mib AS memoryMib,runtime_ms AS runtimeMs,updated_at AS updatedAt`
+
+/** What the box's own Run executor reports to the Run's Durable Object, through the gateway. */
+export const boxEventsRequest = z.object({ from: z.number().int().min(0).max(1000000), events: z.array(runtimeEventSchema).max(100),
+  result: runtimeEventSchema.refine(event => event.type === 'result' || event.type === 'error', 'A result ends the turn').optional() }).strict()
+export type BoxEventsAck = { ack: number; cancel: boolean; steer: Array<{ messageId: string; content: string }> }
+export type BoxRunRpc = {
+  boxEvents: (runId: string, from: number, events: RuntimeEvent[], result?: RuntimeEvent) => Promise<BoxEventsAck | null>
+  boxSession: (runId: string, transcript: string) => Promise<boolean>
+  boxSubmission: (runId: string) => Promise<unknown>
+}
+export const boxRun = (env: L4Env, runId: string) => {
+  if (!env.AGENT_RUN_DO) fail(503, 'box_unavailable', 'Run coordination is unavailable')
+  return asRpc<BoxRunRpc>(env.AGENT_RUN_DO.getByName(`run:${runId}`))
+}
+
+export const boxSyncInput = z.object({ operation: z.literal('sync'),
+  capacity: z.object({ ...nodeCapacity.shape, diskFree: z.number().int().min(0) }).strict(),
+  boxes: z.array(z.object({ id: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), state: z.enum(['starting', 'running', 'idle', 'stopped', 'failed']),
+    runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12) }).strict()).max(64) }).strict()
+export const boxTurnInput = z.object({ operation: z.literal('turn'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), runId: z.string().uuid() }).strict()
+
+/**
+ * The Node a Run's box lives on: a Task Run with computer access whose repository names a Node that syncs
+ * boxes. Cloudflare containers become boxes later; until then their Runs keep the per-operation path.
+ */
+export async function boxNodeFor(env: L4Env, run: Pick<AgentRun, 'taskId' | 'environmentJson' | 'mandateJson'>): Promise<{ nodeId: string; capabilities: ComputeCapabilities } | null> {
+  if (!run.taskId || !run.environmentJson || !(JSON.parse(run.mandateJson) as RunMandate).computer) return null
+  const nodeId = (JSON.parse(run.environmentJson) as RunEnvironment).computeNodeId
+  if (!nodeId) return null
+  const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
+  const capabilities = node ? dockerCapabilities.safeParse(JSON.parse(node.capabilitiesJson)) : null
+  return capabilities?.success ? { nodeId, capabilities: capabilities.data } : null
+}
+
+/**
+ * Gives the Task's box this Run's turn, creating the box on its first turn. The box stays pinned to the
+ * repository snapshot, conversation and Node it was made for, and one released with its Task is never reused.
+ */
+export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string) {
+  const environment = JSON.stringify(JSON.parse(run.environmentJson!)), now = nowIso()
+  const box = await env.DB.prepare(`INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,run_id,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,agent_id,initiated_by) DO UPDATE SET run_id=excluded.run_id,updated_at=excluded.updated_at
+    WHERE factory_boxes.status<>'released' AND factory_boxes.channel_id=excluded.channel_id AND factory_boxes.environment_json=excluded.environment_json AND factory_boxes.node_id=excluded.node_id
+    RETURNING id`).bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, environment, run.id, run.id, now, now).first<{ id: string }>()
+  if (!box) fail(403, 'factory_revoked', 'The Task’s box belongs to a different repository snapshot, conversation or Node, or was released when the Task was done. Start a new Task.')
+  return box.id
+}
+
+/** The turn has ended or was cancelled: the next sync tells the Node to stop it. */
+export async function releaseBoxTurn(env: L4Env, runId: string) {
+  await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE run_id=?').bind(nowIso(), runId).run()
+}
+
+/** What still waits for a person before a box's turn may end; the commits themselves are in Git. */
+export async function boxCompletion(env: L4Env, run: AgentRun) {
+  const pending = await env.DB.prepare("SELECT 1 FROM factory_approvals WHERE run_id=? AND status IN ('pending_diff','pending') AND expires_at>? LIMIT 1").bind(run.id, nowIso()).first()
+  return { pending: Boolean(pending), missingWork: false }
+}
+
+type SyncRow = FactoryBox & { runStatus: string | null }
+/**
+ * One Node's sync: it reports its capacity and the boxes it holds, and gets back what each should do.
+ * Every listed box under its current lease is renewed for a minute. A box whose lease has ended, or that
+ * the Node holds under an old one, must stop: another start may already hold it. Waiting boxes are admitted
+ * in order within the Node's capacity; the rest show the Task as waiting for a free box.
+ */
+export async function computeSync(env: L4Env, nodeId: string, input: z.infer<typeof boxSyncInput>) {
+  const now = nowIso(), renewed = leaseUntil()
+  const { diskFree: _diskFree, ...capacity } = input.capacity
+  const reported = new Map(input.boxes.map(box => [box.id, box]))
+  const [node, , released] = await env.DB.batch([
+    env.DB.prepare("UPDATE compute_nodes SET capabilities_json=json_set(capabilities_json,'$.capacity',json(?)) WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 AND json_extract(capabilities_json,'$.docker')=1 RETURNING capabilities_json AS capabilitiesJson")
+      .bind(JSON.stringify(capacity), nodeId),
+    env.DB.prepare(`UPDATE factory_boxes SET status='stopped',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,updated_at=? WHERE node_id=? AND status IN ${ACTIVE} AND lease_until<=?`).bind(now, nodeId, now),
+    // A Done or archived Task's work is in its pull request; with no turn running, the Node may drop its disk.
+    env.DB.prepare(`UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=? WHERE node_id=? AND status<>'released'
+      AND task_id IN (SELECT id FROM tasks WHERE status='done' OR archived_at IS NOT NULL) AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')) RETURNING id`).bind(now, nodeId),
+    env.DB.prepare("UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE node_id=? AND run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')").bind(now, nodeId),
+    ...input.boxes.map(box => env.DB.prepare(`UPDATE factory_boxes SET status=?,lease_until=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE ? END,
+      lease_token=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE lease_token END,cpu=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE cpu END,
+      memory_mib=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE memory_mib END,runtime_ms=MAX(runtime_ms,?),updated_at=?
+      WHERE id=? AND node_id=? AND lease_token=? AND status IN ${ACTIVE}`).bind(box.state, box.state, renewed, box.state, box.state, box.state, box.runtimeMs, now, box.id, nodeId, box.lease)),
+  ])
+  const stored = (node?.results as Array<{ capabilitiesJson: string }> | undefined)?.[0]
+  const capabilities = stored ? dockerCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
+  if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node was paired with an older protocol. Pair it again from Settings → Compute.')
+  const releasedIds = new Set((released?.results as Array<{ id: string }> | undefined ?? []).map(row => row.id))
+  const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
+    WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results
+
+  const active = rows.filter(row => ['starting', 'running', 'idle'].includes(row.status))
+  const waiting = rows.filter(row => ['new', 'queued', 'stopped', 'failed'].includes(row.status) && row.runId && row.runStatus === 'running')
+  const { admitted, queued, reservation } = admitBoxes(capabilities.data.capacity, active.map(row => ({ cpu: row.cpu ?? 0, memoryMiB: row.memoryMib ?? 0 })), waiting)
+  const leases = new Map(admitted.map(row => [row.id, secret()]))
+  const nowQueued = queued.filter(row => row.status !== 'queued'), wasQueued = new Set(admitted.filter(row => row.status === 'queued').map(row => row.id))
+  if (admitted.length || nowQueued.length) {
+    const results = await env.DB.batch([
+      // The count guards a sync that overlaps another: together they never exceed the Node's boxes.
+      ...admitted.map(row => env.DB.prepare(`UPDATE factory_boxes SET status='starting',lease_token=?,lease_until=?,cpu=?,memory_mib=?,updated_at=? WHERE id=? AND status=?
+        AND (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status IN ${ACTIVE})<? RETURNING id`).bind(leases.get(row.id)!, renewed, reservation.cpu, reservation.memoryMiB, now, row.id, row.status, nodeId, capabilities.data.capacity.boxes)),
+      ...nowQueued.map(row => env.DB.prepare("UPDATE factory_boxes SET status='queued',updated_at=? WHERE id=? AND status=?").bind(now, row.id, row.status)),
+    ])
+    admitted.forEach((row, index) => {
+      if ((results[index]?.results as unknown[] | undefined)?.length) Object.assign(row, { status: 'starting', leaseToken: leases.get(row.id)!, leaseUntil: renewed, cpu: reservation.cpu, memoryMib: reservation.memoryMiB })
+    })
+    // The Task shows why nothing happens yet, and that work began once it has a box.
+    const turns = [...nowQueued.map(row => ({ row, detail: BOX_WAITING_DETAIL })), ...admitted.filter(row => row.status === 'starting' && wasQueued.has(row.id)).map(row => ({ row, detail: 'Working' }))]
+    for (const { row, detail } of turns) await patchAgentTurn(env, row.runId!, { detail })
+    for (const key of new Set(turns.map(({ row }) => `${row.channelId}\n${row.agentId}`))) {
+      const [channelId, agentId] = key.split('\n') as [string, string]
+      await fanoutAgentTurns(env, channelId, agentId)
+    }
+  }
+
+  const leased = (row: SyncRow) => ['starting', 'running', 'idle'].includes(row.status) && Boolean(row.leaseToken)
+  const byId = new Map(rows.map(row => [row.id, row]))
+  // A box that holds a lease runs under it: a Node that still has an older one takes the new one over.
+  // A box without one must stop, since its share may already be another box's.
+  const answer = (row: SyncRow | undefined, report: z.infer<typeof boxSyncInput>['boxes'][number] | undefined) => {
+    const id = row?.id ?? report!.id
+    const holds = row && leased(row)
+    const want = !row || row.status === 'released' || releasedIds.has(id) ? 'released' : holds ? 'running' : 'stopped'
+    const turnRunId = holds && row.runId && row.runStatus === 'running' ? row.runId : null
+    return { id, lease: holds ? row.leaseToken! : report!.lease, want, taskId: row?.taskId ?? null, image: capabilities.data.image, diskBytes: capabilities.data.diskBytes,
+      cpu: row?.cpu ?? reservation.cpu, memoryMiB: row?.memoryMib ?? reservation.memoryMiB,
+      ...(turnRunId ? { turn: { runId: turnRunId } } : {}),
+      // The Node is running a turn that is no longer the box's: cancelled, failed or replaced.
+      ...(report?.runId && report.runId !== turnRunId ? { cancelRunId: report.runId } : {}),
+      // Network windows and Project secrets fill these; until then a box reaches only this Server.
+      egress: { revision: 0, hosts: [] as string[], secretHosts: [] as string[] } }
+  }
+  const boxes = [
+    ...rows.filter(row => leased(row) || reported.has(row.id)).map(row => answer(row, reported.get(row.id))),
+    ...[...reported.values()].filter(report => !byId.has(report.id)).map(report => answer(undefined, report)),
+  ]
+  return { boxes }
+}
+
+/**
+ * The Node asks for the turn it was told to run. The submission, which holds the Run's gateway
+ * capability, stays in the Run's Durable Object and goes only to the Node holding the box's lease.
+ */
+export async function computeTurn(env: L4Env, nodeId: string, input: z.infer<typeof boxTurnInput>) {
+  const box = await env.DB.prepare(`SELECT b.id FROM factory_boxes b JOIN agent_runs r ON r.id=b.run_id WHERE b.id=? AND b.node_id=? AND b.lease_token=? AND b.lease_until>? AND b.run_id=?
+    AND b.status IN ${ACTIVE} AND r.status='running'`).bind(input.boxId, nodeId, input.lease, nowIso(), input.runId).first()
+  if (!box) fail(403, 'box_turn_denied', 'This turn is not the box’s under its current lease')
+  const submission = await boxRun(env, input.runId).boxSubmission(input.runId)
+  if (!submission) fail(409, 'box_turn_unavailable', 'The Run has not handed over its turn yet')
+  return { submission }
+}

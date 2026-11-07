@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite'
 import { ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -35,7 +36,7 @@ describe('an answer in the conversation while it is written', () => {
 })
 
 describe('the Run side of a stream', () => {
-  afterEach(() => { vi.useRealTimers(); vi.resetModules(); vi.doUnmock('../../server/utils/agent-run-service'); vi.doUnmock('../../server/utils/agent-tool-security') })
+  afterEach(() => { vi.useRealTimers(); vi.resetModules(); for (const path of ['../../server/utils/agent-run-service', '../../server/utils/agent-tool-security', 'cloudflare:workers', '../../workers/agent-pi-durable']) vi.doUnmock(path) })
 
   async function fixture(audiences: Array<'channel' | 'initiator'>) {
     const run = { id: stream.runId, channelId: 'thread-1', agentId: 'agent-1', initiatedBy: 'member-1', status: 'running' } as AgentRun
@@ -49,7 +50,7 @@ describe('the Run side of a stream', () => {
       return { streamAgentReply: async (input: { audience: string; text: string }) => { sent.push({ audience: input.audience, text: input.text }) }, endAgentStream: async (id: string) => { ended.push(id) } }
     } } } as unknown as L4Env
     const { agentReplyStream } = await import('../../workers/agent-reply-stream')
-    return { stream: agentReplyStream(env, stream.runId), sent, ended, audience }
+    return { stream: agentReplyStream(env, stream.runId), sent, ended, audience, env }
   }
 
   it('sends the whole current turn at most every interval, and asks again after a tool has run', async () => {
@@ -67,6 +68,39 @@ describe('the Run side of a stream', () => {
     await vi.advanceTimersByTimeAsync(200)
     expect(f.sent.at(-1)).toEqual({ audience: 'initiator', text: 'Found it.' })
     expect(f.audience).toHaveBeenCalledTimes(2)
+  })
+
+  it('streams a box’s deltas as they reach the Run, and a resent batch never repeats text', async () => {
+    vi.useFakeTimers()
+    const f = await fixture(['channel'])
+    vi.doMock('cloudflare:workers', () => ({ DurableObject: class { constructor(protected ctx: unknown, protected env: unknown) {} } }))
+    vi.doMock('../../workers/agent-pi-durable', () => ({ runEmbeddedPi: vi.fn() }))
+    const { AgentRunDurableObject } = await import('../../workers/agent-run-do')
+    const db = new DatabaseSync(':memory:'), values = new Map<string, unknown>([['runId', stream.runId], ['box', true]])
+    const storage = {
+      sql: { exec(query: string, ...args: Array<string | number>) {
+        const statement = db.prepare(query)
+        if (statement.columns().length) return { toArray: () => statement.all(...args) }
+        statement.run(...args)
+      } },
+      transactionSync<T>(callback: () => T) { db.exec('BEGIN'); try { const result = callback(); db.exec('COMMIT'); return result } catch (error) { db.exec('ROLLBACK'); throw error } },
+      get: async (key: string) => values.get(key), put: async (key: string, value: unknown) => { values.set(key, value) }, delete: async (key: string) => values.delete(key), setAlarm: async () => {},
+    }
+    const run = new AgentRunDurableObject({ storage, waitUntil: () => {} } as unknown as DurableObjectState, f.env)
+    try {
+      expect(await run.boxEvents(stream.runId, 0, [{ type: 'text', text: 'Let me ' }, { type: 'text', text: 'check.' }])).toMatchObject({ ack: 2 })
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f.sent).toEqual([{ audience: 'channel', text: 'Let me check.' }])
+      // The box did not hear the answer and sends the batch again, with what it wrote since.
+      expect(await run.boxEvents(stream.runId, 0, [{ type: 'text', text: 'Let me ' }, { type: 'text', text: 'check.' }, { type: 'text', text: ' Done.' }])).toMatchObject({ ack: 3 })
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f.sent.at(-1)).toEqual({ audience: 'channel', text: 'Let me check. Done.' })
+      // A tool step starts a new turn of the stream and asks again who may watch, as for embedded Pi.
+      await run.boxEvents(stream.runId, 3, [{ type: 'tool', name: 'bash' }, { type: 'text', text: 'Tests pass.' }])
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f.sent.at(-1)).toEqual({ audience: 'initiator', text: 'Tests pass.' })
+      expect(f.audience).toHaveBeenCalledTimes(2)
+    } finally { db.close() }
   })
 
   it('sends nothing after it is closed, so no update follows the finished message', async () => {

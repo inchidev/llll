@@ -17,6 +17,7 @@ import { agentConversationEffort } from './agent-conversation-model'
 import { agentModelLimits } from './agent-model-limits'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import type { AgentRun } from '../../shared/agent-execution'
+import { boxEventsRequest, boxRun } from './factory-boxes'
 
 const modelRequest = z.object({
   messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant', 'tool']), content: z.unknown().optional(),
@@ -124,14 +125,32 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
 }
 
 /** The gateway operations a Run's executor calls back on this Server. */
-export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files)$/u
+export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files|events|session)$/u
 
 export async function agentGateway(request: Request, deployment: L4Env, runId: string, operation: string, schedule: (promise: Promise<unknown>) => void): Promise<Response> {
   const env = await withIntegrations(deployment)
   const capability = request.headers.get('Authorization')?.replace(/^Bearer /u, '') || ''
   if (!await verifyRunCapability(env, runId, capability)) return new Response('Unauthorized', { status: 401 })
   const run = await findAgentRun(env, runId)
-  if (!run || run.status !== 'running' || run.deadline <= new Date().toISOString()) return new Response('Run is no longer active', { status: 403 })
+  const active = run && run.status === 'running' && run.deadline > new Date().toISOString()
+  // A box reports its turn here. After a cancel it hears so in the answer instead of an error, and stops.
+  if (run && operation === 'events' && request.method === 'POST') {
+    const body = await readLimitedStream(request.body, 4_000_000)
+    if (!body.ok) return new Response('Invalid request size', { status: 413 })
+    let input: ReturnType<typeof boxEventsRequest.parse>
+    try { input = boxEventsRequest.parse(JSON.parse(new TextDecoder().decode(body.bytes))) } catch { return Response.json({ error: { message: 'Invalid box events' } }, { status: 400 }) }
+    if (!active) return Response.json({ ack: input.from, cancel: true, steer: [] })
+    const ack = await boxRun(env, run.id).boxEvents(run.id, input.from, input.events, input.result)
+    return ack ? Response.json(ack) : new Response('This Run has no box', { status: 409 })
+  }
+  if (!run || !active) return new Response('Run is no longer active', { status: 403 })
+  // Pi's session, sent by the box before its result, for the archive step.
+  if (operation === 'session') {
+    if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 })
+    const body = await readLimitedStream(request.body, 2_000_000)
+    if (!body.ok) return new Response('Invalid request size', { status: 413 })
+    return await boxRun(env, run.id).boxSession(run.id, new TextDecoder().decode(body.bytes)) ? Response.json({ ok: true }) : new Response('This Run has no box', { status: 409 })
+  }
   if (request.method === 'GET' && operation === 'files') {
     try { await runAuthorization(env, run); await markUntrustedContext(env, run); return await runtimeFiles(env, run) } catch { return new Response('Files unavailable', { status: 403 }) }
   }
