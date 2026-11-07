@@ -4,6 +4,7 @@ import { getServerId } from '../../shared/server-id'
 import { SERVER_WORKER_NAME, readServerSetting } from '../../shared/server-settings'
 import { activeUpdate, type UpdateStore } from '../../shared/server-updates'
 import { createUpdateStore } from '../../shared/server-update-store'
+import { isOperatorManaged } from '../../shared/server-runtime'
 import { cf, fail } from './cf'
 import { requireMember } from './guards'
 
@@ -17,7 +18,7 @@ export type ServerDeployment = {
 
 export async function serverDeployment(env: L4Env, fallbackOrigin?: string): Promise<ServerDeployment | null> {
   const accountId = env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim() || ''
-  if (!accountId || env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return null
+  if (!accountId || isOperatorManaged(env)) return null
   let storedWorkerName: string | null = null
   try { storedWorkerName = await readServerSetting(env.DB, SERVER_WORKER_NAME) } catch { /* A Database stub without settings still launches. */ }
   const workerName = storedWorkerName
@@ -86,7 +87,7 @@ export async function updateOwner(event: H3Event) {
 
 export function updateStorage(env: L4Env, _serverId: string): UpdateStore {
   const accountId = env.ACCOUNT_ID?.trim() || env.LLLL_ACCOUNT_ID?.trim()
-  if ((!env.FILES && !env.TICKETS) || !accountId || env.LLLL_RUNTIME === 'celld') fail(409, 'updates_unavailable', 'Updates require storage and a published L4 Server release. VPS operators use llll upgrade.')
+  if ((!env.FILES && !env.TICKETS) || !accountId || isOperatorManaged(env)) fail(409, 'updates_unavailable', 'Updates require storage and a published L4 Server release. VPS operators use llll upgrade; L4 Cloud updates its Servers itself.')
   // Reads must start on the primary so a fresh request cannot miss an active Build.
   const database = env.DB.withSession('first-primary')
   return createUpdateStore(async (sql, params) => (await database.prepare(sql).bind(...params).all<{ payload: string; revision: number }>()).results)

@@ -84,6 +84,17 @@ const bootstrapMarker = 'llll.gg/bootstrap/server-v1'
 export const serverTag = 'llll-server'
 const bootstrapTag = 'llll-server-bootstrap'
 
+/** Where a script lives: the account's own Workers, or a Workers for Platforms dispatch namespace (L4 Cloud). */
+export type ScriptTarget = { namespace?: string }
+
+/** The API path of a script and its sub-resources, for either target. */
+export function scriptApiPath(accountId: string, workerName: string, target: ScriptTarget = {}) {
+  if (target.namespace && !/^[a-z0-9][a-z0-9_-]{0,62}$/u.test(target.namespace)) throw createError({ statusCode: 400, statusMessage: 'Dispatch namespace name is invalid' })
+  return target.namespace
+    ? `/accounts/${accountId}/workers/dispatch/namespaces/${target.namespace}/scripts/${workerName}`
+    : `/accounts/${accountId}/workers/scripts/${workerName}`
+}
+
 /** Variables owned by the installer that a minimal Server env must never keep. */
 const legacyEnvBindings = new Set([
   'ADMIN_USERNAME',
@@ -126,7 +137,7 @@ export function requiresInitialInfrastructureProvisioning(existing: boolean): bo
   return !existing
 }
 
-function mailDomain(request: DeployRequest) {
+function mailDomain(request: Pick<DeployRequest, 'mailSubdomain' | 'zoneName'>) {
   return `${request.mailSubdomain}.${request.zoneName}`
 }
 
@@ -312,7 +323,7 @@ function sqlString(value: string) {
   return `'${value.replaceAll("'", "''")}'`
 }
 
-async function applyD1Migrations(accessToken: string, accountId: string, databaseId: string, payload: InstallerAssetsPayload) {
+export async function applyD1Migrations(accessToken: string, accountId: string, databaseId: string, payload: Pick<InstallerAssetsPayload, 'migrations'>) {
   const names = new Set<string>()
   for (const migration of payload.migrations) {
     if (!/^[0-9A-Za-z_.-]+$/.test(migration.name)) {
@@ -381,11 +392,13 @@ async function sha256Hex(value: string) {
  * Establish the one UUID before the Worker handles a request. The same value
  * names the Worker and its D1/R2/KV resources, and is the permanent Server ID.
  */
-async function seedNewServer(
+export type SeedRequest = Pick<DeployRequest, 'serverId' | 'filesEnabled' | 'backupBucketName' | 'registrationMode' | 'mailEnabled' | 'mailSubdomain' | 'zoneName' | 'zoneId' | 'mailLocalPart' | 'adminUsername' | 'appName'>
+
+export async function seedNewServer(
   accessToken: string,
   accountId: string,
   databaseId: string,
-  request: DeployRequest,
+  request: SeedRequest,
   origin: string,
   setupToken: string | null,
 ) {
@@ -441,11 +454,11 @@ async function rememberWorkerName(accessToken: string, accountId: string, databa
     [workerName, new Date().toISOString()])
 }
 
-export async function uploadAssets(accessToken: string, accountId: string, workerName: string, payload: InstallerAssetsPayload) {
+export async function uploadAssets(accessToken: string, accountId: string, workerName: string, payload: Pick<InstallerAssetsPayload, 'assets'>, target: ScriptTarget = {}) {
   const manifest = Object.fromEntries(payload.assets.map(asset => [asset.path, { hash: asset.hash, size: asset.size }]))
   const session = await cloudflareApi<{ jwt: string, buckets?: string[][] }>(
     accessToken,
-    `/accounts/${accountId}/workers/scripts/${workerName}/assets-upload-session`,
+    `${scriptApiPath(accountId, workerName, target)}/assets-upload-session`,
     { method: 'POST', body: JSON.stringify({ manifest }) },
   )
   let completionToken = session.buckets?.length ? undefined : session.jwt

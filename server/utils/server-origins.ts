@@ -1,3 +1,4 @@
+import { isOperatorManaged } from '../../shared/server-runtime'
 import type { L4Env } from '../../workers/env'
 import {
   normalizeServerOrigin,
@@ -80,7 +81,8 @@ async function storedOrigins(env: L4Env): Promise<ServerOrigin[]> {
  * never added just because it reached the Worker.
  */
 export async function readServerOrigins(env: L4Env, fallbackOrigin?: string): Promise<ServerOrigin[]> {
-  const operatorManaged = env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld'
+  // A VPS lists its addresses in env; a Server on L4 Cloud has exactly its `PUBLIC_ORIGIN`. Neither stores origins.
+  const operatorManaged = isOperatorManaged(env)
   const configured = safeOrigin(env.PUBLIC_ORIGIN)
   const requestFallback = safeOrigin(fallbackOrigin)
   const stored = operatorManaged ? [] : await storedOrigins(env)
@@ -138,7 +140,7 @@ export async function allowedServerOrigins(env: L4Env, fallbackOrigin?: string):
  * `readServerOrigins` computes a per-request fallback instead.
  */
 export async function ensurePrimaryServerOrigin(env: L4Env): Promise<void> {
-  if (env.LLLL_RUNTIME?.trim().toLowerCase() === 'celld') return
+  if (isOperatorManaged(env)) return
   if (!env.DB) return
   const origin = safeOrigin(env.PUBLIC_ORIGIN)
   if (!origin) return
