@@ -100,7 +100,9 @@ describe('a Server on L4 Cloud', () => {
     const { fetcher, calls } = fakeNetwork(release)
     vi.stubGlobal('fetch', fetcher)
     const steps: string[] = []
-    const result = await installHostedL4('token', request, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, report: event => { steps.push(`${event.step}:${event.state}`) } })
+    const kept: unknown[] = []
+    const result = await installHostedL4('token', request, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, report: event => { steps.push(`${event.step}:${event.state}`) }, onStorage: resources => { kept.push(resources) } })
+    expect(kept).toEqual([result.resources])
 
     expect(result).toMatchObject({ origin: 'https://acme.llll.gg', version: '0.0.9', scriptName: `srv-${SERVER}`, resources: { databaseId: 'd1-uuid', filesBucket: `llll-srv-${SERVER}-files`, backupBucket: `llll-srv-${SERVER}-backups`, kvId: 'kv-id' }, appliedMigrations: ['0000_baseline'], verified: true })
     expect(result.setupUrl).toMatch(/^https:\/\/acme\.llll\.gg\/setup#claim=[A-Za-z0-9_-]{32,}$/)

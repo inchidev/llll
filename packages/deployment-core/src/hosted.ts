@@ -46,6 +46,8 @@ export type HostedInstallOptions = {
   cloudSecret?: string
   /** Resources made by an earlier attempt, which are reused instead of made again. */
   resources?: Partial<HostedResources>
+  /** Called once the storage exists, so that a caller can keep the ids before anything later can fail. */
+  onStorage?: (resources: HostedResources) => void | Promise<void>
 }
 
 export type HostedInstallResponse = {
@@ -219,6 +221,7 @@ export async function installHostedL4(accessToken: string, value: unknown, optio
 
   await progress('storage', 'active')
   const resources = await provisionHostedStorage(accessToken, request, options.resources)
+  await options.onStorage?.(resources)
   await progress('storage', 'complete', 'D1, R2 and KV ready')
 
   await progress('database', 'active')
