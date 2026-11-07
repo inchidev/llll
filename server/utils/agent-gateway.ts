@@ -14,6 +14,7 @@ import type { L4Env } from '../../workers/env'
 import { modelForRun } from '../../workers/ai-runtime'
 import { agentImageResolver, modelAcceptsImages } from './agent-images'
 import { agentConversationEffort } from './agent-conversation-model'
+import { agentModelLimits } from './agent-model-limits'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import type { AgentRun } from '../../shared/agent-execution'
 
@@ -40,7 +41,8 @@ async function messagesForModel(input: z.infer<typeof modelRequest>['messages'],
 }
 
 async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof modelRequest>, signal: AbortSignal): Promise<Response> {
-  const maxOutputTokens = 4096
+  // The answer limit Pi was told; the model's own, under the shared ceiling.
+  const { maxOutputTokens } = await agentModelLimits(env, run.model)
   const images = agentImageResolver(env, run, () => modelAcceptsImages(env, run.model))
   const imageCount = images.count(JSON.stringify(input.messages.filter(message => message.role === 'user')))
   // Conservative reservation includes input bytes, images, output allowance and protocol overhead.
@@ -138,7 +140,8 @@ export async function agentGateway(request: Request, deployment: L4Env, runId: s
     catch { return new Response('Repository archive is unavailable under the current mandate', { status: 403 }) }
   }
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-  const body = await readLimitedStream(request.body, 256000)
+  // Pi sends the whole retained context, up to the context ceiling: about a megabyte of text.
+  const body = await readLimitedStream(request.body, 4_000_000)
   if (!body.ok) return new Response('Invalid request size', { status: 413 })
   try {
     const input: unknown = JSON.parse(new TextDecoder().decode(body.bytes))
