@@ -23,7 +23,7 @@ let f: ReturnType<typeof mcpFixture>, run: AgentRun, boxId: string
 
 /** GitHub as the merge sees it: refs, the Task's pull request, its checks and the merge endpoint. */
 function githubFixture() {
-  const state = { refs: {} as Record<string, string>, head: sha, draft: true, merged: false, check: 'success' as 'success' | 'failure' | 'in_progress', refuse: null as null | { status: number; message: string },
+  const state = { refs: {} as Record<string, string>, head: sha, draft: true, merged: false, check: 'success' as 'success' | 'failure' | 'in_progress' | 'none', statuses: [] as Array<{ context: string; state: string; target_url: null }>, refuse: null as null | { status: number; message: string },
     compare: 'ahead', tokens: [] as unknown[], merges: [] as Array<Record<string, unknown>>, readied: 0, pulls: 0 }
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL, options: RequestInit = {}) => {
     const parsed = new URL(String(url)), path = parsed.pathname, method = options.method ?? 'GET', body = options.body ? JSON.parse(String(options.body)) : {}
@@ -47,8 +47,9 @@ function githubFixture() {
       return Response.json({ sha: mergeSha, merged: true, message: 'Pull Request successfully merged' })
     }
     if (path.endsWith('/pulls/77')) return Response.json(pull())
-    if (path.endsWith('/check-runs')) return Response.json({ total_count: 1, check_runs: [{ name: 'test', head_sha: state.head, status: state.check === 'in_progress' ? 'in_progress' : 'completed', conclusion: state.check === 'in_progress' ? null : state.check, details_url: null }] })
-    if (path.endsWith('/statuses')) return Response.json([])
+    if (path.endsWith('/check-runs')) return Response.json(state.check === 'none' ? { total_count: 0, check_runs: [] }
+      : { total_count: 1, check_runs: [{ name: 'test', head_sha: state.head, status: state.check === 'in_progress' ? 'in_progress' : 'completed', conclusion: state.check === 'in_progress' ? null : state.check, details_url: null }] })
+    if (path.endsWith('/statuses')) return Response.json(state.statuses)
     if (path.endsWith('/deployments')) return Response.json([])
     if (path.endsWith('/actions/runs')) return Response.json({ total_count: 0, workflow_runs: [] })
     throw new Error('Unexpected GitHub fixture endpoint ' + method + ' ' + path)
@@ -58,6 +59,13 @@ function githubFixture() {
 const flow = (gitFlow: Partial<ProjectGitFlow>) => f.db.prepare('UPDATE projects SET factory_json=? WHERE id=?').run(JSON.stringify({ gitFlow: { ...DEFAULT_GIT_FLOW, ...gitFlow } }), 'proj')
 const withPull = (commit = sha) => f.db.prepare('UPDATE factory_boxes SET pull_json=? WHERE id=?')
   .run(JSON.stringify({ number: 77, commit, branch: `l4-agent/${boxId}`, url: 'https://github.com/inchidev/afterprompt/pull/77' }), boxId)
+/** The repository environment names no required check, as a repository without CI does. */
+function noRequiredChecks() {
+  for (const [table, id] of [['factory_boxes', boxId], ['agent_runs', run.id]] as const) {
+    const row = f.db.prepare(`SELECT environment_json AS json FROM ${table} WHERE id=?`).get(id) as { json: string }
+    f.db.prepare(`UPDATE ${table} SET environment_json=? WHERE id=?`).run(JSON.stringify({ ...JSON.parse(row.json), requiredChecks: [] }), id)
+  }
+}
 const merges = () => f.db.prepare("SELECT status,decided_by AS decidedBy,request_json AS request,result_json AS result FROM factory_approvals WHERE kind='merge' ORDER BY created_at").all() as Array<{ status: string; decidedBy: string | null; request: string; result: string | null }>
 const taskState = () => f.db.prepare('SELECT status,factory_state AS factoryState FROM tasks WHERE id=?').get('factory-task') as { status: string; factoryState: string | null }
 const mergeTool = (callId: string, commit = sha) => executeRunTool(f.env, run.id, { callId, name: 'factory_merge', arguments: { sha: commit } }, () => {})
@@ -220,6 +228,41 @@ describe('a person’s merge', () => {
     expect(github.merges).toEqual([])
   })
 
+  it('may merge a head with no checks at all, and says so', async () => {
+    noRequiredChecks()
+    const github = githubFixture()
+    github.check = 'none'
+    withPull()
+    const owner = await f.actor()
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ canMerge: true, ready: true, unchecked: true, reason: expect.stringContaining('No checks or statuses were reported') })
+    expect(await personMerge(f.env, owner, 'factory-task', { sha })).toMatchObject({ box: { pull: { merged: { sha: mergeSha } } }, message: expect.stringContaining('No checks were reported for its head') })
+    expect(JSON.parse(merges()[0]!.request)).toEqual({ sha, number: 77, method: 'squash', by: 'person', checks: 'none' })
+  })
+
+  it('still waits on any check or status that exists, and on a required check nobody reported', async () => {
+    noRequiredChecks()
+    const github = githubFixture()
+    github.check = 'none'
+    github.statuses = [{ context: 'ci/build', state: 'pending', target_url: null }]
+    withPull()
+    const owner = await f.actor()
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ ready: false, unchecked: false, reason: expect.stringContaining('still running') })
+    await expect(personMerge(f.env, owner, 'factory-task', { sha })).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('still running') })
+    github.statuses = [{ context: 'ci/build', state: 'failure', target_url: null }]
+    await expect(personMerge(f.env, owner, 'factory-task', { sha })).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('failed') })
+    expect(github.merges).toEqual([])
+  })
+
+  it('does not merge without checks when the repository requires one', async () => {
+    const github = githubFixture()
+    github.check = 'none'
+    withPull()
+    const owner = await f.actor()
+    expect(await taskMergeState(f.env, owner, 'factory-task')).toMatchObject({ ready: false, unchecked: false })
+    await expect(personMerge(f.env, owner, 'factory-task', { sha })).rejects.toMatchObject({ statusCode: 409 })
+    expect(github.merges).toEqual([])
+  })
+
   it('reports GitHub’s refusal with its reason and never works around it', async () => {
     const github = githubFixture()
     withPull()
@@ -296,6 +339,17 @@ describe('factory_merge', () => {
     expect(github.merges).toEqual([{ sha, merge_method: 'merge' }])
     expect(merges()).toEqual([expect.objectContaining({ status: 'completed', decidedBy: null, request: expect.stringContaining('"by":"agent"') })])
     expect(taskState().factoryState).toBe('merged')
+  })
+
+  it('never merges a head with no checks', async () => {
+    flow({ merge: 'agent_after_checks' })
+    noRequiredChecks()
+    const github = githubFixture()
+    github.check = 'none'
+    withPull()
+    await expect(mergeTool('unchecked')).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('No checks') })
+    expect(github.merges).toEqual([])
+    expect(merges()).toEqual([])
   })
 
   it('returns GitHub’s refusal to the Agent', async () => {

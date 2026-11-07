@@ -86,8 +86,9 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
 /**
  * The checks, deployments and logs of the Task's pull request at exactly its approved head, from the
  * provider. `readyForReview` is the one readiness rule: every check of the head passed (or was skipped), and
- * every check the repository configuration requires is among them. The Agent's merge and a person's merge
- * from L4 both wait for it; the provider's own merge rules still decide after it.
+ * every check the repository configuration requires is among them, and there is at least one. The Agent's merge
+ * waits for it. A person's merge from L4 waits for it too, unless the provider reported no checks, statuses or
+ * jobs at all for the head (`noChecksReported` in factory-merge.ts). The provider's own merge rules decide after.
  */
 export async function pullFeedback(env: L4Env, item: RunEnvironment, receipt: PullReceipt, jobId: number | undefined, ensure: () => Promise<void>) {
   const root = `/repos/${item.sourceRepo}`

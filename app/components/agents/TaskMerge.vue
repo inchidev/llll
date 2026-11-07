@@ -4,7 +4,7 @@ import type { ProjectGitFlow } from '~~/shared/project-factory'
 import { GIT_METHOD_LABELS } from '~~/shared/project-factory'
 type Pull = { number: number; commit: string; branch: string; url: string; merged?: { sha: string | null; method: string; at: string; by: 'person' | 'agent' } }
 type MergeState = { box: { id: string; repository: string; baseBranch: string; branch: string; pushedSha: string | null; pull: Pull | null } | null
-  gitFlow: ProjectGitFlow | null; canMerge: boolean; ready: boolean; reason: string | null }
+  gitFlow: ProjectGitFlow | null; canMerge: boolean; ready: boolean; unchecked: boolean; reason: string | null; message?: string }
 /** The Task's code where its pull request is shown: the pull request and its Merge, or the commit a direct push sent. */
 const props = defineProps<{ taskId: string }>()
 const { api } = useApi(), toast = useToast()
@@ -16,7 +16,10 @@ const merging = computed(() => Boolean(pull.value && !pull.value.merged && state
 async function merge() {
   if (!pull.value) return
   busy.value = true
-  try { await api(`/api/tasks/${props.taskId}/merge`, { method: 'POST', body: { sha: pull.value.commit } }); toast.add({ title: `Pull request #${pull.value.number} merged`, color: 'success' }) }
+  try {
+    const result = await api<MergeState>(`/api/tasks/${props.taskId}/merge`, { method: 'POST', body: { sha: pull.value.commit } })
+    toast.add({ title: `Pull request #${pull.value.number} merged`, description: result.message, color: 'success' })
+  }
   catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) }
   finally { busy.value = false; confirmed.value = false; await query.refetch() }
 }
@@ -30,9 +33,9 @@ async function merge() {
       </div>
       <p class="break-all font-mono text-xs text-muted">{{ pull.branch }} → {{ state.box.baseBranch }} · head {{ pull.commit.slice(0, 12) }}<template v-if="pull.merged?.sha"> · merge {{ pull.merged.sha.slice(0, 12) }}</template></p>
       <template v-if="merging">
-        <p v-if="state.reason" class="text-muted">{{ state.reason }}</p>
+        <p v-if="state.reason" :class="state.unchecked ? 'text-warning' : 'text-muted'">{{ state.reason }}</p>
         <template v-if="state.canMerge">
-          <UCheckbox v-if="state.ready" v-model="confirmed" :label="`Merge #${pull.number} into ${state.box.baseBranch} by ${GIT_METHOD_LABELS[state.gitFlow!.method].toLowerCase()}`" />
+          <UCheckbox v-if="state.ready" v-model="confirmed" :label="`Merge #${pull.number} into ${state.box.baseBranch} by ${GIT_METHOD_LABELS[state.gitFlow!.method].toLowerCase()}${state.unchecked ? ' without checks' : ''}`" />
           <div class="flex flex-wrap gap-2">
             <UButton label="Merge" icon="i-ph-git-merge" :disabled="!state.ready || !confirmed" :loading="busy" :title="state.ready ? undefined : state.reason ?? undefined" @click="merge" />
             <UButton label="Check again" color="neutral" variant="ghost" :loading="query.isFetching.value" @click="query.refetch()" />

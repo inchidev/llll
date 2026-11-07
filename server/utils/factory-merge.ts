@@ -20,8 +20,10 @@ import { fail } from './cf'
 /**
  * The merge of a Task's pull request from L4 (ADR 0010), the end of the Factory. A person merges from the Task
  * under the `person` and `agent_after_checks` Git flows; the Agent merges with `factory_merge` only under
- * `agent_after_checks`. Both wait for the same readiness as `factory_feedback` reports it: every check of the
- * approved head passed. The provider merges exactly that head (`sha`), so a head that moved is refused, with
+ * `agent_after_checks`. Both wait for the readiness `factory_feedback` reports: every check of the approved head
+ * passed, and there was at least one. A person may also merge a head for which the provider reports no checks,
+ * no statuses and no Actions jobs at all, so that a repository without CI can be merged from L4; the answer
+ * says so. The Agent never merges unchecked code. The provider merges exactly that head (`sha`), so a head that moved is refused, with
  * the Project's merge method. The provider's branch protection stays the ceiling: a merge it refuses is
  * reported with its reason and never retried around it.
  *
@@ -41,9 +43,24 @@ async function taskPullBox(env: L4Env, taskId: string) {
     ORDER BY updated_at DESC,id DESC LIMIT 1`).bind(taskId).first<TaskBox & { originRunId: string }>()
 }
 
-/** Why a pull request cannot be merged yet, from its feedback, or null once every check of its head passed. */
-export function mergeBlocker(feedback: { state?: string; readyForReview?: boolean; required?: Array<{ name: string; state: string }> }) {
+type Feedback = { state?: string; complete?: boolean; readyForReview?: boolean; checks?: unknown[]; jobs?: unknown[]; required?: Array<{ name: string; state: string }> }
+export const NO_CHECKS_REASON = 'No checks or statuses were reported for this head, so nothing has tested it. Merge only if that is what you want.'
+
+/**
+ * True when the provider reported nothing at all for the head: no check, no commit status, no Actions job, and
+ * the repository environment names no required check. Only a person may merge such a head.
+ */
+export function noChecksReported(feedback: Feedback) {
+  return feedback.complete === true && !feedback.checks?.length && !feedback.jobs?.length && !feedback.required?.length
+}
+
+/**
+ * Why a pull request cannot be merged yet, from its feedback, or null once every check of its head passed. For a
+ * person, also null when no checks were reported at all; any check or status that exists must still pass.
+ */
+export function mergeBlocker(feedback: Feedback, by: MergeBy['kind'] = 'agent') {
   if (feedback.readyForReview) return null
+  if (by === 'person' && noChecksReported(feedback)) return null
   const missing = (feedback.required ?? []).filter(check => check.state !== 'success').map(check => check.name)
   if (feedback.state === 'failure') return 'A check of the pull request’s head failed.'
   if (feedback.state === 'running') return 'Checks of the pull request’s head are still running.'
@@ -121,9 +138,11 @@ async function mergePull(env: L4Env, input: MergeInput) {
   if (receipt.merged) fail(409, 'merge_done', `Pull request #${receipt.number} was merged from L4 already`)
   if (receipt.commit !== sha) fail(409, 'merge_head_moved', `The pull request’s approved head is ${receipt.commit}, not ${sha}. Read its checks again.`)
   // The same readiness factory_feedback reports, read now at exactly the approved head.
-  const blocker = mergeBlocker(await pullFeedback(env, environment, receipt, undefined, input.ensure))
+  const feedback = await pullFeedback(env, environment, receipt, undefined, input.ensure)
+  const blocker = mergeBlocker(feedback, by.kind)
   if (blocker) fail(409, 'merge_not_ready', `${blocker} The pull request can be merged from L4 once every check of its head passed.`)
-  const id = newId(), now = nowIso(), request = JSON.stringify({ sha, number: receipt.number, method: gitFlow.method, by: by.kind })
+  const unchecked = !feedback.readyForReview
+  const id = newId(), now = nowIso(), request = JSON.stringify({ sha, number: receipt.number, method: gitFlow.method, by: by.kind, ...(unchecked ? { checks: 'none' } : {}) })
   const digest = await factoryHash(JSON.stringify({ id, boxId: box.id, runId: input.runId, callId: input.callId, kind: 'merge', request }))
   const inserted = await env.DB.prepare(`INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,decided_by,decided_at,expires_at,created_at)
     VALUES(?,?,?,?,'merge',?,?,'publishing',?,?,?,?) ON CONFLICT(run_id,call_id) DO NOTHING RETURNING id`)
@@ -137,7 +156,7 @@ async function mergePull(env: L4Env, input: MergeInput) {
     throw error
   }
   const result = outcome.status === 'completed'
-    ? { merged: true, sha: outcome.result.sha, number: receipt.number, url: receipt.url, method: gitFlow.method, message: `Merged pull request #${receipt.number} into ${environment.baseBranch} (${gitFlow.method}).` }
+    ? { merged: true, sha: outcome.result.sha, number: receipt.number, url: receipt.url, method: gitFlow.method, message: `Merged pull request #${receipt.number} into ${environment.baseBranch} (${gitFlow.method}).${unchecked ? ' No checks were reported for its head.' : ''}`, ...(unchecked ? { unchecked: true } : {}) }
     : outcome.result
   const statements = [env.DB.prepare('UPDATE factory_approvals SET status=?,result_json=? WHERE id=? AND status=\'publishing\'').bind(outcome.status, JSON.stringify(result), id)]
   if (outcome.status === 'completed') {
@@ -159,21 +178,25 @@ function mayMerge(auth: AuthorizationContext, task: { projectId?: string | null;
 export async function taskMergeState(env: L4Env, auth: AuthorizationContext, taskId: string) {
   const task = await requireTask(env, taskId, auth)
   const box = await taskPullBox(env, task.id)
-  if (!box) return { box: null, gitFlow: null, canMerge: false, ready: false, reason: null }
+  if (!box) return { box: null, gitFlow: null, canMerge: false, ready: false, unchecked: false, reason: null }
   const environment = JSON.parse(box.environmentJson) as RunEnvironment
   const { projectId, gitFlow } = await repositoryGitFlow(env, environment.id)
   const pull = box.pullJson ? JSON.parse(box.pullJson) as PullReceipt : null
   const canMerge = mayMerge(auth, task, projectId) && gitFlow.merge !== 'direct_push'
-  let ready = false, reason: string | null
+  let ready = false, unchecked = false, reason: string | null
   if (!pull) reason = gitFlow.merge === 'direct_push' ? null : 'No pull request yet.'
   else if (pull.merged) reason = 'Merged.'
   else if (gitFlow.merge === 'direct_push') reason = `This Project’s Git flow now pushes straight to ${environment.baseBranch}; merge this pull request in ${environment.provider === 'gitea' ? 'Gitea' : 'GitHub'}.`
   else {
-    try { reason = mergeBlocker(await pullFeedback(env, environment, pull, undefined, async () => {})); ready = !reason }
+    try {
+      const feedback = await pullFeedback(env, environment, pull, undefined, async () => {})
+      reason = mergeBlocker(feedback, 'person'); ready = !reason
+      if (ready && !feedback.readyForReview) { unchecked = true; reason = NO_CHECKS_REASON }
+    }
     catch (error) { reason = `The checks could not be read: ${error && typeof error === 'object' && 'message' in error ? String(error.message).slice(0, 200) : 'unknown error'}` }
   }
   return { box: { id: box.id, repository: environment.sourceRepo, baseBranch: environment.baseBranch, branch: publishTarget(gitFlow, box.id, environment).ref, pushedSha: box.pushedSha, pull },
-    gitFlow, canMerge, ready, reason }
+    gitFlow, canMerge, ready, unchecked, reason }
 }
 
 /** `POST /api/tasks/:id/merge`: a person merges the Task's pull request at the head they saw. */
@@ -193,7 +216,7 @@ export async function personMerge(env: L4Env, auth: AuthorizationContext, taskId
   }
   const merged = await mergePull(env, { box, runId: box.runId ?? box.originRunId, callId: `merge:${newId()}`, environment, gitFlow, sha, by: { kind: 'person', id: auth.principal.id }, ensure })
   if (merged.status !== 'completed') fail(merged.status === 'failed' ? 409 : 502, merged.status === 'failed' ? 'merge_refused' : 'merge_uncertain', String(merged.result.message ?? 'Not merged'))
-  return taskMergeState(env, auth, task.id)
+  return { ...await taskMergeState(env, auth, task.id), message: String(merged.result.message) }
 }
 
 /**
