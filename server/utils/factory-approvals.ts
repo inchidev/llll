@@ -12,6 +12,7 @@ import { getTask } from './task-service'
 import { githubPushGrant } from './github-agent-client'
 import { fastForwarded, publishedHead, publishedPull, type PullReceipt } from './factory-github'
 import { giteaCredentials } from './gitea'
+import { artifactsPublished, requireArtifacts } from './factory-artifacts'
 import { leaseCapability, wakeCloudBox } from './factory-boxes'
 import { boxEgress } from './box-egress'
 import { windowToolSchema } from '../../shared/project-factory'
@@ -317,10 +318,12 @@ export async function claimPublication(env: L4Env, nodeId: string, approvalId: s
 export async function computePublish(env: L4Env, nodeId: string, approvalId: string) {
   const { box, request, environment, ref, direct, expectedOld, ensure } = await claimPublication(env, nodeId, approvalId)
   const pinned = { approvalId, repository: environment.sourceRepo, ref, sha: request.sha, baseSha: environment.baseSha, expectedOld, ...(direct ? { direct: true } : {}) }
-  if (environment.provider === 'gitea') {
-    await giteaCredentials(env, environment.gitConnectionId)
+  if (environment.provider === 'gitea' || environment.provider === 'artifacts') {
+    // The credential stays on the Server: a Gitea token, or an Artifacts token minted for each request of the push.
+    if (environment.provider === 'gitea') await giteaCredentials(env, environment.gitConnectionId)
+    else requireArtifacts(env)
     let origin: string
-    try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_publish', 'Configure this Server’s public origin before publishing to Gitea') }
+    try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_publish', 'Configure this Server’s public origin before publishing through it') }
     return { ...pinned, remote: `${origin}/api/compute-agent/publish/${approvalId}.git`, authorization: `Bearer ${await leaseCapability(env, 'compute-publish', approvalId, box.leaseToken!)}` }
   }
   const token = await githubPushGrant(env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, ensure)
@@ -346,8 +349,11 @@ export async function publishedApproval(env: L4Env, nodeId: string, approvalId: 
   const description = `${request.body}\n\nL4 Task: ${run.taskId}\nBox: ${box.id}\nApproved commit: ${request.sha}\n\nIndependent CI and provider review remain required.`
   let receipt: PullReceipt
   try {
-    receipt = await publishedPull(env, environment, { branch: request.ref, sha: request.sha, prior: prior?.branch === request.ref ? prior : null, title: request.title, description,
-      ensure: async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) } })
+    // A repository in L4 has no pull request: the branch is checked and the receipt points at the review in L4.
+    receipt = environment.provider === 'artifacts'
+      ? await artifactsPublished(env, environment, { branch: request.ref, sha: request.sha, prior: prior?.branch === request.ref ? prior : null, runId: row.runId })
+      : await publishedPull(env, environment, { branch: request.ref, sha: request.sha, prior: prior?.branch === request.ref ? prior : null, title: request.title, description,
+        ensure: async () => { await nodePublication(env, nodeId, approvalId, ['publishing']) } })
   } catch (error) {
     await env.DB.prepare("UPDATE factory_approvals SET status='uncertain',result_json=? WHERE id=? AND status='publishing'")
       .bind(JSON.stringify({ message: 'The push finished, but the branch or its pull request could not be confirmed. Ask the person to look at the branch before publishing again.' }), row.id).run()
@@ -359,7 +365,7 @@ export async function publishedApproval(env: L4Env, nodeId: string, approvalId: 
   await env.DB.batch([
     env.DB.prepare("UPDATE factory_approvals SET status='completed',result_json=? WHERE id=? AND status='publishing'").bind(JSON.stringify(result), row.id),
     env.DB.prepare('UPDATE factory_boxes SET pull_json=?,publication_count=publication_count+1,updated_at=? WHERE id=?').bind(JSON.stringify(receipt), nowIso(), box.id),
-    env.DB.prepare("UPDATE tasks SET factory_state='pr_published',pull_url=? WHERE id=? AND assignee_id=?").bind(receipt.url, run.taskId, run.agentId),
+    env.DB.prepare('UPDATE tasks SET factory_state=?,pull_url=? WHERE id=? AND assignee_id=?').bind(environment.provider === 'artifacts' ? 'published' : 'pr_published', receipt.url, run.taskId, run.agentId),
   ])
   return { accepted: true }
 }

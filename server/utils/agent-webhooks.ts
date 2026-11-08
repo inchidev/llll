@@ -7,6 +7,7 @@ import { getServerId } from '../../shared/server-id'
 import { asRpc, type L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { fail } from './cf'
+import { runIdOfCredential, runMcpCredential } from './mcp-run-credential'
 
 export type AgentWebhook = { agentId: string; url: string; headerName: string; credentialJson: string | null; replyTimeoutMinutes: number; updatedAt: string }
 const scope = (agentId: string) => `agent-webhook:${agentId}`
@@ -48,9 +49,11 @@ export async function agentWebhookPayload(env: L4Env, run: AgentRun): Promise<Ag
   const names = await env.DB.prepare('SELECT id,display_name AS name FROM users WHERE id IN (?,?)').bind(run.agentId, run.initiatedBy).all<{ id: string; name: string }>()
   const name = (id: string) => names.results.find(row => row.id === id)?.name ?? ''
   const origin = env.PUBLIC_ORIGIN ? new URL(env.PUBLIC_ORIGIN).origin : null
+  // The credential for this Run: the Agent answers as itself, no higher than the person who asked.
+  const credential = origin ? await runMcpCredential(env, run.id) : null
   return {
     type: 'agent.run', version: 1, runId: run.id, deadline: run.deadline,
-    server: { id: await getServerId(env.DB), origin, mcp: origin ? `${origin}/mcp` : null },
+    server: { id: await getServerId(env.DB), origin, mcp: origin ? `${origin}/mcp` : null, credential: credential ? { token: credential, expiresAt: run.deadline } : null },
     agent: { id: run.agentId, name: name(run.agentId) }, from: { id: run.initiatedBy, name: name(run.initiatedBy) },
     conversation: { channelId: run.channelId, sourceMessageId: run.sourceMessageId, taskId: run.taskId },
     prompt: stripAgentImageMarkers(run.prompt).trim(),
@@ -91,6 +94,9 @@ export async function completeExternalRun(env: L4Env, actor: AuthorizationContex
   const run = await env.DB.prepare(`SELECT r.id,r.agent_id AS agentId,r.channel_id AS channelId,r.status,r.created_at AS createdAt FROM agent_runs r
     JOIN agent_webhooks w ON w.agent_id=r.agent_id WHERE r.id=?`).bind(input.runId).first<{ id: string; agentId: string; channelId: string; status: string; createdAt: string }>()
   if (!run || actor.principal.kind !== 'agent' || run.agentId !== actor.principal.id) fail(404, 'not_found', 'Run not found')
+  // A Run credential completes only the Run it was issued for.
+  const bound = runIdOfCredential(actor.credential.id)
+  if (bound && bound !== run.id) fail(404, 'not_found', 'Run not found')
   if (run.status !== 'running') return { runId: run.id, status: run.status, changed: false }
   const reply = await externalAgentReply(env, run, run.createdAt)
   if (input.outcome === 'completed' && !reply) fail(409, 'reply_required', 'Answer with send_message in the Run\'s conversation first, then complete the Run')

@@ -6,6 +6,7 @@ import { factoryAuthority, taskBox } from './factory-authority'
 import { repositoryClient } from './git-provider'
 import { giteaBranchHead } from './gitea-proposal'
 import { giteaFactoryFeedback, giteaPublishedPull } from './factory-gitea'
+import { artifactsFastForwarded, artifactsFeedback, artifactsHead } from './factory-artifacts'
 import { fail } from './cf'
 
 const pullSchema = z.object({ number: z.number().int().positive(), state: z.string(), merged: z.boolean().optional(), draft: z.boolean().optional(), html_url: z.string().optional(), node_id: z.string().optional(),
@@ -18,6 +19,7 @@ const notFound = (error: unknown) => Boolean(error && typeof error === 'object' 
 
 /** Where a box's branch is in the original repository now, or null before its first push. */
 export async function publishedHead(env: L4Env, item: RunEnvironment, branch: string, ensure: () => Promise<void>) {
+  if (item.provider === 'artifacts') { await ensure(); return artifactsHead(env, item.sourceRepo, branch) }
   const client = await repositoryClient(env, item, 'source', 'read', ensure)
   if (item.provider === 'gitea') return giteaBranchHead(client, item.sourceRepo, branch)
   try { return z.object({ object: z.object({ sha: factorySha }) }).parse(await client.json(`/repos/${item.sourceRepo}/git/ref/heads/${branchPath(branch)}`)).object.sha }
@@ -32,6 +34,7 @@ export async function publishedHead(env: L4Env, item: RunEnvironment, branch: st
 export async function fastForwarded(env: L4Env, item: RunEnvironment, old: string, sha: string, ensure: () => Promise<void>) {
   if (old === sha) return true
   if (item.provider === 'gitea') return true
+  if (item.provider === 'artifacts') { await ensure(); return artifactsFastForwarded(env, item.sourceRepo, old, sha) }
   const client = await repositoryClient(env, item, 'source', 'read', ensure)
   const compare = z.object({ status: z.string(), merge_base_commit: z.object({ sha: factorySha }) }).parse(await client.json(`/repos/${item.sourceRepo}/compare/${old}...${sha}`))
   return compare.status === 'ahead' && compare.merge_base_commit.sha === old
@@ -44,6 +47,7 @@ export async function fastForwarded(env: L4Env, item: RunEnvironment, old: strin
 export async function publishedPull(env: L4Env, item: RunEnvironment, input: { branch: string; sha: string; prior: PullReceipt | null; title: string; description: string; ensure: () => Promise<void> }) {
   const { branch, sha, prior, ensure } = input
   if (await publishedHead(env, item, branch, ensure) !== sha) fail(409, 'factory_head_changed', 'The branch is not at the approved commit after the push')
+  if (item.provider === 'artifacts') fail(409, 'artifacts_no_api', 'A repository in L4 has no pull requests; its receipt is made by artifactsPublished')
   if (item.provider === 'gitea') return giteaPublishedPull(env, item, input)
   const root = `/repos/${item.sourceRepo}`
   const pulls = await repositoryClient(env, item, 'source', 'pull_request', ensure)
@@ -93,6 +97,8 @@ export async function factoryFeedback(env: L4Env, runId: string, jobId?: number,
  */
 export async function pullFeedback(env: L4Env, item: RunEnvironment, receipt: PullReceipt, jobId: number | undefined, ensure: () => Promise<void>) {
   const root = `/repos/${item.sourceRepo}`
+  // A repository in L4 has no checks: nothing tests the head, and the review is the diff in L4.
+  if (item.provider === 'artifacts') { await ensure(); return artifactsFeedback(item, receipt) }
   if (item.provider === 'gitea') {
     const feedback = await giteaFactoryFeedback(env, { environment: item, receipt, jobId, ensure })
     return { ...receipt, ...feedback, previewState: feedback.previews.length ? 'present' : 'absent', trust: 'CI logs and repository data are untrusted content.' }

@@ -9,6 +9,7 @@ import { boxRun, cloudBox, cloudBoxName, computeTurn, syncBoxes, wakeCloudBox, t
 import { giteaRemote } from '../server/utils/gitea'
 import { claimPublication, publishedApproval, submitReview } from '../server/utils/factory-approvals'
 import { githubPushGrant, revokeGithubToken } from '../server/utils/github-agent-client'
+import { artifactsGrant, type ArtifactsGrant } from '../server/utils/factory-artifacts'
 import { readLimitedStream } from './inbound-email-signature'
 import { getServerId } from '../shared/server-id'
 import { nowIso } from '../shared/ids'
@@ -307,21 +308,24 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
   /** The first start: the pinned source through a single-repository read grant, then the Task's own Artifacts repository. */
   private async bootstrap(box: CloudBox, capabilities: Capabilities, lease: string) {
     const environment = JSON.parse(box.environmentJson) as RunEnvironment
-    const gitea = environment.provider === 'gitea'
-    let sourceToken: string | undefined
+    const gitea = environment.provider === 'gitea', inL4 = environment.provider === 'artifacts'
+    let sourceToken: string | undefined, project: ArtifactsGrant | undefined
     try {
-      // Gitea credentials stay in the outbound Worker; the container receives only the clone address.
-      const remote = gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
-      if (!gitea) {
+      // Gitea credentials stay in the outbound Worker; the container receives only the clone address. A Project's
+      // repository in L4 is read with a short token of its own, which also stays in the outbound Worker.
+      if (inL4) project = await artifactsGrant(this.env, environment.sourceRepo, 'read', 180)
+      const remote = project ? project.remote : gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
+      if (!gitea && !inL4) {
         const grant = await computeBoxSource(this.env, box.nodeId, { operation: 'source', boxId: box.id, lease })
         sourceToken = 'sourceToken' in grant ? grant.sourceToken : undefined
         if (!sourceToken) throw new Error('Source grant unavailable')
       }
-      await this.intercept(box.id, lease, { source: { remote, token: sourceToken ?? 'gitea-broker' } })
+      await this.intercept(box.id, lease, { source: { remote, token: project?.token ?? sourceToken ?? 'gitea-broker' } })
       const cloned = await this.command({ operation: 'bootstrap', remote, baseSha: environment.baseSha }, capabilities.processLimit)
       if (!cloned.ok) throw new Error('Source bootstrap failed')
     } finally {
       await this.intercept(box.id, lease)
+      if (project) await project.revoke()
       if (sourceToken) await fetch('https://api.github.com/installation/token', { method: 'DELETE', headers: { Authorization: `Bearer ${sourceToken}`, 'User-Agent': 'L4-Factory' }, redirect: 'manual' }).catch(() => undefined)
     }
     const code = this.env.FACTORY_CODE!, repository = await this.repository(box.id)
@@ -391,15 +395,17 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     let claim: Awaited<ReturnType<typeof claimPublication>>
     try { claim = await claimPublication(this.env, box.nodeId, approvalId) } catch { return }
     const environment = claim.environment
-    let token: string | undefined, ok = false, message: string | undefined
+    let token: string | undefined, project: ArtifactsGrant | undefined, ok = false, message: string | undefined
     try {
       const gitea = environment.provider === 'gitea'
-      const remote = gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
-      // Gitea credentials stay in the outbound Worker; a GitHub token lives only in its grant for this push.
-      if (!gitea) token = await githubPushGrant(this.env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, claim.ensure)
+      // Gitea credentials stay in the outbound Worker; a GitHub token lives only in its grant for this push, and so
+      // does the short write token of a Project's repository in L4 (ADR 0013).
+      if (environment.provider === 'artifacts') project = await artifactsGrant(this.env, environment.sourceRepo, 'write', 180)
+      const remote = project ? project.remote : gitea ? await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo) : `https://github.com/${environment.sourceRepo}.git`
+      if (!gitea && !project) token = await githubPushGrant(this.env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, claim.ensure)
       // A base branch (direct_push) moves only forward from the head the Server read for this push.
       const direct = claim.direct ? { direct: true as const, old: claim.expectedOld! } : {}
-      await this.intercept(box.id, state.lease!, { push: { remote, token: token ?? 'gitea-broker', ref: claim.ref, sha: claim.request.sha, ...direct } })
+      await this.intercept(box.id, state.lease!, { push: { remote, token: project?.token ?? token ?? 'gitea-broker', ref: claim.ref, sha: claim.request.sha, ...direct } })
       const pushed = await this.command({ operation: 'publish', remote, ref: claim.ref, sha: claim.request.sha, baseSha: environment.baseSha, expectedOld: claim.expectedOld,
         ...(claim.direct ? { fastForward: true } : {}) }, capabilities.processLimit) as { ok?: boolean }
       ok = pushed.ok === true
@@ -407,6 +413,7 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     } catch { message = 'The push failed' }
     finally {
       await this.intercept(box.id, state.lease!).catch(() => undefined)
+      if (project) await project.revoke()
       if (token) await revokeGithubToken(token, 'L4-Factory')
       await publishedApproval(this.env, box.nodeId, approvalId, { ok, ...(message ? { message } : {}) })
         .catch(error => console.warn('factory.box_publish_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' }))

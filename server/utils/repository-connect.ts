@@ -10,6 +10,7 @@ import { parseBody } from './validate'
 import { gitConnectionProvider, listGitConnections } from './git-connections'
 import { discoverRepositories, repositoryClient, type ProviderRepository } from './git-provider'
 import { addProjectRepository, requireProject } from './project-service'
+import { artifactsAvailability } from './factory-artifacts'
 import { spaceOfResource } from './space-access'
 
 /**
@@ -26,7 +27,7 @@ export const repositoryConnectSchema = z.object({
   previewHosts: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+$/u)).max(20).default([]),
 }).strict()
 
-async function requireConnectAuthority(env: L4Env, auth: AuthorizationContext, projectId: string) {
+export async function requireConnectAuthority(env: L4Env, auth: AuthorizationContext, projectId: string) {
   if (auth.principal.kind !== 'human' || (!auth.principal.isOwner && !hasPermission(auth.principal.permissions, Permission.manageServer))) fail(403, 'code_denied', 'Server administration is required to connect repositories')
   const project = await requireProject(env, auth, projectId, true)
   if (!projectPermissionAllowed(auth, projectId, Permission.manageProjects)) fail(403, 'project_denied', 'Manage this project to connect repositories')
@@ -34,7 +35,7 @@ async function requireConnectAuthority(env: L4Env, auth: AuthorizationContext, p
 }
 
 type ComputeChoice = { id: string; name: string; provider: string | null }
-async function enabledCompute(env: L4Env): Promise<ComputeChoice[]> {
+export async function enabledCompute(env: L4Env): Promise<ComputeChoice[]> {
   // An L4 Compute box's own Node is never a choice; its placement is.
   const rows = await env.DB.prepare('SELECT id,name,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE enabled=1 AND placement_id IS NULL ORDER BY created_at').all<{ id: string; name: string; capabilitiesJson: string }>()
   return rows.results.map(row => ({ id: row.id, name: row.name, provider: (JSON.parse(row.capabilitiesJson) as { provider?: string }).provider ?? null }))
@@ -54,6 +55,8 @@ export async function repositoryConnectOptions(env: L4Env, auth: AuthorizationCo
     compute,
     agents: agents?.n ?? 0,
     canConfigureCredentials: auth.principal.isOwner,
+    // A repository inside L4 needs no connection: the Server's own Artifacts namespace holds it, where it exists (ADR 0013).
+    artifacts: artifactsAvailability(env),
   }
 }
 

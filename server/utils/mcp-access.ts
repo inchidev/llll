@@ -1,9 +1,12 @@
 import type { McpPrincipal } from './mcp-principal'
 import { resolveMcpPrincipal } from './mcp-principal'
 import { authenticateOAuthMcpRequest } from './mcp-oauth'
+import { findAgentRun, runAuthorization } from './agent-run-service'
+import { RUN_CREDENTIAL_SCOPES, runCredentialId, verifyRunMcpCredential } from './mcp-run-credential'
 import { authorize, authorizeMcpCredential, AuthorizationError, ServerAction } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_SCOPES, type CreatedMcpAccessTokenDTO, type McpAccessTokenDTO, type McpScope } from '../../shared/mcp'
+import { hasPermission, Permission } from '../../shared/permissions'
 import type { PublicUser } from '../../shared/types'
 import type { L4Env } from '../../workers/env'
 
@@ -120,7 +123,10 @@ export async function authenticateMcpRequest(
   waitUntil?: (promise: Promise<unknown>) => void,
   resource = `${env.PUBLIC_ORIGIN || new URL(request.url).origin}/mcp`,
 ): Promise<McpPrincipal | null> {
-  const match = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i.exec(request.headers.get('authorization') ?? '')
+  const header = request.headers.get('authorization') ?? ''
+  const bound = /^Bearer\s+(dfrun_[0-9a-f-]{36}_[0-9a-f]{64})$/i.exec(header)
+  if (bound) return authenticateRunCredential(env, bound[1]!)
+  const match = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i.exec(header)
   const token = match?.[1]
   if (!token) return authenticateOAuthMcpRequest(env, request, resource, waitUntil)
   const tokenHash = await hashToken(token)
@@ -136,6 +142,30 @@ export async function authenticateMcpRequest(
   if (waitUntil) waitUntil(touch)
   else await touch
   return principal
+}
+
+/**
+ * An external Agent's Run credential acts as the Agent for one running Run, with the Run's own
+ * authority: its Role, narrowed to the person who asked, their Agent access and the Run's mandate,
+ * rechecked on every request as any Run is. It is refused once the Run closes or its reply window ends.
+ */
+async function authenticateRunCredential(env: L4Env, token: string): Promise<McpPrincipal | null> {
+  const runId = await verifyRunMcpCredential(env, token)
+  if (!runId) return null
+  const run = await findAgentRun(env, runId)
+  if (!run || run.status !== 'running' || run.deadline <= nowIso()) return null
+  // Only an Agent that works on its own computer is woken with a credential; a Run on a box calls back through its gateway.
+  if (!await env.DB.prepare('SELECT 1 AS found FROM agent_webhooks WHERE agent_id=?').bind(run.agentId).first()) return null
+  let authorization
+  try { authorization = await runAuthorization(env, run) } catch { return null }
+  // As for any MCP client, the Agent's Role must allow connecting.
+  if (!hasPermission(authorization.principal.permissions, Permission.mcpConnect)) return null
+  authorization.credential = { kind: 'mcp', id: runCredentialId(run.id), scopes: RUN_CREDENTIAL_SCOPES }
+  return {
+    tokenId: runCredentialId(run.id), userId: run.agentId, serverId: authorization.serverId,
+    roleId: authorization.principal.roleId, roleName: authorization.principal.roleName, perms: authorization.principal.permissions,
+    isOwner: false, scopes: RUN_CREDENTIAL_SCOPES, delegatedBy: run.initiatedBy, authorization,
+  }
 }
 
 export function requireMcpAccess(principal: McpPrincipal, scope: McpScope): void {

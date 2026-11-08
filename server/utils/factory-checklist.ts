@@ -13,14 +13,15 @@ const work = Permission.readTasks | Permission.executeTasks
  * What a fresh Server still needs before an agent can turn a task into a pull
  * request, in the order the Owner sets it up. One statement, so the Factory
  * overview can show it on every visit. Models, Git and computers are Server-level;
- * the rest counts only what the caller's Spaces hold.
+ * the rest counts only what the caller's Spaces hold. A repository created inside
+ * L4 (ADR 0013) needs no Git connection, so one counts as the Git step done.
  */
 export async function factoryChecklist(env: L4Env, auth: Pick<AuthorizationContext, 'spaces'> = {}): Promise<FactoryChecklist> {
   const spaces = spaceSql(auth)
   const row = await env.DB.prepare(`SELECT
     (SELECT count(*) FROM server_settings WHERE key LIKE 'agents.provider.%' AND json_extract(value,'$.secret') IS NOT NULL AND COALESCE(json_extract(value,'$.enabled'),1)<>0) AS providers,
     (SELECT count(*) FROM agents a JOIN users u ON u.id=a.user_id WHERE a.status='active' AND a.archived_at IS NULL AND u.status='active' AND a.user_id IN (SELECT user_id FROM space_members WHERE space_id IN (${spaces}))) AS agents,
-    (SELECT count(*) FROM git_connections WHERE enabled=1) AS git,
+    (SELECT count(*) FROM git_connections WHERE enabled=1)+(SELECT count(*) FROM project_repositories WHERE provider='artifacts') AS git,
     (SELECT count(*) FROM compute_nodes WHERE enabled=1) AS computers,
     (SELECT count(*) FROM projects WHERE archived_at IS NULL AND space_id IN (${spaces})) AS projects,
     (SELECT r.project_id FROM project_repositories r JOIN projects p ON p.id=r.project_id WHERE p.archived_at IS NULL AND p.space_id IN (${spaces}) ORDER BY r.created_at LIMIT 1) AS repositoryProject,

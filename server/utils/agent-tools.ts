@@ -14,6 +14,7 @@ import { factoryFeedback } from './factory-github'
 import { factoryStatus } from './factory-status'
 import { repositoryGitFlow } from './project-git-flow'
 import { guardRunTool, toolSecurityReason, untrustedContext } from './agent-tool-security'
+import { authorizeToolCall, toolActions, toolRule } from './tool-authorization'
 import { githubIssueSchema, githubPullSchema, readGithubRepository, readGithubIssue, readGithubPullRequest } from './agent-github-context'
 import { mcpRunTools, type ExternalToolAdapter } from './outbound-mcp'
 import { listAuthorizedTables } from './table-catalog'
@@ -62,6 +63,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   const definitions: Record<string, Definition> = {}
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
     if (Object.hasOwn(definitions, name)) throw new Error('Tool identities must be unique; qualify tools by connection')
+    // Every tool is authorized by its rule in tool-authorization.ts; a definition cannot name another action.
+    if (!toolRule(name) || (action && !toolActions(name).includes(action))) throw new Error(`Tool ${name} has no matching authorization rule`)
     definitions[name] = { action, schema, description, execute: value => execute(schema.parse(value)) }
   }
   add('get_current_time', undefined, z.object({}), 'Read the current date and time with the Server timezone (UTC by default). Confirm the user’s timezone for ambiguous schedules.', async () => agentTimeContext(env))
@@ -169,7 +172,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     if (JSON.parse(run.environmentJson).computeNodeId) {
       add('factory_status', ServerAction.useComputer, z.object({}).strict(), 'Read this Task’s box: its branch, the draft pull request, what you asked to publish and what waits for a person, and how publishing works in the current mode.', async () => factoryStatus(env, run.id))
       const outward = async () => { fail(403, 'factory_gateway_required', 'Outward actions need a stable Server tool-call identity') }
-      add('factory_publish', ServerAction.proposeCode, publishToolSchema, 'Publish one commit of your checkout: it is pushed to the Task’s own branch in the original repository and the Task’s draft pull request is opened or updated, or, where the Project’s Git flow is a direct push, it goes straight to the base branch as a fast-forward. Commit first and pass the full SHA from git rev-parse HEAD. Depending on the mode a person may review the diff first; this call waits for the decision and the push. Never release; a rejection stands.', outward)
+      add('factory_publish', ServerAction.proposeCode, publishToolSchema, 'Publish one commit of your checkout: it is pushed to the Task’s own branch in the original repository and the Task’s draft pull request is opened or updated (in a repository that lives in L4 there is no pull request: the commit is recorded for review in L4), or, where the Project’s Git flow is a direct push, it goes straight to the base branch as a fast-forward. Commit first and pass the full SHA from git rev-parse HEAD. Depending on the mode a person may review the diff first; this call waits for the decision and the push. Never release; a rejection stands.', outward)
       if ((JSON.parse(run.mandateJson) as RunMandate).execution?.mode === 'plan') add('factory_plan', ServerAction.useComputer, planToolSchema, 'Propose your plan for this Task before publishing. Once a person approves it, publications of this Task go ahead without separate review until you propose a new plan. This call waits for the decision.', outward)
       add('request_network_window', ServerAction.useComputer, windowToolSchema, 'Ask to reach one more host from your box for a while, with the Project secrets you need there. The box reaches only this Server and the Project’s network; any other request is refused with 403. Name each secret, then send its placeholder L4_SECRET_<NAME> in a header, the URL or the body, and the egress layer puts the value in on that host only: you never see it. A host outside the Project’s network waits for a person; this call waits for the decision.', outward)
       // Offered only where the Project's Git flow lets the Agent merge (availableCatalog below).
@@ -202,10 +205,10 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     const candidates = own ?? authorization.delegation?.resourceAccess?.[kind] ?? ['*']
     return candidates.some(id => resourceAllowed(authorization, kind, id))
   }
-  const allowed = Object.entries(definitions).filter(([name, definition]) => {
+  const allowed = Object.entries(definitions).filter(([name]) => {
     if (toolPaused(name)) return false
     try {
-      if (definition.action) authorize(authorization, definition.action)
+      authorizeToolCall(authorization, name)
       if (resourceKinds[name] && !hasResources(resourceKinds[name])) return false
       if (name === 'search_data' && !([[ServerAction.readRecords, 'databases'], [ServerAction.readDocuments, 'documents'], [ServerAction.readDocuments, 'canvases'], [ServerAction.readTasks, 'boards']] as const).some(([action, kind]) => {
         try { authorize(authorization, action); return hasResources(kind) } catch { return false }
@@ -278,7 +281,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       }
       const definition = definitions[name]
       if (!definition || !allowed.some(([key]) => key === name)) fail(403, 'tool_denied', 'Tool is not granted')
-      if (definition.action) authorize(authorization, definition.action)
+      // The one authorization point, against current Roles and grants, with the resource the call names.
+      authorizeToolCall(authorization, name, spaceResourceOf(input))
       if (run) await guardRunTool(env, run, name)
       try { return await definition.execute(input) }
       catch (error) {
@@ -290,6 +294,14 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       }
     },
   }
+}
+
+/** A resource the arguments name whose Space the boundary lists, so the call stops at the boundary before any read. */
+function spaceResourceOf(input: unknown): { kind: 'databases' | 'boards' | 'gadgets'; id: string } | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const named = (key: string) => { const value = (input as Record<string, unknown>)[key]; return typeof value === 'string' && value ? value : null }
+  const databaseId = named('databaseId'), boardId = named('boardId'), appId = named('appId')
+  return databaseId ? { kind: 'databases', id: databaseId } : boardId ? { kind: 'boards', id: boardId } : appId ? { kind: 'gadgets', id: appId } : undefined
 }
 
 /** Only metadata crosses into Pi/DOs; external credentials are read inside the HTTP broker. */

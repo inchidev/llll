@@ -1,6 +1,6 @@
 ---
 title: Repositories and code work
-description: Connect GitHub or Gitea, add a repository environment and let L4 Agents take a Task to a pull request, with a network, secrets and a Git flow per Project.
+description: Connect GitHub or Gitea, or create a repository inside L4, and let L4 Agents take a Task from a branch to a merge, with a network, secrets and a Git flow per Project.
 order: 5
 ---
 
@@ -9,14 +9,14 @@ An Agent can work on code: it takes a Task and gets a **box** for it, a containe
 Code work needs five things. **Server settings → Agents** shows them as a checklist, **Set up agents that work on code**, until each is done:
 
 1. **Connect a model.** See [Models and Providers](models-and-providers.md).
-2. **Connect GitHub or Gitea.** A dedicated GitHub App, or a Gitea bot account, for the repositories Agents may work on.
+2. **Connect GitHub or Gitea, or create a repository in L4.** A dedicated GitHub App or a Gitea bot account for repositories that live elsewhere; or, on a Cloudflare Server with Compute enabled, a repository inside L4 that needs neither.
 3. **Choose a repository for Tasks.** An environment in **Git → Environments**.
 4. **Add compute.** A Compute Node where each Task's box runs.
 5. **Create an agent** with a Role that has **Use a computer** and **Propose code changes**.
 
 ![The Set up agents that work on code checklist in Server settings → Agents with five steps and their buttons](screenshot:agents-code-checklist "The code work checklist")
 
-GitHub and Gitea work today, and Gitea connections also work with Forgejo. GitLab shows **connections are not available yet**; Projects can record GitLab and Cursor repositories as references only.
+GitHub and Gitea work today, and Gitea connections also work with Forgejo. A Project on a Server in your own Cloudflare account with Compute enabled can also keep its repository [inside L4](#or-create-a-repository-in-l4), with no account anywhere else. GitLab shows **connections are not available yet**; Projects can record GitLab and Cursor repositories as references only.
 
 ## 1. Connect GitHub
 
@@ -57,6 +57,23 @@ Gitea differs from GitHub in a few ways:
 - A draft pull request is a pull request whose title starts with `WIP:`. Gitea does not merge it until the prefix is removed.
 - **Required CI checks** match commit statuses. Gitea Actions reports each job as one.
 - CI job logs stay in Gitea; open the pull request there to read them.
+
+## Or create a repository in L4
+
+A Project can own its repository inside L4. It lives in your Server's own storage, in the same Cloudflare account, and nobody needs a GitHub or Gitea account. This works today on a Server created on Cloudflare with Compute enabled (**Server settings → Compute → Server compute setup**), because Compute provisions the storage that holds repositories. On a VPS it is not available; on L4 Cloud it is coming.
+
+1. On the Project page, under **Repositories**, select **Connect repository**, then **Create a repository in L4**. With more than one computer, choose where its Tasks run.
+2. L4 creates the repository, named after the Project, with a `main` branch and a README, and attaches it to the Project. No environment setup is needed: steps 2 and 3 below are done.
+
+A repository in L4 works like a connected one, with these differences:
+
+- **No pull request.** When an Agent publishes, its branch is recorded on the Task as **Published for review**. The diff is on the Run's page, where you approve pushes in review mode too.
+- **No CI.** Nothing tests a head before you merge it, and the Task says so. If you want checks, keep the repository on GitHub or Gitea, or build from the L4 repository with your own pipeline.
+- **A person merges.** From the Task, as for any repository, with the Project's merge method. The Agent never merges here, whatever the Git flow says, because there are no checks to pass. L4 merges only a branch that includes `main`'s current commit; if `main` moved, ask the Agent to bring it into its branch and publish again.
+- **Versions.** Under **Versions** on the Project page, someone who may merge can **Release a version**: a tag `v1.0.0` on `main`'s current commit, listed there. L4 records it; what a version means is up to whatever builds from the repository.
+- **Nothing deletes it.** Detaching the repository or archiving the Project keeps the repository and its history in your storage.
+
+To work on the repository from your own computer, ask the Server Owner: the repository is reachable with Git over HTTPS and a token from your Cloudflare account's Artifacts namespace. L4 does not hand out tokens yet.
 
 ## 2. Add a repository environment
 
@@ -108,7 +125,7 @@ The Project page also sets each Project's **Git flow**:
 - **Agent branch prefix**: `l4-agent/` by default. Each Task's branch is this prefix and its box's id.
 - **Merge method**: squash (the default), merge or rebase.
 
-Your branch protection on GitHub or Gitea always has the last word. A push or merge it refuses comes back with its reason; L4 never works around it.
+Your branch protection on GitHub or Gitea always has the last word. A push or merge it refuses comes back with its reason; L4 never works around it. A repository in L4 has no protection of its own: L4 allows a Task's branch to be pushed and nothing else, and only a person merges.
 
 ## 7. Run a Task
 
@@ -130,7 +147,7 @@ After a push, the Agent reads the pull request's checks, CI logs and deployments
 
 ## 8. Merge
 
-The Task shows its pull request and a **Merge** button, on the board and on the Run's page. You can merge when you may approve Agent actions in the Project and every check of the pull request's head passed. If the repository reports no checks at all, you can still merge, and L4 says plainly that nothing tested it. For the first two minutes after a push the Task shows **Waiting for checks to register…** instead, because CI may not have reported the new head yet. L4 merges exactly the commit you saw, with the Project's merge method, and marks the Task's code **Merged**. The Task's own status stays yours to change.
+The Task shows its pull request (or, for a repository in L4, **Published for review in L4**) and a **Merge** button, on the board and on the Run's page. You can merge when you may approve Agent actions in the Project and every check of the pull request's head passed. If the repository reports no checks at all, you can still merge, and L4 says plainly that nothing tested it. For the first two minutes after a push the Task shows **Waiting for checks to register…** instead, because CI may not have reported the new head yet. L4 merges exactly the commit you saw, with the Project's merge method, and marks the Task's code **Merged**. The Task's own status stays yours to change.
 
 Under **the Agent once checks pass**, the Agent can merge too, but only after at least one check passed and none failed or is pending.
 

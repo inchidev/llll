@@ -15,7 +15,7 @@ An Agent is a non-human Member with one assigned Role. Its profile holds its nam
 - An Agent takes part only in conversations it can access. Only a direct mention addresses an Agent; role mentions and `@channel` never do.
 - Sending external email always needs a human's approval.
 
-An **external Agent** works on its own computer instead of with this Server's models. A mention or Direct Message wakes it through its webhook, and it answers and completes the Run through the Server's [MCP endpoint](../agents/mcp.md), as itself and within its Role. See [External agents](../agents/external-agents.md).
+An **external Agent** works on its own computer instead of with this Server's models. A mention or Direct Message wakes it through its webhook, and it answers and completes the Run through the Server's [MCP endpoint](../agents/mcp.md) with a credential for that Run: as itself, within its Role and no higher than the person who asked. See [External agents](../agents/external-agents.md).
 
 ## Task
 

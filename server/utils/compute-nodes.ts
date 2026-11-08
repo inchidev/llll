@@ -10,6 +10,7 @@ import { factoryHash } from './factory-authority'
 import { computePublish, expireApprovals, publishedApproval } from './factory-approvals'
 import { githubSourceGrant } from './github-agent-client'
 import { giteaCredentials } from './gitea'
+import { requireArtifacts } from './factory-artifacts'
 import { fail } from './cf'
 import { boxSecretsInput, boxSourceInput, boxSyncInput, boxTurnInput, computeSecrets, computeSync, computeTurn, leaseCapability, leasedBox } from './factory-boxes'
 import type { RunEnvironment } from '../../shared/code-environments'
@@ -105,10 +106,12 @@ export async function computeBoxSource(env: L4Env, nodeId: string, input: z.infe
   if (!box) fail(403, 'box_source_denied', 'This box holds no lease for a running turn')
   const environment = JSON.parse(box.environmentJson) as RunEnvironment
   const pinned = { id: box.id, repository: environment.sourceRepo, baseSha: environment.baseSha }
-  if (environment.provider === 'gitea') {
-    await giteaCredentials(env, environment.gitConnectionId)
+  if (environment.provider === 'gitea' || environment.provider === 'artifacts') {
+    // The credential stays on the Server: the Node fetches through it.
+    if (environment.provider === 'gitea') await giteaCredentials(env, environment.gitConnectionId)
+    else requireArtifacts(env)
     let origin: string
-    try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_source', 'Configure this Server’s public origin before fetching Gitea source') }
+    try { origin = new URL(env.PUBLIC_ORIGIN || '').origin } catch { fail(409, 'compute_source', 'Configure this Server’s public origin before fetching source through it') }
     return { ...pinned, source: { remote: `${origin}/api/compute-agent/source/${box.id}.git`, authorization: `Bearer ${await computeSourceCapability(env, box.id, input.lease)}` } }
   }
   const sourceToken = await githubSourceGrant(env, { connectionId: environment.gitConnectionId, installationId: environment.sourceInstallationId, repositoryId: environment.sourceRepoId }, async () => {

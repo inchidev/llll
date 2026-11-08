@@ -74,7 +74,7 @@ A Mailbox's Inbox folder is a different thing: the received email in one Mailbox
 
 A non-human Member with explicit permissions. An Agent can take part in conversations and use tools it is authorized for. It is not a login Account. Sending external email needs human approval.
 
-An **external Agent** works on its own computer, not with this Server's models: a Run wakes it through its webhook, and it answers through the Server's MCP as itself, within its Role.
+An **external Agent** works on its own computer, not with this Server's models: a Run wakes it through its webhook, and it answers through the Server's MCP with that Run's credential, as itself, within its Role and the permissions of the person who asked.
 
 ## Session, Run, Environment and Schedule
 

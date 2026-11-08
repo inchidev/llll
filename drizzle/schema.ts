@@ -1107,6 +1107,20 @@ export const projectRepositories = sqliteTable('project_repositories', {
 }, table => [unique().on(table.projectId, table.provider, table.host, table.externalId),
   index('project_repositories_project').on(table.projectId)])
 
+/**
+ * A version of a Project's repository in L4 (ADR 0013): an annotated tag `v<version>` on its base branch, made from the
+ * Project by someone who may merge there. Artifacts lists no refs, so the Project keeps the record; the tag itself stays
+ * in the repository, and the row stays when the repository is detached.
+ */
+export const projectReleases = sqliteTable('project_releases', {
+  id: text('id').primaryKey(), projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  repositoryId: text('repository_id').references(() => projectRepositories.id, { onDelete: 'set null' }),
+  /** The repository's name in the Server's Artifacts namespace. */
+  repository: text('repository').notNull(),
+  tag: text('tag').notNull(), version: text('version').notNull(), sha: text('sha').notNull(), message: text('message').notNull().default(''),
+  createdBy: text('created_by').notNull().references(() => users.id), createdAt: text('created_at').notNull(),
+}, table => [unique().on(table.projectId, table.tag), index('project_releases_project').on(table.projectId)])
+
 export const projectPolicies = sqliteTable('project_policies', {
   id: text('id').primaryKey(), name: text('name').notNull().unique(), description: text('description').notNull().default(''),
   permissionsBitmask: integer('permissions_bitmask').notNull(), version: integer('version').notNull().default(1),
@@ -1837,6 +1851,7 @@ export const schema = {
   taskBoards,
   projects,
   projectRepositories,
+  projectReleases,
   tasks,
   taskNumbers,
   taskLabels,

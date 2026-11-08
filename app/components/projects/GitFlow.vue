@@ -19,7 +19,7 @@ async function save() {
 </script>
 <template>
   <section class="space-y-4" aria-labelledby="project-git-flow">
-    <div><h3 id="project-git-flow" class="font-medium">Git flow</h3><p class="mt-1 text-sm text-muted">How an Agent’s work reaches each repository’s base branch. Branch protection on GitHub or Gitea still decides: a push or merge it refuses stays refused.</p></div>
+    <div><h3 id="project-git-flow" class="font-medium">Git flow</h3><p class="mt-1 text-sm text-muted">How an Agent’s work reaches each repository’s base branch. Branch protection on GitHub or Gitea still decides: a push or merge it refuses stays refused. In a repository that lives in L4 there are no checks, so only a person merges, and L4 itself keeps the branch rule.</p></div>
     <LayoutLoadError v-if="query.error.value" message="The Git flow did not load." :retry="query.refetch" />
     <form v-else-if="query.data.value" class="space-y-4" @submit.prevent="save">
       <UFormField label="Who merges">

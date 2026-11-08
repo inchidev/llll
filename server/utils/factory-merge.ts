@@ -14,6 +14,7 @@ import { githubAgentClient } from './github-agent-client'
 import { giteaAgentClient } from './gitea'
 import { giteaPull } from './gitea-proposal'
 import { publishTarget, repositoryGitFlow } from './project-git-flow'
+import { ARTIFACTS_NO_CHECKS_REASON, artifactsMerge, serverIdentity } from './factory-artifacts'
 import { requireTask, taskPermissionAllowed } from './task-policy'
 import { fail } from './cf'
 
@@ -54,7 +55,9 @@ export const CHECKS_GRACE_MS = 2 * 60000
  * Until when "no checks reported" still means pending: two minutes after the Server confirmed the push of that
  * head, from the time recorded on its receipt. A receipt without one gets no grace.
  */
-export function checksRegisterUntil(receipt: Pick<PullReceipt, 'pushedAt'>) {
+export function checksRegisterUntil(receipt: Pick<PullReceipt, 'pushedAt'>, item?: Pick<RunEnvironment, 'provider'>) {
+  // Nothing ever registers for a repository in L4: there is no CI to wait for.
+  if (item?.provider === 'artifacts') return null
   const at = Date.parse(receipt.pushedAt ?? '')
   return Number.isFinite(at) ? at + CHECKS_GRACE_MS : null
 }
@@ -101,8 +104,15 @@ async function providerReason(response: Response) {
  * Asks the provider to merge exactly `receipt.commit` with `method`. A draft is made ready first: GitHub
  * refuses to merge a draft, and Gitea a WIP title. Nothing here is retried.
  */
-async function providerMerge(env: L4Env, item: RunEnvironment, receipt: PullReceipt, method: ProjectGitFlow['method'], ensure: () => Promise<void>): Promise<Outcome> {
+async function providerMerge(env: L4Env, item: RunEnvironment, receipt: PullReceipt, method: ProjectGitFlow['method'], ensure: () => Promise<void>, box?: Pick<TaskBox, 'id'>): Promise<Outcome> {
   const root = `/repos/${item.sourceRepo}`, sha = receipt.commit
+  if (item.provider === 'artifacts') {
+    // The Server itself merges a repository in L4 (ADR 0013): with the title and body the Agent published for this head.
+    const published = box ? await env.DB.prepare("SELECT request_json AS requestJson FROM factory_approvals WHERE box_id=? AND kind='publish' AND status='completed' AND json_extract(request_json,'$.sha')=? ORDER BY created_at DESC LIMIT 1").bind(box.id, sha).first<{ requestJson: string }>() : null
+    const request = published ? JSON.parse(published.requestJson) as { title?: string; body?: string } : {}
+    await ensure()
+    return artifactsMerge(env, item, receipt, method, { title: request.title || `Merge ${receipt.branch}`, body: request.body ?? '', by: serverIdentity(env) })
+  }
   const same = (pull: { state: string; merged?: boolean; head: { sha: string; ref: string; repo: { id: number } }; base: { ref: string; repo: { id: number } } }) => {
     if (pull.merged) fail(409, 'merge_done', `Pull request #${receipt.number} is merged already`)
     if (pull.state !== 'open') fail(409, 'merge_closed', `Pull request #${receipt.number} is closed`)
@@ -153,7 +163,7 @@ async function mergePull(env: L4Env, input: MergeInput) {
   if (receipt.commit !== sha) fail(409, 'merge_head_moved', `The pull request’s approved head is ${receipt.commit}, not ${sha}. Read its checks again.`)
   // The same readiness factory_feedback reports, read now at exactly the approved head.
   const feedback = await pullFeedback(env, environment, receipt, undefined, input.ensure)
-  const blocker = mergeBlocker(feedback, by.kind, checksRegisterUntil(receipt))
+  const blocker = mergeBlocker(feedback, by.kind, checksRegisterUntil(receipt, environment))
   if (blocker === CHECKS_REGISTERING_REASON) fail(409, 'merge_not_ready', 'No checks were reported for the pull request’s head yet, but it was pushed less than two minutes ago and CI may not have registered them. Check again in a moment.')
   if (blocker) fail(409, 'merge_not_ready', `${blocker} The pull request can be merged from L4 once every check of its head passed.`)
   const unchecked = !feedback.readyForReview
@@ -164,14 +174,16 @@ async function mergePull(env: L4Env, input: MergeInput) {
     .bind(id, box.id, input.runId, input.callId, request, digest, by.kind === 'person' ? by.id : null, now, new Date(Date.now() + MERGE_WINDOW_MS).toISOString(), now).first()
   if (!inserted) fail(409, 'factory_settled', 'This merge was already asked for')
   let outcome: Outcome
-  try { outcome = await providerMerge(env, environment, receipt, gitFlow.method, input.ensure) }
+  try { outcome = await providerMerge(env, environment, receipt, gitFlow.method, input.ensure, box) }
   catch (error) {
     const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message.slice(0, 300) : 'The merge could not be asked for'
     await env.DB.prepare("UPDATE factory_approvals SET status='failed',result_json=? WHERE id=? AND status='publishing'").bind(JSON.stringify({ message: `Not merged: ${message}` }), id).run()
     throw error
   }
   const result = outcome.status === 'completed'
-    ? { merged: true, sha: outcome.result.sha, number: receipt.number, url: receipt.url, method: gitFlow.method, message: `Merged pull request #${receipt.number} into ${environment.baseBranch} (${gitFlow.method}).${unchecked ? ' No checks were reported for its head.' : ''}`, ...(unchecked ? { unchecked: true } : {}) }
+    ? { merged: true, sha: outcome.result.sha, number: receipt.number, url: receipt.url, method: gitFlow.method, message: environment.provider === 'artifacts'
+      ? `Merged ${receipt.branch} into ${environment.baseBranch} (${gitFlow.method}).`
+      : `Merged pull request #${receipt.number} into ${environment.baseBranch} (${gitFlow.method}).${unchecked ? ' No checks were reported for its head.' : ''}`, ...(unchecked ? { unchecked: true } : {}) }
     : outcome.result
   const statements = [env.DB.prepare('UPDATE factory_approvals SET status=?,result_json=? WHERE id=? AND status=\'publishing\'').bind(outcome.status, JSON.stringify(result), id)]
   if (outcome.status === 'completed') {
@@ -201,18 +213,18 @@ export async function taskMergeState(env: L4Env, auth: AuthorizationContext, tas
   let ready = false, unchecked = false, reason: string | null, registering: string | null = null
   if (!pull) reason = gitFlow.merge === 'direct_push' ? null : 'No pull request yet.'
   else if (pull.merged) reason = 'Merged.'
-  else if (gitFlow.merge === 'direct_push') reason = `This Project’s Git flow now pushes straight to ${environment.baseBranch}; merge this pull request in ${environment.provider === 'gitea' ? 'Gitea' : 'GitHub'}.`
+  else if (gitFlow.merge === 'direct_push') reason = environment.provider === 'artifacts' ? `This Project’s Git flow now pushes straight to ${environment.baseBranch}; this branch stays as it is.` : `This Project’s Git flow now pushes straight to ${environment.baseBranch}; merge this pull request in ${environment.provider === 'gitea' ? 'Gitea' : 'GitHub'}.`
   else {
     try {
       const feedback = await pullFeedback(env, environment, pull, undefined, async () => {})
-      const until = checksRegisterUntil(pull)
+      const until = checksRegisterUntil(pull, environment)
       reason = mergeBlocker(feedback, 'person', until); ready = !reason
       if (reason === CHECKS_REGISTERING_REASON) registering = new Date(until!).toISOString()
-      if (ready && !feedback.readyForReview) { unchecked = true; reason = NO_CHECKS_REASON }
+      if (ready && !feedback.readyForReview) { unchecked = true; reason = environment.provider === 'artifacts' ? ARTIFACTS_NO_CHECKS_REASON : NO_CHECKS_REASON }
     }
     catch (error) { reason = `The checks could not be read: ${error && typeof error === 'object' && 'message' in error ? String(error.message).slice(0, 200) : 'unknown error'}` }
   }
-  return { box: { id: box.id, repository: environment.sourceRepo, baseBranch: environment.baseBranch, branch: publishTarget(gitFlow, box.id, environment).ref, pushedSha: box.pushedSha, pull },
+  return { box: { id: box.id, provider: environment.provider, repository: environment.sourceRepo, baseBranch: environment.baseBranch, branch: publishTarget(gitFlow, box.id, environment).ref, pushedSha: box.pushedSha, pull },
     gitFlow, canMerge, ready, unchecked, reason, checksRegisterUntil: registering }
 }
 
@@ -252,6 +264,7 @@ export async function mergeToolCall(env: L4Env, runId: string, callId: string, i
   if (!box) fail(409, 'box_unavailable', 'This Task has no box. Its first turn makes one.')
   const { gitFlow } = await repositoryGitFlow(env, context.environment.id)
   if (gitFlow.merge !== 'agent_after_checks') fail(403, 'merge_denied', gitFlow.merge === 'direct_push' ? 'This Project pushes straight to its base branch; there is nothing to merge.' : 'In this Project a person merges. Tell them the pull request is ready.')
+  if (context.environment.provider === 'artifacts') fail(403, 'merge_denied', 'This repository lives in L4 and has no checks, so you never merge it: a person reads the diff and merges from the Task.')
   const ensure = async () => {
     await factoryAuthority(env, runId, undefined, true)
     const current = await env.DB.prepare('SELECT pull_json AS pullJson FROM factory_boxes WHERE id=?').bind(box.id).first<{ pullJson: string | null }>()

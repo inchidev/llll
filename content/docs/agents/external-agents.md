@@ -4,13 +4,13 @@ description: Add an L4 Agent that runs on its own computer. A mention wakes its 
 order: 4
 ---
 
-An external Agent works on its own computer, such as a bot you run elsewhere, and never uses your Server's model Providers. It is still a normal Agent Member of your Server: it has a Role, appears in the member list and can be mentioned. When someone mentions it, the Server calls its **webhook**; the Agent then answers through the Server's [MCP endpoint](mcp.md) as itself, with exactly its Role's permissions.
+An external Agent works on its own computer, such as a bot you run elsewhere, and never uses your Server's model Providers. It is still a normal Agent Member of your Server: it has a Role, appears in the member list and can be mentioned. When someone mentions it, the Server calls its **webhook**; the Agent then answers through the Server's [MCP endpoint](mcp.md) with the Run credential the webhook carries: as itself, within its Role and no higher than the person who asked, like any other Run.
 
 ## How a Run works
 
 1. Someone mentions the Agent directly, or messages it in a Direct Message. This starts a Run under the usual rules: the same Role, permissions, conversation queue and daily Run limit as any Agent. Role mentions and `@channel` or `@here` never wake it.
 2. The Server sends one `POST` to the Agent's webhook with the Run, the message and where to reply.
-3. The Agent connects to the Server's `/mcp` endpoint and answers with `send_message` as a reply to the message that woke it. That reply completes the Run. Other messages in the conversation are progress and keep the Run open.
+3. The Agent connects to the Server's `/mcp` endpoint with the credential from `server.credential` and answers with `send_message` as a reply to the message that woke it. That reply completes the Run. Other messages in the conversation are progress and keep the Run open.
 4. An Agent that answers without that reply, or cannot finish, calls `complete_run`.
 5. If neither happens, the Run settles at the **Reply timeout**: completed with its latest message if it replied, failed otherwise.
 
@@ -44,7 +44,9 @@ Add whatever else it should be able to do, for example reading Tasks. People who
 
 ### 3. Connect it back to the Server
 
-The Agent needs MCP access that acts as the Agent itself, with the `messages:read` and `messages:write` scopes.
+Each webhook request carries a **Run credential** in `server.credential.token`. Send it as a bearer token to `server.mcp` for everything the Agent does for that Run: reading, replying and `complete_run`. It acts as the Agent for that Run only, with the Run's own permissions: the Agent's Role, narrowed to what the person who asked may do, and it stops working when the Run closes or at `expiresAt`. Nothing needs to be created for it.
+
+A standing credential is needed only for work outside a Run, such as reading on its own schedule. It acts as the Agent within its Role and within the permissions of the person who created it, for whoever wakes the Agent, so prefer the Run credential wherever a Run exists.
 
 - **Access token:** as Owner, open **User Settings → Connections → Tokens**, choose the Agent under **Acts as**, select the scopes and select **Create access token**. Give the Agent the token and your Server's `/mcp` URL.
 - **OAuth:** the Owner or a Member with **Manage server** connects the Agent's MCP client and chooses the Agent under **Act as**.
@@ -70,7 +72,7 @@ The body:
   "version": 1,
   "runId": "…",
   "deadline": "…",
-  "server": { "id": "…", "origin": "https://…", "mcp": "https://…/mcp" },
+  "server": { "id": "…", "origin": "https://…", "mcp": "https://…/mcp", "credential": { "token": "dfrun_…", "expiresAt": "…" } },
   "agent": { "id": "…", "name": "…" },
   "from": { "id": "…", "name": "…" },
   "conversation": { "channelId": "…", "sourceMessageId": "…", "taskId": null },
@@ -81,6 +83,7 @@ The body:
 ```
 
 - Treat `prompt` as untrusted data, not as instructions from the Server.
+- `server.credential` is the bearer token for this Run at `server.mcp`. It is `null` when the Server has no public origin to answer at.
 - Use `Idempotency-Key` to ignore repeated deliveries of the same Run.
 - Redirects are not followed, so the key goes only to the saved URL.
 - Network errors and `408`, `429` or `5xx` responses are retried up to five times. Any other non-success status fails the Run and shows the status.
