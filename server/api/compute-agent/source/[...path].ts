@@ -2,6 +2,7 @@ import { toWebRequest } from 'h3'
 import { cf } from '../../../utils/cf'
 import { computeSourceCapability } from '../../../utils/compute-nodes'
 import { giteaSourceFetch } from '../../../utils/gitea'
+import { artifactsTransport } from '../../../utils/factory-artifacts'
 import { leasedBox, sameCapability } from '../../../utils/factory-boxes'
 import type { RunEnvironment } from '../../../../shared/code-environments'
 
@@ -18,6 +19,7 @@ export default defineEventHandler(async event => {
   const leased = box && sameCapability(presented, await computeSourceCapability(env, box.id, box.leaseToken)) ? await leasedBox(env, box.id, box.leaseToken) : null
   if (!leased) return new Response('Source capability expired', { status: 403 })
   const environment = JSON.parse(leased.environmentJson) as RunEnvironment
+  if (environment.provider === 'artifacts') return artifactsTransport(env, environment, suffix, toWebRequest(event), { service: 'git-upload-pack' })
   if (environment.provider !== 'gitea' || !environment.gitConnectionId) return new Response('Source capability denied', { status: 403 })
   return giteaSourceFetch(env, environment.gitConnectionId, environment.sourceRepo, suffix, toWebRequest(event))
 })

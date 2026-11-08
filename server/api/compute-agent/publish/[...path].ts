@@ -1,6 +1,7 @@
 import { toWebRequest } from 'h3'
 import { cf } from '../../../utils/cf'
 import { giteaPush } from '../../../utils/gitea'
+import { artifactsTransport } from '../../../utils/factory-artifacts'
 import { leaseCapability, sameCapability } from '../../../utils/factory-boxes'
 import { nowIso } from '../../../../shared/ids'
 import type { RunEnvironment } from '../../../../shared/code-environments'
@@ -23,9 +24,11 @@ export default defineEventHandler(async event => {
     .first<{ requestJson: string; expectedOld: string | null; boxId: string; leaseToken: string; environmentJson: string }>()
   if (!row || !sameCapability(presented, await leaseCapability(env, 'compute-publish', approvalId, row.leaseToken))) return new Response('Publish capability expired', { status: 403 })
   const environment = JSON.parse(row.environmentJson) as RunEnvironment
-  if (environment.provider !== 'gitea' || !environment.gitConnectionId) return new Response('Publish capability denied', { status: 403 })
   const request = JSON.parse(row.requestJson) as { sha: string; ref: string; direct?: true }
   if (request.direct && !row.expectedOld) return new Response('Publish capability denied', { status: 403 })
-  return giteaPush(env, environment.gitConnectionId, environment.sourceRepo, suffix, toWebRequest(event),
-    { ref: `refs/heads/${request.ref}`, sha: request.sha, ...(request.direct ? { old: row.expectedOld! } : {}) })
+  const expected = { ref: `refs/heads/${request.ref}`, sha: request.sha, ...(request.direct ? { old: row.expectedOld! } : {}) }
+  // A repository in L4: the Server mints a token for this request and adds it here (ADR 0013).
+  if (environment.provider === 'artifacts') return artifactsTransport(env, environment, suffix, toWebRequest(event), { service: 'git-receive-pack', expected })
+  if (environment.provider !== 'gitea' || !environment.gitConnectionId) return new Response('Publish capability denied', { status: 403 })
+  return giteaPush(env, environment.gitConnectionId, environment.sourceRepo, suffix, toWebRequest(event), expected)
 })

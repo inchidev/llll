@@ -36,7 +36,7 @@ async function readPrefix(body: ReadableStream<Uint8Array>, limit: number): Prom
 export type BoxEgress = { boxId: string; lease: string
   /** The Task's own Artifacts repository, with a short token, while a trusted helper restores or checkpoints it. */
   storage?: { remote: string; token: string; write: boolean }
-  /** The original repository's pinned source, read once while the box's first checkout is cloned. */
+  /** The original repository's pinned source, read once while the box's first checkout is cloned. For a repository in L4 the token is its own short read token. */
   source?: { remote: string; token: string }
   /**
    * One approved push to the original repository, while a trusted helper makes it: the Task's own branch, or
@@ -97,6 +97,12 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
           if (remote.href !== await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo)) return new Response('Repository capability denied', { status: 403 })
           return giteaSourceFetch(this.env, environment.gitConnectionId, environment.sourceRepo, suffix, request)
         }
+        if (environment.provider === 'artifacts') {
+          // The Project's own repository in L4, with the short read token the box's object minted for this clone.
+          if (remote.href !== environment.remote) return new Response('Repository capability denied', { status: 403 })
+          headers.set('authorization', `Bearer ${grant.source.token}`)
+          return this.forward(url, request, headers)
+        }
         if (remote.href !== `https://github.com/${environment.sourceRepo}.git`) return new Response('Repository capability denied', { status: 403 })
         headers.set('authorization', 'Basic ' + btoa(`x-access-token:${grant.source.token}`))
         return this.forward(url, request, headers)
@@ -116,7 +122,8 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
           if (remote.href !== await giteaRemote(this.env, environment.gitConnectionId, environment.sourceRepo)) return new Response('Repository capability denied', { status: 403 })
           return giteaPush(this.env, environment.gitConnectionId, environment.sourceRepo, suffix, request, expected)
         }
-        if (remote.href !== `https://github.com/${environment.sourceRepo}.git`) return new Response('Repository capability denied', { status: 403 })
+        const inL4 = environment.provider === 'artifacts'
+        if (remote.href !== (inL4 ? environment.remote : `https://github.com/${environment.sourceRepo}.git`)) return new Response('Repository capability denied', { status: 403 })
         let body: ReadableStream<Uint8Array> | null = null
         if (request.method === 'POST') {
           if (![null, 'identity'].includes(request.headers.get('content-encoding'))) return new Response('Compressed pushes are not accepted', { status: 403 })
@@ -124,7 +131,8 @@ export class BoxOutbound extends WorkerEntrypoint<L4Env, BoxEgress> {
           if ('refusal' in inspected) return new Response(inspected.refusal, { status: 403 })
           body = inspected.body
         }
-        headers.set('authorization', 'Basic ' + btoa(`x-access-token:${grant.push.token}`))
+        // An Artifacts token is repository-wide (ADR 0013): the one ref update allowed above is the whole branch rule.
+        headers.set('authorization', inL4 ? `Bearer ${grant.push.token}` : 'Basic ' + btoa(`x-access-token:${grant.push.token}`))
         return this.forward(url, request, headers, body)
       }
     }

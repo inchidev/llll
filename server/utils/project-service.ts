@@ -66,9 +66,10 @@ export async function addProjectRepository(env: L4Env, auth: AuthorizationContex
     if (!environment) fail(404, 'not_found', 'Git execution configuration unavailable')
     const config = codeEnvironmentSchema.parse(JSON.parse(environment.config))
     authorizeResource(auth, 'repositories', repositoryResourceId(config))
-    // The reference names the same provider and server as the configuration's connection.
-    const host = config.provider === 'gitea' ? (await env.DB.prepare("SELECT host FROM git_connections WHERE id=? AND provider='gitea'").bind(config.gitConnectionId).first<{ host: string }>())?.host : 'https://github.com'
-    if (input.provider !== config.provider || new URL(input.host).origin !== host || input.externalId !== String(config.sourceRepoId) || input.slug.toLowerCase() !== config.sourceRepo.toLowerCase() || input.defaultBranch !== config.baseBranch) fail(400, 'repository_mismatch', 'Repository reference must match the Git execution configuration')
+    // The reference names the same provider and server as the configuration's connection; a repository in L4 its own remote.
+    const host = config.provider === 'artifacts' ? new URL(config.remote!).origin : config.provider === 'gitea' ? (await env.DB.prepare("SELECT host FROM git_connections WHERE id=? AND provider='gitea'").bind(config.gitConnectionId).first<{ host: string }>())?.host : 'https://github.com'
+    const externalId = config.provider === 'artifacts' ? config.repositoryId : String(config.sourceRepoId)
+    if (input.provider !== config.provider || new URL(input.host).origin !== host || input.externalId !== externalId || input.slug.toLowerCase() !== config.sourceRepo.toLowerCase() || input.defaultBranch !== config.baseBranch) fail(400, 'repository_mismatch', 'Repository reference must match the Git execution configuration')
   }
   const inserted = await env.DB.prepare('INSERT INTO project_repositories(id,project_id,provider,host,external_id,slug,default_branch,environment_id,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id')
     .bind(id, projectId, input.provider, new URL(input.host).origin, input.externalId ?? input.slug, input.slug, input.defaultBranch, input.environmentId ?? null, auth.principal.id, nowIso()).first()

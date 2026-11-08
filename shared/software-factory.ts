@@ -88,6 +88,34 @@ export function factoryImageAccepted(reported: string | undefined, expected: str
 }
 
 const FACTORY_STATES: Record<string, string> = { approval_pending: 'Waiting for review', publishing: 'Publishing', pr_published: 'Pull request open', publish_failed: 'Publication failed',
-  rejected: 'Publication rejected', pushed: 'Pushed to the base branch', merged: 'Merged', merge_failed: 'Merge refused', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
+  rejected: 'Publication rejected', published: 'Published for review', pushed: 'Pushed to the base branch', merged: 'Merged', merge_failed: 'Merge refused', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
 /** A Task's code work as its board shows it. */
 export const factoryStateLabel = (state: string) => FACTORY_STATES[state] ?? state.replaceAll('_', ' ')
+
+/**
+ * A repository inside L4 (ADR 0013): one Artifacts repository per Project in the Server's own namespace, the one
+ * `FACTORY_CODE` is bound to. It exists only where that binding does: a Server in the operator's own Cloudflare
+ * account with Compute enabled. Hosted Servers get it later through the control plane.
+ */
+export const ARTIFACTS_UNAVAILABLE = {
+  celld: 'Repositories in L4 need a Server in your own Cloudflare account with Compute enabled. On a VPS, connect GitHub or Gitea instead.',
+  cloud: 'Repositories in L4 are coming to hosted Servers. Connect GitHub or Gitea for now.',
+  compute: 'Enable Compute in Cloudflare first (Server settings → Compute → Server compute setup): it provisions the storage that holds Project repositories.',
+} as const
+/** Checkpoint repositories of boxes (`l4<server><box>`) and activation probes share the namespace; a Project never takes their names. */
+const RESERVED_REPOSITORY = /^l4(?:probe)?[0-9a-f]{24,}$/u
+/**
+ * The name a Project's repository gets in the namespace: the Project's name as a slug, within Artifacts' rules
+ * (a letter or digit first; letters, digits, `.`, `_` and `-`; at most 63 characters). `suffix` makes it unique.
+ */
+export function projectRepositoryName(projectName: string, suffix = 0) {
+  let slug = projectName.normalize('NFKD').replace(/[\u0300-\u036f]/gu, '').toLowerCase().replace(/[^a-z0-9._-]+/gu, '-').replace(/^[^a-z0-9]+|[^a-z0-9._-]+$/gu, '').replace(/-{2,}/gu, '-')
+  if (!slug || RESERVED_REPOSITORY.test(slug)) slug = slug ? `project-${slug}` : 'project'
+  const tail = suffix ? `-${suffix}` : ''
+  return slug.slice(0, 63 - tail.length).replace(/[^a-z0-9]+$/gu, '') + tail
+}
+/** A version of a Project's repository: an annotated tag `v<version>` on its base branch. */
+export const releaseVersion = z.string().trim().regex(/^(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})(?:-[0-9A-Za-z.-]{1,40})?$/u, 'Use a version such as 1.0.0 or 1.2.0-beta.1')
+export const projectReleaseSchema = z.object({ version: releaseVersion, message: z.string().trim().max(2000).default('') }).strict()
+export const releaseTag = (version: string) => `v${version}`
+export type ProjectRelease = { id: string; projectId: string; repository: string; tag: string; version: string; sha: string; message: string; createdBy: string; createdAt: string }
