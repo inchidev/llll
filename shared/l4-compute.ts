@@ -25,9 +25,14 @@ export const L4_COMPUTE_NODE_NAME = 'L4 Compute'
 export const L4_COMPUTE_PRICING_URL = 'https://llll.gg/pricing'
 export const L4_COMPUTE_ACCOUNT_URL = 'https://llll.gg/account'
 
-/** What llll.gg reports about the account's credit; the Owner changes the limit there, the Server only shows it. */
+/**
+ * What llll.gg reports about the Server's credit (`GET /api/compute/status` in llll-cloud's docs/compute.md): integers
+ * in microcents, a cent being 1,000,000. The Owner changes the limit there; the Server only shows it.
+ */
 export const l4ComputeStatusSchema = z.object({
-  creditCents: z.number().int(), spentCents: z.number().int().min(0), limitCents: z.number().int().min(0).nullable().default(null), currency: z.string().min(3).max(3).default('USD'),
+  serverId: z.string().optional(), creditMicrocents: z.number().int(), spentThisMonthMicrocents: z.number().int().min(0), spendLimitMicrocents: z.number().int().min(0).nullable().default(null),
+  mayStartBox: z.boolean().optional(),
+  boxes: z.array(z.object({ boxId: z.string(), taskId: z.string().optional(), size: z.string().optional(), state: z.string(), reason: z.string().nullable().optional(), seconds: z.number().optional() }).passthrough()).optional(),
 }).passthrough()
 export type L4ComputeStatus = z.infer<typeof l4ComputeStatusSchema>
 
@@ -51,7 +56,9 @@ export type L4ComputeOverview = {
   accountUrl: string
 }
 
-export function formatCents(cents: number, currency = 'USD') {
-  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(cents / 100) }
-  catch { return `${(cents / 100).toFixed(2)} ${currency}` }
+/** Microcents as money, for display only; llll.gg prices in US dollars. */
+export function formatMicrocents(microcents: number, currency = 'USD') {
+  const amount = microcents / 100000000
+  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount) }
+  catch { return `${amount.toFixed(2)} ${currency}` }
 }

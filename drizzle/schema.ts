@@ -1645,9 +1645,10 @@ export const factoryBoxes = sqliteTable('factory_boxes', {
   pushedSha: text('pushed_sha'),
   runtimeMs: integer('runtime_ms').notNull().default(0),
   publicationCount: integer('publication_count').notNull().default(0),
-  /** The box llll.gg started for this Task on L4 Compute, and the size it was asked for. */
+  /** The box llll.gg started for this Task on L4 Compute, the size it was asked for, and when llll.gg was told its daemon paired. */
   cloudBoxId: text('cloud_box_id'),
   cloudSize: text('cloud_size'),
+  cloudConfirmedAt: text('cloud_confirmed_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, table => [

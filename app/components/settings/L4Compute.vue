@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatCents } from '~~/shared/l4-compute'
+import { formatMicrocents } from '~~/shared/l4-compute'
 const { overview, busy, connect, disconnect } = useL4Compute()
 const route = useRoute(), toast = useToast(), confirmOpen = ref(false)
 // The connect step ends with the browser back here, and the address says how it went.
@@ -10,7 +10,7 @@ onMounted(() => {
   if (outcome) void navigateTo({ query: { section: 'compute' } }, { replace: true })
 })
 const data = computed(() => overview.data.value)
-const money = (cents: number) => formatCents(cents, data.value?.status?.currency)
+const money = formatMicrocents
 </script>
 <template>
   <section class="space-y-3 rounded-lg border border-default p-4" data-l4-compute>
@@ -20,7 +20,7 @@ const money = (cents: number) => formatCents(cents, data.value?.status?.currency
       <p class="text-sm text-muted">A box for each Task, started and stopped by llll.gg and paid by the hour of agent work, billed by the minute, with no limit on how many Agents work at once. The box is a microVM of its own for one Task of this Server; the Agent sees an ordinary Node with a durable disk.</p>
       <template v-if="data.linked">
         <p class="text-sm" data-l4-linked>{{ data.hosted ? 'This Server runs on L4 Cloud and uses L4 Compute with its own identity.' : `Linked to llll.gg account ${data.account}` }}</p>
-        <p v-if="data.status" class="text-sm" data-l4-status>Credit {{ money(data.status.creditCents) }} · Spent this month {{ money(data.status.spentCents) }} · Monthly limit {{ data.status.limitCents === null ? 'none' : money(data.status.limitCents) }}</p>
+        <p v-if="data.status" class="text-sm" data-l4-status>Credit {{ money(data.status.creditMicrocents) }} · Spent this month {{ money(data.status.spentThisMonthMicrocents) }} · Monthly limit {{ data.status.spendLimitMicrocents === null ? 'none' : money(data.status.spendLimitMicrocents) }}<template v-if="data.status.mayStartBox === false"> · No new box can start until credit or the limit allows</template></p>
         <UAlert v-if="data.statusError" color="warning" variant="subtle" icon="i-ph-warning" :title="data.statusError" :description="data.status ? 'Showing the last answer. Boxes already running are not affected.' : 'Credit and the spend limit will show once llll.gg answers. Local work does not wait for it.'" />
         <p class="text-xs text-muted">{{ data.boxes.active }} boxes running now · {{ data.boxes.retained }} kept for their Tasks. A box goes when its Task is Done. Credit and the monthly spend limit are set on llll.gg; a Task that needs a box when either runs out says so and waits for you.</p>
         <div class="flex flex-wrap gap-2">

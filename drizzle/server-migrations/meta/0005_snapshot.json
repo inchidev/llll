@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b23401ea-92b2-4cb3-94fc-9434232775da",
+  "id": "c016c743-c4ef-47d7-b7e4-0f378e018539",
   "prevId": "4219b6bc-ec08-4c32-85b9-df153a088c6d",
   "tables": {
     "account_recovery": {
@@ -6499,6 +6499,13 @@
         },
         "cloud_size": {
           "name": "cloud_size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cloud_confirmed_at": {
+          "name": "cloud_confirmed_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

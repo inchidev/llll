@@ -20,15 +20,18 @@ const image = 'registry.example/l4@sha256:' + 'b'.repeat(64)
 const dockerCapabilities = { diskBytes: 10737418240, docker: true, durableDisk: true, isolation: 'shared-kernel', image, capacity: { cpu: 2, memoryMiB: 4096, boxes: 1 }, protocol: 2 } as const
 type Call = { url: string; method: string; authorization: string | null; body: Record<string, unknown> | null }
 let f: ReturnType<typeof mcpFixture>, calls: Call[]
-const answers = { status: () => Response.json({ creditCents: 12050, spentCents: 1999, limitCents: 5000, currency: 'USD' }), box: () => Response.json({ id: 'bx_1' }, { status: 201 }),
-  link: () => Response.json({ token: serverToken, account: 'owner@example.com' }), remove: () => new Response(null, { status: 204 }), down: false }
+const status = { serverId: ids.server, creditMicrocents: 12050000000, spentThisMonthMicrocents: 1999000000, spendLimitMicrocents: 5000000000, mayStartBox: true, boxes: [] }
+const started = (boxId: string) => Response.json({ boxId, taskId: 'task', size: 'small', state: 'starting', reason: null, createdAt: '2026-11-08T12:00:00Z', confirmedAt: null, destroyedAt: null, seconds: 0 }, { status: 201 })
+const answers = { status: () => Response.json(status), box: () => started('bx_1'),
+  link: () => Response.json({ token: serverToken, serverId: ids.server, origin, account: 'owner@example.com' }), remove: () => new Response(null, { status: 204 }), confirm: () => Response.json({ boxId: 'bx_1', state: 'running' }), down: false }
 
 beforeEach(() => {
   f = mcpFixture()
   Object.assign(f.env, { PUBLIC_ORIGIN: origin })
   calls = []
-  answers.status = () => Response.json({ creditCents: 12050, spentCents: 1999, limitCents: 5000, currency: 'USD' })
-  answers.box = () => Response.json({ id: 'bx_1' }, { status: 201 })
+  answers.status = () => Response.json(status)
+  answers.box = () => started('bx_1')
+  answers.confirm = () => Response.json({ boxId: 'bx_1', state: 'running' })
   answers.down = false
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input), method = init?.method ?? 'GET'
@@ -37,6 +40,7 @@ beforeEach(() => {
     if (url.endsWith('/api/compute/link')) return answers.link()
     if (url.endsWith('/api/compute/status')) return answers.status()
     if (url.endsWith('/api/compute/boxes') && method === 'POST') return answers.box()
+    if (url.endsWith('/confirm') && method === 'POST') return answers.confirm()
     if (url.includes('/api/compute/boxes/') && method === 'DELETE') return answers.remove()
     return new Response('not found', { status: 404 })
   }))
@@ -45,7 +49,7 @@ afterEach(() => { f.db.close(); vi.unstubAllGlobals() })
 
 const linkRow = () => f.db.prepare('SELECT account,token_ciphertext AS ciphertext,linked_by AS linkedBy FROM l4_compute_link WHERE singleton=1').get() as { account: string; ciphertext: string; linkedBy: string } | undefined
 const placement = () => f.db.prepare("SELECT id,name,enabled FROM compute_nodes WHERE placement_id IS NULL AND json_extract(capabilities_json,'$.provider')='l4-compute'").get() as { id: string; name: string; enabled: number } | undefined
-const boxRow = (id: string) => f.db.prepare('SELECT status,node_id AS nodeId,run_id AS runId,cloud_box_id AS cloudBoxId,cloud_size AS cloudSize FROM factory_boxes WHERE id=?').get(id) as { status: string; nodeId: string; runId: string | null; cloudBoxId: string | null; cloudSize: string | null }
+const boxRow = (id: string) => f.db.prepare('SELECT status,node_id AS nodeId,run_id AS runId,cloud_box_id AS cloudBoxId,cloud_size AS cloudSize,cloud_confirmed_at AS confirmedAt FROM factory_boxes WHERE id=?').get(id) as { status: string; nodeId: string; runId: string | null; cloudBoxId: string | null; cloudSize: string | null; confirmedAt: string | null }
 const task = (id: string) => f.db.prepare('SELECT status,factory_state AS factoryState,last_error AS lastError FROM tasks WHERE id=?').get(id) as { status: string; factoryState: string | null; lastError: string | null }
 
 async function link() {
@@ -102,7 +106,7 @@ it('exchanges the code server to server, keeps the Server token encrypted and op
   const setup = await factorySetup(f.env, await f.actor())
   expect(setup.placements).toEqual(['cloudflare', 'l4-compute'])
   expect(setup.l4Compute).toMatchObject({ linked: true, hosted: false, canConnect: false, account: 'owner@example.com', nodeId: placement()!.id,
-    status: { creditCents: 12050, spentCents: 1999, limitCents: 5000, currency: 'USD' }, statusError: null, pricingUrl: 'https://llll.gg/pricing', accountUrl: 'https://llll.gg/account' })
+    status: { creditMicrocents: 12050000000, spentThisMonthMicrocents: 1999000000, spendLimitMicrocents: 5000000000, mayStartBox: true }, statusError: null, pricingUrl: 'https://llll.gg/pricing', accountUrl: 'https://llll.gg/account' })
   expect(calls.filter(call => call.url.endsWith('/api/compute/status'))).toEqual([{ url: 'https://llll.gg/api/compute/status', method: 'GET', authorization: `Bearer ${serverToken}`, body: null }])
   // A second look within the minute shows the cached answer.
   await l4ComputeOverview(f.env)
@@ -118,10 +122,10 @@ it('shows llll.gg unreachable instead of blocking, and keeps the last answer it 
   answers.down = false
   expect((await l4ComputeOverview(f.env)).statusError).toBe(L4_COMPUTE_UNREACHABLE)
   f.db.prepare("UPDATE server_settings SET value=json_set(value,'$.at','2020-01-01T00:00:00.000Z') WHERE key='l4_compute_status'").run()
-  expect(await l4ComputeOverview(f.env)).toMatchObject({ status: { creditCents: 12050 }, statusError: null })
+  expect(await l4ComputeOverview(f.env)).toMatchObject({ status: { creditMicrocents: 12050000000 }, statusError: null })
   answers.down = true
   f.db.prepare("UPDATE server_settings SET value=json_set(value,'$.at','2020-01-01T00:00:00.000Z') WHERE key='l4_compute_status'").run()
-  expect(await l4ComputeOverview(f.env)).toMatchObject({ status: { creditCents: 12050 }, statusError: L4_COMPUTE_UNREACHABLE })
+  expect(await l4ComputeOverview(f.env)).toMatchObject({ status: { creditMicrocents: 12050000000 }, statusError: L4_COMPUTE_UNREACHABLE })
 })
 
 it('asks llll.gg for a box on the Task’s first turn with a one-use pairing code bound to that box, at the Project’s size', async () => {
@@ -134,30 +138,51 @@ it('asks llll.gg for a box on the Task’s first turn with a one-use pairing cod
   expect(request).toMatchObject({ url: 'https://llll.gg/api/compute/boxes', method: 'POST', authorization: `Bearer ${serverToken}`, body: { taskId: 'task-l4-1', size: 'large', serverOrigin: origin } })
   const pairingToken = request!.body!.pairingToken as string
   expect(pairingToken).toMatch(/^[a-f0-9]{64}$/u)
-  expect(boxRow(boxId)).toMatchObject({ status: 'new', nodeId, runId: run.id, cloudBoxId: 'bx_1', cloudSize: 'large' })
+  expect(boxRow(boxId)).toMatchObject({ status: 'new', nodeId, runId: run.id, cloudBoxId: 'bx_1', cloudSize: 'large', confirmedAt: null })
   const pairings = f.db.prepare('SELECT token_hash AS tokenHash,box_id AS boxId FROM compute_pairings').all() as Array<{ tokenHash: string; boxId: string | null }>
   expect(pairings).toEqual([{ tokenHash: await factoryHash(pairingToken), boxId: boxId }])
   expect(JSON.stringify(pairings)).not.toContain(pairingToken)
   // The next turn finds the box and asks llll.gg for nothing.
   expect(await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)).toBe(boxId)
   expect(calls).toHaveLength(1)
-  // The box pairs with the code once; it becomes a Node of its own under the placement, and the box moves to it.
+  // The box pairs with the code once; it becomes a Node of its own under the placement, the box moves to it, and llll.gg hears the box is confirmed.
   const paired = await pairComputeNode(f.env, pairingToken, { ...dockerCapabilities })
   expect(paired).toMatchObject({ serverId: ids.server })
+  expect(calls.slice(1)).toEqual([{ url: 'https://llll.gg/api/compute/boxes/bx_1/confirm', method: 'POST', authorization: `Bearer ${serverToken}`, body: null }])
+  expect(boxRow(boxId).confirmedAt).toEqual(expect.any(String))
   expect(f.db.prepare('SELECT name,placement_id AS placementId,box_id AS boxId,enabled FROM compute_nodes WHERE id=?').get(paired.nodeId)).toEqual({ name: 'L4 Compute · Ship task-l4-1', placementId: nodeId, boxId, enabled: 1 })
   expect(boxRow(boxId).nodeId).toBe(paired.nodeId)
   expect(await requireComputeNode(f.env, paired.token)).toMatchObject({ id: paired.nodeId })
   await expect(pairComputeNode(f.env, pairingToken, { ...dockerCapabilities })).rejects.toMatchObject({ statusCode: 403 })
   // Later turns still see the Task's box through its placement.
   expect(await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)).toBe(boxId)
-  expect(calls).toHaveLength(1)
-  // The box's Node syncs as any Node does and is handed the turn.
+  expect(calls).toHaveLength(2)
+  // The box's Node syncs as any Node does and is handed the turn; a confirmed box is not confirmed again.
   const sync = await computePoll(f.env, paired.nodeId, { operation: 'sync', capacity: { cpu: 2, memoryMiB: 4096, boxes: 1, diskFree: 50000000000 }, boxes: [] }) as { boxes: Array<{ id: string; want: string; turn?: { runId: string } }> }
   expect(sync.boxes).toEqual([expect.objectContaining({ id: boxId, want: 'running', turn: { runId: run.id } })])
   expect(boxRow(boxId).status).toBe('starting')
+  expect(calls).toHaveLength(2)
   // The placement itself is a choice for repositories; a box's own Node is listed under it, never chosen.
   const { listComputeNodes } = await import('../../server/utils/compute-nodes')
   expect((await listComputeNodes(f.env, await f.actor())).map(node => ({ id: node.id, placementId: node.placementId }))).toEqual([{ id: nodeId, placementId: null }, { id: paired.nodeId, placementId: nodeId }])
+})
+
+it('confirms the box on the Node’s next sync when llll.gg could not be told at pairing time', async () => {
+  const nodeId = await link()
+  const run = await taskRun('task-l4-confirm', nodeId)
+  const boxId = await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)
+  const pairingToken = calls[0]!.body!.pairingToken as string
+  answers.down = true
+  const paired = await pairComputeNode(f.env, pairingToken, { ...dockerCapabilities })
+  expect(boxRow(boxId)).toMatchObject({ nodeId: paired.nodeId, confirmedAt: null })
+  answers.down = false
+  calls.length = 0
+  const capacity = { cpu: 2, memoryMiB: 4096, boxes: 1, diskFree: 50000000000 }
+  await computePoll(f.env, paired.nodeId, { operation: 'sync', capacity, boxes: [] })
+  expect(calls).toEqual([{ url: 'https://llll.gg/api/compute/boxes/bx_1/confirm', method: 'POST', authorization: `Bearer ${serverToken}`, body: null }])
+  expect(boxRow(boxId).confirmedAt).toEqual(expect.any(String))
+  await computePoll(f.env, paired.nodeId, { operation: 'sync', capacity, boxes: [] })
+  expect(calls).toHaveLength(1)
 })
 
 it('shows a 402 on the Task with where to buy credit, drops the pairing code and retries nothing by itself', async () => {
@@ -172,7 +197,7 @@ it('shows a 402 on the Task with where to buy credit, drops the pairing code and
   const box = f.db.prepare("SELECT run_id AS runId,cloud_box_id AS cloudBoxId FROM factory_boxes WHERE task_id='task-l4-2'").get()
   expect(box).toEqual({ runId: null, cloudBoxId: null })
   // Credit bought: the person starts the Task again, and that turn asks again and clears the note.
-  answers.box = () => Response.json({ id: 'bx_2' })
+  answers.box = () => started('bx_2')
   await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)
   expect(task('task-l4-2')).toMatchObject({ factoryState: null, lastError: null })
 })
@@ -183,6 +208,7 @@ it('releases the box on llll.gg when the Task is Done, from its Node’s sync or
   const boxId = await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)
   const pairingToken = calls[0]!.body!.pairingToken as string
   const paired = await pairComputeNode(f.env, pairingToken, { ...dockerCapabilities })
+  expect(calls.at(-1)).toMatchObject({ url: 'https://llll.gg/api/compute/boxes/bx_1/confirm', method: 'POST' })
   const capacity = { cpu: 2, memoryMiB: 4096, boxes: 1, diskFree: 50000000000 }
   const first = await computePoll(f.env, paired.nodeId, { operation: 'sync', capacity, boxes: [] }) as { boxes: Array<{ id: string; lease: string }> }
   const lease = first.boxes[0]!.lease
@@ -202,7 +228,7 @@ it('releases the box on llll.gg when the Task is Done, from its Node’s sync or
 
   // A Task marked Done while its Node is silent: the Task's own change releases the box.
   const other = await taskRun('task-l4-4', nodeId)
-  answers.box = () => Response.json({ id: 'bx_4' })
+  answers.box = () => started('bx_4')
   const otherBox = await ensureBox(f.env, other, nodeId, L4_COMPUTE_CAPABILITIES)
   calls.length = 0
   f.db.prepare("UPDATE tasks SET status='done' WHERE id='task-l4-4'").run()
@@ -235,8 +261,8 @@ it('disconnects: every box is released on llll.gg, the token is forgotten and th
 it('treats a Server hosted on L4 Cloud as linked, speaking to llll.gg with its CLOUD_SECRET', async () => {
   Object.assign(f.env, { LLLL_RUNTIME: 'cloud', CLOUD_SECRET: 'hosted-secret-0123456789abcdef' })
   const overview = await l4ComputeOverview(f.env)
-  expect(overview).toMatchObject({ linked: true, hosted: true, canConnect: false, account: null, status: { creditCents: 12050 } })
-  expect(calls).toEqual([{ url: 'https://llll.gg/api/compute/status', method: 'GET', authorization: 'Bearer hosted-secret-0123456789abcdef', body: null }])
+  expect(overview).toMatchObject({ linked: true, hosted: true, canConnect: false, account: null, status: { creditMicrocents: 12050000000 } })
+  expect(calls).toEqual([{ url: 'https://llll.gg/api/compute/status', method: 'GET', authorization: `Bearer l4h.${ids.server}.hosted-secret-0123456789abcdef`, body: null }])
   expect(linkRow()).toBeUndefined()
   const nodeId = placement()!.id
   expect(overview.nodeId).toBe(nodeId)
@@ -245,7 +271,7 @@ it('treats a Server hosted on L4 Cloud as linked, speaking to llll.gg with its C
   const run = await taskRun('task-l4-6', nodeId)
   calls.length = 0
   await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)
-  expect(calls).toEqual([expect.objectContaining({ url: 'https://llll.gg/api/compute/boxes', method: 'POST', authorization: 'Bearer hosted-secret-0123456789abcdef' })])
+  expect(calls).toEqual([expect.objectContaining({ url: 'https://llll.gg/api/compute/boxes', method: 'POST', authorization: `Bearer l4h.${ids.server}.hosted-secret-0123456789abcdef` })])
   expect((await factorySetup(f.env, await f.actor())).placements).toEqual(['cloudflare', 'l4-compute'])
 })
 

@@ -3,7 +3,7 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-exec
 import { runtimeEventSchema } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { computeCapabilities, isCloudflareNode, isL4ComputeNode, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
-import { releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box } from './l4-compute'
+import { confirmL4Boxes, releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box, unconfirmedL4Boxes } from './l4-compute'
 import { newId, nowIso } from '../../shared/ids'
 import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -200,8 +200,9 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   if (isL4ComputeNode(capabilities.data)) fail(409, 'compute_placement', 'The L4 Compute placement runs no boxes itself; each box pairs as its own Node.')
   const nodeCapabilities = capabilities.data
   const releasedIds = new Set((released?.results as Array<{ id: string }> | undefined ?? []).map(row => row.id))
-  // A released L4 Compute box is told to llll.gg, which stops the box and its billing.
+  // A released L4 Compute box is told to llll.gg, which stops the box and its billing; one whose pairing it has not heard of yet is confirmed.
   if (releasedIds.size) await releaseL4Boxes(env, [...releasedIds]).catch(() => undefined)
+  await confirmL4Boxes(env, await unconfirmedL4Boxes(env, nodeId)).catch(() => undefined)
   const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
     WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results
 

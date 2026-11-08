@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { dockerCapabilities, type ComputeNode } from '../../shared/software-factory'
 import { L4_COMPUTE_NODE_NAME } from '../../shared/l4-compute'
-import { releaseL4Boxes } from './l4-compute'
+import { confirmL4Boxes, releaseL4Boxes } from './l4-compute'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -63,6 +63,8 @@ export async function pairComputeNode(env: L4Env, token: string, capabilities: z
     env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE box_id=? AND id<>?').bind(await factoryHash(secret()), box.id, id),
     env.DB.prepare('UPDATE factory_boxes SET node_id=?,updated_at=? WHERE id=?').bind(id, nowIso(), box.id),
   ])
+  // llll.gg destroys a box it has not seen confirmed within ten minutes; a confirmation that fails now is tried on the Node's syncs.
+  await confirmL4Boxes(env, [box.id])
   return { nodeId: id, token: credential, serverId: await getServerId(env.DB) }
 }
 export async function disableComputeNode(env: L4Env, auth: AuthorizationContext, id: string) {

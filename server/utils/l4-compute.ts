@@ -35,11 +35,14 @@ export const l4ComputeSite = (env: Pick<L4Env, 'LLLL_CLOUD_SITE'>) => env.LLLL_C
 export const L4_COMPUTE_UNREACHABLE = 'llll.gg unreachable'
 
 export type L4Credential = { kind: 'hosted' | 'linked'; authorization: string; account: string | null; linkedAt: string | null }
-/** How this Server speaks to llll.gg about compute, or null when it is not linked. */
+/**
+ * How this Server speaks to llll.gg about compute, or null when it is not linked: the Server token as llll.gg
+ * gave it (`l4c.<uuid>.<secret>`), or on L4 Cloud the relay secret as `l4h.<Server UUID>.<CLOUD_SECRET>`.
+ */
 export async function l4ComputeCredential(env: L4Env): Promise<L4Credential | null> {
   if (isCloudHosted(env)) {
     const cloudSecret = env.CLOUD_SECRET?.trim()
-    return cloudSecret && cloudSecret.length >= 16 ? { kind: 'hosted', authorization: `Bearer ${cloudSecret}`, account: null, linkedAt: null } : null
+    return cloudSecret && cloudSecret.length >= 16 ? { kind: 'hosted', authorization: `Bearer l4h.${await getServerId(env.DB)}.${cloudSecret}`, account: null, linkedAt: null } : null
   }
   const row = await env.DB.prepare('SELECT account,token_ciphertext AS ciphertext,token_iv AS iv,token_version AS version,linked_at AS linkedAt FROM l4_compute_link WHERE singleton=1')
     .first<{ account: string; ciphertext: string; iv: string; version: number; linkedAt: string }>()
@@ -182,7 +185,7 @@ async function noteTask(env: L4Env, taskId: string, state: 'l4_credit' | 'l4_unr
 }
 export const L4_CREDIT_MESSAGE = `L4 Compute has no credit, or this month’s spend limit is reached. Buy credit at ${L4_COMPUTE_ACCOUNT_URL}, then start the Task again.`
 
-const boxResponse = z.object({ id: z.string().min(1).max(200) }).passthrough()
+const boxResponse = z.object({ boxId: z.string().min(1).max(200) }).passthrough()
 /**
  * A Task's first turn on the L4 Compute placement: mint a one-use pairing code bound to this box, then ask
  * llll.gg for a box of the Project's size. The box pairs itself as a Node under the placement and is then an
@@ -220,11 +223,36 @@ export async function requestL4Box(env: L4Env, box: { id: string; taskId: string
   }
   const parsed = boxResponse.safeParse(await response.json().catch(() => null))
   if (!parsed.success) { await dropPairing(); fail(502, 'compute_box', 'llll.gg answered the box request in an unexpected form') }
-  await env.DB.batch([
-    env.DB.prepare('UPDATE factory_boxes SET cloud_box_id=?,cloud_size=?,updated_at=? WHERE id=?').bind(parsed.data.id, size, nowIso(), box.id),
-  ])
+  await env.DB.prepare('UPDATE factory_boxes SET cloud_box_id=?,cloud_size=?,updated_at=? WHERE id=?').bind(parsed.data.boxId, size, nowIso(), box.id).run()
   await noteTask(env, box.taskId, null, null)
-  return { cloudBoxId: parsed.data.id, size }
+  return { cloudBoxId: parsed.data.boxId, size }
+}
+
+/**
+ * The box's daemon paired: tell llll.gg, which otherwise destroys a box unconfirmed ten minutes after it was made.
+ * A confirmation that does not get through is tried again on the box's Node's next sync, until it does.
+ */
+export async function confirmL4Boxes(env: L4Env, boxIds: string[]) {
+  if (!boxIds.length) return []
+  const rows = await env.DB.prepare(`SELECT id,cloud_box_id AS cloudBoxId FROM factory_boxes WHERE id IN (SELECT value FROM json_each(?)) AND cloud_box_id IS NOT NULL AND cloud_confirmed_at IS NULL AND status<>'released'`)
+    .bind(JSON.stringify(boxIds)).all<{ id: string; cloudBoxId: string }>()
+  if (!rows.results.length) return []
+  const credential = await l4ComputeCredential(env)
+  if (!credential) return []
+  const confirmed: string[] = []
+  for (const row of rows.results) {
+    const response = await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}/confirm`, { method: 'POST' }).catch(() => null)
+    // 404: llll.gg no longer has the box (unconfirmed in time, or unlinked); the Node's next sync shows it gone.
+    if (!response || !(response.ok || response.status === 404)) continue
+    await env.DB.prepare('UPDATE factory_boxes SET cloud_confirmed_at=?,updated_at=? WHERE id=? AND cloud_confirmed_at IS NULL').bind(nowIso(), nowIso(), row.id).run()
+    confirmed.push(row.id)
+  }
+  return confirmed
+}
+/** The boxes of one Node whose confirmation llll.gg has not had yet. */
+export async function unconfirmedL4Boxes(env: L4Env, nodeId: string) {
+  const rows = await env.DB.prepare("SELECT id FROM factory_boxes WHERE node_id=? AND cloud_box_id IS NOT NULL AND cloud_confirmed_at IS NULL AND status<>'released'").bind(nodeId).all<{ id: string }>()
+  return rows.results.map(row => row.id)
 }
 
 /**

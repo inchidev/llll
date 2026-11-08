@@ -36,7 +36,7 @@ it('offers Add L4 Compute while the Server is not linked, and starts the link fr
 
 it('shows the linked account with what llll.gg reports, never a price of its own, and offers Disconnect', async () => {
   const { view, disconnect } = show({ ...base, linked: true, account: 'owner@example.com', linkedAt: '2026-11-08T12:00:00Z', canConnect: false, nodeId: 'n1',
-    status: { creditCents: 12050, spentCents: 1999, limitCents: 5000, currency: 'USD' }, statusAt: '2026-11-08T12:00:00Z', boxes: { active: 2, retained: 3 } })
+    status: { creditMicrocents: 12050000000, spentThisMonthMicrocents: 1999000000, spendLimitMicrocents: 5000000000, mayStartBox: true }, statusAt: '2026-11-08T12:00:00Z', boxes: { active: 2, retained: 3 } })
   await flushPromises()
   expect(view.get('[data-l4-linked]').text()).toBe('Linked to llll.gg account owner@example.com')
   expect(view.get('[data-l4-status]').text()).toContain('$120.50')

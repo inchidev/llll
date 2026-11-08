@@ -15,4 +15,5 @@ ALTER TABLE `compute_nodes` ADD `box_id` text;--> statement-breakpoint
 CREATE INDEX `compute_nodes_placement` ON `compute_nodes` (`placement_id`);--> statement-breakpoint
 ALTER TABLE `compute_pairings` ADD `box_id` text;--> statement-breakpoint
 ALTER TABLE `factory_boxes` ADD `cloud_box_id` text;--> statement-breakpoint
-ALTER TABLE `factory_boxes` ADD `cloud_size` text;
+ALTER TABLE `factory_boxes` ADD `cloud_size` text;--> statement-breakpoint
+ALTER TABLE `factory_boxes` ADD `cloud_confirmed_at` text;
