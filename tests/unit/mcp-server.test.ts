@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { version as packageVersion } from '../../package.json'
-import { ALL_PERMISSIONS } from '../../shared/permissions'
+import { ALL_PERMISSIONS, Permission } from '../../shared/permissions'
 import { d1 } from '../helpers/sqlite-d1'
 import { INIT_SQL } from '../../server/utils/db'
 import { mcpOutput, serveMcpRequest } from '../../server/utils/mcp-server'
@@ -184,6 +184,36 @@ describe('L4 MCP server', () => {
     expect(payload.result.isError, text).not.toBe(true)
     expect(text).not.toContain('avatar-1.webp')
     expect(JSON.parse(text).messages[0].author).toMatchObject({ id: 'owner', avatarUrl: '/api/users/owner/avatar' })
+  })
+
+  it('refuses every tool at one point, with a reason the client can read', async () => {
+    sqlite.exec(`
+      INSERT INTO task_boards (id, name, created_by) VALUES ('board-roadmap', 'Roadmap', 'owner');
+      INSERT INTO roles (id, key, name, permissions_bitmask) VALUES ('agent-role', 'custom:agent', 'Assistant', ${Permission.mcpConnect | Permission.readTasks | Permission.writeTasks});
+      INSERT INTO users (id, kind, display_name, status, role_id, joined_at) VALUES ('agent', 'agent', 'Assistant', 'active', 'agent-role', '2026-09-06T00:00:00.000Z');
+    `)
+    const refusal = async (principal: McpPrincipal, name: string, args: Record<string, unknown>) => {
+      const { payload } = await call(createHandler(principal), { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name, arguments: args } }) as { payload: { result?: { isError?: boolean; content?: Array<{ text: string }> }; error?: { message: string } } }
+      if (payload.error) return payload.error.message
+      if (!payload.result?.isError) return null
+      const text = payload.result.content![0]!.text
+      try { return (JSON.parse(text) as { error: { message: string } }).error.message } catch { return text }
+    }
+    // The credential's scopes.
+    const scoped = ownerPrincipal()
+    scoped.authorization.credential.scopes = ['messages:read']
+    expect(await refusal(scoped, 'list_task_boards', {})).toBe('list_task_boards is not available: Access token is missing the tasks:read scope')
+    // An Agent acting for a person who may read but not write Tasks, whatever its own Role allows.
+    const forPetya = ownerPrincipal()
+    forPetya.userId = 'agent'
+    forPetya.authorization = { ...forPetya.authorization,
+      principal: { id: 'agent', kind: 'agent', roleId: 'agent-role', roleName: 'Assistant', permissions: Permission.mcpConnect | Permission.readTasks | Permission.writeTasks, isOwner: false },
+      delegation: { by: 'owner', permissions: Permission.readTasks, isOwner: false, roleName: 'Reader' } }
+    expect(await refusal(forPetya, 'get_task', { taskId: 'missing' })).not.toContain('is not available')
+    expect(await refusal(forPetya, 'create_task', { boardId: 'board-roadmap', title: 'Launch' })).toBe('create_task is not available: The delegating Reader cannot perform tasks:write')
+    expect(sqlite.prepare('SELECT count(*) AS count FROM tasks').get()).toMatchObject({ count: 0 })
+    // Only an Agent completes a Run.
+    expect(await refusal(ownerPrincipal(), 'complete_run', { runId: 'run-00000001' })).toContain('complete_run')
   })
 
   it('gets a task through MCP by its database-assigned number', async () => {

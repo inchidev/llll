@@ -14,6 +14,7 @@ import { factoryFeedback } from './factory-github'
 import { factoryStatus } from './factory-status'
 import { repositoryGitFlow } from './project-git-flow'
 import { guardRunTool, toolSecurityReason, untrustedContext } from './agent-tool-security'
+import { authorizeToolCall, toolActions, toolRule } from './tool-authorization'
 import { githubIssueSchema, githubPullSchema, readGithubRepository, readGithubIssue, readGithubPullRequest } from './agent-github-context'
 import { mcpRunTools, type ExternalToolAdapter } from './outbound-mcp'
 import { listAuthorizedTables } from './table-catalog'
@@ -62,6 +63,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   const definitions: Record<string, Definition> = {}
   function add<T>(name: string, action: ServerAction | undefined, schema: z.ZodType<T>, description: string, execute: (input: T) => Promise<unknown>) {
     if (Object.hasOwn(definitions, name)) throw new Error('Tool identities must be unique; qualify tools by connection')
+    // Every tool is authorized by its rule in tool-authorization.ts; a definition cannot name another action.
+    if (!toolRule(name) || (action && !toolActions(name).includes(action))) throw new Error(`Tool ${name} has no matching authorization rule`)
     definitions[name] = { action, schema, description, execute: value => execute(schema.parse(value)) }
   }
   add('get_current_time', undefined, z.object({}), 'Read the current date and time with the Server timezone (UTC by default). Confirm the user’s timezone for ambiguous schedules.', async () => agentTimeContext(env))
@@ -202,10 +205,10 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     const candidates = own ?? authorization.delegation?.resourceAccess?.[kind] ?? ['*']
     return candidates.some(id => resourceAllowed(authorization, kind, id))
   }
-  const allowed = Object.entries(definitions).filter(([name, definition]) => {
+  const allowed = Object.entries(definitions).filter(([name]) => {
     if (toolPaused(name)) return false
     try {
-      if (definition.action) authorize(authorization, definition.action)
+      authorizeToolCall(authorization, name)
       if (resourceKinds[name] && !hasResources(resourceKinds[name])) return false
       if (name === 'search_data' && !([[ServerAction.readRecords, 'databases'], [ServerAction.readDocuments, 'documents'], [ServerAction.readDocuments, 'canvases'], [ServerAction.readTasks, 'boards']] as const).some(([action, kind]) => {
         try { authorize(authorization, action); return hasResources(kind) } catch { return false }
@@ -278,7 +281,8 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       }
       const definition = definitions[name]
       if (!definition || !allowed.some(([key]) => key === name)) fail(403, 'tool_denied', 'Tool is not granted')
-      if (definition.action) authorize(authorization, definition.action)
+      // The one authorization point, against current Roles and grants, with the resource the call names.
+      authorizeToolCall(authorization, name, spaceResourceOf(input))
       if (run) await guardRunTool(env, run, name)
       try { return await definition.execute(input) }
       catch (error) {
@@ -290,6 +294,14 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
       }
     },
   }
+}
+
+/** A resource the arguments name whose Space the boundary lists, so the call stops at the boundary before any read. */
+function spaceResourceOf(input: unknown): { kind: 'databases' | 'boards' | 'gadgets'; id: string } | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const named = (key: string) => { const value = (input as Record<string, unknown>)[key]; return typeof value === 'string' && value ? value : null }
+  const databaseId = named('databaseId'), boardId = named('boardId'), appId = named('appId')
+  return databaseId ? { kind: 'databases', id: databaseId } : boardId ? { kind: 'boards', id: boardId } : appId ? { kind: 'gadgets', id: appId } : undefined
 }
 
 /** Only metadata crosses into Pi/DOs; external credentials are read inside the HTTP broker. */
