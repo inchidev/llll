@@ -1,6 +1,6 @@
 # One Server per tenant on our Cloud
 
-Proposed on 2026-11-04. It replaces ADR 0007, now removed. Amended on 2026-11-07 with the hostname, the control plane's relay and what the first slice builds: `packages/deployment-core/src/hosted.ts` installs and deletes a hosted Server, and the Server runs as `LLLL_RUNTIME=cloud` (`shared/server-runtime.ts`). The control plane itself lives in `inchidev/llll-cloud`. The dispatch namespace `llll-cloud` exists; the unknowns below are settled by the first Server created through it.
+Proposed on 2026-11-04. It replaces ADR 0007, now removed. Amended on 2026-11-07 with the hostname, the control plane's relay and what the first slice builds, and on 2026-11-08 by [Three doors to a Server on L4 Cloud](0012-server-creation.md), which adds the agent and partner doors, the quotas and provisional Servers: `packages/deployment-core/src/hosted.ts` installs and deletes a hosted Server, and the Server runs as `LLLL_RUNTIME=cloud` (`shared/server-runtime.ts`). The control plane itself lives in `inchidev/llll-cloud`. The dispatch namespace `llll-cloud` exists; the unknowns below are settled by the first Server created through it.
 
 ## Problem
 
