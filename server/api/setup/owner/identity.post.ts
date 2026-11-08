@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { cf, fail } from '../../../utils/cf'
+import { readCloudSeed } from '../../../utils/cloud-seed'
 import { ensureMigrated, serverReady } from '../../../utils/db'
 import { readOwnerSetup, verifyOwnerSetupToken } from '../../../utils/owner-setup'
 import { parseBody } from '../../../utils/validate'
@@ -17,5 +18,7 @@ export default defineEventHandler(async (event) => {
 
   const setup = await readOwnerSetup(env.DB, env)
   if (!await verifyOwnerSetupToken(setup, body.token)) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
-  return { username: setup?.username ?? null, serverName: setup?.serverName }
+  // The claim page says that an Agent will be on the Server, and under what name (ADR 0012).
+  const seed = await readCloudSeed(env.DB)
+  return { username: setup?.username ?? null, serverName: setup?.serverName, agentName: seed?.agent?.name ?? null }
 })

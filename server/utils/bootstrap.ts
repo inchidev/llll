@@ -38,11 +38,15 @@ export function readAdminEnv(env: Pick<L4Env, 'ADMIN_USERNAME' | 'ADMIN_PASSWORD
 }
 
 export async function provisionServer(event: H3Event, seed: AdminSeed) {
-  const { env } = cf(event)
+  return provisionServerWithEnv(cf(event).env, seed)
+}
+
+/** The same bootstrap without a request: the L4 Cloud relay creates a partner's Owner this way (ADR 0012). */
+export async function provisionServerWithEnv(env: L4Env, seed: AdminSeed) {
   const db = getDb(env.DB)
   const userId = seed.userId || newId()
   const accountId = newId()
-  const serverId = (await getServerId(cf(event).env.DB))
+  const serverId = (await getServerId(env.DB))
   const ownerRoleId = newId()
   const adminRoleId = newId()
   const memberRoleId = newId()

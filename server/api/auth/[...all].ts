@@ -21,6 +21,8 @@ const CLOSED_PATHS = new Set([
   '/api/auth/send-verification-email',
   '/api/auth/verify-email',
   '/api/auth/change-email',
+  // Without the rate limit and the Member check. Use /api/auth/link.
+  '/api/auth/link/exchange',
 ])
 
 export default defineEventHandler(async (event) => {

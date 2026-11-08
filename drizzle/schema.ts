@@ -398,9 +398,25 @@ export const serverSetup = sqliteTable('server_setup', {
   username: text('username'),
   tokenHash: text('token_hash').notNull(),
   serverName: text('server_name').notNull(),
+  /** What L4 Cloud asks the first claim to create besides the Owner (ADR 0012): an Agent, secrets and env for later Projects. */
+  seedJson: text('seed_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, table => [check('server_setup_singleton_check', sql`${table.singleton} = 1`)])
+
+/**
+ * The explicit link between a Member and an identity outside this Server, such as a partner's account
+ * (ADR 0012). It is how a partner names a Member through L4 Cloud. Email is never a key.
+ */
+export const memberIdentities = sqliteTable('member_identities', {
+  provider: text('provider').notNull(),
+  subject: text('subject').notNull(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, table => [
+  primaryKey({ columns: [table.provider, table.subject] }),
+  uniqueIndex('member_identities_user_id_unique').on(table.userId),
+])
 
 export const connectionGrants = sqliteTable('connection_grants', {
   codeHash: text('code_hash').primaryKey(), userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }), sessionId: text('session_id').notNull().references(() => authSessions.id, { onDelete: 'cascade' }), challenge: text('challenge').notNull(), redirectUri: text('redirect_uri').notNull(), expiresAt: integer('expires_at').notNull(),
@@ -1795,6 +1811,7 @@ export const schema = {
   serverIdentity,
   serverSettings,
   serverSetup,
+  memberIdentities,
   connectionGrants,
   accountRecovery,
   authUsers,

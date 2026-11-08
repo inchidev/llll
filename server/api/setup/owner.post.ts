@@ -7,6 +7,7 @@ import { sessionUser } from '../../utils/auth'
 import { authFromEvent } from '../../utils/better-auth'
 import { provisionServer } from '../../utils/bootstrap'
 import { cf, fail } from '../../utils/cf'
+import { applyCloudSeed, readCloudSeed } from '../../utils/cloud-seed'
 import { ensureMigrated, getDb, serverReady } from '../../utils/db'
 import { newId } from '../../../shared/ids'
 import { ensureServerMailFromEnv } from '../../utils/server-mail'
@@ -35,6 +36,8 @@ export default defineEventHandler(async (event) => {
   await requireRateLimit(event, [{ key: `ip:${clientIp(event)}:owner-setup`, limit: 5, windowMs: 60 * 60 * 1000 }], 'Too many setup attempts')
   if (!await verifyOwnerSetupToken(setup, body.token)) fail(403, 'invalid_setup', 'This setup link is invalid or expired')
 
+  // What L4 Cloud left for this claim (ADR 0012): it goes with the setup row, so it is read first.
+  const seed = await readCloudSeed(env.DB)
   const userId = newId()
   let provisioned
   try {
@@ -52,6 +55,8 @@ export default defineEventHandler(async (event) => {
     throw error
   }
   await ensureServerMailFromEnv(env)
+  // The seed's Agent, identity, secrets and env, created by the new Owner as the Owner would.
+  if (seed) await applyCloudSeed(env, { serverId: provisioned.serverId, ownerId: provisioned.userId, seed })
   await env.DB.prepare('DELETE FROM server_setup WHERE singleton = 1').run()
 
   const auth = await authFromEvent(event)

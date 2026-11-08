@@ -7,6 +7,7 @@ import messagesByChannelSql from '../../drizzle/server-migrations/0003_messages_
 import agentBoxSql from '../../drizzle/server-migrations/0004_agent_box.sql?raw'
 import projectReleasesSql from '../../drizzle/server-migrations/0005_project_releases.sql?raw'
 import l4ComputeSql from '../../drizzle/server-migrations/0006_l4_compute.sql?raw'
+import cloudSeedSql from '../../drizzle/server-migrations/0007_cloud_seed.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 import { isOperatorManaged } from '../../shared/server-runtime'
@@ -38,6 +39,7 @@ export const INIT_SQL = d1ExecSql([
   agentBoxSql,
   projectReleasesSql,
   l4ComputeSql,
+  cloudSeedSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

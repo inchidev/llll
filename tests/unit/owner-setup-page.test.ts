@@ -52,3 +52,15 @@ it('returns to the token field when the claim is rejected', async () => {
   expect(v.findComponent({ name: 'FormPasswordInput' }).exists()).toBe(true)
   expect(sessionStorage.getItem('df:owner-setup-token')).toBeNull()
 })
+it('tells the person which Agent will be on the Server when L4 Cloud seeded one', async () => {
+  api.mockResolvedValueOnce({ username: 'ivan', serverName: 'Paper Planes', agentName: 'Claude' })
+  window.history.replaceState({}, '', '/setup#claim=' + token)
+  const v = await page()
+  expect(v.text()).toContain('An Agent named Claude will be on this Server.')
+  expect(v.find('form').exists()).toBe(true)
+})
+it('says nothing about an Agent when the claim is an ordinary one', async () => {
+  window.history.replaceState({}, '', '/setup#claim=' + token)
+  const v = await page()
+  expect(v.text()).not.toContain('An Agent named')
+})

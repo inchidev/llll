@@ -51,7 +51,20 @@ Keep each Server's D1, files and DO state separate. Preserve its original encryp
 
 A Server on L4 Cloud is the same published release, uploaded by the control plane in `inchidev/llll-cloud` to a Workers for Platforms dispatch namespace of ours, with its own D1, files bucket, backup bucket and KV in our account, at `<name>.llll.gg`. `packages/deployment-core/src/hosted.ts` installs and deletes one; the control plane routes its hostname to the script. See [ADR 0008](adr/0008-server-per-tenant.md).
 
-Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT_ID`: Deployment settings, self-update and domain management are off, and its origin is its `PUBLIC_ORIGIN`. The control plane reaches it only through `/.llll/cloud/scheduled` (the weekly backup) and `/.llll/cloud/purge-files` (before the files bucket is deleted), each with the Server's `CLOUD_SECRET` as a bearer token; every other Server answers 404 there. Deleting a hosted Server keeps its backup bucket.
+Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT_ID`: Deployment settings, self-update and domain management are off, and its origin is its `PUBLIC_ORIGIN`. The control plane reaches it only through the relay `POST /.llll/cloud/<action>` (`server/utils/cloud-relay.ts`), JSON in and out, with the Server's `CLOUD_SECRET` as a bearer token; every other Server, method or action answers 404 there, and a refusal is `{ error }` with a 4xx. Deleting a hosted Server keeps its backup bucket. The actions, each idempotent ([ADR 0012](adr/0012-server-creation.md) is the contract):
+
+- `scheduled`: runs the scheduled work, since user Workers may get no Cron Trigger of their own.
+- `purge-files`: empties the files bucket before the control plane deletes it.
+- `claim-owner`: on a Server whose seed names the Owner's identity, creates the Owner with a password nobody is told, records the identity, then the seed's Agent, secrets and env, and deletes `server_setup`. Answers `{ ok, ownerId }`, the same on a second call.
+- `members/upsert` `{ identity, name, role: "member" }`: a human Member for that identity, active in the default Space with no email; an existing one takes the new name. Answers `{ ok, userId }`.
+- `members/remove` `{ identity }`: removes the Member as the Owner would, sessions and tokens included; the Owner's identity is refused with 409.
+- `session-link` `{ identity }`: a one-time URL `<origin>/signin/link#<token>` that signs that Member in, good for ten minutes. Answers `{ ok, url, expiresAt }`.
+- `agents/upsert` `{ name, role, instructions, version, token? }`: the seed's Agent by name, created if missing with the pre-hashed token, its instructions replaced when `version` grows.
+- `secrets/set` `{ secrets, env }`: kept encrypted in `server_settings` under `cloud.partner` for Projects the partner later creates; nothing is applied to Projects that exist.
+- `models/set` `{ provider: "openrouter", key }`: saves the provider as **Server settings → Models** would, enabled with its current model list, and sets the default model when none is. Answers `{ ok, configured: true }`.
+- `sleep`: releases the Server's boxes on L4 Compute; the script's deletion is the control plane's.
+
+The seed those actions act on is `server_setup.seed_json`, written by `seedNewServer` when the hosted install request carries a `seed` (`packages/deployment-core/src/hosted.ts` validates it), and read once by the first claim, at `/setup` or through `claim-owner`. `GET /.well-known/llll` answers `"owner": true | false` so that an agent waiting on a new Server can see the claim land.
 
 ## L4 Compute
 

@@ -3,8 +3,9 @@
 // gives the Server an account token: the Server runs with `LLLL_RUNTIME=cloud` and asks the control plane for nothing.
 // See docs/adr/0008-server-per-tenant.md.
 
+import { z } from 'zod'
 import { cloudflareApi } from './cloudflare-client.js'
-import { applyD1Migrations, scriptApiPath, seedNewServer, serverTag, uploadAssets, verifyDeployment } from './deploy.js'
+import { applyD1Migrations, scriptApiPath, seedNewServer, serverTag, uploadAssets, verifyDeployment, type HostedSeed } from './deploy.js'
 import { createError } from './errors.js'
 import { durableObjectMigrations } from './migrations.js'
 import { randomBase64Url } from './random.js'
@@ -24,7 +25,24 @@ export type HostedInstallRequest = {
   /** `<subdomain>.llll.gg`: the control plane routes it to the script. */
   hostname: string
   targetVersion?: string
+  /** What the first claim creates besides the Owner (ADR 0012). Stored as `server_setup.seed_json`; nothing in it is applied here. */
+  seed?: HostedSeed
 }
+
+const identitySchema = z.object({ provider: z.string().trim().min(1).max(64), subject: z.string().trim().min(1).max(200) }).strict()
+/** The seed as the control plane sends it. Token hashes are SHA-256 hex; the secret itself never travels. */
+export const hostedSeedSchema = z.object({
+  owner: z.object({ identity: identitySchema.optional(), name: z.string().trim().max(80).optional(), username: z.string().trim().max(32).optional() }).strict().optional(),
+  agent: z.object({
+    name: z.string().trim().min(1).max(80),
+    role: z.string().trim().min(1).max(64),
+    token: z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/u), prefix: z.string().min(1).max(14), scopes: z.array(z.string().min(1).max(40)).max(40) }).strict(),
+    instructions: z.string().max(12_000).optional(),
+    version: z.number().int().min(1).optional(),
+  }).strict().optional(),
+  secrets: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.object({ value: z.string().min(1).max(4000), hosts: z.array(z.string().trim().min(1).max(253)).max(32).optional() }).strict()).optional(),
+  env: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.string().max(4000)).optional(),
+}).strict()
 
 export type HostedResources = {
   databaseId: string
@@ -73,13 +91,15 @@ export function parseHostedInstallRequest(value: unknown): HostedInstallRequest 
   const name = String(body.name || '').trim()
   const hostname = String(body.hostname || '').trim().toLowerCase()
   const targetVersion = body.targetVersion === undefined ? undefined : String(body.targetVersion).trim()
+  const seed = body.seed === undefined || body.seed === null ? undefined : hostedSeedSchema.safeParse(body.seed)
+  if (seed && !seed.success) throw createError({ statusCode: 400, statusMessage: `Server seed is invalid: ${seed.error.issues[0]?.path.join('.') || 'seed'}` })
   if (!/^[0-9a-f]{32}$/u.test(accountId)) throw createError({ statusCode: 400, statusMessage: 'Cloudflare account ID is invalid' })
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/u.test(namespace)) throw createError({ statusCode: 400, statusMessage: 'Dispatch namespace name is invalid' })
   if (!UUID.test(serverId)) throw createError({ statusCode: 400, statusMessage: 'Server ID is invalid' })
   if (!name || name.length > 80) throw createError({ statusCode: 400, statusMessage: 'Server name must be 1–80 characters' })
   if (!HOSTNAME.test(hostname)) throw createError({ statusCode: 400, statusMessage: 'Server hostname is invalid' })
   if (targetVersion !== undefined && !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(targetVersion)) throw createError({ statusCode: 400, statusMessage: 'Release version is invalid' })
-  return { accountId, namespace, serverId, name, hostname, ...(targetVersion ? { targetVersion } : {}) }
+  return { accountId, namespace, serverId, name, hostname, ...(targetVersion ? { targetVersion } : {}), ...(seed ? { seed: seed.data as HostedSeed } : {}) }
 }
 
 export const hostedScriptName = (serverId: string) => `srv-${serverId}`
@@ -237,7 +257,7 @@ export async function installHostedL4(accessToken: string, value: unknown, optio
     zoneId: '',
     mailLocalPart: '',
     appName: request.name,
-  }, origin, setupToken)
+  }, origin, setupToken, request.seed)
   await progress('database', 'complete', appliedMigrations.length ? `${appliedMigrations.length} applied` : 'Up to date')
 
   await progress('assets', 'active')
