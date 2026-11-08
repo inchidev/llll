@@ -154,7 +154,7 @@ describe('a Server on L4 Cloud', () => {
     vi.stubGlobal('fetch', fetcher)
     const seed = {
       owner: { identity: { provider: 'afterprompt', subject: 'acct_1' }, name: 'Ivan', username: 'ivan' },
-      agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'l4a.', scopes: ['tasks:read'] }, instructions: 'Organize.', version: 1 },
+      agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: ['tasks:read'] }, instructions: 'Organize.', version: 1 },
       secrets: { AFTERPROMPT_TOKEN: { value: 'apk_secret', hosts: ['afterprompt.games'] } },
       env: { AFTERPROMPT_URL: 'https://afterprompt.games' },
     }

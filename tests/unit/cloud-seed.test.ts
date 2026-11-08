@@ -36,8 +36,8 @@ describe('the seed a claim applies', () => {
     expect(await seeded({ agent: { name: 'Claude' } })).toBeNull()
     sqlite.prepare('UPDATE server_setup SET seed_json=?').run('{not json')
     expect(await readCloudSeed(env.DB)).toBeNull()
-    sqlite.prepare('UPDATE server_setup SET seed_json=?').run(JSON.stringify({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'l4a.', scopes: [] } } }))
-    expect(await readCloudSeed(env.DB)).toEqual({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'l4a.', scopes: [] }, instructions: '', version: 1 }, secrets: {}, env: {} })
+    sqlite.prepare('UPDATE server_setup SET seed_json=?').run(JSON.stringify({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: [] } } }))
+    expect(await readCloudSeed(env.DB)).toEqual({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: [] }, instructions: '', version: 1 }, secrets: {}, env: {} })
     expect(cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: '' } } }).success).toBe(false)
     // A partner's seed, as llll-cloud sends it: an Owner identity, an Agent without a token, secrets and env.
     const partner = cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: 'acct_1' }, name: 'Ivan', username: 'ivan' }, agent: { name: 'Claude', role: 'admin', instructions: 'x'.repeat(100_000), version: 3 }, secrets: { K: { value: 'v'.repeat(8192), hosts: [] } }, env: { U: 'https://x' } })
@@ -48,7 +48,7 @@ describe('the seed a claim applies', () => {
 
   it('creates the seed’s Agent under the Owner, whose token then acts as the Agent delegated by the Owner', async () => {
     const seed = (await seeded({
-      agent: { name: 'Claude', role: 'admin', token: { hash: await sha256Hex(AGENT_TOKEN), prefix: 'l4a.', scopes: ['tasks:read', 'tasks:write'] }, instructions: 'Organize the work on paper planes.', version: 1 },
+      agent: { name: 'Claude', role: 'admin', token: { hash: await sha256Hex(AGENT_TOKEN), prefix: 'dfmcp_', scopes: ['tasks:read', 'tasks:write'] }, instructions: 'Organize the work on paper planes.', version: 1 },
     }))!
     // What /api/setup/owner does: the Owner from the form, then the seed.
     const { userId: ownerId } = await provisionServerWithEnv(env, { username: 'ivan', password: 'a-long-enough-password', handle: 'ivan', displayName: 'Ivan', serverName: 'Paper Planes' })
@@ -63,7 +63,7 @@ describe('the seed a claim applies', () => {
     expect(role.permissions & admin.permissions).toBe(admin.permissions)
     expect(role.permissions & (1 << 12)).toBeTruthy()
     const token = sqlite.prepare('SELECT name,token_prefix,scopes_json,subject_id,created_by FROM mcp_access_tokens').get()
-    expect(token).toEqual({ name: 'Claude on L4 Cloud', token_prefix: 'l4a.', scopes_json: '["tasks:read","tasks:write"]', subject_id: agent.id, created_by: ownerId })
+    expect(token).toEqual({ name: 'Claude on L4 Cloud', token_prefix: 'dfmcp_', scopes_json: '["tasks:read","tasks:write"]', subject_id: agent.id, created_by: ownerId })
     expect(sqlite.prepare("SELECT action FROM audit_log ORDER BY created_at,id").all().map(row => (row as { action: string }).action)).toEqual(['server.create', 'agent.create', 'mcp_token.create'])
 
     const principal = await authenticateMcpRequest(env, new Request('https://paper-planes.llll.gg/mcp', { headers: { Authorization: `Bearer ${AGENT_TOKEN}` } }))
@@ -78,7 +78,7 @@ describe('the seed a claim applies', () => {
   it('applies a seed twice without a second Agent or token, and records the Owner’s identity when the seed names one', async () => {
     const seed = (await seeded({
       owner: { identity: { provider: 'afterprompt', subject: 'acct_1' } },
-      agent: { name: 'Claude', role: 'admin', token: { hash: await sha256Hex(AGENT_TOKEN), prefix: 'l4a.', scopes: [] }, instructions: '', version: 1 },
+      agent: { name: 'Claude', role: 'admin', token: { hash: await sha256Hex(AGENT_TOKEN), prefix: 'dfmcp_', scopes: [] }, instructions: '', version: 1 },
       secrets: { KEY: { value: 'v' } },
     }))!
     const { userId: ownerId } = await provisionServerWithEnv(env, { username: 'ivan', password: 'a-long-enough-password', handle: 'ivan', displayName: 'Ivan', serverName: 'Paper Planes' })

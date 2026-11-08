@@ -12,11 +12,8 @@ import type { L4Env } from '../../workers/env'
 
 const TOKEN_PREFIX = 'dfmcp_'
 const TOKEN_BYTES = 32
-/**
- * A standing token this Server issued, or one L4 Cloud's agent door issued for a seeded Agent (`l4a.<Server UUID>.<secret>`,
- * ADR 0012): the Server holds only its SHA-256, recorded by the claim, and reads it like its own.
- */
-const BEARER_TOKEN = /^Bearer\s+(dfmcp_[0-9a-f]{64}|l4a\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{16,200})$/i
+/** A standing token: this Server's, or one L4 Cloud minted in the same shape for a seeded Agent and whose digest the claim recorded (ADR 0012). */
+const BEARER_TOKEN = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i
 
 type TokenRow = Omit<McpAccessTokenDTO, 'scopes' | 'subject' | 'createdBy'> & {
   scopesJson: string

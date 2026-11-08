@@ -10,8 +10,8 @@ import type { L4Env } from '../../workers/env'
 
 const SECRET = 'cloud-secret-'.repeat(3)
 const SERVER = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b'
-// As the agent door mints it: `l4a.<Server UUID>.<base64url>`, hashed whole.
-const AGENT_TOKEN = `l4a.${SERVER}.${'A'.repeat(43)}`
+// As the agent door mints it: an ordinary Server access token, hashed whole.
+const AGENT_TOKEN = 'dfmcp_' + 'ab'.repeat(32)
 const identity = { provider: 'afterprompt', subject: 'acct_42' }
 
 function fakeFiles(keys: string[]) {
@@ -74,7 +74,7 @@ describe('the partner and agent doors', () => {
   let e: L4Env
   const seed = {
     owner: { identity, name: 'Ivan', username: 'ivan' },
-    agent: { name: 'Claude', role: 'admin', token: { hash: '', prefix: 'l4a.', scopes: ['tasks:read', 'tasks:write', 'messages:read', 'messages:write'] }, instructions: 'Organize the work.', version: 1 },
+    agent: { name: 'Claude', role: 'admin', token: { hash: '', prefix: 'dfmcp_', scopes: ['tasks:read', 'tasks:write', 'messages:read', 'messages:write'] }, instructions: 'Organize the work.', version: 1 },
     secrets: { AFTERPROMPT_TOKEN: { value: 'apk_secret_value', hosts: ['afterprompt.games'] } },
     env: { AFTERPROMPT_URL: 'https://afterprompt.games' },
   }
@@ -113,7 +113,7 @@ describe('the partner and agent doors', () => {
     const principal = await authenticateMcpRequest(e, new Request('https://acme.llll.gg/mcp', { headers: { Authorization: `Bearer ${AGENT_TOKEN}` } }))
     expect(principal).toMatchObject({ userId: agent.id, delegatedBy: ownerId, scopes: ['tasks:read', 'tasks:write', 'messages:read', 'messages:write'] })
     expect(principal?.authorization.delegation?.isOwner).toBe(true)
-    expect(await authenticateMcpRequest(e, new Request('https://acme.llll.gg/mcp', { headers: { Authorization: `Bearer l4a.${SERVER}.${'B'.repeat(43)}` } }))).toBeNull()
+    expect(await authenticateMcpRequest(e, new Request('https://acme.llll.gg/mcp', { headers: { Authorization: `Bearer dfmcp_${'cd'.repeat(32)}` } }))).toBeNull()
     // Secrets and env wait for later Projects, encrypted, under one setting.
     const partner = row<{ value: string }>("SELECT value FROM server_settings WHERE key='cloud.partner'")!.value
     expect(partner).not.toContain('apk_secret_value')
@@ -204,7 +204,7 @@ describe('the partner and agent doors', () => {
   it('keeps the seed’s Agent by name: the token only on creation, the instructions only when the version grows', async () => {
     const { body: { ownerId } } = await post('claim-owner')
     const agentId = row<{ id: string }>("SELECT id FROM users WHERE kind='agent'")!.id
-    const same = await post('agents/upsert', { name: 'Claude', role: 'admin', instructions: 'Older words.', version: 1, token: { hash: 'cd'.repeat(32), prefix: 'l4a.', scopes: ['tasks:read'] } })
+    const same = await post('agents/upsert', { name: 'Claude', role: 'admin', instructions: 'Older words.', version: 1, token: { hash: 'cd'.repeat(32), prefix: 'dfmcp_', scopes: ['tasks:read'] } })
     expect(same.body).toEqual({ ok: true, agentId, created: false })
     expect(row<{ instructions: string }>('SELECT instructions FROM agents WHERE user_id=?', agentId)?.instructions).toBe('Organize the work.')
     expect(row<{ n: number }>('SELECT count(*) AS n FROM mcp_access_tokens')?.n).toBe(1)
@@ -221,7 +221,7 @@ describe('the partner and agent doors', () => {
     expect(row<{ display_name: string }>('SELECT display_name FROM users WHERE id=?', agentId)?.display_name).toBe('Clementine')
 
     // A second Agent, by another name, with its own token, created by the Owner.
-    const other = await post('agents/upsert', { name: 'Scout', role: 'member', instructions: 'Scout.', version: 1, token: { hash: 'ef'.repeat(32), prefix: 'l4a.', scopes: ['tasks:read'] } })
+    const other = await post('agents/upsert', { name: 'Scout', role: 'member', instructions: 'Scout.', version: 1, token: { hash: 'ef'.repeat(32), prefix: 'dfmcp_', scopes: ['tasks:read'] } })
     expect(other.body).toMatchObject({ ok: true, created: true })
     expect(row<{ created_by: string; subject_id: string }>("SELECT created_by,subject_id FROM mcp_access_tokens WHERE token_hash=?", 'ef'.repeat(32))).toEqual({ created_by: ownerId, subject_id: other.body.agentId })
     expect(row<{ key: string }>('SELECT r.key FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?', other.body.agentId as string)?.key).toBe('member')

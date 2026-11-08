@@ -45,7 +45,7 @@ An agent calls llll.gg without an account, over MCP at `https://llll.gg/mcp` or 
   "origin": "https://paper-planes.llll.gg",
   "state": "creating",
   "claimUrl": "https://llll.gg/claim/<code>",
-  "agentToken": "l4a.<uuid>.<secret>",
+  "agentToken": "dfmcp_<64 hex>",
   "expiresAt": "<ISO, 24 h from now>",
   "mcp": "https://paper-planes.llll.gg/mcp"
 }
@@ -106,13 +106,13 @@ One migration, `0007_cloud_seed.sql`:
 ```json
 {
   "owner": { "identity": { "provider": "afterprompt", "subject": "<accountId>" }, "name": "Ivan", "username": "ivan" },
-  "agent": { "name": "Claude", "role": "admin", "token": { "hash": "<sha256 hex>", "prefix": "l4a.", "scopes": ["…"] }, "instructions": "…", "version": 1 },
+  "agent": { "name": "Claude", "role": "admin", "token": { "hash": "<sha256 hex>", "prefix": "dfmcp_", "scopes": ["…"] }, "instructions": "…", "version": 1 },
   "secrets": { "AFTERPROMPT_TOKEN": { "value": "apk_…", "hosts": ["afterprompt.games"] } },
   "env": { "AFTERPROMPT_URL": "https://afterprompt.games" }
 }
 ```
 
-On the agent door `agent.token` is the agent's own token, `l4a.<Server UUID>.<secret>`, hashed whole; the Server's `/mcp` reads such a token like one it issued itself. On the partner door the Agent has no `token` and `owner.identity` is set. Secret names are environment-variable names (`[A-Z][A-Z0-9_]*`); values are 8 192 characters at most, env values 4 096, instructions 200 000.
+On the agent door `agent.token` is the agent's own token, a Server access token `dfmcp_<64 hex>` minted by the control plane and hashed whole, so the Server's `/mcp` reads it exactly like one it issued. On the partner door the Agent has no `token` and `owner.identity` is set. Secret names are environment-variable names (`[A-Z][A-Z0-9_]*`); values are 8 192 characters at most, env values 4 096, instructions 200 000.
 
 - `member_identities (provider TEXT, subject TEXT, user_id TEXT REFERENCES users ON DELETE CASCADE, created_at TEXT, PRIMARY KEY (provider, subject))`, with a unique index on `user_id`: the explicit link between a Member and an outside identity. It is how a partner names a Member. Email is never a key.
 
