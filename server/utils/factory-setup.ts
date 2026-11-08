@@ -6,6 +6,7 @@ import { factoryHash } from './factory-authority'
 import { getServerId } from '../../shared/server-id'
 import { newId, nowIso } from '../../shared/ids'
 import { fail } from './cf'
+import { l4ComputeOverview } from './l4-compute'
 
 export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   requireComputeOwner(auth)
@@ -17,7 +18,10 @@ export async function factorySetup(env: L4Env, auth: AuthorizationContext) {
   const serverId = await getServerId(env.DB)
   // Boxes kept with their checkpoints, and boxes running now. A box that fails to start ends its turn and starts again on the next one.
   const usage = cloud ? await env.DB.prepare("SELECT (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status<>'released') AS retained, (SELECT count(*) FROM factory_boxes WHERE node_id=? AND status IN ('starting','running','idle')) AS active").bind(cloud.id, cloud.id).first<{ retained: number; active: number }>() : null
-  return { placement, resources, usage, state: cloud ? cloud.enabled ? 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
+  // The third placement, L4 Compute (ADR 0009), is there on every runtime once the Server is linked to llll.gg.
+  const l4Compute = await l4ComputeOverview(env)
+  const placements: Array<'vps' | 'cloudflare' | 'l4-compute'> = [placement, ...(l4Compute.linked ? ['l4-compute' as const] : [])]
+  return { placement, placements, l4Compute, resources, usage, state: cloud ? cloud.enabled ? 'ready' : 'paused' : resources ? 'disabled' : 'unavailable',
     nodeId: cloud?.id ?? null, image: env.FACTORY_IMAGE ?? limits?.image ?? null, limits,
     connectUrl: placement === 'cloudflare' && env.ACCOUNT_ID ? `https://llll.gg/create?tab=cloudflare&factory=1&account=${encodeURIComponent(env.ACCOUNT_ID)}&worker=${encodeURIComponent('llll-' + serverId)}&server=${encodeURIComponent(env.PUBLIC_ORIGIN ?? '')}` : null,
     cli: placement === 'vps' ? 'sudo llll compute enable --trust-shared-kernel' : null,

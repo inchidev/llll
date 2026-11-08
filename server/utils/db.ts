@@ -5,6 +5,7 @@ import tasksChatItemsSql from '../../drizzle/server-migrations/0001_tasks_chat_i
 import customMcpConnectionsSql from '../../drizzle/server-migrations/0002_custom_mcp_connections.sql?raw'
 import messagesByChannelSql from '../../drizzle/server-migrations/0003_messages_by_channel.sql?raw'
 import agentBoxSql from '../../drizzle/server-migrations/0004_agent_box.sql?raw'
+import l4ComputeSql from '../../drizzle/server-migrations/0005_l4_compute.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 import { isOperatorManaged } from '../../shared/server-runtime'
@@ -34,6 +35,7 @@ export const INIT_SQL = d1ExecSql([
   customMcpConnectionsSql,
   messagesByChannelSql,
   agentBoxSql,
+  l4ComputeSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

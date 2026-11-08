@@ -35,7 +35,8 @@ async function requireConnectAuthority(env: L4Env, auth: AuthorizationContext, p
 
 type ComputeChoice = { id: string; name: string; provider: string | null }
 async function enabledCompute(env: L4Env): Promise<ComputeChoice[]> {
-  const rows = await env.DB.prepare('SELECT id,name,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE enabled=1 ORDER BY created_at').all<{ id: string; name: string; capabilitiesJson: string }>()
+  // An L4 Compute box's own Node is never a choice; its placement is.
+  const rows = await env.DB.prepare('SELECT id,name,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE enabled=1 AND placement_id IS NULL ORDER BY created_at').all<{ id: string; name: string; capabilitiesJson: string }>()
   return rows.results.map(row => ({ id: row.id, name: row.name, provider: (JSON.parse(row.capabilitiesJson) as { provider?: string }).provider ?? null }))
 }
 

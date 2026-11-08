@@ -763,6 +763,7 @@ v-if="rolesListVisible || section === 'project-policies'"
     <template v-else-if="section === 'compute'">
       <SettingsHeader title="Compute"><template #actions><UButton label="Add compute" icon="i-ph-plus" @click="computeNodes?.openCreate()" /></template></SettingsHeader>
       <SettingsComputeNodes ref="computeNodes" class="mt-6" @open-server="localComputeOpen = true" />
+      <SettingsL4Compute class="mt-6" />
       <SettingsEditor v-model:open="localComputeOpen" back="Compute" title="Server compute setup"><template #body><SettingsFactorySetup /></template></SettingsEditor>
     </template>
 

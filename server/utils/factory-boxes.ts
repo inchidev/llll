@@ -2,7 +2,8 @@ import { z } from 'zod'
 import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-execution'
 import { runtimeEventSchema } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
-import { computeCapabilities, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
+import { computeCapabilities, isCloudflareNode, isL4ComputeNode, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
+import { releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box } from './l4-compute'
 import { newId, nowIso } from '../../shared/ids'
 import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -81,7 +82,7 @@ export async function boxNodeFor(env: L4Env, run: Pick<AgentRun, 'taskId' | 'env
   if (!nodeId) return null
   const node = await env.DB.prepare('SELECT capabilities_json AS capabilitiesJson FROM compute_nodes WHERE id=? AND enabled=1').bind(nodeId).first<{ capabilitiesJson: string }>()
   const capabilities = node ? computeCapabilities.safeParse(JSON.parse(node.capabilitiesJson)) : null
-  if (!capabilities?.success || ('provider' in capabilities.data && !env.FACTORY_COMPUTE)) return null
+  if (!capabilities?.success || (isCloudflareNode(capabilities.data) && !env.FACTORY_COMPUTE)) return null
   return { nodeId, capabilities: capabilities.data }
 }
 
@@ -119,25 +120,33 @@ export async function leasedCloudBox(env: L4Env, boxId: string, lease: string) {
 /**
  * Gives the Task's box this Run's turn, creating the box on its first turn. The box stays pinned to the
  * repository snapshot, conversation and Node it was made for, and one released with its Task is never reused.
+ * On the L4 Compute placement the box's own Node arrives later, under that placement, and counts as the same Node.
+ * The first turn there asks llll.gg for the box.
  */
-export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string) {
+export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string, capabilities?: ComputeCapabilities) {
   const environment = JSON.stringify(JSON.parse(run.environmentJson!)), now = nowIso()
   const box = await env.DB.prepare(`INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,run_id,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,agent_id,initiated_by) DO UPDATE SET run_id=excluded.run_id,updated_at=excluded.updated_at
-    WHERE factory_boxes.status<>'released' AND factory_boxes.channel_id=excluded.channel_id AND factory_boxes.environment_json=excluded.environment_json AND factory_boxes.node_id=excluded.node_id
-    RETURNING id,runtime_ms AS runtimeMs`).bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, environment, run.id, run.id, now, now).first<{ id: string; runtimeMs: number }>()
+    WHERE factory_boxes.status<>'released' AND factory_boxes.channel_id=excluded.channel_id AND factory_boxes.environment_json=excluded.environment_json
+    AND (factory_boxes.node_id=excluded.node_id OR excluded.node_id=(SELECT placement_id FROM compute_nodes WHERE id=factory_boxes.node_id))
+    RETURNING id,runtime_ms AS runtimeMs,cloud_box_id AS cloudBoxId`).bind(newId(), run.channelId, run.taskId, run.agentId, run.initiatedBy, nodeId, environment, run.id, run.id, now, now).first<{ id: string; runtimeMs: number; cloudBoxId: string | null }>()
   if (!box) fail(403, 'factory_revoked', 'The Task’s box belongs to a different repository snapshot, conversation or Node, or was released when the Task was done. Start a new Task.')
   if (box.runtimeMs >= ((JSON.parse(run.mandateJson) as RunMandate).execution?.boxRuntimeMs ?? 21600000)) {
     await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run()
     fail(403, 'factory_budget', 'This Task’s box has used its runtime. Raise the box runtime limit in Settings → Agents, or start a new Task.')
   }
+  if (capabilities && isL4ComputeNode(capabilities) && !box.cloudBoxId) {
+    try { await requestL4Box(env, { id: box.id, taskId: run.taskId!, initiatedBy: run.initiatedBy }) }
+    catch (error) { await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run(); throw error }
+  }
   return box.id
 }
 
-/** The turn has ended or was cancelled: the next sync tells the Node to stop it, and a Cloudflare box hears it now. */
+/** The turn has ended or was cancelled: the next sync tells the Node to stop it, and a Cloudflare box hears it now. A Done Task's L4 Compute box goes. */
 export async function releaseBoxTurn(env: L4Env, runId: string) {
-  const released = await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE run_id=? RETURNING id').bind(nowIso(), runId).all<{ id: string }>()
+  const released = await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE run_id=? RETURNING id,task_id AS taskId').bind(nowIso(), runId).all<{ id: string; taskId: string }>()
   for (const { id } of released.results) await wakeCloudBox(env, id).catch(() => undefined)
+  await releaseL4BoxesForTasks(env, released.results.map(row => row.taskId)).catch(() => undefined)
 }
 
 /**
@@ -187,7 +196,12 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number }> | undefined)?.[0]
   const capabilities = stored ? computeCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
   if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node runs the Compute Node of an earlier release (protocol 1). On the Server’s VPS run sudo llll compute enable --trust-shared-kernel; any other Node is paired again from Server settings → Compute.')
+  // The L4 Compute placement has no daemon: each of its boxes syncs as a Node of its own.
+  if (isL4ComputeNode(capabilities.data)) fail(409, 'compute_placement', 'The L4 Compute placement runs no boxes itself; each box pairs as its own Node.')
+  const nodeCapabilities = capabilities.data
   const releasedIds = new Set((released?.results as Array<{ id: string }> | undefined ?? []).map(row => row.id))
+  // A released L4 Compute box is told to llll.gg, which stops the box and its billing.
+  if (releasedIds.size) await releaseL4Boxes(env, [...releasedIds]).catch(() => undefined)
   const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
     WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results
 
@@ -225,7 +239,7 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
     const holds = row && leased(row)
     const want = !row || row.status === 'released' || releasedIds.has(id) ? 'released' : holds ? 'running' : 'stopped'
     const turnRunId = holds && row.runId && row.runStatus === 'running' ? row.runId : null
-    return { id, lease: holds ? row.leaseToken! : report!.lease, want, taskId: row?.taskId ?? null, image: capabilities.data.image, diskBytes: capabilities.data.diskBytes,
+    return { id, lease: holds ? row.leaseToken! : report!.lease, want, taskId: row?.taskId ?? null, image: nodeCapabilities.image, diskBytes: nodeCapabilities.diskBytes,
       cpu: row?.cpu ?? reservation.cpu, memoryMiB: row?.memoryMib ?? reservation.memoryMiB,
       ...(turnRunId ? { turn: { runId: turnRunId } } : {}),
       // The Node is running a turn that is no longer the box's: cancelled, failed or replaced.

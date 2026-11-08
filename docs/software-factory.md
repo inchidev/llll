@@ -4,7 +4,7 @@ A person assigns a repository-backed Task to a Pi Agent. The Task gets one **box
 
 The decision behind this is [The Agent works on its box](adr/0011-agent-on-the-box.md). Where compute comes from, and why it is the only thing L4 sells, is [Compute is the business](adr/0009-compute-as-the-business.md).
 
-A Server knows one kind of Node, the Compute Node, and three ways to get one: the operator's own VPS (the Docker Node below), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task from llll.gg paid by the hour of agent work, which is coming. All of them speak Node protocol 2. A Node of protocol 1, which ran one command at a time, is refused, and **Server settings → Compute** marks it **Needs this release’s Compute Node** with what to do. The Server's own VPS Node is replaced in place (below); any other Node is paired again. Nothing provider-specific lives in this repository; provisioning and billing live only in `llll-cloud`.
+A Server knows one kind of Node, the Compute Node, and three ways to get one: the operator's own VPS (the Docker Node below), the operator's own Cloudflare account (Containers, below) and L4 Compute, a box per Task from llll.gg paid by the hour of agent work (below). All of them speak Node protocol 2. A Node of protocol 1, which ran one command at a time, is refused, and **Server settings → Compute** marks it **Needs this release’s Compute Node** with what to do. The Server's own VPS Node is replaced in place (below); any other Node is paired again. Nothing provider-specific lives in this repository; provisioning and billing live only in `llll-cloud`.
 
 ## Set up on a VPS
 
@@ -91,6 +91,20 @@ The Agent commits, then calls `factory_publish {sha, title, body}`. Each request
 After either push the Server reads the branch back. It opens or updates the Task's draft pull request only if the branch is at the approved commit. Anything else is **uncertain**: nothing is retried, and a person looks at the repository. When a push fails, Git's own reason comes back with its credentials removed.
 
 `factory_feedback` reads the checks, commit statuses, Actions jobs and logs, and deployments of exactly the pull request's head. Old results never count for a new SHA. To repair, the Agent edits, commits and publishes again on the same branch.
+
+## L4 Compute
+
+L4 Compute (ADR 0009) is the third placement, available on every runtime once the Server is linked. The Server side lives in `server/utils/l4-compute.ts`; provisioning, the fleet and billing live only in `llll-cloud`.
+
+**Linking.** Settings → Compute → **Add L4 Compute** (`POST /api/compute/cloud/connect`, Owner only) mints a nonce the Server keeps hashed in `server_settings` and sends the browser to `https://llll.gg/compute/connect?server=<PUBLIC_ORIGIN>&id=<server UUID>&state=<nonce>`. llll.gg returns it to `<PUBLIC_ORIGIN>/api/compute/cloud/callback?code=…&state=…`; the Server checks the nonce once, exchanges the code server to server at `POST https://llll.gg/api/compute/link` (`{ code, serverId, serverOrigin }` → `{ token, account }`) and keeps the Server token in `l4_compute_link`, encrypted with scope `l4-compute-token`. A hosted Server (`LLLL_RUNTIME=cloud`) is linked by construction and sends its `CLOUD_SECRET` as the bearer token instead. Nothing links by email matching.
+
+**Placement.** Linking makes (or re-enables) one Node named **L4 Compute** with `provider: 'l4-compute'`. Repositories choose it like any Node. It never syncs itself: each box pairs as a Node of its own under it (`compute_nodes.placement_id`, `box_id`), and a box's Node counts as the placement for the box's pin.
+
+**A box for a Task.** The Task's first turn (`ensureBox`) mints a one-use pairing code bound to the box (`compute_pairings.box_id`) and calls `POST https://llll.gg/api/compute/boxes` with `{ taskId, size, pairingToken, serverOrigin }` under the Server token; `factory_boxes.cloud_box_id` records the answer. The box runs the published daemon unchanged, with `LLLL_PAIRING_TOKEN` set to the code: it redeems it at `POST /api/compute-agent/pair`, which makes the box's Node and moves the box to it. From then on everything is Node protocol 2 with a durable disk. A 402 means no credit or the spend limit is reached: the Task shows **Needs L4 Compute credit** with a link to buy credit at llll.gg/account, the Run fails with the same message, and nothing retries by itself.
+
+**Release.** When a Task is Done or archived, or the Owner releases the box or disconnects, the Server calls `DELETE https://llll.gg/api/compute/boxes/:id`, releases the box and revokes its Node. The box's own sync, the Task's change and the end of the turn each release boxes whose Task is Done, so a silent Node does not keep one alive.
+
+**Spend limit.** The Owner sets credit and the monthly limit on llll.gg; `GET https://llll.gg/api/compute/status` is read with the Server token, cached a minute in `server_settings`, and shown on the Compute page. A failure shows **llll.gg unreachable** with the last answer and never blocks local work. Sizes are Small, Medium and Large, chosen per Project (`projects.factory_json.compute.size`, default Small); prices are never quoted here.
 
 ## Approvals by mode
 
