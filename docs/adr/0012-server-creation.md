@@ -112,6 +112,8 @@ One migration, `0007_cloud_seed.sql`:
 }
 ```
 
+On the agent door `agent.token` is the agent's own token, `l4a.<Server UUID>.<secret>`, hashed whole; the Server's `/mcp` reads such a token like one it issued itself. On the partner door the Agent has no `token` and `owner.identity` is set. Secret names are environment-variable names (`[A-Z][A-Z0-9_]*`); values are 8 192 characters at most, env values 4 096, instructions 200 000.
+
 - `member_identities (provider TEXT, subject TEXT, user_id TEXT REFERENCES users ON DELETE CASCADE, created_at TEXT, PRIMARY KEY (provider, subject))`, with a unique index on `user_id`: the explicit link between a Member and an outside identity. It is how a partner names a Member. Email is never a key.
 
 The relay `/.llll/cloud/*` (bearer `CLOUD_SECRET`, POST, JSON, 404 for everything else; `server/utils/cloud-relay.ts`) gains these actions. Each is idempotent and answers `{ ok: true, … }` or `{ error }` with a 4xx:

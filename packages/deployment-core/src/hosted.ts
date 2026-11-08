@@ -36,12 +36,12 @@ export const hostedSeedSchema = z.object({
   agent: z.object({
     name: z.string().trim().min(1).max(80),
     role: z.string().trim().min(1).max(64),
-    token: z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/u), prefix: z.string().min(1).max(14), scopes: z.array(z.string().min(1).max(40)).max(40) }).strict(),
-    instructions: z.string().max(12_000).optional(),
+    token: z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/u), prefix: z.string().min(1).max(14), scopes: z.array(z.string().min(1).max(40)).max(40) }).strict().optional(),
+    instructions: z.string().max(200_000).optional(),
     version: z.number().int().min(1).optional(),
   }).strict().optional(),
-  secrets: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.object({ value: z.string().min(1).max(4000), hosts: z.array(z.string().trim().min(1).max(253)).max(32).optional() }).strict()).optional(),
-  env: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.string().max(4000)).optional(),
+  secrets: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.object({ value: z.string().min(1).max(8192), hosts: z.array(z.string().trim().min(1).max(253)).max(32).optional() }).strict()).optional(),
+  env: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.string().max(4096)).optional(),
 }).strict()
 
 export type HostedResources = {

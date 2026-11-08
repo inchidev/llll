@@ -160,6 +160,9 @@ describe('a Server on L4 Cloud', () => {
     }
     expect(parseHostedInstallRequest({ ...request, seed })).toMatchObject({ seed })
     expect(parseHostedInstallRequest(request)).not.toHaveProperty('seed')
+    // A partner's seed carries an Agent with no token and a username; an agent's carries a token and no owner.
+    expect(parseHostedInstallRequest({ ...request, seed: { ...seed, agent: { name: 'Claude', role: 'admin', instructions: 'x'.repeat(50_000), version: 2 } } }).seed?.agent).not.toHaveProperty('token')
+    expect(parseHostedInstallRequest({ ...request, seed: { agent: seed.agent } }).seed).toEqual({ agent: seed.agent })
     expect(() => parseHostedInstallRequest({ ...request, seed: { agent: { name: 'Claude' } } })).toThrow(/seed is invalid/)
     expect(() => parseHostedInstallRequest({ ...request, seed: { agent: { ...seed.agent, token: { ...seed.agent.token, hash: 'not-a-digest' } } } })).toThrow(/seed is invalid/)
     expect(() => parseHostedInstallRequest({ ...request, seed: { secrets: { 'bad name': { value: 'x' } } } })).toThrow(/seed is invalid/)

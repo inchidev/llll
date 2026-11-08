@@ -79,9 +79,9 @@ async function requireOwner(env: L4Env) {
 
 const identityBody = z.object({ identity: memberIdentitySchema }).strict()
 const upsertMemberBody = z.object({ identity: memberIdentitySchema, name: z.string().trim().min(1).max(80), role: z.literal('member').default('member') }).strict()
-const upsertAgentBody = seedAgentSchema.partial({ token: true })
+const upsertAgentBody = seedAgentSchema
 const secretsBody = z.object({ secrets: partnerSecretsSchema, env: partnerEnvSchema }).strict()
-const modelsBody = z.object({ provider: z.literal('openrouter'), key: z.string().trim().min(1).max(4000) }).strict()
+const modelsBody = z.object({ provider: z.literal('openrouter'), key: z.string().trim().min(1).max(4096) }).strict()
 
 /**
  * Only on a Server whose seed names the Owner's identity and whose Owner does not exist yet: the same bootstrap

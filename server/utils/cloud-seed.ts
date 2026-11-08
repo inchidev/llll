@@ -96,7 +96,7 @@ async function seedAgentRole(env: L4Env, key: string) {
  * name, or by name when nothing was recorded. Instructions are replaced only when `version` grows; the token is
  * written only on creation, and never twice.
  */
-export async function upsertSeedAgent(env: L4Env, input: { serverId: string; ownerId: string; agent: Omit<SeedAgent, 'token'> & { token?: SeedAgent['token'] } }) {
+export async function upsertSeedAgent(env: L4Env, input: { serverId: string; ownerId: string; agent: SeedAgent }) {
   const { agent } = input
   const db = getDb(env.DB)
   const owner = (await db.select({ id: users.id }).from(users).where(and(eq(users.id, input.ownerId), eq(users.status, 'active'))).limit(1))[0]
@@ -133,7 +133,7 @@ export async function upsertSeedAgent(env: L4Env, input: { serverId: string; own
 }
 
 /** The token the seed's Agent already holds, as User Settings → Connections → Tokens would record one the Owner made for it. */
-async function writeSeedToken(env: L4Env, input: { serverId: string; ownerId: string; agentId: string; name: string; token: SeedAgent['token'] }) {
+async function writeSeedToken(env: L4Env, input: { serverId: string; ownerId: string; agentId: string; name: string; token: NonNullable<SeedAgent['token']> }) {
   const known = await env.DB.prepare('SELECT id FROM mcp_access_tokens WHERE token_hash = ?').bind(input.token.hash).first<{ id: string }>()
   if (known) return known.id
   const scopes = seedTokenScopes(input.token.scopes)

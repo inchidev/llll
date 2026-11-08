@@ -400,7 +400,7 @@ export type SeedRequest = Pick<DeployRequest, 'serverId' | 'filesEnabled' | 'bac
  */
 export type HostedSeed = {
   owner?: { identity?: { provider: string; subject: string }; name?: string; username?: string }
-  agent?: { name: string; role: string; token: { hash: string; prefix: string; scopes: string[] }; instructions?: string; version?: number }
+  agent?: { name: string; role: string; token?: { hash: string; prefix: string; scopes: string[] }; instructions?: string; version?: number }
   secrets?: Record<string, { value: string; hosts?: string[] }>
   env?: Record<string, string>
 }

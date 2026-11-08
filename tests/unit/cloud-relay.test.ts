@@ -10,7 +10,8 @@ import type { L4Env } from '../../workers/env'
 
 const SECRET = 'cloud-secret-'.repeat(3)
 const SERVER = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b'
-const AGENT_TOKEN = 'dfmcp_' + 'ab'.repeat(32)
+// As the agent door mints it: `l4a.<Server UUID>.<base64url>`, hashed whole.
+const AGENT_TOKEN = `l4a.${SERVER}.${'A'.repeat(43)}`
 const identity = { provider: 'afterprompt', subject: 'acct_42' }
 
 function fakeFiles(keys: string[]) {
@@ -112,6 +113,7 @@ describe('the partner and agent doors', () => {
     const principal = await authenticateMcpRequest(e, new Request('https://acme.llll.gg/mcp', { headers: { Authorization: `Bearer ${AGENT_TOKEN}` } }))
     expect(principal).toMatchObject({ userId: agent.id, delegatedBy: ownerId, scopes: ['tasks:read', 'tasks:write', 'messages:read', 'messages:write'] })
     expect(principal?.authorization.delegation?.isOwner).toBe(true)
+    expect(await authenticateMcpRequest(e, new Request('https://acme.llll.gg/mcp', { headers: { Authorization: `Bearer l4a.${SERVER}.${'B'.repeat(43)}` } }))).toBeNull()
     // Secrets and env wait for later Projects, encrypted, under one setting.
     const partner = row<{ value: string }>("SELECT value FROM server_settings WHERE key='cloud.partner'")!.value
     expect(partner).not.toContain('apk_secret_value')

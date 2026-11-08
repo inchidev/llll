@@ -64,7 +64,7 @@ Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT
 - `models/set` `{ provider: "openrouter", key }`: saves the provider as **Server settings → Models** would, enabled with its current model list, and sets the default model when none is. Answers `{ ok, configured: true }`.
 - `sleep`: releases the Server's boxes on L4 Compute; the script's deletion is the control plane's.
 
-The seed those actions act on is `server_setup.seed_json`, written by `seedNewServer` when the hosted install request carries a `seed` (`packages/deployment-core/src/hosted.ts` validates it), and read once by the first claim, at `/setup` or through `claim-owner`. `GET /.well-known/llll` answers `"owner": true | false` so that an agent waiting on a new Server can see the claim land.
+An Agent the seed names on the agent door holds a token of L4 Cloud's making, `l4a.<Server UUID>.<secret>`; the Server records only its digest and `/mcp` accepts it next to its own `dfmcp_` tokens. The seed those actions act on is `server_setup.seed_json`, written by `seedNewServer` when the hosted install request carries a `seed` (`packages/deployment-core/src/hosted.ts` validates it), and read once by the first claim, at `/setup` or through `claim-owner`. `GET /.well-known/llll` answers `"owner": true | false` so that an agent waiting on a new Server can see the claim land.
 
 ## L4 Compute
 

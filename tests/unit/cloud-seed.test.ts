@@ -39,6 +39,10 @@ describe('the seed a claim applies', () => {
     sqlite.prepare('UPDATE server_setup SET seed_json=?').run(JSON.stringify({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'l4a.', scopes: [] } } }))
     expect(await readCloudSeed(env.DB)).toEqual({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'l4a.', scopes: [] }, instructions: '', version: 1 }, secrets: {}, env: {} })
     expect(cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: '' } } }).success).toBe(false)
+    // A partner's seed, as llll-cloud sends it: an Owner identity, an Agent without a token, secrets and env.
+    const partner = cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: 'acct_1' }, name: 'Ivan', username: 'ivan' }, agent: { name: 'Claude', role: 'admin', instructions: 'x'.repeat(100_000), version: 3 }, secrets: { K: { value: 'v'.repeat(8192), hosts: [] } }, env: { U: 'https://x' } })
+    expect(partner.success).toBe(true)
+    expect(partner.data?.agent?.token).toBeUndefined()
     expect(seedTokenScopes(['tasks:read', 'not-a-scope', 'mail:read'])).toEqual(['tasks:read', 'mail:read'])
   })
 

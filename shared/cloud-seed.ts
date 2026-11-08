@@ -18,24 +18,28 @@ export const seedAgentSchema = z.object({
   name: z.string().trim().min(1).max(80),
   /** A Role key, `admin` by the contract. */
   role: z.string().trim().min(1).max(64),
-  /** The token the Agent already holds: only its SHA-256 hex, its shown prefix and its scopes reach the Server. */
+  /**
+   * The token the Agent already holds, on the agent door: only its SHA-256 hex, its shown prefix and its scopes reach
+   * the Server. A partner's Agent has none; it is woken from the Server.
+   */
   token: z.object({
     hash: z.string().regex(/^[0-9a-f]{64}$/u),
     prefix: z.string().min(1).max(14),
     scopes: z.array(z.string().min(1).max(40)).max(40),
-  }).strict(),
-  instructions: z.string().max(12_000).default(''),
+  }).strict().optional(),
+  /** As long as a partner's contract allows; the editor's own limit is the form's, not the table's. */
+  instructions: z.string().max(200_000).default(''),
   /** Grows when the partner changes the instructions; `agents/upsert` replaces them only then. */
   version: z.number().int().min(1).default(1),
 }).strict()
 export type SeedAgent = z.infer<typeof seedAgentSchema>
 
 export const partnerSecretsSchema = z.record(secretName, z.object({
-  value: z.string().min(1).max(4000),
+  value: z.string().min(1).max(8192),
   /** The hosts a Project may reach with it; no hosts means the secret alone. */
   hosts: z.array(z.string().trim().min(1).max(253)).max(32).default([]),
 }).strict()).default({})
-export const partnerEnvSchema = z.record(secretName, z.string().max(4000)).default({})
+export const partnerEnvSchema = z.record(secretName, z.string().max(4096)).default({})
 
 export const cloudSeedSchema = z.object({
   owner: z.object({
