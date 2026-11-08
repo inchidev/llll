@@ -4,6 +4,7 @@ import { factoryAuthority, taskBox } from './factory-authority'
 import { expireApprovals } from './factory-approvals'
 import { boxEgress } from './box-egress'
 import { publishTarget, repositoryGitFlow } from './project-git-flow'
+import { isCloudflareNode, isL4ComputeNode } from '../../shared/software-factory'
 
 /** The Task's box as its Agent sees it: where its work goes, what it published and what waits for a person. */
 export async function factoryStatus(env: L4Env, runId: string) {
@@ -17,7 +18,7 @@ export async function factoryStatus(env: L4Env, runId: string) {
   const plan = approvals.find(approval => approval.kind === 'plan')
   const egress = box ? (await boxEgress(env, [box.id])).get(box.id) : undefined
   const inEffect = new Map(egress?.secrets.map(secret => [secret.placeholder, secret.hosts]) ?? [])
-  const cloud = 'provider' in context.capabilities
+  const cloud = isCloudflareNode(context.capabilities)
   const { gitFlow } = await repositoryGitFlow(env, context.environment.id)
   const target = box ? publishTarget(gitFlow, box.id, context.environment) : null, base = context.environment.baseBranch
   const inL4 = context.environment.provider === 'artifacts'
@@ -31,7 +32,7 @@ export async function factoryStatus(env: L4Env, runId: string) {
   const modeInstruction = mode === 'role' ? 'Publishing your branch needs nobody’s approval in this mode.'
     : mode === 'plan' ? plan?.status === 'approved' ? 'Your approved plan covers publishing. Propose a new plan with factory_plan if the work changes.' : 'Propose a plan with factory_plan. Until a person approves it, each publication waits for review.'
     : 'Each publication waits for a person, who reads its diff.'
-  return { approvalMode: mode, provider: cloud ? 'cloudflare-containers' : 'docker-node', disk: cloud ? 'checkpointed to Artifacts between turns' : 'persistent Task disk',
+  return { approvalMode: mode, provider: cloud ? 'cloudflare-containers' : isL4ComputeNode(context.capabilities) ? 'l4-compute' : 'docker-node', disk: cloud ? 'checkpointed to Artifacts between turns' : 'persistent Task disk',
     boxId: box?.id ?? null, status: box?.status ?? 'new', repository: context.environment.sourceRepo, gitProvider: context.environment.provider, baseBranch: context.environment.baseBranch, baseSha: context.environment.baseSha,
     branch: target?.ref ?? null, gitFlow, pushedSha: box?.pushedSha ?? null, runtimeMs: box?.runtimeMs ?? 0, publications: box?.publicationCount ?? 0,
     pull: box?.pullJson ? JSON.parse(box.pullJson) : null,

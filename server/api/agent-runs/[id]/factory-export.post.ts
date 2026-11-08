@@ -2,7 +2,7 @@ import { cf, fail } from '../../../utils/cf'
 import { requireChannelAccess } from '../../../utils/guards'
 import { findAgentRun } from '../../../utils/agent-run-service'
 import { factoryAuthority, taskBox } from '../../../utils/factory-authority'
-import { factoryRepositoryName } from '../../../../shared/software-factory'
+import { factoryRepositoryName, isCloudflareNode } from '../../../../shared/software-factory'
 
 /** Explicit human export. A short-lived read token is never an Agent tool result. */
 export default defineEventHandler(async event => {
@@ -11,7 +11,7 @@ export default defineEventHandler(async event => {
   if (!run) fail(404, 'not_found', 'Run not found')
   const actor = await requireChannelAccess(event, run.channelId)
   const context = await factoryAuthority(env, run.id, actor.user.id, false, true)
-  if (!('provider' in context.capabilities) || !env.FACTORY_CODE) fail(409, 'factory_export_local', 'Use llll factory backup on the trusted VPS host to export local source and receipts')
+  if (!isCloudflareNode(context.capabilities) || !env.FACTORY_CODE) fail(409, 'factory_export_local', 'Use llll factory backup on the trusted VPS host to export local source and receipts')
   const box = await taskBox(env, context)
   if (!box) fail(404, 'not_found', 'This Task has no box yet')
   const name = factoryRepositoryName(context.auth.serverId, box.id)

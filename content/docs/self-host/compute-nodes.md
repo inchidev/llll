@@ -1,6 +1,6 @@
 ---
 title: Compute Nodes
-description: Give Agents an isolated place to work on repository Tasks, on your own VPS, in your own Cloudflare account or, coming, with L4 Compute by the hour.
+description: Give Agents an isolated place to work on repository Tasks, on your own VPS, in your own Cloudflare account or with L4 Compute by the hour.
 order: 4
 ---
 
@@ -10,14 +10,14 @@ This page covers setting up compute. For how Agents use it, see [Repositories](.
 
 ## Choose a kind of compute
 
-Open **Server settings → Compute** (requires Manage server). **Add compute** offers three paths: **Your own VPS** (Connect node), **Your own Cloudflare** (Server compute setup) and **L4 Compute**, which is coming. The **Server compute setup** entry shows the option that fits where your Server runs. The Server speaks one Node protocol to all of them; only where the Node runs differs.
+Open **Server settings → Compute** (requires Manage server). **Add compute** offers three paths: **Your own VPS** (Connect node), **Your own Cloudflare** (Server compute setup) and **L4 Compute** (Add L4 Compute). The **Server compute setup** entry shows the option that fits where your Server runs. The Server speaks one Node protocol to all of them; only where the Node runs differs.
 
 | Option | Where it runs | Good for |
 | --- | --- | --- |
 | VPS local executor | Docker on the same VPS as a [VPS installer](vps.md) Server | A single trusted VPS. |
 | Cloudflare Containers | Your Cloudflare account, next to a Cloudflare Server | Cloudflare Servers on Workers Paid. |
 | Remote Docker Node | Any Linux Docker host you pair | Advanced setups, and any machine you rent yourself. |
-| L4 Compute (coming) | A box per Task from llll.gg, paid by the hour of agent work | Compute without running a machine yourself, however many Agents work at once. |
+| L4 Compute | A box per Task from llll.gg, paid by the hour of agent work | Compute without running a machine yourself, however many Agents work at once. Available on every Server once linked. |
 
 The workspace is free wherever you run it. L4 sells only Managed Compute; see [Pricing](https://llll.gg/pricing).
 
@@ -111,14 +111,38 @@ The Node needs Node.js 24, Docker and the loop/mount tools listed above, and run
 
 The full threat model and limits are in the [Compute Node guide](https://github.com/inchidev/llll/blob/main/docs/software-factory.md).
 
-## L4 Compute (coming)
+## L4 Compute
 
-L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task's work is done. You pay by the hour of agent work, billed by the minute (each box run rounds up to the next minute, one minute at least), nothing while no Agent works, and there is no limit on how many Agents work at once. It is not available yet. A self-hosted Server will use it exactly like a Cloud Server, from **Server settings → Compute → Add compute**, signing in with your llll.gg account: no API key and no environment variable. Until then, a machine you rent from any provider is a VPS to the Server; install the Node on it as above. See [Pricing](https://llll.gg/pricing).
+L4 Compute is elastic: llll.gg starts an isolated box for each Task that needs one, pairs it with your Server, and stops it when the Task is Done. You pay by the hour of agent work, billed by the minute (each box run rounds up to the next minute, one minute at least), nothing while no Agent works, and there is no limit on how many Agents work at once. Every Server can use it, on your own Cloudflare account, on a VPS or on L4 Cloud. See [Pricing](https://llll.gg/pricing).
+
+### Link the Server
+
+In **Server settings → Compute**, the Owner chooses **Add L4 Compute**. The browser goes to llll.gg, where you sign in (or create an account) and allow this Server; llll.gg returns you to the Server, which from then on holds a Server token for your account, encrypted like its other secrets. The Compute page shows **Linked to llll.gg account …** with **Disconnect**. There is no API key and no environment variable, and nothing is linked by an email address: only this step links a Server. A Server hosted on L4 Cloud is linked by itself and shows no connect step.
+
+Once linked, **L4 Compute** appears as a Compute Node the Server's repositories can choose, next to your VPS Node or Cloudflare Containers. Choose it when connecting a repository, or in **Server settings → Git** for an existing one.
+
+### A box per Task
+
+When a Task on such a repository starts, the Server asks llll.gg for a box of the Project's size and gives it a one-use pairing code bound to that Task. The box is a microVM of its own, for one Task of one Server; it pairs itself with the Server and runs the published Compute Node, so the Agent sees an ordinary Node with a durable disk, kept until the Task is Done. On the Compute page each running box is listed under **L4 Compute** as its own Node; **Release this box** stops it early. When the Task is Done or archived, the Server tells llll.gg to stop and release the box, and billing for it ends.
+
+Set the box size per Project on the Project page, under **L4 Compute box size**: **Small** (the default), **Medium** or **Large**. It applies to the next box of that Project. Prices for each size are on [Pricing](https://llll.gg/pricing).
+
+### Credit and the spend limit
+
+You buy credit and set a monthly spend limit on your [llll.gg account](https://llll.gg/account). The Compute page shows the credit, what this month has spent and the limit as llll.gg reports them, refreshed about every minute. When llll.gg cannot be reached, the page says **llll.gg unreachable** and keeps the last answer; boxes already running are not affected, and nothing on the Server waits for it.
+
+When a Task needs a box and the account has no credit or has reached its monthly limit, llll.gg refuses the box and the Task shows **Needs L4 Compute credit** with a link to buy credit. Nothing is retried for you: buy credit or raise the limit, then start the Task again.
+
+### Disconnect
+
+**Disconnect** releases every box of this Server on L4 Compute, forgets the Server token and pauses the **L4 Compute** Node. Repositories placed on it need another Node, or a new link, before Agents can work on them again. Linking again revives the same Node, so their choice stands.
 
 ## Check a Node
 
 Select a Node in **Server settings → Compute** to see whether it is **Connected**, **Offline** or **Disabled**, when it was last seen, its disk per box, how many boxes it runs at once and its image. **Disable and revoke** stops it from taking new work.
 
 ![Server settings → Compute with the Server compute setup entry and one connected Docker Node](screenshot:self-host-compute-list "Compute in Server settings")
+
+A box from L4 Compute comes with the published Compute Node, so it never shows this.
 
 A Node of an earlier release shows **Needs this release’s Compute Node** and gets no work until it is updated. Selecting it says what to do: for the VPS local executor, run `sudo llll compute enable --trust-shared-kernel`, which replaces it in place. A remote Docker Node is replaced: stop its daemon, disable and revoke it, pair this release's Node with a new code, select it in the repository environment and start new Tasks. Do the same to change a remote Node's image.

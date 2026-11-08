@@ -78,6 +78,8 @@ export type L4Env = {
   LLLL_RUNTIME?: string
   /** On L4 Cloud: the bearer token the control plane presents under `/.llll/cloud/` (server/utils/cloud-relay.ts). */
   CLOUD_SECRET?: string
+  /** Where llll.gg is, for L4 Compute (server/utils/l4-compute.ts); only local development of the two sides together sets it. */
+  LLLL_CLOUD_SITE?: string
   /** Legacy installer binding; the updater removes it after moving to D1. */
   LLLL_EMAIL_DOMAINS?: string
   /** The Server's own Cloudflare account, for update and domain launch URLs. */

@@ -7,6 +7,7 @@ import { spaceResourceDenied, spaceSql } from '../../shared/spaces'
 import { authorizeResource as requireResource } from '../../shared/authorization'
 import { findCodeEnvironment } from './code-environment-service'
 import { fail } from './cf'
+import { releaseL4BoxesForTasks } from './l4-compute'
 import { getServerId } from '../../shared/server-id'
 import { and, eq, or } from 'drizzle-orm'
 import { taskDependencies, taskLabelLinks, tasks } from '../../drizzle/schema'
@@ -353,5 +354,7 @@ export async function updateTask(
   })
   schedule(signalTasksChanged(env, boardId, id))
   if (boardId !== task.boardId) schedule(signalTasksChanged(env, task.boardId, id))
+  // A Done or archived Task's box on L4 Compute goes now, rather than on its Node's next sync.
+  if ((status === 'done' && task.status !== 'done') || (input.archived && !task.archivedAt)) schedule(releaseL4BoxesForTasks(env, [id]).then(() => undefined))
   return filterTaskRelations(env, authorization, (await loadTaskDetail(env, id))!)
 }

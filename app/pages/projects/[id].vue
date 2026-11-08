@@ -117,6 +117,7 @@ async function remove(id: string) {
      <UButton type="submit" label="Attach reference" :disabled="!slug || !host" :loading="busy" />
     </form></template></UModal>
     <ProjectsGitFlow :key="`git-flow-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
+    <ProjectsCompute :key="`compute-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
     <ProjectsNetwork :key="`network-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
     <ProjectsSecrets :key="`secrets-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
     </section>

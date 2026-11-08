@@ -53,6 +53,10 @@ A Server on L4 Cloud is the same published release, uploaded by the control plan
 
 Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT_ID`: Deployment settings, self-update and domain management are off, and its origin is its `PUBLIC_ORIGIN`. The control plane reaches it only through `/.llll/cloud/scheduled` (the weekly backup) and `/.llll/cloud/purge-files` (before the files bucket is deleted), each with the Server's `CLOUD_SECRET` as a bearer token; every other Server answers 404 there. Deleting a hosted Server keeps its backup bucket.
 
+## L4 Compute
+
+A Server of any runtime may link to L4 Compute (ADR 0009). It then calls `https://llll.gg/api/compute/*` outbound with a Server token the Owner's connect step brought back, kept encrypted in its database; a hosted Server uses its `CLOUD_SECRET` instead. Each box llll.gg starts connects out to the Server's `PUBLIC_ORIGIN` as a Compute Node; no inbound route is needed. See [Software Factory](software-factory.md#l4-compute).
+
 ## Providers and recovery
 
 RealtimeKit, AI and mail are optional Server-local settings. Cloudflare deployment does not imply they are configured. RealtimeKit's API token remains backend-only; clients receive participant credentials. See [runtime architecture](architecture.md) and [celld reference](self-host/celld.md).

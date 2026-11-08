@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { dockerCapabilities, type ComputeNode } from '../../shared/software-factory'
+import { L4_COMPUTE_NODE_NAME } from '../../shared/l4-compute'
+import { confirmL4Boxes, releaseL4Boxes } from './l4-compute'
 import type { AuthorizationContext } from '../../shared/authorization'
 import { newId, nowIso } from '../../shared/ids'
 import type { L4Env } from '../../workers/env'
@@ -24,7 +26,9 @@ export function requireComputeOwner(auth: AuthorizationContext) {
 }
 export async function listComputeNodes(env: L4Env, auth: AuthorizationContext): Promise<ComputeNode[]> {
   requireComputeOwner(auth)
-  const rows = await env.DB.prepare('SELECT id,name,enabled,capabilities_json AS capabilitiesJson,last_seen AS lastSeen FROM compute_nodes ORDER BY created_at').all<{ id: string; name: string; enabled: number; capabilitiesJson: string; lastSeen: string | null }>()
+  // A released L4 Compute box's Node is gone for good; only boxes still running are listed under their placement.
+  const rows = await env.DB.prepare('SELECT id,name,enabled,capabilities_json AS capabilitiesJson,last_seen AS lastSeen,placement_id AS placementId,box_id AS boxId FROM compute_nodes WHERE placement_id IS NULL OR enabled=1 ORDER BY created_at')
+    .all<{ id: string; name: string; enabled: number; capabilitiesJson: string; lastSeen: string | null; placementId: string | null; boxId: string | null }>()
   return rows.results.map(({ enabled, capabilitiesJson, ...row }) => ({ ...row, enabled: Boolean(enabled), capabilities: JSON.parse(capabilitiesJson) }))
 }
 export async function prepareComputePairing(env: L4Env, auth: AuthorizationContext, name: string) {
@@ -36,16 +40,39 @@ export async function prepareComputePairing(env: L4Env, auth: AuthorizationConte
   if (!inserted) fail(429, 'compute_pairing_limit', 'Pairing limit reached')
   return { token, expiresAt }
 }
+/**
+ * A Node redeems its one-use pairing code. A code minted for an L4 Compute box makes that box's own Node under
+ * the Server's placement and moves the box to it; from then on the box is an ordinary Node's (ADR 0009).
+ */
 export async function pairComputeNode(env: L4Env, token: string, capabilities: z.infer<typeof dockerCapabilities>) {
   const parsed = dockerCapabilities.parse(capabilities), id = newId(), credential = secret()
-  const pairing = await env.DB.prepare('DELETE FROM compute_pairings WHERE token_hash=? AND expires_at>? RETURNING name,created_by AS createdBy').bind(await factoryHash(token), nowIso()).first<{ name: string; createdBy: string }>()
+  const pairing = await env.DB.prepare('DELETE FROM compute_pairings WHERE token_hash=? AND expires_at>? RETURNING name,created_by AS createdBy,box_id AS boxId').bind(await factoryHash(token), nowIso()).first<{ name: string; createdBy: string; boxId: string | null }>()
   if (!pairing) fail(403, 'compute_pairing_invalid', 'Pairing is unavailable or expired')
-  await env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
-    .bind(id, pairing.name, await factoryHash(credential), JSON.stringify(parsed), nowIso(), pairing.createdBy, nowIso()).run()
+  if (!pairing.boxId) {
+    await env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
+      .bind(id, pairing.name, await factoryHash(credential), JSON.stringify(parsed), nowIso(), pairing.createdBy, nowIso()).run()
+    return { nodeId: id, token: credential, serverId: await getServerId(env.DB) }
+  }
+  const box = await env.DB.prepare(`SELECT b.id,b.node_id AS nodeId,n.placement_id AS placementId,t.title FROM factory_boxes b JOIN compute_nodes n ON n.id=b.node_id JOIN tasks t ON t.id=b.task_id
+    WHERE b.id=? AND b.status<>'released'`).bind(pairing.boxId).first<{ id: string; nodeId: string; placementId: string | null; title: string }>()
+  if (!box) fail(409, 'compute_box_released', 'This box was released before its Node paired')
+  const placementId = box.placementId ?? box.nodeId
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,last_seen,created_by,created_at,placement_id,box_id) VALUES(?,?,?,?,?,?,?,?,?)')
+      .bind(id, `${L4_COMPUTE_NODE_NAME} · ${box.title}`.slice(0, 80), await factoryHash(credential), JSON.stringify(parsed), nowIso(), pairing.createdBy, nowIso(), placementId, box.id),
+    // A box paired again (its earlier Node is gone) leaves that Node revoked.
+    env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE box_id=? AND id<>?').bind(await factoryHash(secret()), box.id, id),
+    env.DB.prepare('UPDATE factory_boxes SET node_id=?,updated_at=? WHERE id=?').bind(id, nowIso(), box.id),
+  ])
+  // llll.gg destroys a box it has not seen confirmed within ten minutes; a confirmation that fails now is tried on the Node's syncs.
+  await confirmL4Boxes(env, [box.id])
   return { nodeId: id, token: credential, serverId: await getServerId(env.DB) }
 }
 export async function disableComputeNode(env: L4Env, auth: AuthorizationContext, id: string) {
   requireComputeOwner(auth)
+  // An L4 Compute box's Node goes with its box: llll.gg stops billing it.
+  const boxed = await env.DB.prepare('SELECT box_id AS boxId FROM compute_nodes WHERE id=? AND box_id IS NOT NULL').bind(id).first<{ boxId: string }>()
+  if (boxed) await releaseL4Boxes(env, [boxed.boxId])
   await env.DB.batch([
     env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE id=?').bind(await factoryHash(secret()), id),
     // A removed Node pushes nothing more; a push it had begun may have happened.

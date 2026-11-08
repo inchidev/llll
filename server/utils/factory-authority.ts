@@ -13,8 +13,11 @@ import { fail } from './cf'
 export const factoryHash = async (value: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
 /** A Task's box as the outward actions see it: its branch, what it published and how much it ran. */
 export type TaskBox = { id: string; channelId: string; taskId: string; agentId: string; initiatedBy: string; nodeId: string; environmentJson: string; status: string; runId: string | null
-  leaseToken: string | null; checkpointSha: string | null; headSha: string | null; pullJson: string | null; pushedSha: string | null; runtimeMs: number; publicationCount: number; updatedAt: string }
-export const taskBoxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,status,run_id AS runId,lease_token AS leaseToken,checkpoint_sha AS checkpointSha,head_sha AS headSha,pull_json AS pullJson,pushed_sha AS pushedSha,runtime_ms AS runtimeMs,publication_count AS publicationCount,updated_at AS updatedAt`
+  leaseToken: string | null; checkpointSha: string | null; headSha: string | null; pullJson: string | null; pushedSha: string | null; runtimeMs: number; publicationCount: number; updatedAt: string
+  /** The placement an L4 Compute box's own Node is under: the Node the repository names. */
+  placementId: string | null; cloudBoxId: string | null }
+export const taskBoxColumns = `id,channel_id AS channelId,task_id AS taskId,agent_id AS agentId,initiated_by AS initiatedBy,node_id AS nodeId,environment_json AS environmentJson,status,run_id AS runId,lease_token AS leaseToken,checkpoint_sha AS checkpointSha,head_sha AS headSha,pull_json AS pullJson,pushed_sha AS pushedSha,runtime_ms AS runtimeMs,publication_count AS publicationCount,updated_at AS updatedAt,
+  (SELECT placement_id FROM compute_nodes WHERE id=factory_boxes.node_id) AS placementId,cloud_box_id AS cloudBoxId`
 export async function factoryAuthority(env: L4Env, runId: string, actorId?: string, publication = false, readOnly = false) {
   const run = await findAgentRun(env, runId)
   if (!run) fail(404, 'not_found', 'Run not found')
@@ -49,6 +52,6 @@ export async function factoryAuthority(env: L4Env, runId: string, actorId?: stri
 export async function taskBox(env: L4Env, context: Awaited<ReturnType<typeof factoryAuthority>>) {
   const { run, environment } = context
   const box = await env.DB.prepare(`SELECT ${taskBoxColumns} FROM factory_boxes WHERE task_id=? AND agent_id=? AND initiated_by=?`).bind(run.taskId, run.agentId, run.initiatedBy).first<TaskBox>()
-  if (box && (box.channelId !== run.channelId || box.environmentJson !== JSON.stringify(environment) || box.nodeId !== environment.computeNodeId)) fail(409, 'factory_base_changed', 'The Task’s box is pinned to a different repository snapshot. Review upstream changes and start a new Task.')
+  if (box && (box.channelId !== run.channelId || box.environmentJson !== JSON.stringify(environment) || (box.nodeId !== environment.computeNodeId && box.placementId !== environment.computeNodeId))) fail(409, 'factory_base_changed', 'The Task’s box is pinned to a different repository snapshot. Review upstream changes and start a new Task.')
   return box
 }

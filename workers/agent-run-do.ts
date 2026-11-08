@@ -17,6 +17,7 @@ import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
 import { boxCompletion, boxNodeFor, ensureBox, releaseBoxTurn, wakeCloudBox, type BoxEventsAck } from '../server/utils/factory-boxes'
+import { isCloudflareNode } from '../shared/software-factory'
 import { z } from 'zod'
 
 const pollSchema = z.object({ status: z.enum(['running', 'finished', 'interrupted', 'idle']), events: z.array(runtimeEventSchema).max(100), nextCursor: z.number().int().min(0), result: runtimeEventSchema.nullable().optional() })
@@ -257,8 +258,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const node = await boxNodeFor(this.env, run)
       if (!node) return this.respond({ ok: false }, 409)
       // A paired Node sees the turn on its next sync; on Cloudflare the box's own Durable Object syncs now.
-      const boxId = await ensureBox(this.env, run, node.nodeId)
-      if ('provider' in node.capabilities) await wakeCloudBox(this.env, boxId)
+      const boxId = await ensureBox(this.env, run, node.nodeId, node.capabilities)
+      if (isCloudflareNode(node.capabilities)) await wakeCloudBox(this.env, boxId)
       return this.respond({ ok: true })
     }
     if (path.startsWith('run') && method === 'GET') {

@@ -20,7 +20,7 @@ async function refreshConnections() {
 }
 const { api } = useApi()
 const toast = useToast()
-const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: { id: string; name: string; enabled: boolean; capabilities?: { provider?: string } }[] }>('/api/compute-nodes') })
+const nodes = useQuery({ queryKey: ['compute-nodes'], queryFn: () => api<{ nodes: { id: string; name: string; enabled: boolean; capabilities?: { provider?: string }; placementId?: string | null }[] }>('/api/compute-nodes') })
 const computeNodeId = ref<string | null>(null)
 const list = useQuery({ queryKey: ['code-environments'], queryFn: () => api<{ configured: boolean; deploymentConfigured: boolean; environments: CodeEnvironment[] }>('/api/code-environments') })
 type Repository = { id: number; name: string; installationId: number; fork: boolean; defaultBranch: string; resourceId: string }
@@ -43,7 +43,7 @@ const selectedEnvironment = computed(() => list.data.value?.environments.find(it
 const open = ref(false)
 const saving = ref(false)
 function edit(item?: CodeEnvironment) {
-  computeNodeId.value = item ? item.computeNodeId ?? null : ((nodes.data.value?.nodes.find(node => node.enabled && ['Local VPS executor', 'Cloudflare Factory'].includes(node.name)) ?? nodes.data.value?.nodes.find(node => node.enabled))?.id ?? null)
+  computeNodeId.value = item ? item.computeNodeId ?? null : ((nodes.data.value?.nodes.find(node => node.enabled && ['Local VPS executor', 'Cloudflare Factory', 'L4 Compute'].includes(node.name)) ?? nodes.data.value?.nodes.find(node => node.enabled && !node.placementId))?.id ?? null)
   connectionId.value = item ? item.gitConnectionId ?? null : connectionId.value; editingId.value = item?.id; name.value = item?.name ?? ''; sourceId.value = item?.sourceRepoId; workId.value = item?.workRepoId
   baseBranch.value = item?.baseBranch ?? 'main'; requiredChecks.value = item?.requiredChecks.join('\n') ?? ''; previewHosts.value = item?.previewHosts.join('\n') ?? ''; open.value = true
 }
@@ -90,7 +90,7 @@ async function disable(item: CodeEnvironment) {
         <p v-if="repositories.data.value && !repositories.data.value.repositories.length" class="text-sm text-muted">{{ selectedProvider === 'gitea' ? 'No repositories appear until the connected account can push to them in Gitea. Add it as a collaborator and refresh the list.' : 'Choose a Git connection. If no repositories appear, authorize them on GitHub and refresh the list.' }}</p>
         <UFormField label="Source repository"><USelect v-model="sourceId" :items="options" placeholder="Choose source" class="w-full" /></UFormField>
         <UFormField label="Working repository" help="Choose the source repository for ordinary branch-based work, or an optional fork. Changes use a dedicated working branch."><USelect v-model="workId" :items="options" placeholder="Choose repository" class="w-full" /></UFormField>
-        <UFormField label="Compute Node" help="Choose where this repository's task runs execute."><USelect v-model="computeNodeId" :items="[{ label: 'No compute backend', value: null }, ...(nodes.data.value?.nodes ?? []).filter(node => node.enabled).map(node => ({ label: node.name, value: node.id }))]" class="w-full" /></UFormField>
+        <UFormField label="Compute Node" help="Choose where this repository's task runs execute."><USelect v-model="computeNodeId" :items="[{ label: 'No compute backend', value: null }, ...(nodes.data.value?.nodes ?? []).filter(node => node.enabled && !node.placementId).map(node => ({ label: node.name, value: node.id }))]" class="w-full" /></UFormField>
         <UFormField label="Base branch"><UInput v-model="baseBranch" class="w-full" /></UFormField>
         <UFormField label="Required CI checks" help="One exact check or commit-status name per line. Missing checks keep the proposal unverified. Leave empty to require every check CI reports."><UTextarea v-model="requiredChecks" class="w-full" :rows="3" /></UFormField>
         <UFormField label="Allowed Preview domains" help="One domain per line, for example dev.example.com. Preview links must use HTTPS."><UTextarea v-model="previewHosts" class="w-full" :rows="2" /></UFormField>

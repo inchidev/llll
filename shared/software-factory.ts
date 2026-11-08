@@ -39,7 +39,9 @@ export type FactoryApproval = { id: string; boxId: string; runId: string; kind: 
   /** The review a Node or box produced for a push, kept in R2: only its digest is on the row. */
   diff: { digest: string } | null
   decidedBy: string | null; decidedAt: string | null; expiresAt: string; result: unknown; createdAt: string }
-export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null }
+export type ComputeNode = { id: string; name: string; enabled: boolean; capabilities: Record<string, unknown>; lastSeen: string | null
+  /** An L4 Compute box's Node: under the Server's placement Node, for one box. */
+  placementId?: string | null; boxId?: string | null }
 /** The name the Server gives the Node it pairs on its own VPS host. */
 export const LOCAL_NODE_NAME = 'Local VPS executor'
 /**
@@ -64,8 +66,20 @@ export const cloudflareCapabilities = z.object({ provider: z.literal('cloudflare
   isolation: z.literal('container-vm'), image: z.string().regex(/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/u), capacity: nodeCapacity, protocol: z.literal(2),
   memoryMiB: z.number().int().min(256).max(12288), cpu: z.number().positive().max(4), processLimit: z.number().int().min(32).max(512), codeBytes: z.literal(500000000), timeoutMs: z.number().int().min(1000).max(600000),
 }).strict()
-export const computeCapabilities = z.union([dockerCapabilities, cloudflareCapabilities])
+/**
+ * The Server's placement Node for L4 Compute (ADR 0009). It never syncs itself: each box llll.gg starts pairs as a
+ * Node of its own under it, with Docker capabilities of the published daemon. Its capacity is nominal, since
+ * llll.gg puts no limit on how many boxes work at once.
+ */
+export const l4ComputeCapabilities = z.object({ provider: z.literal('l4-compute'), docker: z.literal(false), durableDisk: z.literal(true), isolation: z.literal('microvm'),
+  diskBytes: z.literal(10737418240), capacity: nodeCapacity, protocol: z.literal(2) }).strict()
+export const L4_COMPUTE_CAPABILITIES: z.infer<typeof l4ComputeCapabilities> = { provider: 'l4-compute', docker: false, durableDisk: true, isolation: 'microvm', diskBytes: 10737418240, capacity: { cpu: 1024, memoryMiB: 16777216, boxes: 64 }, protocol: 2 }
+export const computeCapabilities = z.union([dockerCapabilities, cloudflareCapabilities, l4ComputeCapabilities])
 export type ComputeCapabilities = z.infer<typeof computeCapabilities>
+/** Boxes on this Node run in Cloudflare Containers, each with its own Durable Object (workers/factory-compute.ts). */
+export const isCloudflareNode = (capabilities: ComputeCapabilities): capabilities is z.infer<typeof cloudflareCapabilities> => 'provider' in capabilities && capabilities.provider === 'cloudflare-containers'
+/** The Server's L4 Compute placement: a box here is asked of llll.gg and arrives as a Node of its own. */
+export const isL4ComputeNode = (capabilities: ComputeCapabilities): capabilities is z.infer<typeof l4ComputeCapabilities> => 'provider' in capabilities && capabilities.provider === 'l4-compute'
 
 /** Artifacts repository names allow 2–63 characters. Two UUIDs do not fit. */
 export function factoryRepositoryName(serverId: string, boxId: string) {
@@ -87,7 +101,7 @@ export function factoryImageAccepted(reported: string | undefined, expected: str
   return reported.match(digest)?.[0] === expectedDigest
 }
 
-const FACTORY_STATES: Record<string, string> = { approval_pending: 'Waiting for review', publishing: 'Publishing', pr_published: 'Pull request open', publish_failed: 'Publication failed',
+const FACTORY_STATES: Record<string, string> = { approval_pending: 'Waiting for review', publishing: 'Publishing', pr_published: 'Pull request open', publish_failed: 'Publication failed', l4_credit: 'Needs L4 Compute credit', l4_unreachable: 'llll.gg unreachable',
   rejected: 'Publication rejected', published: 'Published for review', pushed: 'Pushed to the base branch', merged: 'Merged', merge_failed: 'Merge refused', ci_success: 'Checks passed', ci_failure: 'Checks failed', ci_running: 'Checks running', ci_absent: 'No checks yet', ci_unverified: 'Checks incomplete' }
 /** A Task's code work as its board shows it. */
 export const factoryStateLabel = (state: string) => FACTORY_STATES[state] ?? state.replaceAll('_', ' ')

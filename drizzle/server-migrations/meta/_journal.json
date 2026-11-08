@@ -43,6 +43,13 @@
       "when": 1794117982492,
       "tag": "0005_project_releases",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794126700671,
+      "tag": "0006_l4_compute",
+      "breakpoints": true
     }
   ]
 }

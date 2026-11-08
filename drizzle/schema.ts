@@ -1589,7 +1589,10 @@ export const agentWebhooks = sqliteTable('agent_webhooks', {
   check('agent_webhooks_reply_timeout_minutes_check', sql`${table.replyTimeoutMinutes} BETWEEN 2 AND 120`),
 ])
 
-/** Paired compute nodes and the coding checkouts and approved actions they carry out. */
+/**
+ * Paired compute nodes and the coding checkouts and approved actions they carry out. An L4 Compute box is a
+ * Node of its own, under the Server's "L4 Compute" placement Node (`placement_id`), for one box (`box_id`).
+ */
 export const computeNodes = sqliteTable('compute_nodes', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -1599,14 +1602,35 @@ export const computeNodes = sqliteTable('compute_nodes', {
   lastSeen: text('last_seen'),
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: text('created_at').notNull(),
-})
+  placementId: text('placement_id').references((): AnySQLiteColumn => computeNodes.id),
+  boxId: text('box_id'),
+}, table => [
+  index('compute_nodes_placement').on(table.placementId),
+])
 
+/** A one-use pairing code. One minted for an L4 Compute box names the box it pairs. */
 export const computePairings = sqliteTable('compute_pairings', {
   tokenHash: text('token_hash').primaryKey(),
   name: text('name').notNull(),
   createdBy: text('created_by').notNull().references(() => users.id),
   expiresAt: text('expires_at').notNull(),
+  boxId: text('box_id'),
 })
+
+/**
+ * The Server's link to L4 Compute on llll.gg: the long-lived Server token the Owner's explicit connect step
+ * brought back, encrypted with scope `l4-compute-token`, and the account label llll.gg gave. A hosted Server
+ * has no row: it authenticates with its `CLOUD_SECRET` (shared/server-runtime.ts).
+ */
+export const l4ComputeLink = sqliteTable('l4_compute_link', {
+  singleton: integer('singleton').primaryKey(),
+  account: text('account').notNull(),
+  tokenCiphertext: text('token_ciphertext').notNull(),
+  tokenIv: text('token_iv').notNull(),
+  tokenVersion: integer('token_version').notNull().default(1),
+  linkedBy: text('linked_by').notNull().references(() => users.id),
+  linkedAt: text('linked_at').notNull(),
+}, table => [check('l4_compute_link_singleton_check', sql`${table.singleton} = 1`)])
 
 /**
  * One box per Task, Agent and initiator, for the life of the Task. The Node holds it under a lease it
@@ -1635,6 +1659,10 @@ export const factoryBoxes = sqliteTable('factory_boxes', {
   pushedSha: text('pushed_sha'),
   runtimeMs: integer('runtime_ms').notNull().default(0),
   publicationCount: integer('publication_count').notNull().default(0),
+  /** The box llll.gg started for this Task on L4 Compute, the size it was asked for, and when llll.gg was told its daemon paired. */
+  cloudBoxId: text('cloud_box_id'),
+  cloudSize: text('cloud_size'),
+  cloudConfirmedAt: text('cloud_confirmed_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, table => [
