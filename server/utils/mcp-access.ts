@@ -12,6 +12,8 @@ import type { L4Env } from '../../workers/env'
 
 const TOKEN_PREFIX = 'dfmcp_'
 const TOKEN_BYTES = 32
+/** A standing token: this Server's, or one L4 Cloud minted in the same shape for a seeded Agent and whose digest the claim recorded (ADR 0012). */
+const BEARER_TOKEN = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i
 
 type TokenRow = Omit<McpAccessTokenDTO, 'scopes' | 'subject' | 'createdBy'> & {
   scopesJson: string
@@ -126,7 +128,7 @@ export async function authenticateMcpRequest(
   const header = request.headers.get('authorization') ?? ''
   const bound = /^Bearer\s+(dfrun_[0-9a-f-]{36}_[0-9a-f]{64})$/i.exec(header)
   if (bound) return authenticateRunCredential(env, bound[1]!)
-  const match = /^Bearer\s+(dfmcp_[0-9a-f]{64})$/i.exec(header)
+  const match = BEARER_TOKEN.exec(header)
   const token = match?.[1]
   if (!token) return authenticateOAuthMcpRequest(env, request, resource, waitUntil)
   const tokenHash = await hashToken(token)

@@ -148,6 +148,40 @@ describe('a Server on L4 Cloud', () => {
     expect(calls.some(call => call.url.endsWith('/api/setup/health'))).toBe(false)
   })
 
+  it('carries the seed of ADR 0012 into server_setup, validated, and nothing of it anywhere else', async () => {
+    const release = await fakeRelease()
+    const { fetcher, calls } = fakeNetwork(release)
+    vi.stubGlobal('fetch', fetcher)
+    const seed = {
+      owner: { identity: { provider: 'afterprompt', subject: 'acct_1' }, name: 'Ivan', username: 'ivan' },
+      agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: ['tasks:read'] }, instructions: 'Organize.', version: 1 },
+      secrets: { AFTERPROMPT_TOKEN: { value: 'apk_secret', hosts: ['afterprompt.games'] } },
+      env: { AFTERPROMPT_URL: 'https://afterprompt.games' },
+    }
+    expect(parseHostedInstallRequest({ ...request, seed })).toMatchObject({ seed })
+    expect(parseHostedInstallRequest(request)).not.toHaveProperty('seed')
+    // A partner's seed carries an Agent with no token and a username; an agent's carries a token and no owner.
+    expect(parseHostedInstallRequest({ ...request, seed: { ...seed, agent: { name: 'Claude', role: 'admin', instructions: 'x'.repeat(50_000), version: 2 } } }).seed?.agent).not.toHaveProperty('token')
+    expect(parseHostedInstallRequest({ ...request, seed: { agent: seed.agent } }).seed).toEqual({ agent: seed.agent })
+    expect(() => parseHostedInstallRequest({ ...request, seed: { agent: { name: 'Claude' } } })).toThrow(/seed is invalid/)
+    expect(() => parseHostedInstallRequest({ ...request, seed: { agent: { ...seed.agent, token: { ...seed.agent.token, hash: 'not-a-digest' } } } })).toThrow(/seed is invalid/)
+    expect(() => parseHostedInstallRequest({ ...request, seed: { secrets: { 'bad name': { value: 'x' } } } })).toThrow(/seed is invalid/)
+
+    await installHostedL4('token', { ...request, seed }, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, verify: false })
+    const queries = calls.filter(call => call.url.endsWith('/query')).map(call => call.body as { sql: string; params?: unknown[] })
+    const written = queries.find(query => query.sql.includes('UPDATE server_setup SET seed_json'))!
+    expect(written).toBeDefined()
+    expect(JSON.parse(String(written.params?.[0]))).toEqual(seed)
+    // The seed goes nowhere but the database row: not into the script, its bindings or its metadata.
+    const upload = calls.find(call => call.method === 'PUT' && call.url.endsWith(`/scripts/srv-${SERVER}`))!
+    expect(JSON.stringify(upload.body)).not.toContain('apk_secret')
+    expect(JSON.stringify(upload.body)).not.toContain('afterprompt')
+
+    calls.length = 0
+    await installHostedL4('token', request, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, verify: false })
+    expect(calls.some(call => call.url.endsWith('/query') && String((call.body as { sql: string }).sql).includes('seed_json'))).toBe(false)
+  })
+
   it('is deleted with its script, database, files and KV, and never its backups', async () => {
     const release = await fakeRelease()
     const { fetcher, calls } = fakeNetwork(release, { d1Missing: true })

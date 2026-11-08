@@ -394,6 +394,17 @@ async function sha256Hex(value: string) {
  */
 export type SeedRequest = Pick<DeployRequest, 'serverId' | 'filesEnabled' | 'backupBucketName' | 'registrationMode' | 'mailEnabled' | 'mailSubdomain' | 'zoneName' | 'zoneId' | 'mailLocalPart' | 'adminUsername' | 'appName'>
 
+/**
+ * What L4 Cloud asks the first claim to create besides the Owner (ADR 0012). The Server reads it from
+ * `server_setup.seed_json` when the Owner claims, through `/setup` or the relay's `claim-owner`.
+ */
+export type HostedSeed = {
+  owner?: { identity?: { provider: string; subject: string }; name?: string; username?: string }
+  agent?: { name: string; role: string; token?: { hash: string; prefix: string; scopes: string[] }; instructions?: string; version?: number }
+  secrets?: Record<string, { value: string; hosts?: string[] }>
+  env?: Record<string, string>
+}
+
 export async function seedNewServer(
   accessToken: string,
   accountId: string,
@@ -401,6 +412,7 @@ export async function seedNewServer(
   request: SeedRequest,
   origin: string,
   setupToken: string | null,
+  seed?: HostedSeed,
 ) {
   const now = new Date().toISOString()
   await d1Query(accessToken, accountId, databaseId,
@@ -444,6 +456,9 @@ export async function seedNewServer(
        ON CONFLICT(singleton) DO UPDATE SET username = excluded.username, token_hash = excluded.token_hash,
          server_name = excluded.server_name, updated_at = excluded.updated_at`,
       [request.adminUsername ?? null, await sha256Hex(setupToken), request.appName, now, now])
+    // The seed rides on the claim: it is read when the Owner is created and goes with the claim row.
+    if (seed) await d1Query(accessToken, accountId, databaseId,
+      'UPDATE server_setup SET seed_json = ?, updated_at = ? WHERE singleton = 1', [JSON.stringify(seed), now])
   }
 }
 

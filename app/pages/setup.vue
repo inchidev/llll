@@ -14,6 +14,8 @@ const error = ref<string | null>(null)
 const claimToken = useState('owner-claim', () => '')
 const identityLoaded = ref(false)
 const pastedToken = ref('')
+/** An Agent L4 Cloud asked this claim to create, by name; the person sees it before they become the Owner. */
+const agentName = ref<string | null>(null)
 
 const schema = z.object({
   serverName: z.string().trim().min(1, 'Name the Server').max(80),
@@ -61,11 +63,12 @@ onMounted(async () => {
 async function loadIdentity() {
   error.value = null
   try {
-    const identity = await api<{ username: string | null; serverName?: string }>('/api/setup/owner/identity', {
+    const identity = await api<{ username: string | null; serverName?: string; agentName?: string | null }>('/api/setup/owner/identity', {
       method: 'POST',
       body: { token: claimToken.value },
     })
     identityLoaded.value = true
+    agentName.value = identity.agentName ?? null
     state.username ||= identity.username ?? ''
     state.serverName = identity.serverName || session.health?.appName || state.serverName
   }
@@ -152,6 +155,14 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       </form>
       <template v-else>
         <UAlert v-if="error" color="error" variant="subtle" :title="error" class="mt-6" />
+        <UAlert
+          v-if="identityLoaded && agentName"
+          color="neutral"
+          variant="subtle"
+          :title="`An Agent named ${agentName} will be on this Server.`"
+          description="It was set up with the Server and is created by you, under the Cloud agent Role: an admin that can connect and work. You can change its Role, its instructions or remove it under Agents once you are in."
+          class="mt-6"
+        />
         <UForm v-if="identityLoaded" :schema="schema" :state="state" autocomplete="on" class="mt-7 space-y-4" @submit="onSubmit">
           <UFormField name="serverName" label="Server name">
             <UInput v-model="state.serverName" name="serverName" size="lg" class="w-full" />

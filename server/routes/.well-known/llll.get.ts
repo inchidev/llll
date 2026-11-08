@@ -2,7 +2,7 @@ import { SERVER_API_VERSION } from '../../../shared/server'
 import { readAppBranding } from '../../../shared/app-branding'
 
 import { cf } from '../../utils/cf'
-import { ensureMigrated } from '../../utils/db'
+import { ensureMigrated, serverReady } from '../../utils/db'
 import { readServerOrigins } from '../../utils/server-origins'
 import { publicServerAppearance } from '../../utils/server-appearance'
 import { serverRegistrationOpen } from '../../utils/server-flags'
@@ -30,5 +30,7 @@ export default defineEventHandler(async event => {
     origin,
     aliases,
     registration: await serverRegistrationOpen(env),
+    // Whether an Owner exists: an agent that made this Server through L4 Cloud polls it to see the claim land (ADR 0012).
+    owner: await serverReady(env.DB),
   }
 })

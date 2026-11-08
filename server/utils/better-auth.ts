@@ -9,6 +9,7 @@ import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import type { H3Event } from 'h3'
 import { authAccounts, authSessions, authUsers, authVerifications, oauthTables } from '../../drizzle/schema'
 import { mcpOAuthProvider } from './mcp-oauth-provider'
+import { signInLink } from './signin-link'
 import type { L4Env } from '../../workers/env'
 import { readAppBranding } from '../../shared/app-branding'
 import { sendAuthEmail as deliverAuthEmail } from '../../workers/mail-transport'
@@ -154,6 +155,7 @@ export async function createAuth(
         usernameNormalization: normalizeUsername,
       }),
       serverConnection({ ...env, PUBLIC_ORIGIN: baseURL }, origins),
+      signInLink(env),
     ],
     trustedOrigins: origins,
     advanced: {

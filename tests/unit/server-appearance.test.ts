@@ -50,14 +50,14 @@ function setup() {
 }
 
 it('uses deployment branding only before setup, then publishes current DB name and a bounded public icon URL', async () => {
-  expect(await (await request()).json()).toMatchObject({ id, name: 'L4-Four', iconUrl: null, ready: false })
+  expect(await (await request()).json()).toMatchObject({ id, name: 'L4-Four', iconUrl: null, ready: false, owner: false })
   setup()
   sqlite.prepare("UPDATE server SET icon_r2_key='private/key-a.png',updated_at='2026-10-20T01:00:00.000Z'").run()
   const response = await request()
   const data = await response.json()
-  expect(data).toMatchObject({ id, name: 'abra cadabra', iconUrl: origin + '/.well-known/llll/icon?v=2026-10-20T01%3A00%3A00.000Z', ready: true })
+  expect(data).toMatchObject({ id, name: 'abra cadabra', iconUrl: origin + '/.well-known/llll/icon?v=2026-10-20T01%3A00%3A00.000Z', ready: true, owner: true })
   expect(JSON.stringify(data)).not.toContain('private/key-a')
-  expect(JSON.stringify(data)).not.toContain('owner')
+  expect(Object.values(data)).not.toContain('owner')
   expect(response.headers.get('cache-control')).toBe('no-store')
   sqlite.prepare("UPDATE server SET name='Renamed again',icon_r2_key=NULL,updated_at='2026-10-20T02:00:00.000Z'").run()
   expect(await (await request()).json()).toMatchObject({ id, name: 'Renamed again', iconUrl: null })

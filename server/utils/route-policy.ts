@@ -50,6 +50,7 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   'auth/config.get': unscoped('auth-config.read'),
   'auth/confirm-email.get': unscoped('auth-confirm-email.read'),
   'auth/forgot-password.post': unscoped('auth-forgot-password.create'),
+  'auth/link.post': unscoped('auth-link.create'),
   'auth/login.post': unscoped('auth-login.create'),
   'auth/logout.post': unscoped('auth-logout.create'),
   'auth/recover.post': unscoped('auth-recover.create'),

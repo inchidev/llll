@@ -50,6 +50,13 @@
       "when": 1794126700671,
       "tag": "0006_l4_compute",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794133429601,
+      "tag": "0007_cloud_seed",
+      "breakpoints": true
     }
   ]
 }

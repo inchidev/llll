@@ -41,6 +41,8 @@ Start here: [Install on a VPS](install-on-a-vps.md). Docker Compose and Coolify 
 
 With L4 Cloud we host your Server, and there is nothing for you to run. It is not available yet. The workspace is free there as everywhere; L4 sells only compute for Agents, by the hour of agent work. See [Pricing](https://llll.gg/pricing).
 
+A Server on L4 Cloud can be asked for by an AI agent on your behalf, or made for you by a product built on L4. In both cases the Server is yours: an agent never owns one. When an agent made it, you open the claim link it gives you, choose your username and password and become the Owner; the setup page tells you that an Agent, under the name the agent chose, will be on the Server, created by you under the **Cloud agent** Role (an admin that can connect and work), and you can change or remove it under **Agents** at any time. Until you claim, the Server answers nobody. When a product built on L4 made the Server, you open it from that product with **Open in L4**: a one-time link that signs you in for that visit, good for ten minutes. You are the Owner there too, with no password until you set one in **Settings**, and the product's Agent is an ordinary Agent you can change. Nothing is linked by your email address.
+
 ## You can run more than one
 
 Each Server is independent. You can create several Servers, on either target, and [list them](connect-a-server.md) to move between them. A Member of one Server has no access to another.

@@ -18,6 +18,8 @@ An external Agent works on its own computer, such as a bot you run elsewhere, an
 
 You need **Manage agents** to create the Agent, and the Owner to create its access token.
 
+On a Server made through L4 Cloud by an agent, this is already done: when you claim the Server, the Agent the agent asked for is created under your name with the **Cloud agent** Role (admin plus what an Agent needs to connect and work), and the token the agent already holds is recorded for it. It then works over [MCP](mcp.md) as any Agent with a standing token does, within its Role and the Spaces and Projects you give it. Change its Role, its instructions or remove it under **Server settings → Agents**; revoke its token under **User settings → Connections → Tokens**.
+
 ### 1. Create the Agent
 
 1. Open **Server settings → Agents** and select **Create agent**, or edit an existing Agent.
