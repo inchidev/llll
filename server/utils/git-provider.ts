@@ -3,9 +3,15 @@ import type { L4Env } from '../../workers/env'
 import { gitConnectionProvider, githubConnectionCredentials } from './git-connections'
 import { agentRepositories, githubAgentClient } from './github-agent-client'
 import { giteaAgentClient, giteaCredentials, giteaRepositories, type GiteaAccess } from './gitea'
+import { artifactsAvailability, requireArtifacts } from './factory-artifacts'
+import { fail } from './cf'
 
-/** Whether a connection (or, without one, any connection or the deployment App) can broker repository access. */
-export async function gitAgentConfigured(env: L4Env, connectionId?: string | null): Promise<boolean> {
+/**
+ * Whether a connection (or, without one, any connection or the deployment App) can broker repository access.
+ * An L4 repository needs no connection: its binding is there or it is not (ADR 0013).
+ */
+export async function gitAgentConfigured(env: L4Env, connectionId?: string | null, provider?: CodeEnvironmentConfig['provider']): Promise<boolean> {
+  if (provider === 'artifacts') return artifactsAvailability(env).available
   if (!connectionId) {
     if (env.GITHUB_AGENT_APP_ID && env.GITHUB_AGENT_APP_PRIVATE_KEY) return true
     return Boolean(await env.DB.prepare("SELECT 1 FROM git_connections WHERE provider IN ('github','gitea') AND enabled=1 LIMIT 1").first())
@@ -17,7 +23,8 @@ export async function gitAgentConfigured(env: L4Env, connectionId?: string | nul
 }
 /** Fails closed when the configured connection was disabled or its credential cannot be decrypted. */
 export async function requireGitConnection(env: L4Env, item: Pick<CodeEnvironmentConfig, 'provider' | 'gitConnectionId'>) {
-  if (item.provider === 'gitea') await giteaCredentials(env, item.gitConnectionId)
+  if (item.provider === 'artifacts') requireArtifacts(env)
+  else if (item.provider === 'gitea') await giteaCredentials(env, item.gitConnectionId)
   else if (item.gitConnectionId) await githubConnectionCredentials(env, item.gitConnectionId)
 }
 
@@ -31,6 +38,8 @@ type Environment = Pick<CodeEnvironmentConfig, 'provider' | 'gitConnectionId' | 
 /** One repository and one operation class. GitHub mints a narrowed token; Gitea's broker enforces the same bounds. */
 export async function repositoryClient(env: L4Env, item: Environment, side: 'source' | 'work', access: GiteaAccess, ensure: () => Promise<void> = async () => {}, transport: typeof fetch = fetch) {
   const repository = side === 'source' ? item.sourceRepo : item.workRepo
+  // An L4 repository has no provider API: it is read through its binding and written through Git (factory-artifacts.ts).
+  if (item.provider === 'artifacts') fail(409, 'artifacts_no_api', 'A repository in L4 has no pull requests, issues or checks')
   if (item.provider === 'gitea') {
     const client = await giteaAgentClient(env, { connectionId: item.gitConnectionId, repository, access }, ensure, transport)
     return { provider: 'gitea' as const, raw: (path: string, method?: string, body?: unknown) => client.raw(path, method, body), json: (path: string, method?: string, body?: unknown) => client.json(path, method, body), web: (path = '') => `${client.host}/${repository}${path}` }

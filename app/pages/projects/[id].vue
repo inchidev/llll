@@ -101,11 +101,12 @@ async function remove(id: string) {
     <section v-if="hasOwnAccess" class="space-y-4" aria-label="Repositories">
     <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-medium">Repositories</h2><div v-if="can(Permission.manageProjects) && !detail.data.value.project.archivedAt" class="flex flex-wrap gap-2"><UButton label="Add reference only" color="neutral" variant="ghost" @click="repositoryOpen = true" /><UButton v-if="can(Permission.manageServer)" label="Connect repository" icon="i-ph-git-branch" @click="connectOpen = true" /></div></div>
     <ProjectsConnectRepository v-model:open="connectOpen" :project-id="selected" @connected="detail.refetch()" />
-    <p class="text-sm text-muted">A connected repository is one agents can work on: they open pull requests against it for review. A reference only names a repository and enables nothing.</p>
+    <p class="text-sm text-muted">A connected repository is one agents can work on: they publish branches to it for review, as pull requests on GitHub or Gitea, or inside L4 for a repository that lives here. A reference only names a repository and enables nothing.</p>
     <div v-for="r in detail.data.value.repositories" :key="r.id" class="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded border border-default p-3">
-     <div class="min-w-0"><p class="break-all font-medium">{{ r.slug }}</p><p class="break-all text-xs text-muted">{{ r.provider }} · {{ r.host }} · {{ r.defaultBranch }}</p><p class="text-xs text-muted">{{ r.environmentId ? 'Linked to Git execution configuration' : 'Reference only; execution not connected' }}</p></div>
+     <div class="min-w-0"><p class="break-all font-medium">{{ r.slug }}</p><p class="break-all text-xs text-muted">{{ r.provider === 'artifacts' ? 'In L4' : r.provider }} · {{ r.host }} · {{ r.defaultBranch }}</p><p class="text-xs text-muted">{{ r.provider === 'artifacts' ? 'Lives in this Server; detaching keeps the repository and its history' : r.environmentId ? 'Linked to Git execution configuration' : 'Reference only; execution not connected' }}</p></div>
      <UButton v-if="can(Permission.manageProjects)" :label="r.environmentId ? 'Detach repository' : 'Detach reference'" color="neutral" variant="ghost" :loading="busy" @click="remove(r.id)" />
     </div>
+    <ProjectsReleases v-if="detail.data.value.repositories.some(r => r.provider === 'artifacts')" :key="`releases-${selected}`" :project-id="selected" :archived="Boolean(detail.data.value.project.archivedAt)" />
     <UModal v-model:open="repositoryOpen" title="Attach repository" description="Connect a repository reference to this project."><template #body><form class="space-y-4" @submit.prevent="attach">
      <h3 class="font-medium">Attach repository reference</h3>
      <UFormField label="Git provider"><USelect v-model="provider" :items="['github', 'gitlab', 'gitea', 'cursor']" class="w-full" /></UFormField>

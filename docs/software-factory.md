@@ -57,12 +57,24 @@ In **Server settings → Compute → Server compute setup**, choose **Enable com
 
 ## Set up the Server side
 
-1. In **Server settings → Git**, connect a dedicated GitHub App or a Gitea bot account. The App needs Contents, Pull requests, Issues, Checks, Commit statuses, Actions and Deployments as described in [Agents](agents.md#github-code-work). It never needs administration or protection bypass.
+1. In **Server settings → Git**, connect a dedicated GitHub App or a Gitea bot account. The App needs Contents, Pull requests, Issues, Checks, Commit statuses, Actions and Deployments as described in [Agents](agents.md#github-code-work). It never needs administration or protection bypass. Or skip this step and create the Project's repository inside L4 (below).
 2. Add a repository environment in **Git → Environments**: the repository, its base branch, the Compute Node, any required check names and allowed preview domains.
 3. Attach the repository to a Project. A repository outside a Project has no network beyond this Server and no Git flow settings but the defaults.
 4. Give the Agent a Role with Read projects, Read tasks, Execute assigned tasks, Use a computer, Send messages and Propose code changes. The person who starts the work needs the same, and Approve agent actions to approve pushes and windows or to merge.
 
 Without a connected Node there is no box. The Agent can then still read the repository and propose text-file changes through `publish_code_changes`; see [Agents](agents.md#github-code-work).
+
+## A repository in L4
+
+A Project on a Cloudflare-based Server with Compute enabled can own its repository inside L4, with no GitHub or Gitea ([ADR 0013](adr/0013-artifacts-git-provider.md)). On the Project page, **Connect repository → Create a repository in L4** makes one in the Server's own Artifacts namespace, the one Compute provisioned, named after the Project, with `main` and a README, and attaches it with a repository environment like a connected one. The provider is `artifacts`; the Server's binding is its connection, and there is no row in Git connections.
+
+The Task's box works on it as on any repository: it clones the pinned base through the egress layer with a short read token the Server mints and revokes, and `factory_publish` pushes the approved commit to `<prefix><box id>` with a short write token that lives only in the egress layer. Artifacts tokens are repository-wide, so L4 keeps the branch rule itself: the outbound Worker on Cloudflare, or the Server's transport for a VPS Node, allows exactly `<old> <approved sha> refs/heads/<prefix><box id>` and nothing else. There is no pull request: the receipt points at the Run, where the diff is read, and `factory_feedback` reports no checks. A person merges from the Task after reading the diff; the Task says plainly that nothing tested the head. The Agent never merges in an L4 repository, whatever the Git flow says, since there are no checks to pass.
+
+**The Server does the merge.** Artifacts writes only through `git push`, so the Server builds the merge itself (`server/utils/git-pack.ts`): a squash commit of the approved head's tree on the base branch's head, a merge commit with both parents, or a fast-forward for `rebase`, pushed with a token minted for the merge and revoked after it. The approved head must include the base branch's current commit; L4 does not resolve a three-way merge, and asks the Agent to bring `main` into its branch and publish again when `main` moved.
+
+**Versions** are annotated tags `v<version>` on the base branch, made from the Project page under **Versions** by someone who may merge there (`POST /api/projects/:id/releases`), and recorded in `project_releases` because Artifacts lists no refs. Detaching the repository or archiving the Project keeps the repository and its history.
+
+A celld Server says a repository in L4 needs a Cloudflare-based Server; a hosted Server says it is coming. Per-box checkpoint repositories stay as they are for an L4-backed Project.
 
 ## The box
 
@@ -88,7 +100,7 @@ The Agent commits, then calls `factory_publish {sha, title, body}`. Each request
 
 **On Cloudflare** a trusted helper makes the copy and the push, reading the checkout's objects as an alternate. BoxOutbound reads the ref commands at the start of the `git-receive-pack` request, refuses anything but `<old> <approved sha> refs/heads/<prefix><box id>` and adds the credential itself.
 
-After either push the Server reads the branch back. It opens or updates the Task's draft pull request only if the branch is at the approved commit. Anything else is **uncertain**: nothing is retried, and a person looks at the repository. When a push fails, Git's own reason comes back with its credentials removed.
+After either push the Server reads the branch back. It opens or updates the Task's draft pull request only if the branch is at the approved commit (for a repository in L4 it records the commit for review instead). Anything else is **uncertain**: nothing is retried, and a person looks at the repository. When a push fails, Git's own reason comes back with its credentials removed.
 
 `factory_feedback` reads the checks, commit statuses, Actions jobs and logs, and deployments of exactly the pull request's head. Old results never count for a new SHA. To repair, the Agent edits, commits and publishes again on the same branch.
 
@@ -128,7 +140,7 @@ Each Project sets its Git flow on the Project page, with the same permission as 
 - **Who merges:** a person (the default); the Agent after checks pass; or a direct push to the base branch, for experiments.
 - **Merge method:** squash (default), merge or rebase. The repository must allow it.
 
-The target is always the repository's base branch. Branch protection on GitHub or Gitea stays the ceiling: a push or merge it refuses comes back with its reason and is never worked around.
+The target is always the repository's base branch. Branch protection on GitHub or Gitea stays the ceiling: a push or merge it refuses comes back with its reason and is never worked around. A repository in L4 has no protection of its own; L4 is the ceiling there, as described above.
 
 **A person merges** from the Task, on the board or on the Run page, where they may approve Agent actions in the repository's Project (`POST /api/tasks/:id/merge` with the head SHA they saw). The Server reads the checks again at that head. When any check or status exists, every one must have passed, along with every required check of the repository environment. When the provider reports no checks, statuses or Actions jobs at all and the environment requires none, the person may still merge; the Task and the answer say plainly that no checks were reported. Right after a push CI may not have registered its checks yet, so for two minutes after the Server confirmed the push of that head (`pushedAt` on the pull request's receipt) no checks counts as pending and the Task shows "Waiting for checks to register…". A receipt without a recorded push gets no grace. The provider is asked to merge exactly that head with the Project's method, after a draft is made ready (GitHub) or the `WIP:` prefix is removed (Gitea). A merge marks the Task's code work Merged and leaves the Task's status to its people.
 

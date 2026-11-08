@@ -4,12 +4,14 @@ const props = defineProps<{ projectId: string }>()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ connected: [] }>()
 const { api } = useApi(), toast = useToast(), nav = useNavActions()
-type Options = { connections: { id: string; provider: 'github' | 'gitea'; name: string; host: string; account: string }[]; deploymentGithub: boolean; compute: { id: string; name: string; provider: string | null }[]; agents: number; canConfigureCredentials: boolean }
+type Options = { connections: { id: string; provider: 'github' | 'gitea'; name: string; host: string; account: string }[]; deploymentGithub: boolean; compute: { id: string; name: string; provider: string | null }[]; agents: number; canConfigureCredentials: boolean
+  /** A repository inside L4 needs no connection; where it is unavailable, why (ADR 0013). */
+  artifacts: { available: boolean; reason: string | null } }
 type Repository = { id: number; name: string; defaultBranch: string }
 // The deployment-configured GitHub App has no connection row; it is the empty choice.
 const DEPLOYMENT = 'deployment'
 const connectionId = ref(''), repositoryId = ref<number | undefined>(), baseBranch = ref(''), checks = ref<string[]>([]), computeNodeId = ref(''), previewHosts = ref('')
-const busy = ref(false), connected = ref<string | null>(null)
+const busy = ref(false), connected = ref<string | null>(null), creating = ref(false)
 const options = useQuery({ queryKey: computed(() => ['connect-repository', props.projectId]), queryFn: () => api<Options>(`/api/projects/${props.projectId}/connect-repository`), enabled: open })
 const connectionItems = computed(() => [
   ...(options.data.value?.deploymentGithub ? [{ value: DEPLOYMENT, label: 'GitHub (this Server’s app)' }] : []),
@@ -34,6 +36,15 @@ watch(() => inspected.data.value, data => { baseBranch.value = data?.defaultBran
 watch(open, value => { if (value) { connected.value = null; repositoryId.value = undefined; computeNodeId.value = '' } })
 
 function openSettings(section: string) { open.value = false; nav.openServerSettings(section) }
+/** A repository in L4: created in this Server's own storage, named after the Project, with main and a README. */
+async function createInL4() {
+  creating.value = true
+  try {
+    const result = await api<{ repository: { slug: string } }>(`/api/projects/${props.projectId}/artifacts-repository`, { method: 'POST', body: { computeNodeId: computeNodeId.value || null } })
+    connected.value = result.repository.slug
+    emit('connected')
+  } catch (error) { toast.add({ title: errorMessage(error), color: 'error' }) } finally { creating.value = false }
+}
 async function connect() {
   busy.value = true
   try {
@@ -48,7 +59,7 @@ async function connect() {
 }
 </script>
 <template>
-  <UModal v-model:open="open" title="Connect a repository" description="Agents assigned to this project's tasks can then work on it and open pull requests for review.">
+  <UModal v-model:open="open" title="Connect a repository" description="Agents assigned to this project's tasks can then work on it and publish their branches for review.">
     <template #body>
       <LayoutLoadError v-if="options.error.value" message="Repository setup did not load." :retry="options.refetch" />
       <div v-else-if="connected" class="space-y-4">
@@ -62,8 +73,13 @@ async function connect() {
       <form v-else class="space-y-5" @submit.prevent="connect">
         <LayoutSkeleton v-if="options.isPending.value" variant="rows" :rows="2" />
         <template v-else-if="noGit">
-          <UAlert color="neutral" variant="subtle" title="Connect GitHub or Gitea first" description="Agents reach repositories through a dedicated GitHub App or a Gitea bot account. It is set up once for the whole Server." />
-          <div class="flex justify-end"><UButton v-if="options.data.value?.canConfigureCredentials" label="Open Git settings" @click="openSettings('environments')" /><p v-else class="text-sm text-muted">Ask the Server Owner to connect it.</p></div>
+          <UAlert color="neutral" variant="subtle" :title="options.data.value?.artifacts.available ? 'Create a repository in L4, or connect GitHub or Gitea' : 'Connect GitHub or Gitea first'" description="Agents reach repositories through a dedicated GitHub App or a Gitea bot account, set up once for the whole Server. A repository in L4 needs neither: it lives in this Server's own storage." />
+          <UFormField v-if="options.data.value?.artifacts.available && compute.length > 1" label="Computer" description="Where agents edit, build and test the code."><USelect v-model="computeNodeId" :items="compute.map(c => ({ value: c.id, label: c.name }))" placeholder="Choose a computer" class="w-full" /></UFormField>
+          <p v-if="!options.data.value?.artifacts.available" class="text-sm text-muted">{{ options.data.value?.artifacts.reason }}</p>
+          <div class="flex flex-wrap justify-end gap-2">
+            <UButton v-if="options.data.value?.artifacts.available" label="Create a repository in L4" icon="i-ph-git-branch" :loading="creating" :disabled="compute.length > 1 && !computeNodeId" @click="createInL4" />
+            <UButton v-if="options.data.value?.canConfigureCredentials" label="Open Git settings" color="neutral" variant="outline" @click="openSettings('environments')" /><p v-else class="text-sm text-muted">Ask the Server Owner to connect it.</p>
+          </div>
         </template>
         <template v-else>
           <UFormField v-if="connectionItems.length > 1" label="Git connection"><USelect v-model="connectionId" :items="connectionItems" placeholder="Choose" class="w-full" /></UFormField>
@@ -90,7 +106,10 @@ async function connect() {
               </UFormField>
             </template>
           </template>
-          <div class="flex justify-end gap-2"><UButton label="Cancel" color="neutral" variant="outline" :disabled="busy" @click="open = false" /><UButton type="submit" label="Connect" :loading="busy" :disabled="repositoryId === undefined || !inspected.isSuccess.value || !baseBranch.trim() || (compute.length > 1 && !computeNodeId)" /></div>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <UButton v-if="options.data.value?.artifacts.available && repositoryId === undefined" label="Create a repository in L4 instead" color="neutral" variant="ghost" :loading="creating" :disabled="busy || (compute.length > 1 && !computeNodeId)" title="A repository inside this Server's own storage, with no GitHub or Gitea" @click="createInL4" />
+            <UButton label="Cancel" color="neutral" variant="outline" :disabled="busy" @click="open = false" /><UButton type="submit" label="Connect" :loading="busy" :disabled="repositoryId === undefined || !inspected.isSuccess.value || !baseBranch.trim() || (compute.length > 1 && !computeNodeId)" />
+          </div>
         </template>
       </form>
     </template>
