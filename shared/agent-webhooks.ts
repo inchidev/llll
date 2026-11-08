@@ -37,7 +37,8 @@ export type AgentWebhookPayload = {
   version: 1
   runId: string
   deadline: string
-  server: { id: string; origin: string | null; mcp: string | null }
+  /** `credential` authenticates at `mcp` as the Agent for this Run only, until the Run closes or `expiresAt`. */
+  server: { id: string; origin: string | null; mcp: string | null; credential: { token: string; expiresAt: string } | null }
   agent: { id: string; name: string }
   from: { id: string; name: string }
   conversation: { channelId: string; sourceMessageId: string | null; taskId: string | null }

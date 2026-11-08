@@ -116,6 +116,11 @@ export function authorizeMcpCredential(context: AuthorizationContext, scope?: Mc
   }
 }
 
+/** The permission and credential scope an action needs, for checks that reason about them directly. */
+export function actionRule(action: ServerAction): ActionRule {
+  return ACTION_RULES[action]
+}
+
 /** The single server authorization boundary shared by HTTP, MCP, and Agents. */
 export function authorize(context: AuthorizationContext, action: ServerAction): void {
   authorizeMcpCredential(context)

@@ -85,7 +85,7 @@ Removing **Connect MCP clients** from a Role immediately blocks that Member's to
 
 ## Tools
 
-What a connection can do is limited by its scopes and by the acting Member's current permissions on every call.
+What a connection can do is limited by its scopes and by the acting Member's current permissions on every call. Every tool call passes one check before it runs: the acting Member's Role, the permissions of the person an Agent acts for, the connection's scopes and the Space of what it names. A refused call answers with the reason, such as `create_task is not available: The delegating Reader cannot perform tasks:write`.
 
 ### Chat
 
