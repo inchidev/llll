@@ -124,6 +124,23 @@ async function claimOwner(env: L4Env) {
   return { ok: true as const, ownerId }
 }
 
+/**
+ * The model a partner's Agent starts with. OpenRouter lists its newest models first, small ones included, so the first
+ * tool-capable one can be a 2B model that cannot write a game. These families are tried in order, each by the first of
+ * its models the provider lists (its newest); free variants are left out. The Owner can choose another in Settings.
+ */
+export const PREFERRED_AGENT_MODELS = [
+  /^anthropic\/claude-(?:sonnet|opus)/u, /^openai\/gpt-5(?!.*nano)/u, /^google\/gemini-[\d.]+-pro/u,
+  /^qwen\/qwen3-coder/u, /^moonshotai\/kimi-k2/u, /^deepseek\/deepseek-(?:chat|v3|r1)/u,
+]
+export function preferredModel<T extends { id: string }>(models: readonly T[]) {
+  for (const family of PREFERRED_AGENT_MODELS) {
+    const found = models.find(model => family.test(model.id) && !model.id.endsWith(':free'))
+    if (found) return found
+  }
+  return null
+}
+
 async function setModels(env: L4Env, body: z.infer<typeof modelsBody>) {
   const models = await discoverAgentModels(body.provider, body.key)
   if (!models.length) refuse(502, 'The provider listed no models')
@@ -131,8 +148,9 @@ async function setModels(env: L4Env, body: z.infer<typeof modelsBody>) {
   // The catalog is large; the first two hundred keep every tool-capable model the provider lists first.
   const kept = [...usable, ...models.filter(model => model.tools === false)].slice(0, 200)
   await saveAgentProvider(env, body.provider, { kind: body.provider, enabled: true, webSearch: false, apiKey: body.key, models: kept })
-  if (await readServerSetting(env.DB, 'agents.defaultModel') === null && (usable[0] ?? kept[0])) {
-    await writeServerSetting(env.DB, 'agents.defaultModel', agentModelRef(body.provider, (usable[0] ?? kept[0])!.id))
+  const preferred = preferredModel(usable) ?? usable[0] ?? kept[0]
+  if (await readServerSetting(env.DB, 'agents.defaultModel') === null && preferred) {
+    await writeServerSetting(env.DB, 'agents.defaultModel', agentModelRef(body.provider, preferred.id))
   }
   return { ok: true as const, configured: true as const, models: kept.length }
 }
