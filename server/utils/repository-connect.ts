@@ -12,6 +12,8 @@ import { discoverRepositories, repositoryClient, type ProviderRepository } from 
 import { addProjectRepository, requireProject } from './project-service'
 import { artifactsAvailability } from './factory-artifacts'
 import { spaceOfResource } from './space-access'
+import { ensureL4PlacementNode } from './l4-compute'
+import { isCloudHosted } from '../../shared/server-runtime'
 
 /**
  * One flow from a Project to a repository Agents can work on: pick a Git connection and a
@@ -36,6 +38,9 @@ export async function requireConnectAuthority(env: L4Env, auth: AuthorizationCon
 
 type ComputeChoice = { id: string; name: string; provider: string | null }
 export async function enabledCompute(env: L4Env): Promise<ComputeChoice[]> {
+  // A hosted Server's computer is L4 Compute, linked by itself: its placement Node is made here if it is not yet, so
+  // a repository connected or created in L4 runs there without anyone adding a computer.
+  if (isCloudHosted(env)) await ensureL4PlacementNode(env)
   // An L4 Compute box's own Node is never a choice; its placement is.
   const rows = await env.DB.prepare('SELECT id,name,capabilities_json AS capabilitiesJson FROM compute_nodes WHERE enabled=1 AND placement_id IS NULL ORDER BY created_at').all<{ id: string; name: string; capabilitiesJson: string }>()
   return rows.results.map(row => ({ id: row.id, name: row.name, provider: (JSON.parse(row.capabilitiesJson) as { provider?: string }).provider ?? null }))

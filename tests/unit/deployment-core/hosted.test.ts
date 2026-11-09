@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deleteHostedL4, hostedResourceNames, hostedWorkerBindings, installHostedL4, parseHostedInstallRequest } from '../../../packages/deployment-core/src/hosted'
+import { deleteHostedL4, hostedResourceNames, hostedWorkerBindings, installHostedL4, parseHostedInstallRequest, updateHostedL4 } from '../../../packages/deployment-core/src/hosted'
 import { scriptApiPath } from '../../../packages/deployment-core/src/deploy'
 
 const ACCOUNT = 'a'.repeat(32)
@@ -60,6 +60,8 @@ function fakeNetwork(release: Awaited<ReturnType<typeof fakeRelease>>, options: 
     if (path === `/accounts/${ACCOUNT}/workers/assets/upload?base64=true`) return ok({ jwt: 'completion-jwt' })
     if (path.endsWith(`/scripts/srv-${SERVER}/settings`)) return options.scriptExists ? ok({ bindings: [] }) : missing()
     if (path.endsWith(`/scripts/srv-${SERVER}`) && method === 'PUT') return ok({ id: `srv-${SERVER}` })
+    if (path.endsWith(`/scripts/srv-${SERVER}`) && method === 'GET') return ok({ dispatch_namespace: 'llll-cloud', script: options.scriptExists === false ? null : { id: `srv-${SERVER}`, migration_tag: 'v1' } })
+    if (path === `/accounts/${ACCOUNT}/d1/database/d1-uuid/time_travel/bookmark` && method === 'GET') return ok({ bookmark: '00000085-0000024c-00004c6d-8e61117bf38d7adb71b934ebbf891683' })
     if (path.endsWith(`/scripts/srv-${SERVER}?force=true`) && method === 'DELETE') return ok(null)
     if (path === `/accounts/${ACCOUNT}/d1/database/d1-uuid` && method === 'DELETE') return options.d1Missing ? missing() : ok(null)
     if (path === `/accounts/${ACCOUNT}/storage/kv/namespaces/kv-id` && method === 'DELETE') return ok(null)
@@ -186,6 +188,38 @@ describe('a Server on L4 Cloud', () => {
     calls.length = 0
     await installHostedL4('token', request, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, verify: false })
     expect(calls.some(call => call.url.endsWith('/query') && String((call.body as { sql: string }).sql).includes('seed_json'))).toBe(false)
+  })
+
+  it('is updated in place to another release: a D1 point first, only new migrations, the same secrets, no seed', async () => {
+    const release = await fakeRelease()
+    const { fetcher, calls } = fakeNetwork(release, { scriptExists: true })
+    vi.stubGlobal('fetch', fetcher)
+    const kept: string[] = []
+    const resources = { databaseId: 'd1-uuid', filesBucket: `llll-srv-${SERVER}-files`, backupBucket: `llll-srv-${SERVER}-backups`, kvId: 'kv-id' }
+    const result = await updateHostedL4('token', { ...request, targetVersion: '0.0.9' }, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, resources, authSecret: 'a'.repeat(48), cloudSecret: 'c'.repeat(32), onBookmark: bookmark => { kept.push(bookmark) } })
+    expect(result).toEqual({ version: '0.0.9', bookmark: '00000085-0000024c-00004c6d-8e61117bf38d7adb71b934ebbf891683', appliedMigrations: ['0000_baseline'], verified: true })
+    expect(kept).toEqual([result.bookmark])
+    // The point is taken before any migration runs.
+    const order = calls.map(call => call.url)
+    expect(order.findIndex(url => url.endsWith('/time_travel/bookmark'))).toBeLessThan(order.findIndex(url => url.endsWith('/query')))
+    const upload = calls.find(call => call.method === 'PUT' && call.url.endsWith(`/scripts/srv-${SERVER}`))!
+    const metadata = JSON.parse((upload.body as { metadata: string }).metadata)
+    // The script already holds v1, the release's latest tag: no Durable Object migration runs again.
+    expect(metadata).not.toHaveProperty('migrations')
+    expect(metadata.annotations['workers/tag']).toBe('llll-0.0.9')
+    expect(metadata.bindings.find((binding: { name: string }) => binding.name === 'CLOUD_SECRET').text).toBe('c'.repeat(32))
+    expect(metadata.bindings.find((binding: { name: string }) => binding.name === 'FACTORY_CODE')).toEqual({ type: 'artifacts', name: 'FACTORY_CODE', namespace: `llll-srv-${SERVER}-code` })
+    // Nothing is seeded and no storage is made: the Server exists.
+    expect(calls.some(call => call.method === 'POST' && /\/(d1\/database|r2\/buckets|storage\/kv\/namespaces)$/u.test(call.url))).toBe(false)
+    expect(calls.some(call => JSON.stringify(call.body ?? '').includes('server_setup'))).toBe(false)
+  })
+
+  it('is not updated when its script is gone, as a sleeping one', async () => {
+    const release = await fakeRelease()
+    const { fetcher } = fakeNetwork(release, { scriptExists: false })
+    vi.stubGlobal('fetch', fetcher)
+    const resources = { databaseId: 'd1-uuid', filesBucket: 'f', backupBucket: 'b', kvId: 'kv-id' }
+    await expect(updateHostedL4('token', { ...request, targetVersion: '0.0.9' }, { manifestUrl: `${RELEASES}/manifest.json`, fetch: fetcher, resources, authSecret: 'a'.repeat(48), cloudSecret: 'c'.repeat(32) })).rejects.toMatchObject({ statusCode: 409 })
   })
 
   it('is deleted with its script, database, files, KV and repositories, and never its backups', async () => {
