@@ -1,3 +1,4 @@
+import { PRIVATE_RUN_SUMMARY } from '../../server/utils/agent-tool-security'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
@@ -160,7 +161,13 @@ describe('the partner’s game doors', () => {
     const first = row<{ environment_json: string | null; prompt: string }>('SELECT environment_json,prompt FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
     expect(first.environment_json).toBeNull()
     expect(first.prompt).toMatch(/^This turn is a conversation only/u)
-    sqlite.prepare("UPDATE agent_runs SET status='completed' WHERE task_id=?").run(made.body.task.taskId)
+    // The Run posts only a notice in the discussion; the creator who asked reads the Agent's answer in its place.
+    const run = row<{ id: string; agent_id: string; channel_id: string }>('SELECT id,agent_id,channel_id FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
+    sqlite.prepare("UPDATE agent_runs SET status='completed',result_text='Who plays: alone or with friends?' WHERE id=?").run(run.id)
+    sqlite.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('m-notice',?,?,?,?)")
+      .run(run.channel_id, run.agent_id, `Run completed. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})`, new Date().toISOString())
+    const read = await post('tasks/get', { identity: owner, taskId: made.body.task.taskId })
+    expect((read.body as { task: { messages: Array<{ author: string; text: string }> } }).task.messages.at(-1)).toMatchObject({ author: 'agent', text: 'Who plays: alone or with friends?' })
     // The creator says go: this turn has the repository, so the Agent works on its box.
     await post('tasks/message', { identity: owner, requestId: 'req-build', taskId: made.body.task.taskId, text: 'Build it.', build: true })
     await settle()

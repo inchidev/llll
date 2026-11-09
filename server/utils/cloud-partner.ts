@@ -290,15 +290,27 @@ async function branchCommits(env: L4Env, branch: NonNullable<Awaited<ReturnType<
 }
 
 type PartnerMessage = { id: string; author: 'agent' | 'member' | 'system'; name: string | null; text: string; createdAt: string }
-async function discussionMessages(env: L4Env, channelId: string | null, limit: number): Promise<PartnerMessage[]> {
+/** The Run a Task's private-result notice points to, by the link the notice carries. */
+const PRIVATE_NOTICE = /Private result available to the initiating Member\.\s*\[Open private Run\]\(\/runs\/([0-9a-f-]{36})\)/u
+async function discussionMessages(env: L4Env, channelId: string | null, limit: number, reader: string | null = null): Promise<PartnerMessage[]> {
   if (!channelId || limit <= 0) return []
   const rows = (await env.DB.prepare(`SELECT m.id,m.content,m.created_at AS createdAt,u.kind,u.display_name AS name FROM messages m JOIN users u ON u.id=m.author_id
     WHERE m.channel_id=? AND m.deleted_at IS NULL ORDER BY m.created_at DESC,m.id DESC LIMIT ?`).bind(channelId, limit).all<{ id: string; content: string; createdAt: string; kind: string; name: string }>()).results.reverse()
+  // A Task's Run posts only a notice: its answer is private to the Member who asked. The partner acts as one
+  // Member, so the Member who started that Run reads its answer in its place, as they would on the Run's page.
+  if (reader) {
+    for (const row of rows) {
+      const runId = row.kind === 'agent' ? PRIVATE_NOTICE.exec(row.content)?.[1] : undefined
+      if (!runId) continue
+      const run = await env.DB.prepare('SELECT result_text AS text FROM agent_runs WHERE id=? AND initiated_by=? AND result_text IS NOT NULL').bind(runId, reader).first<{ text: string }>()
+      if (run?.text) row.content = run.text
+    }
+  }
   const texts = await readableMentions(env, rows.map(row => row.content))
   return rows.map((row, index) => ({ id: row.id, author: row.kind === 'agent' ? 'agent' : 'member', name: row.name || null, text: (texts[index] ?? row.content).slice(0, 20_000), createdAt: row.createdAt }))
 }
 
-async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }) {
+async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }, reader: string | null = null) {
   const [lastRun, review, branch] = await Promise.all([
     env.DB.prepare('SELECT status FROM agent_runs WHERE task_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(task.id).first<{ status: string }>(),
     env.DB.prepare("SELECT 1 AS waiting FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id WHERE b.task_id=? AND a.status IN ('pending','pending_diff') LIMIT 1").bind(task.id).first(),
@@ -307,7 +319,7 @@ async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }) {
   const state = partnerTaskState({ status: task.status, factoryState: task.factoryState, lastError: task.lastError, lastRun: lastRun?.status ?? null, reviewPending: Boolean(review) })
   // Why it failed, when the Task itself records it: the partner sees it as the Server's word in the discussion.
   const reason: PartnerMessage | null = state === 'failed' && task.lastError ? { id: `failed-${task.id}`, author: 'system', name: null, text: task.lastError.slice(0, 20_000), createdAt: task.updatedAt } : null
-  const messages = await discussionMessages(env, task.discussionChannelId, reason ? 499 : 500)
+  const messages = await discussionMessages(env, task.discussionChannelId, reason ? 499 : 500, reader)
   return {
     taskId: task.id, projectId: task.projectId, title: task.title.slice(0, 200), state, branch: branch?.name ?? null,
     messages: reason ? [...messages, reason] : messages,
@@ -401,7 +413,7 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
     ...(repository?.environmentId ? { environmentId: repository.environmentId } : {}), labelIds: [], dependencyIds: [] }, schedule)
   const channelId = await ensureTaskDiscussion(env, auth, taskId)
   const task = { id: taskId, boardId }
-  const answer = await taskAnswer(env, (await env.DB.prepare(`SELECT ${taskColumns} FROM tasks WHERE id=?`).bind(taskId).first<TaskRow & { projectId: string }>())!)
+  const answer = await taskAnswer(env, (await env.DB.prepare(`SELECT ${taskColumns} FROM tasks WHERE id=?`).bind(taskId).first<TaskRow & { projectId: string }>())!, auth.principal.id)
   schedule((async () => {
     try {
       for (const attachment of input.attachments) await attachFromLink(env, auth, task, spaceId, attachment)
@@ -488,7 +500,7 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
     case 'tasks/get': {
       const input = taskGetBody.parse(body)
       const { auth } = await actingMember(env, input.identity)
-      return { ok: true, task: await taskAnswer(env, await readableTask(env, auth, input.taskId)) }
+      return { ok: true, task: await taskAnswer(env, await readableTask(env, auth, input.taskId), auth.principal.id) }
     }
     case 'tasks/message': {
       const input = taskMessageBody.parse(body)
