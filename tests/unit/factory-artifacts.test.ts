@@ -154,6 +154,15 @@ describe('a repository created from a Project', () => {
     await expect(createProjectRepository(f.env, owner, 'proj3', { name: '../x' })).rejects.toMatchObject({ statusCode: 400 })
   })
 
+  it('runs on L4 Compute on a hosted Server, with no computer to add', async () => {
+    f.env.LLLL_RUNTIME = 'cloud'
+    f.db.prepare('UPDATE compute_nodes SET enabled=0 WHERE id=?').run(nodeId)
+    const result = await createProjectRepository(f.env, await f.actor(), 'proj', {})
+    const placement = f.db.prepare("SELECT id FROM compute_nodes WHERE placement_id IS NULL AND json_extract(capabilities_json,'$.provider')='l4-compute'").get() as { id: string }
+    expect(placement?.id).toBeTruthy()
+    expect(result.environment).toMatchObject({ provider: 'artifacts', computeNodeId: placement.id })
+  })
+
   it('needs the same authority as connecting a repository', async () => {
     await expect(createProjectRepository(f.env, await f.actor(ids.member), 'proj', {})).rejects.toMatchObject({ statusCode: 403 })
     expect(fake.binding.create).not.toHaveBeenCalled()

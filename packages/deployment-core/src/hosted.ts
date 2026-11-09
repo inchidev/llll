@@ -289,6 +289,84 @@ export async function installHostedL4(accessToken: string, value: unknown, optio
   }
 }
 
+export type HostedUpdateRequest = { accountId: string; namespace: string; serverId: string; hostname: string; targetVersion: string }
+export type HostedUpdateOptions = Pick<HostedInstallOptions, 'manifestUrl' | 'report' | 'verify' | 'fetch'> & {
+  resources: HostedResources
+  authSecret: string
+  cloudSecret: string
+  /** Called with the D1 point to come back to before anything changes, so that a caller keeps it even if a later step fails. */
+  onBookmark?: (bookmark: string) => void | Promise<void>
+}
+export type HostedUpdateResponse = { version: string; bookmark: string; appliedMigrations: string[]; verified: boolean }
+
+/** The D1 Time Travel point of this moment: the database as it is now, to restore if an update goes wrong. */
+export async function hostedDatabaseBookmark(accessToken: string, accountId: string, databaseId: string) {
+  const answer = await cloudflareApi<{ bookmark?: string }>(accessToken, `/accounts/${accountId}/d1/database/${databaseId}/time_travel/bookmark`)
+  if (!answer?.bookmark) throw createError({ statusCode: 502, statusMessage: 'Cloudflare did not return a D1 bookmark' })
+  return answer.bookmark
+}
+
+/** Puts the database back as it was at `bookmark`. */
+export async function restoreHostedDatabase(accessToken: string, accountId: string, databaseId: string, bookmark: string) {
+  await cloudflareApi(accessToken, `/accounts/${accountId}/d1/database/${databaseId}/time_travel/restore?bookmark=${encodeURIComponent(bookmark)}`, { method: 'POST' })
+}
+
+/**
+ * Moves a hosted Server to another published release in place: its UUID, secrets, storage, Durable Objects and data
+ * stay. The database's D1 Time Travel point comes first, so the update can be undone; then only the release's new
+ * migrations, the Client's files, the Worker with the Durable Object migrations past the script's own tag, and the
+ * Server must answer the new version at its hostname. Nothing is seeded: the Server and its Owner exist already.
+ */
+export async function updateHostedL4(accessToken: string, request: HostedUpdateRequest, options: HostedUpdateOptions): Promise<HostedUpdateResponse> {
+  if (!accessToken.trim()) throw createError({ statusCode: 401, statusMessage: 'Cloudflare API token is missing' })
+  const parsed = parseHostedInstallRequest({ ...request, name: 'L4' })
+  const progress = async (step: DeployProgressStep, state: 'active' | 'complete', detail?: string) => { await options.report?.({ type: 'progress', step, state, detail }) }
+  const origin = `https://${parsed.hostname}`
+  await progress('release', 'active')
+  const release = await loadL4Release(options.manifestUrl || releaseManifestUrl(parsed.targetVersion), options.fetch)
+  if (release.manifest.version !== request.targetVersion.replace(/^v/u, '')) throw createError({ statusCode: 502, statusMessage: 'L4 release manifest version does not match the requested version' })
+  await progress('release', 'complete', `L4 ${release.manifest.version}`)
+
+  const path = scriptApiPath(parsed.accountId, hostedScriptName(parsed.serverId), { namespace: parsed.namespace })
+  const script = await cloudflareApi<{ script?: { migration_tag?: string } | null }>(accessToken, path)
+  if (!script?.script) throw createError({ statusCode: 409, statusMessage: 'The Server has no script to update. Wake it first.' })
+
+  await progress('database', 'active')
+  const bookmark = await hostedDatabaseBookmark(accessToken, parsed.accountId, options.resources.databaseId)
+  await options.onBookmark?.(bookmark)
+  const appliedMigrations = await applyD1Migrations(accessToken, parsed.accountId, options.resources.databaseId, release.assets)
+  await progress('database', 'complete', appliedMigrations.length ? `${appliedMigrations.length} applied` : 'Up to date')
+
+  await progress('assets', 'active')
+  const assetsJwt = await uploadAssets(accessToken, parsed.accountId, hostedScriptName(parsed.serverId), release.assets, { namespace: parsed.namespace })
+  await progress('assets', 'complete')
+
+  await progress('worker', 'active')
+  const migrations = durableObjectMigrations(release.manifest, { exists: true, migrationTag: script.script.migration_tag })
+  const metadata: Record<string, unknown> = {
+    main_module: 'llll-worker.mjs',
+    compatibility_date: release.manifest.compatibilityDate,
+    compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
+    bindings: hostedWorkerBindings(release.manifest, options.resources, origin, { authSecret: options.authSecret, cloudSecret: options.cloudSecret }, parsed.serverId),
+    assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
+    tags: [serverTag, cloudTag],
+    annotations: { 'workers/message': `L4 ${release.manifest.version} via L4 Cloud (update)`, 'workers/tag': `llll-${release.manifest.version}` },
+    ...(migrations ? { migrations } : {}),
+  }
+  const form = new FormData()
+  form.append('metadata', JSON.stringify(metadata))
+  form.append('llll-worker.mjs', new Blob([release.worker], { type: 'application/javascript+module' }), 'llll-worker.mjs')
+  await cloudflareApi<unknown>(accessToken, path, { method: 'PUT', body: form })
+  await progress('worker', 'complete', `L4 ${release.manifest.version}`)
+
+  if (options.verify !== false) {
+    await progress('verify', 'active')
+    await verifyDeployment(origin, release.manifest.version, false, options.report, options.fetch ? { fetch: options.fetch } : {})
+    await progress('verify', 'complete', 'Server health verified')
+  }
+  return { version: release.manifest.version, bookmark, appliedMigrations, verified: options.verify !== false }
+}
+
 export type HostedDeleteRequest = {
   accountId: string
   namespace: string
