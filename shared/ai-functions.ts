@@ -6,7 +6,7 @@ export const aiFunctions = [
   { id: 'thread.title', label: 'Thread titles', description: 'Name new threads from their root message. Existing titles stay unchanged.', maxOutputTokens: 120 },
   { id: 'image.describe', label: 'Image descriptions', description: 'Describe attached images for agents whose model cannot see them.', maxOutputTokens: 600, requires: 'image-input' },
   { id: 'audio.transcribe', label: 'Voice transcription', description: 'Turn voice messages into text for agents.', maxOutputTokens: 2000, requires: 'audio-input' },
-  { id: 'image.generate', label: 'Images', description: 'Draw pictures agents ask for while they work, such as the art of a game. Needs an OpenRouter model that outputs images, such as Nano Banana. Without one, agents use the Avatars model, or else Nano Banana on the Server's OpenRouter connection.', maxOutputTokens: 2000, requires: 'image-output' },
+  { id: 'image.generate', label: 'Images', description: 'Draw pictures agents ask for while they work, such as the art of a game. Needs an OpenRouter model that outputs images, such as Nano Banana. Without one, agents use the Avatars model, or else Nano Banana on the Server’s OpenRouter connection.', maxOutputTokens: 2000, requires: 'image-output' },
   { id: 'avatar.generate', label: 'Avatars', description: 'Draw profile pictures for agents and members. Needs an OpenRouter model that outputs images, such as Nano Banana.', maxOutputTokens: 2000, requires: 'image-output' },
   { id: 'apps.assist', label: 'Help with Apps', description: 'Compose a draft from the requesting Member’s available Database Views.', maxOutputTokens: 2000 },
 ] as const
