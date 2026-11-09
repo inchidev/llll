@@ -150,3 +150,13 @@ test('a request sent with a half-close, as control.mjs sends it, still gets its 
     }
   } finally { server.close(); await rm(root, { recursive: true, force: true }) }
 })
+
+test('a turn the box cannot take says which field, never its value', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'l4-box-refuse-'))
+  try {
+    const refused = await boxRuntime({ root }).turn({ runId: 'not-a-uuid', modelGateway: { token: 'secret-capability-value' } })
+    assert.equal(refused.accepted, false)
+    assert.match(refused.error, /^Not a turn this box takes \(\w+: \w+\)$/u)
+    assert.doesNotMatch(refused.error, /secret-capability-value/u)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

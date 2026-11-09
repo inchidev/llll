@@ -436,7 +436,8 @@ export class FactoryComputeDurableObject extends DurableObject<L4Env> {
     const answer = await this.control({ op: 'turn', submission }).catch(() => null)
     if (answer?.accepted !== true) {
       state.turn = undefined
-      await this.failTurn(runId, 'The Agent’s box refused this turn. Ask again.')
+      const error = answer && typeof answer === 'object' && 'error' in answer ? (answer as { error?: unknown }).error : undefined
+      await this.failTurn(runId, `The Agent’s box refused this turn${typeof error === 'string' && /^[\w .,:;()'’-]{1,200}$/u.test(error) ? ` (${error})` : ''}. Ask again.`)
     }
   }
 

@@ -12,6 +12,12 @@ const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy',
 /** Where the box finds its own authority: Node adds it to its roots, the rest read the bundle with the system roots. */
 const BOX_CA = ['--env', 'NODE_EXTRA_CA_CERTS=/run/l4-ca/ca.pem', ...['SSL_CERT_FILE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'].flatMap(key => ['--env', `${key}=/run/l4-ca/bundle.pem`])]
 
+/** Why a box refused a turn, in the box's own words when they are short and plain, for the conversation. */
+export function refusal(error) {
+  const reason = typeof error === 'string' && /^[\w .,:;()'’-]{1,200}$/u.test(error) ? ` (${error})` : ''
+  return `The Agent’s box refused this turn${reason}. Ask again.`
+}
+
 /** Another operation of a Run's gateway, next to its tools endpoint. */
 function gatewayUrl(submission, operation) {
   const url = new URL(submission.toolEndpoint)
@@ -244,7 +250,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
         if (submission?.runId !== runId) throw new Error('Turn mismatch')
         handed = true
         const answers = await control(box, { op: 'turn', submission }, { timeoutMs: (submission.timeoutMs ?? 300000) + 120000 })
-        if (answers[0]?.accepted !== true) await failTurn(box, runId, 'The Agent’s box refused this turn. Ask again.')
+        if (answers[0]?.accepted !== true) await failTurn(box, runId, refusal(answers[0]?.error))
       } catch (error) {
         // A turn the Run has not handed over yet is asked for again on a later sync.
         if (error?.status === 409 && !handed) { box.runId = null; if (box.state === 'running') box.state = 'idle'; return }

@@ -85,7 +85,12 @@ export function boxRuntime({ root = '/work', fetcher = fetch, batch = {} } = {})
     /** Starts a turn; `done` settles when the Run has its result. The same turn asked again joins it. */
     async turn(submission) {
       const parsed = runtimeInput.safeParse(submission)
-      if (!parsed.success || !parsed.data.box) return { accepted: false, error: 'Not a turn for a box' }
+      if (!parsed.success) {
+        // Which field, never its value: the daemon shows this to the person, and the submission holds a capability.
+        const issue = parsed.error.issues[0]
+        return { accepted: false, error: `Not a turn this box takes (${issue?.path.join('.') || 'input'}: ${issue?.code ?? 'invalid'})` }
+      }
+      if (!parsed.data.box) return { accepted: false, error: 'Not a turn for a box' }
       const input = parsed.data
       if (active) return active.runId === input.runId ? { accepted: true, done: active.done } : { accepted: false, error: 'The box is busy with another turn' }
       if (!await checkout()) return { accepted: false, error: 'The box has no checkout' }

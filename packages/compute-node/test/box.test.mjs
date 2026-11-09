@@ -382,3 +382,10 @@ test('a new egress revision reloads the proxy’s secrets by docker exec, then r
   assert.ok(!docker.calls.flat().some(value => value.includes('only-in-proxy-memory')))
   assert.ok(!JSON.stringify(h.egress.policies).includes('only-in-proxy-memory') && !JSON.stringify(h.egress.cas).includes('only-in-proxy-memory'))
 })
+
+test('a refused turn says why in the box’s own words only when they are short and plain', async () => {
+  const { refusal } = await import('../src/boxes.mjs')
+  assert.equal(refusal('Not a turn this box takes (tools: too_big)'), 'The Agent’s box refused this turn (Not a turn this box takes (tools: too_big)). Ask again.')
+  assert.equal(refusal('<script>alert(1)</script>'), 'The Agent’s box refused this turn. Ask again.')
+  assert.equal(refusal(undefined), 'The Agent’s box refused this turn. Ask again.')
+})
