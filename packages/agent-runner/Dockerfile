@@ -1,4 +1,4 @@
-FROM docker:29.9.2-cli AS docker
+FROM docker:29.9.3-cli AS docker
 FROM node:26.13.0-bookworm-slim
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /opt/runner
