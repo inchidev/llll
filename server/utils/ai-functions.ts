@@ -1,12 +1,13 @@
 import { streamText } from 'ai'
 import { aiFunctions, aiFunctionConfigSchema, drawingAiFunctions, modelMeetsRequirement, type AiFunctionId, type ImageAspectRatio, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
-import { parseAgentModelRef } from '../../shared/agent-providers'
+import { agentModelRef, parseAgentModelRef } from '../../shared/agent-providers'
 import { pausedAiFunctions } from '../../shared/features'
 import { readServerSetting } from '../../shared/server-settings'
 import { modelForRun } from '../../workers/ai-runtime'
 import type { L4Env } from '../../workers/env'
 import type { AuthorizationContext } from '../../shared/authorization'
-import { agentProviderCatalog, chatGPTUsableBy, loadAgentProvider, resolveSavedAgentModel } from './agent-providers'
+import { agentProviderCatalog, agentProviderScope, chatGPTUsableBy, loadAgentProvider, resolveSavedAgentModel } from './agent-providers'
+import { decryptSecret } from '../../shared/encrypted-secret'
 import { readLimitedStream } from '../../workers/inbound-email-signature'
 import { asRpc, fail } from './cf'
 import { auditStatement, writeAudit } from './messages'
@@ -192,18 +193,45 @@ const imageBrief = [
  * Draw one picture an agent asked for, with the Images function's OpenRouter model, or the Avatars model when
  * Images has none. The picture is paid for by the Server's own provider key, like the agent's model.
  */
+/** What draws when neither Images nor Avatars has a model: Nano Banana on the Server's OpenRouter connection. */
+export const DEFAULT_IMAGE_MODEL = 'google/gemini-2.5-flash-image'
+/** The first enabled OpenRouter connection with a key, by name, for the default image model. */
+async function openRouterConnection(env: L4Env): Promise<{ apiKey: string; connectionId: string } | null> {
+  if (!env.AUTH_SECRET) return null
+  const rows = await env.DB.prepare("SELECT key FROM server_settings WHERE key LIKE 'agents.provider.%' AND COALESCE(json_extract(value,'$.kind'),substr(key,17))='openrouter' AND json_extract(value,'$.enabled')=1 AND json_extract(value,'$.secret') IS NOT NULL ORDER BY key LIMIT 1").all<{ key: string }>()
+  const id = rows.results[0]?.key.slice('agents.provider.'.length)
+  const provider = id ? await loadAgentProvider(env, id) : null
+  if (!id || !provider?.secret) return null
+  return { apiKey: await decryptSecret(env.AUTH_SECRET, agentProviderScope(id), provider.secret), connectionId: id }
+}
+
+/**
+ * Draw one picture an agent asked for, with the Images function's OpenRouter model, or the Avatars model when
+ * Images has none, or else Nano Banana on the Server's OpenRouter connection. The picture is paid for by the
+ * Server's own provider key, like the agent's model.
+ */
 export async function generateImage(env: L4Env, authorization: AuthorizationContext, input: { prompt: string; aspectRatio?: ImageAspectRatio }, transport: typeof fetch = fetch): Promise<{ mediaType: string; bytes: Uint8Array }> {
-  const id = (await aiFunctionConfig(env, 'image.generate')).model ? 'image.generate' : 'avatar.generate'
+  const chosen = (await aiFunctionConfig(env, 'image.generate')).model ? 'image.generate' : (await aiFunctionConfig(env, 'avatar.generate')).model ? 'avatar.generate' : null
+  const id = chosen ?? 'image.generate'
+  let saved: { apiKey: string; model: string }
   let reference: string
-  try { reference = await resolveAiFunction(env, id, authorization.principal.id) }
-  catch { fail(409, 'ai_function_unconfigured', 'No image model is set. Ask the Owner to choose an OpenRouter model that outputs images for Images in Models → Defaults.') }
+  if (chosen) {
+    try { reference = await resolveAiFunction(env, chosen, authorization.principal.id) }
+    catch { fail(409, 'ai_function_unavailable', 'The image model is unavailable. Ask the Owner to choose an OpenRouter model that outputs images for Images in Models → Defaults.') }
+    const model = await resolveSavedAgentModel(env, reference, authorization.principal.id)
+    if (!model || model.id !== 'openrouter') fail(409, 'ai_function_unavailable', 'Images need an OpenRouter image model. Choose one in Models → Defaults.')
+    saved = { apiKey: model.apiKey, model: model.model.id }
+  } else {
+    const connection = await openRouterConnection(env)
+    if (!connection) fail(409, 'ai_function_unconfigured', 'No image model is set. Ask the Owner to connect OpenRouter, or to choose a model for Images in Models → Defaults.')
+    saved = { apiKey: connection.apiKey, model: DEFAULT_IMAGE_MODEL }
+    reference = agentModelRef(connection.connectionId, DEFAULT_IMAGE_MODEL)
+  }
   const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ai-image:${authorization.principal.id}`))
   if (!await limiter.take(30, 60_000)) fail(429, 'rate_limited', 'Too many pictures at once. Wait a minute and try again.')
-  const saved = await resolveSavedAgentModel(env, reference, authorization.principal.id)
-  if (!saved || saved.id !== 'openrouter') fail(409, 'ai_function_unavailable', 'Images need an OpenRouter image model. Choose one in Models → Defaults.')
   let status = 'failed'
   try {
-    const url = await drawWithOpenRouter(saved.apiKey, saved.model.id, `${imageBrief}\n\nRequest: ${input.prompt.slice(0, 4000)}`, [], { aspectRatio: input.aspectRatio }, transport)
+    const url = await drawWithOpenRouter(saved.apiKey, saved.model, `${imageBrief}\n\nRequest: ${input.prompt.slice(0, 4000)}`, [], { aspectRatio: input.aspectRatio }, transport)
     const [, mediaType, data] = /^data:(image\/[a-z]+);base64,(.*)$/u.exec(url)!
     const binary = atob(data!)
     if (binary.length > AGENT_IMAGE_MAX_BYTES) fail(502, 'ai_function_failed', 'The picture is too large. Ask for a smaller one.')
