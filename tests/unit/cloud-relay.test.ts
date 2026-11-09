@@ -261,6 +261,19 @@ describe('the partner and agent doors', () => {
     expect((await post('models/set', { provider: 'anthropic', key: 'x' })).status).toBe(400)
   })
 
+  it('starts the Agent on a strong model, not the newest small one OpenRouter lists first', async () => {
+    await post('claim-owner')
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [
+      { id: 'liquid/lfm-3-1.7b', name: 'LFM 3 1.7B', supported_parameters: ['tools'] },
+      { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', supported_parameters: ['tools'] },
+      { id: 'qwen/qwen3-coder', name: 'Qwen3 Coder', supported_parameters: ['tools'] },
+      { id: 'openai/gpt-5-nano', name: 'GPT-5 Nano', supported_parameters: ['tools'] },
+      { id: 'openai/gpt-5.2', name: 'GPT-5.2', supported_parameters: ['tools'] },
+    ] })))
+    expect((await post('models/set', { provider: 'openrouter', key: 'sk-or-partner-key' })).status).toBe(200)
+    expect(row<{ value: string }>("SELECT value FROM server_settings WHERE key='agents.defaultModel'")?.value).toBe('l4:openrouter:openai/gpt-5.2')
+  })
+
   it('puts the Server to sleep by releasing its boxes on L4 Compute', async () => {
     await post('claim-owner')
     expect(await post('sleep', {})).toEqual({ status: 200, body: { ok: true, released: 0 } })

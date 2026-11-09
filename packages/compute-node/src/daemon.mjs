@@ -78,7 +78,10 @@ async function upload(approvalId,body) {
 async function sourceBundle(job,signal) {
   // A Gitea source is fetched through the Server with a lease-bound capability; nothing is revoked at GitHub.
   const brokered=job.source&&typeof job.source.remote==='string'&&new URL(job.source.remote).origin===new URL(server).origin
-  if (!/^[\w.-]+\/[\w.-]+$/u.test(job.repository) || !/^[a-f0-9]{40}$/u.test(job.baseSha) || (!brokered && typeof job.sourceToken!=='string')) throw new Error('Invalid pinned source grant')
+  // A GitHub repository is owner/name; one fetched through the Server (Gitea, or a repository in L4 on Artifacts,
+  // which has no owner) only needs a safe name, since the Server's own address is what is fetched.
+  const repositoryShape=brokered?/^[\w.-]+(?:\/[\w.-]+)?$/u:/^[\w.-]+\/[\w.-]+$/u
+  if (!repositoryShape.test(job.repository) || !/^[a-f0-9]{40}$/u.test(job.baseSha) || (!brokered && typeof job.sourceToken!=='string')) throw new Error('Invalid pinned source grant')
   const name=`l4-fetch-${job.id}`
   let directory
   try {
