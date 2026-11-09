@@ -37,3 +37,12 @@ test('runtime admission takes the model limits the Server derived, and defaults 
   assert.deepEqual([parsed.contextWindow, parsed.maxOutputTokens, parsed.compaction], [200000, 32000, compaction])
   assert.equal(runtimeInput.safeParse({ ...base, modelGateway: { ...base.modelGateway, apiKey: 'provider-key' } }).success, false)
 })
+
+test('a box turn may carry the whole tool catalog, up to the runtime limit', async () => {
+  const { MAX_RUNTIME_TOOLS } = await import('../src/protocol.mjs')
+  const tool = index => ({ name: `tool_${index}`, description: 'A tool', parameters: { type: 'object' }, deferred: true })
+  const input = { runId: randomUUID(), sessionId: randomUUID(), prompt: 'Build it', instructions: '', computer: true, box: true,
+    modelGateway: { url: 'http://gateway/v1', token: 'fixture-token-32-characters-long', model: 'fixture' }, toolEndpoint: 'http://gateway/tools' }
+  assert.equal(runtimeInput.safeParse({ ...input, tools: Array.from({ length: 60 }, (_, index) => tool(index)) }).success, true)
+  assert.equal(runtimeInput.safeParse({ ...input, tools: Array.from({ length: MAX_RUNTIME_TOOLS + 1 }, (_, index) => tool(index)) }).success, false)
+})

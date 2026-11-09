@@ -23,7 +23,7 @@ import { boxEventsRequest, boxRun } from './factory-boxes'
 const modelRequest = z.object({
   messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant', 'tool']), content: z.unknown().optional(),
     tool_call_id: z.string().optional(), tool_calls: z.array(z.object({ id: z.string(), function: z.object({ name: z.string(), arguments: z.string() }) })).optional() })).max(2000),
-  tools: z.array(z.object({ function: z.object({ name: z.string().max(64), description: z.string().max(2000).optional(), parameters: z.record(z.string(), z.unknown()) }) })).max(40).optional(),
+  tools: z.array(z.object({ function: z.object({ name: z.string().max(64), description: z.string().max(2000).optional(), parameters: z.record(z.string(), z.unknown()) }) })).max(120).optional(),
   stream: z.boolean().optional(),
 })
 
