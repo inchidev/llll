@@ -12,7 +12,7 @@ import type { L4Env } from '../../workers/env'
 import { fail } from './cf'
 import { saveCodeEnvironment } from './code-environment-service'
 import type { PullReceipt } from './factory-github'
-import { advertisedRefs, blob, commit, objectId, pushRefs, tag, tree, ZERO_SHA, type GitIdentity, type GitObject } from './git-pack'
+import { advertisedRefs, blob, commit, objectId, pushRefs, tag, tree, ZERO_SHA, type GitIdentity, type GitObject, type TreeEntry } from './git-pack'
 import { writeAudit } from './messages'
 import { addProjectRepository, requireProject } from './project-service'
 import { enabledCompute, requireConnectAuthority } from './repository-connect'
@@ -139,7 +139,42 @@ const createSchema = z.object({ name: artifactsRepositoryName.optional(), comput
  * in the Server's namespace named after the Project, with a first commit on `main`, attached to the Project with
  * a repository environment like a connected one. The creation token is used for that first commit and revoked.
  */
-export async function createProjectRepository(env: L4Env, auth: AuthorizationContext, projectId: string, request: unknown) {
+/** Text files a repository may start with, such as a partner's starter kit: plain names, no hidden files. */
+export const starterFilesSchema = z.array(z.object({
+  path: z.string().min(1).max(300).refine(path => path.split('/').every(part => /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/u.test(part) && part !== '..'), 'Use plain relative paths without hidden names'),
+  text: z.string().max(1_000_000),
+}).strict()).max(200)
+  .refine(files => new Set(files.map(file => file.path)).size === files.length, 'Each path once')
+  .refine(files => files.reduce((sum, file) => sum + new TextEncoder().encode(file.text).byteLength, 0) <= 1_000_000, 'At most 1 MB in all')
+export type StarterFiles = z.infer<typeof starterFilesSchema>
+
+/** The tree of a first commit: the starter files in their folders, with every object it needs. */
+async function starterTree(files: StarterFiles) {
+  const objects: GitObject[] = []
+  type Folder = { files: Map<string, string>; folders: Map<string, Folder> }
+  const top: Folder = { files: new Map(), folders: new Map() }
+  for (const file of files) {
+    const parts = file.path.split('/')
+    let folder = top
+    for (const part of parts.slice(0, -1)) {
+      if (folder.files.has(part)) fail(400, 'bad_request', `${file.path} is under a file`)
+      folder = folder.folders.get(part) ?? folder.folders.set(part, { files: new Map(), folders: new Map() }).get(part)!
+    }
+    if (folder.folders.has(parts.at(-1)!)) fail(400, 'bad_request', `${file.path} is a folder`)
+    folder.files.set(parts.at(-1)!, file.text)
+  }
+  const write = async (folder: Folder): Promise<string> => {
+    const entries: TreeEntry[] = []
+    for (const [name, text] of folder.files) { const object = blob(text); objects.push(object); entries.push({ mode: '100644', name, id: await objectId(object) }) }
+    for (const [name, child] of folder.folders) entries.push({ mode: '040000', name, id: await write(child) })
+    const object = tree(entries)
+    objects.push(object)
+    return objectId(object)
+  }
+  return { root: await write(top), objects }
+}
+
+export async function createProjectRepository(env: L4Env, auth: AuthorizationContext, projectId: string, request: unknown, starter: StarterFiles = []) {
   await requireConnectAuthority(env, auth, projectId)
   const code = requireArtifacts(env)
   const project = await requireProject(env, auth, projectId, true)
@@ -147,6 +182,10 @@ export async function createProjectRepository(env: L4Env, auth: AuthorizationCon
   const compute = await enabledCompute(env)
   const computeNodeId = input.computeNodeId ?? (compute.length === 1 ? compute[0]!.id : null)
   if (computeNodeId && !compute.some(node => node.id === computeNodeId)) fail(400, 'compute_unavailable', 'Choose an enabled computer')
+  // The first commit is built before anything is made, so files that cannot form a tree leave nothing behind.
+  const readme = `# ${project.name}\n\n${project.description ? `${project.description}\n\n` : ''}This repository lives in L4. Each Task works on its own branch here, a person reviews and merges it from the Task, and versions are tags on main.\n`
+  const files = starter.some(file => file.path === 'README.md') ? starter : [{ path: 'README.md', text: readme }, ...starter]
+  const { root, objects } = await starterTree(files)
   // The Project's name, made unique in the namespace; an explicit name must be free.
   let created: Awaited<ReturnType<Artifacts['create']>> | undefined, name = input.name ?? projectRepositoryName(project.name)
   for (let suffix = 0; !created; suffix++) {
@@ -159,11 +198,9 @@ export async function createProjectRepository(env: L4Env, auth: AuthorizationCon
     }
   }
   const remote = created.remote, repositoryId = created.id
-  const readme = blob(`# ${project.name}\n\n${project.description ? `${project.description}\n\n` : ''}This repository lives in L4. Each Task works on its own branch here, a person reviews and merges it from the Task, and versions are tags on main.\n`)
-  const root = tree([{ mode: '100644', name: 'README.md', id: await objectId(readme) }])
-  const first = commit({ tree: await objectId(root), parents: [], author: await memberIdentity(env, auth.principal.id), committer: serverIdentity(env), message: `Create ${project.name}` })
+  const first = commit({ tree: root, parents: [], author: await memberIdentity(env, auth.principal.id), committer: serverIdentity(env), message: `Create ${project.name}` })
   try {
-    const pushed = await pushRefs(remote, created.token, [{ old: ZERO_SHA, new: await objectId(first), ref: 'refs/heads/main' }], [readme, root, first])
+    const pushed = await pushRefs(remote, created.token, [{ old: ZERO_SHA, new: await objectId(first), ref: 'refs/heads/main' }], [...objects, first])
     if (!pushed.ok) throw new Error(pushed.reason)
   } catch (error) {
     await code.delete(name).catch(() => undefined)

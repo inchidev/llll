@@ -1,10 +1,31 @@
 import { proposalFiles } from './files.mjs'
+import { gatewayUrl } from './gateway.mjs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
 
 /** Pi's own tools for a box: shell, files and edits in the repository checkout, at local speed. */
 export const NATIVE_TOOLS = Object.freeze(['read', 'write', 'edit', 'bash'])
+
+/** What the model sees of generate_image: the Server draws, the box saves the picture where the model names. */
+const IMAGE_PARAMETERS = { type: 'object', additionalProperties: false, required: ['prompt', 'path'], properties: {
+  prompt: { type: 'string', minLength: 1, maxLength: 4000, description: 'Subject, style, framing and background of the picture.' },
+  path: { type: 'string', minLength: 1, maxLength: 300, description: 'Where to save it in the checkout, such as assets/hero.png.' },
+  aspectRatio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+} }
+
+/** A picture the Server drew for this Run, fetched once and written inside the checkout. */
+export async function saveGeneratedImage(input, cwd, path, image, fetcher = fetch) {
+  const target = resolve(cwd, path)
+  const inside = relative(cwd, target)
+  if (!inside || inside.startsWith('..') || inside.split(sep).includes('.git') || target === cwd) throw new Error('Save pictures inside the checkout, outside .git')
+  const response = await fetcher(gatewayUrl(input, `images/${image.id}`), { headers: { Authorization: `Bearer ${input.modelGateway.token}` }, redirect: 'error', signal: AbortSignal.timeout(60000) })
+  if (!response.ok) throw new Error(`The picture could not be fetched (${response.status})`)
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  await mkdir(dirname(target), { recursive: true })
+  await writeFile(target, bytes)
+  return { path: inside.split(sep).join('/'), mediaType: image.mediaType, bytes: bytes.byteLength }
+}
 
 /**
  * A runtime instance serves one authorized execution identity, never an entire Server. Pi's native tools
@@ -45,9 +66,15 @@ export async function openPi(input, { directory, cwd: checkout, emit, callTool, 
   const customTools = input.tools.filter(tool => !NATIVE_TOOLS.includes(tool.name)).map(tool => ({
     executionMode: 'sequential',
     ...(tool.deferred ? { exposure: 'deferred' } : {}),
-    name: tool.name, label: tool.name, description: tool.description, parameters: tool.name === 'publish_code_changes' ? { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' } }, required: ['title', 'body'], additionalProperties: false } : tool.parameters,
+    name: tool.name, label: tool.name, description: tool.description, parameters: tool.name === 'publish_code_changes' ? { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' } }, required: ['title', 'body'], additionalProperties: false } : tool.name === 'generate_image' ? IMAGE_PARAMETERS : tool.parameters,
     execute: async (id, args, toolSignal) => {
       if (tool.name === 'publish_code_changes') args = { ...args, files: await proposalFiles(cwd) }
+      if (tool.name === 'generate_image') {
+        const { path, ...request } = args ?? {}
+        if (!native || typeof path !== 'string') throw new Error('Pictures are saved only in a box checkout')
+        const drawn = await callTool({ callId: id, name: tool.name, arguments: request }, toolSignal)
+        return { content: [{ type: 'text', text: JSON.stringify(drawn?.image ? await saveGeneratedImage(input, cwd, path, drawn.image) : drawn) }], details: {} }
+      }
       let value = await callTool({ callId: id, name: tool.name, arguments: args }, toolSignal)
       if (tool.name === 'get_tool_details' && input.tools.some(candidate => candidate.deferred && candidate.name === value?.tool?.name)) {
         session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), value.tool.name])])

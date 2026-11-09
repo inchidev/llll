@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openPi } from '../src/pi.mjs'
+import { openPi, saveGeneratedImage } from '../src/pi.mjs'
 
 for (const external of [false, true]) test(`real container Pi loads ${external ? 'connection-qualified external MCP' : 'local'} tools only after Server selection`, async () => {
   const selectedName = external ? 'mcp_00000000000040008000000000000001_12345678_search_docs' : 'list_tasks'
@@ -188,4 +188,20 @@ test('steering sent during a box turn reaches the model before its next call', a
     assert.ok(!JSON.stringify(model.requests[0].messages).includes('Also update the changelog'))
     assert.ok(JSON.stringify(model.requests[1].messages).includes('Also update the changelog'))
   } finally { await model.close(); await rm(directory, { recursive: true, force: true }) }
+})
+
+test('a picture the Server drew is fetched once and saved inside the checkout, never outside it', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pi-image-'))
+  try {
+    const input = { toolEndpoint: 'https://server.test/api/agent-runs/00000000-0000-4000-8000-000000000000/gateway/tools', modelGateway: { token: 'capability' } }
+    const asked = []
+    const fetcher = async (url, init) => { asked.push([url, init.headers.Authorization]); return new Response(new Uint8Array([1, 2, 3])) }
+    const saved = await saveGeneratedImage(input, cwd, 'assets/hero.png', { id: 'picture-0001', mediaType: 'image/png' }, fetcher)
+    assert.deepEqual(saved, { path: 'assets/hero.png', mediaType: 'image/png', bytes: 3 })
+    assert.deepEqual([...await readFile(join(cwd, 'assets/hero.png'))], [1, 2, 3])
+    assert.deepEqual(asked, [['https://server.test/api/agent-runs/00000000-0000-4000-8000-000000000000/gateway/images/picture-0001', 'Bearer capability']])
+    for (const path of ['../escape.png', '/etc/passwd', '.git/hooks/pre-commit', '.']) {
+      await assert.rejects(saveGeneratedImage(input, cwd, path, { id: 'picture-0001', mediaType: 'image/png' }, fetcher), /inside the checkout/)
+    }
+  } finally { await rm(cwd, { recursive: true, force: true }) }
 })

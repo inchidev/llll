@@ -290,6 +290,25 @@ describe('the partner and agent doors', () => {
     expect(stored.models[0]!.id).toBe('anthropic/claude-sonnet-5.5')
   })
 
+  it('sets an OpenRouter image model for the agent’s art once, kept among the stored models however far down it is', async () => {
+    await post('claim-owner')
+    const filler = Array.from({ length: 250 }, (_, index) => ({ id: `vendor/model-${index}`, name: `Model ${index}`, supported_parameters: ['tools'] }))
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [
+      ...filler,
+      { id: 'openai/gpt-5-image-mini', name: 'GPT-5 Image Mini', architecture: { input_modalities: ['text', 'image'], output_modalities: ['image', 'text'] } },
+      { id: 'google/gemini-2.5-flash-image', name: 'Nano Banana', architecture: { input_modalities: ['text', 'image'], output_modalities: ['image', 'text'] } },
+      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', supported_parameters: ['tools'] },
+    ] })))
+    expect((await post('models/set', { provider: 'openrouter', key: 'sk-or-partner-key' })).status).toBe(200)
+    expect(JSON.parse(row<{ value: string }>("SELECT value FROM server_settings WHERE key='ai.function.image.generate'")!.value)).toEqual({ model: 'l4:openrouter:google/gemini-2.5-flash-image' })
+    const stored = JSON.parse(row<{ value: string }>("SELECT value FROM server_settings WHERE key='agents.provider.openrouter'")!.value) as { models: { id: string }[] }
+    expect(stored.models.slice(0, 2).map(model => model.id)).toEqual(['anthropic/claude-sonnet-5.5', 'google/gemini-2.5-flash-image'])
+    // A choice the Owner made stays.
+    sqlite.prepare(`UPDATE server_settings SET value='{"model":"l4:openrouter:openai/gpt-5-image-mini"}' WHERE key='ai.function.image.generate'`).run()
+    expect((await post('models/set', { provider: 'openrouter', key: 'sk-or-partner-key' })).status).toBe(200)
+    expect(row<{ value: string }>("SELECT value FROM server_settings WHERE key='ai.function.image.generate'")!.value).toContain('gpt-5-image-mini')
+  })
+
   it('puts the Server to sleep by releasing its boxes on L4 Compute', async () => {
     await post('claim-owner')
     expect(await post('sleep', {})).toEqual({ status: 200, body: { ok: true, released: 0 } })
