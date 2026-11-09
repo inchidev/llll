@@ -26,6 +26,19 @@ function parseCommit(hash: string, body: string): FakeCommit {
   const author = who(line('author')[0]), committer = who(line('committer')[0])
   return { hash, treeHash: line('tree')[0] ?? '', parents: line('parent'), message: rest.join('\n\n').replace(/\n$/u, ''), author: { name: author.name, email: author.email }, committer: { name: committer.name, email: committer.email }, authoredAt: author.at, committedAt: committer.at }
 }
+/** A Git tree's entries, as the binding's readTree gives them. */
+function parseTree(body: Buffer) {
+  const entries: Array<{ name: string; mode: string; hash: string; type: 'tree' | 'blob' | 'symlink' | 'gitlink' | 'exec' }> = []
+  for (let at = 0; at < body.length;) {
+    const space = body.indexOf(0x20, at), nul = body.indexOf(0, space)
+    const mode = body.subarray(at, space).toString()
+    entries.push({ name: body.subarray(space + 1, nul).toString(), mode, hash: body.subarray(nul + 1, nul + 21).toString('hex'),
+      type: mode === '40000' ? 'tree' : mode === '160000' ? 'gitlink' : mode === '120000' ? 'symlink' : mode === '100755' ? 'exec' : 'blob' })
+    at = nul + 21
+  }
+  return entries
+}
+
 /** The whole objects of a pack, inflated one after another. */
 async function unpack(bytes: Buffer) {
   const count = bytes.readUInt32BE(8), objects: Array<{ type: string; id: string; body: Buffer }> = []
@@ -80,7 +93,22 @@ export function fakeArtifacts(account = 'acc', namespace = 'l4') {
           return chain
         },
         readCommit: async (hash: string) => target.commits.get(hash) ?? null,
-        readTree: async () => null, readBlob: async () => null, readFile: async () => null,
+        // Trees and blobs come from what was pushed: the README the Server commits, or a test's own objects.
+        readTree: async (hash: string) => { const found = target.objects.get(hash); return found?.type === 'tree' ? parseTree(found.body) : null },
+        readBlob: async (hash: string) => { const found = target.objects.get(hash); return found?.type === 'blob' ? new Blob([found.body]) : null },
+        readFile: async ({ ref, path }: { ref: string; path: string }) => {
+          const hash = target.refs.get(ref) ?? target.refs.get(`refs/heads/${ref}`) ?? target.refs.get(`refs/tags/${ref}`) ?? (target.commits.has(ref) ? ref : undefined)
+          let tree = hash ? target.commits.get(hash)?.treeHash : undefined
+          const parts = path.split('/').filter(Boolean)
+          for (const [index, part] of parts.entries()) {
+            const entries = tree ? (target.objects.get(tree)?.type === 'tree' ? parseTree(target.objects.get(tree)!.body) : []) : []
+            const entry = entries.find(item => item.name === part)
+            if (!entry) return null
+            if (index === parts.length - 1) { const blob = target.objects.get(entry.hash); return blob?.type === 'blob' ? new Blob([blob.body]) : null }
+            tree = entry.hash
+          }
+          return null
+        },
         fork: async () => { throw error('INTERNAL_ERROR') },
         [Symbol.dispose]: vi.fn(),
       }

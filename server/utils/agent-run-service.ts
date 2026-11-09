@@ -118,7 +118,8 @@ export async function runAuthorization(env: L4Env, run: Pick<AgentRun, 'id' | 'a
   return auth
 }
 
-export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate): Promise<AgentRun> {
+/** `withoutEnvironment`: a turn on a Task that talks only, with no repository and no box, as a partner's first conversation about an idea is. */
+export async function createAgentRun(env: L4Env, actor: AuthorizationContext, request: RunRequest, ceiling?: RunMandate, options: { withoutEnvironment?: boolean } = {}): Promise<AgentRun> {
   const { agentExecutionPolicy } = await import('./agent-execution-policy')
   const executionPolicy = await agentExecutionPolicy(env)
   const parsed = runRequestSchema.parse(request)
@@ -195,7 +196,7 @@ export async function createAgentRun(env: L4Env, actor: AuthorizationContext, re
     projectId = task.projectId ?? null
     if (ceiling?.projectId !== undefined && ceiling.projectId !== projectId) fail(403, 'project_mandate', 'Child work must remain in the original project')
     if (environmentId && task.environmentId && environmentId !== task.environmentId) fail(403, 'code_denied', 'Use the task’s configured environment')
-    environmentId ??= task.environmentId ?? null
+    environmentId = options.withoutEnvironment ? null : environmentId ?? task.environmentId ?? null
   }
   const catalog = external ? null : await agentProviderCatalog(env, { actorId: actor.principal.id })
   const selected = catalog ? await agentConversationModel(env, input.channelId) : null

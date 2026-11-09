@@ -152,6 +152,33 @@ describe('the partner’s game doors', () => {
     expect((await createProject()).status).toBe(200)
   })
 
+  it('talks an idea through without a box first, and builds on the creator’s word', async () => {
+    const { body: { project } } = await createProject()
+    const made = await createTask(project.projectId, { build: false, attachments: [] })
+    expect(made.status).toBe(200)
+    await settle()
+    const first = row<{ environment_json: string | null; prompt: string }>('SELECT environment_json,prompt FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
+    expect(first.environment_json).toBeNull()
+    expect(first.prompt).toMatch(/^This turn is a conversation only/u)
+    sqlite.prepare("UPDATE agent_runs SET status='completed' WHERE task_id=?").run(made.body.task.taskId)
+    // The creator says go: this turn has the repository, so the Agent works on its box.
+    await post('tasks/message', { identity: owner, requestId: 'req-build', taskId: made.body.task.taskId, text: 'Build it.', build: true })
+    await settle()
+    const second = row<{ environment_json: string | null; prompt: string }>("SELECT environment_json,prompt FROM agent_runs WHERE task_id=? AND prompt='Build it.'", made.body.task.taskId)!
+    expect(JSON.parse(second.environment_json!)).toMatchObject({ provider: 'artifacts' })
+  })
+
+  it('lists the game’s files and reads one, from its repository in L4', async () => {
+    const { body: { project } } = await createProject()
+    const root = await post('projects/files', { identity: owner, projectId: project.projectId })
+    expect(root).toMatchObject({ status: 200, body: { ok: true, files: { ref: 'main', path: '', entries: [{ name: 'README.md', type: 'file' }] } } })
+    const readme = await post('projects/file', { identity: owner, projectId: project.projectId, path: 'README.md' })
+    expect(readme).toMatchObject({ status: 200, body: { ok: true, file: { ref: 'main', path: 'README.md', text: expect.stringContaining('# Paper Planes') } } })
+    expect((await post('projects/file', { identity: owner, projectId: project.projectId, path: 'missing.txt' })).status).toBe(404)
+    expect((await post('projects/files', { identity: owner, projectId: project.projectId, path: '../etc' })).status).toBe(400)
+    expect((await post('projects/files', { identity: owner, projectId: 'missing' })).status).toBe(404)
+  })
+
   it('gives the partner’s Agent a Task on the Project’s board with its repository, answers at once, then attaches its files and starts the Agent', async () => {
     const { body: { project } } = await createProject()
     const made = await createTask(project.projectId)
