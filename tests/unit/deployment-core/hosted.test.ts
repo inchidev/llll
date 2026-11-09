@@ -64,12 +64,17 @@ function fakeNetwork(release: Awaited<ReturnType<typeof fakeRelease>>, options: 
     if (path === `/accounts/${ACCOUNT}/d1/database/d1-uuid` && method === 'DELETE') return options.d1Missing ? missing() : ok(null)
     if (path === `/accounts/${ACCOUNT}/storage/kv/namespaces/kv-id` && method === 'DELETE') return ok(null)
     if (path === `/accounts/${ACCOUNT}/r2/buckets/llll-srv-${SERVER}-files` && method === 'DELETE') return ok(null)
+    const code = `/accounts/${ACCOUNT}/artifacts/namespaces/llll-srv-${SERVER}-code`
+    if (path === `${code}/repos?per_page=100` && method === 'GET') return ok(codeRepositories.splice(0))
+    if (path.startsWith(`${code}/repos/`) && method === 'DELETE') return ok(null)
+    if (path === code && method === 'DELETE') return ok(null)
     return Response.json({ success: false, errors: [{ message: `unexpected ${method} ${url}` }] }, { status: 500 })
   })
   return { fetcher, calls }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+const codeRepositories: Array<{ name: string }> = []
+afterEach(() => { vi.unstubAllGlobals(); codeRepositories.length = 0 })
 
 const request = { accountId: ACCOUNT, namespace: 'llll-cloud', serverId: SERVER, name: 'Acme', hostname: 'acme.llll.gg' }
 
@@ -78,16 +83,17 @@ describe('a Server on L4 Cloud', () => {
     expect(scriptApiPath(ACCOUNT, 'srv-1', { namespace: 'llll-cloud' })).toBe(`/accounts/${ACCOUNT}/workers/dispatch/namespaces/llll-cloud/scripts/srv-1`)
     expect(scriptApiPath(ACCOUNT, 'llll-1')).toBe(`/accounts/${ACCOUNT}/workers/scripts/llll-1`)
     expect(() => scriptApiPath(ACCOUNT, 'x', { namespace: 'Bad Name' })).toThrow()
-    expect(hostedResourceNames(SERVER)).toEqual({ database: `llll-srv-${SERVER}-db`, files: `llll-srv-${SERVER}-files`, backups: `llll-srv-${SERVER}-backups`, tickets: `llll-srv-${SERVER}-tickets` })
+    expect(hostedResourceNames(SERVER)).toEqual({ database: `llll-srv-${SERVER}-db`, files: `llll-srv-${SERVER}-files`, backups: `llll-srv-${SERVER}-backups`, tickets: `llll-srv-${SERVER}-tickets`, code: `llll-srv-${SERVER}-code` })
     expect(() => parseHostedInstallRequest({ ...request, hostname: 'not a host' })).toThrow()
     expect(() => parseHostedInstallRequest({ ...request, serverId: 'nope' })).toThrow()
     expect(parseHostedInstallRequest({ ...request, targetVersion: 'v0.0.9' })).toMatchObject({ targetVersion: 'v0.0.9' })
   })
 
-  it('binds its own storage and no account, no AI and no browser, and runs as cloud', () => {
-    const bindings = hostedWorkerBindings({ durableObjects: [{ binding: 'SERVER_DO', className: 'ServerDurableObject', migration: 'v1' }] }, { databaseId: 'd1', filesBucket: 'files', backupBucket: 'backups', kvId: 'kv' }, 'https://acme.llll.gg', { authSecret: 'auth', cloudSecret: 'cloud' })
+  it('binds its own storage, its own Artifacts namespace, no account, no AI and no browser, and runs as cloud', () => {
+    const bindings = hostedWorkerBindings({ durableObjects: [{ binding: 'SERVER_DO', className: 'ServerDurableObject', migration: 'v1' }] }, { databaseId: 'd1', filesBucket: 'files', backupBucket: 'backups', kvId: 'kv' }, 'https://acme.llll.gg', { authSecret: 'auth', cloudSecret: 'cloud' }, SERVER)
     const names = bindings.map(binding => binding.name)
-    expect(names).toEqual(['DB', 'TICKETS', 'FILES', 'BACKUPS', 'ASSETS', 'PUBLIC_ORIGIN', 'AUTH_MODE', 'LLLL_RUNTIME', 'AUTH_SECRET', 'CLOUD_SECRET', 'SERVER_DO'])
+    expect(bindings[0]).toEqual({ type: 'artifacts', name: 'FACTORY_CODE', namespace: `llll-srv-${SERVER}-code` })
+    expect(names).toEqual(['FACTORY_CODE', 'DB', 'TICKETS', 'FILES', 'BACKUPS', 'ASSETS', 'PUBLIC_ORIGIN', 'AUTH_MODE', 'LLLL_RUNTIME', 'AUTH_SECRET', 'CLOUD_SECRET', 'SERVER_DO'])
     expect(bindings.find(binding => binding.name === 'LLLL_RUNTIME')).toEqual({ type: 'plain_text', name: 'LLLL_RUNTIME', text: 'cloud' })
     expect(bindings.filter(binding => binding.type === 'secret_text').map(binding => binding.name)).toEqual(['AUTH_SECRET', 'CLOUD_SECRET'])
     expect(names).not.toContain('ACCOUNT_ID')
@@ -182,18 +188,22 @@ describe('a Server on L4 Cloud', () => {
     expect(calls.some(call => call.url.endsWith('/query') && String((call.body as { sql: string }).sql).includes('seed_json'))).toBe(false)
   })
 
-  it('is deleted with its script, database, files and KV, and never its backups', async () => {
+  it('is deleted with its script, database, files, KV and repositories, and never its backups', async () => {
+    codeRepositories.push({ name: 'paper-planes' }, { name: 'kite' })
     const release = await fakeRelease()
     const { fetcher, calls } = fakeNetwork(release, { d1Missing: true })
     vi.stubGlobal('fetch', fetcher)
     const result = await deleteHostedL4('token', { ...request, cloudSecret: 'c'.repeat(32), resources: { databaseId: 'd1-uuid', filesBucket: `llll-srv-${SERVER}-files`, backupBucket: `llll-srv-${SERVER}-backups`, kvId: 'kv-id' } }, fetcher)
-    expect(result).toEqual({ purgedFiles: true, removed: ['script', 'kv', 'files'] })
+    expect(result).toEqual({ purgedFiles: true, removed: ['script', 'kv', 'files', 'code'] })
     expect(calls[0]).toMatchObject({ method: 'POST', url: 'https://acme.llll.gg/.llll/cloud/purge-files' })
     expect(calls.filter(call => call.method === 'DELETE').map(call => call.url.slice(API.length))).toEqual([
       `/accounts/${ACCOUNT}/workers/dispatch/namespaces/llll-cloud/scripts/srv-${SERVER}?force=true`,
       `/accounts/${ACCOUNT}/d1/database/d1-uuid`,
       `/accounts/${ACCOUNT}/storage/kv/namespaces/kv-id`,
       `/accounts/${ACCOUNT}/r2/buckets/llll-srv-${SERVER}-files`,
+      `/accounts/${ACCOUNT}/artifacts/namespaces/llll-srv-${SERVER}-code/repos/paper-planes`,
+      `/accounts/${ACCOUNT}/artifacts/namespaces/llll-srv-${SERVER}-code/repos/kite`,
+      `/accounts/${ACCOUNT}/artifacts/namespaces/llll-srv-${SERVER}-code`,
     ])
     expect(calls.some(call => call.url.includes('-backups'))).toBe(false)
   })

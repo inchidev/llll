@@ -107,20 +107,24 @@ export const hostedScriptName = (serverId: string) => `srv-${serverId}`
 /** The resources of one hosted Server, named after its UUID so that they are found again and never shared. */
 export function hostedResourceNames(serverId: string) {
   const prefix = `llll-srv-${serverId}`
-  return { database: `${prefix}-db`, files: `${prefix}-files`, backups: `${prefix}-backups`, tickets: `${prefix}-tickets` }
+  return { database: `${prefix}-db`, files: `${prefix}-files`, backups: `${prefix}-backups`, tickets: `${prefix}-tickets`, code: `${prefix}-code` }
 }
 
 /**
  * The bindings of a hosted Server. No `ACCOUNT_ID`, so the Server never manages infrastructure; no `AI` or `BROWSER`,
  * which the platform would pay for (ADR 0008); `LLLL_RUNTIME=cloud` for what the Server turns off itself.
+ * `FACTORY_CODE` is the Server's own Artifacts namespace, where each Project keeps its repository (ADR 0013); the
+ * namespace comes into being with its first repository, so nothing is provisioned for it here.
  */
 export function hostedWorkerBindings(
   manifest: Pick<InstallerReleaseManifest, 'durableObjects'>,
   resources: HostedResources,
   origin: string,
   secrets: { authSecret: string; cloudSecret: string },
+  serverId: string,
 ): Array<Record<string, unknown>> {
   return [
+    { type: 'artifacts', name: 'FACTORY_CODE', namespace: hostedResourceNames(serverId).code },
     { type: 'd1', name: 'DB', database_id: resources.databaseId },
     { type: 'kv_namespace', name: 'TICKETS', namespace_id: resources.kvId },
     { type: 'r2_bucket', name: 'FILES', bucket_name: resources.filesBucket },
@@ -205,7 +209,7 @@ async function uploadHostedWorker(
     main_module: 'llll-worker.mjs',
     compatibility_date: release.manifest.compatibilityDate,
     compatibility_flags: [...new Set([...release.manifest.compatibilityFlags, 'global_fetch_strictly_public'])],
-    bindings: hostedWorkerBindings(release.manifest, resources, origin, secrets),
+    bindings: hostedWorkerBindings(release.manifest, resources, origin, secrets, request.serverId),
     assets: { jwt: assetsJwt, config: { html_handling: 'none' } },
     tags: [serverTag, cloudTag],
     annotations: {
@@ -295,7 +299,7 @@ export type HostedDeleteRequest = {
   resources: Partial<HostedResources>
 }
 
-export type HostedDeleteResponse = { purgedFiles: boolean; removed: Array<'script' | 'database' | 'files' | 'kv'> }
+export type HostedDeleteResponse = { purgedFiles: boolean; removed: Array<'script' | 'database' | 'files' | 'kv' | 'code'> }
 
 const ignoringNotFound = async (work: Promise<unknown>) => {
   try { await work; return true } catch (error) { if (notFound(error)) return false; throw error }
@@ -305,6 +309,24 @@ const ignoringNotFound = async (work: Promise<unknown>) => {
  * Removes a hosted Server: its script, database, files bucket and KV. The backup bucket stays, always (AGENTS.md):
  * a deleted Server's last backups are what its Owner can still ask for.
  */
+/**
+ * Deletes a hosted Server's Artifacts namespace, its Project repositories first: only an empty namespace can go.
+ * Repositories are deleted in the background by Artifacts, so a namespace that is not empty yet stays, empty and
+ * costing nothing, rather than failing the Server's deletion.
+ */
+async function deleteCodeNamespace(accessToken: string, accountId: string, serverId: string) {
+  const base = `/accounts/${accountId}/artifacts/namespaces/${hostedResourceNames(serverId).code}`
+  for (let round = 0; round < 50; round += 1) {
+    let repositories: Array<{ name: string }>
+    try { repositories = await cloudflareApi<Array<{ name: string }>>(accessToken, `${base}/repos?per_page=100`) }
+    catch (error) { if (notFound(error)) return false; throw error }
+    if (!repositories?.length) break
+    for (const repository of repositories) await ignoringNotFound(cloudflareApi(accessToken, `${base}/repos/${encodeURIComponent(repository.name)}`, { method: 'DELETE' }))
+  }
+  try { return await ignoringNotFound(cloudflareApi(accessToken, base, { method: 'DELETE' })) }
+  catch (error) { if (conflict(error)) return false; throw error }
+}
+
 export async function deleteHostedL4(accessToken: string, request: HostedDeleteRequest, fetcher: typeof fetch = fetch): Promise<HostedDeleteResponse> {
   const removed: HostedDeleteResponse['removed'] = []
   let purgedFiles = false
@@ -321,5 +343,6 @@ export async function deleteHostedL4(accessToken: string, request: HostedDeleteR
   if (request.resources.databaseId && await ignoringNotFound(cloudflareApi(accessToken, `/accounts/${request.accountId}/d1/database/${request.resources.databaseId}`, { method: 'DELETE' }))) removed.push('database')
   if (request.resources.kvId && await ignoringNotFound(cloudflareApi(accessToken, `/accounts/${request.accountId}/storage/kv/namespaces/${request.resources.kvId}`, { method: 'DELETE' }))) removed.push('kv')
   if (request.resources.filesBucket && await ignoringNotFound(cloudflareApi(accessToken, `/accounts/${request.accountId}/r2/buckets/${request.resources.filesBucket}`, { method: 'DELETE' }))) removed.push('files')
+  if (await deleteCodeNamespace(accessToken, request.accountId, request.serverId)) removed.push('code')
   return { purgedFiles, removed }
 }

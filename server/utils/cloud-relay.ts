@@ -12,6 +12,7 @@ import { generatedUsername } from './account-identity'
 import { discoverAgentModels } from './agent-provider-models'
 import { saveAgentProvider } from './agent-providers'
 import { provisionServerWithEnv } from './bootstrap'
+import { partnerAction } from './cloud-partner'
 import { applyCloudSeed, readCloudSeed, storePartnerConfig, upsertSeedAgent } from './cloud-seed'
 import { getDb, serverReady } from './db'
 import { releaseL4Boxes } from './l4-compute'
@@ -23,7 +24,8 @@ import { mintSignInLink } from './signin-link'
  * What L4 Cloud asks of a hosted Server, under `/.llll/cloud/`, with the Server's own `CLOUD_SECRET` as a bearer
  * token: run the scheduled work (user Workers may get no Cron Trigger of their own), empty the files bucket before
  * the control plane deletes it, and the partner and agent doors of ADR 0012: claim the Owner, keep a partner's
- * Members, sign one in, keep its Agent, secrets and models, and put the Server to sleep. Only a Server with
+ * Members, sign one in, keep its Agent, secrets and models, and put the Server to sleep; and the partner's game
+ * doors (`projects/*`, `tasks/*` in `cloud-partner.ts`), which act as the Member an identity names. Only a Server with
  * `LLLL_RUNTIME=cloud` and a secret answers; everything else is 404, so that the paths say nothing on any other
  * Server. Every action is idempotent and answers `{ ok: true, … }` or `{ error }` with a 4xx.
  */
@@ -143,7 +145,9 @@ async function sleep(env: L4Env) {
   return { ok: true as const, released: released.length }
 }
 
-async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L4Env) => Promise<void>): Promise<Record<string, unknown> | null> {
+type Schedule = (promise: Promise<unknown>) => void
+
+async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L4Env) => Promise<void>, schedule: Schedule): Promise<Record<string, unknown> | null> {
   const origin = env.PUBLIC_ORIGIN?.replace(/\/+$/u, '') || ''
   switch (action) {
     case 'scheduled': await scheduled(env); return { ok: true }
@@ -183,6 +187,9 @@ async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L
     }
     case 'models/set': return setModels(env, modelsBody.parse(body))
     case 'sleep': return sleep(env)
+    case 'projects/create': case 'projects/get': case 'tasks/create': case 'tasks/get': case 'tasks/message':
+      await requireOwner(env)
+      return partnerAction(env, action, body, schedule)
     default: return null
   }
 }
@@ -196,7 +203,12 @@ function refusal(error: unknown): { status: number; message: string } | null {
   return null
 }
 
-export async function cloudRelay(request: Request, env: L4Env, pathname: string, scheduled: (env: L4Env) => Promise<void>): Promise<Response | null> {
+/**
+ * `schedule` keeps work going after the answer (the Worker's `waitUntil`): L4 Cloud's partner waits only seconds,
+ * so a Task's files and its Agent's start come after the Task is answered.
+ */
+export async function cloudRelay(request: Request, env: L4Env, pathname: string, scheduled: (env: L4Env) => Promise<void>,
+  schedule: Schedule = promise => { void promise.catch(error => console.error('cloud-relay.background_failed', { error: error instanceof Error ? error.message : String(error) })) }): Promise<Response | null> {
   if (!pathname.startsWith(CLOUD_RELAY_PREFIX)) return null
   if (request.method !== 'POST' || !(await authorized(request, env))) return new Response('Not found', { status: 404 })
   const action = pathname.slice(CLOUD_RELAY_PREFIX.length)
@@ -206,7 +218,7 @@ export async function cloudRelay(request: Request, env: L4Env, pathname: string,
     try { body = JSON.parse(text) } catch { return Response.json({ error: 'Invalid request: body is not JSON' }, { status: 400 }) }
   }
   try {
-    const answer = await act(env, action, body, scheduled)
+    const answer = await act(env, action, body, scheduled, schedule)
     return answer ? Response.json(answer) : new Response('Not found', { status: 404 })
   }
   catch (error) {

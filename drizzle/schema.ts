@@ -405,6 +405,21 @@ export const serverSetup = sqliteTable('server_setup', {
 }, table => [check('server_setup_singleton_check', sql`${table.singleton} = 1`)])
 
 /**
+ * What the L4 Cloud relay answered to a partner's request, by action and the partner's request ID, so that a
+ * request sent again within a day answers the same without acting twice. `answer_json` is null while the first
+ * is still at work. Rows older than a day go with the scheduled work.
+ */
+export const cloudRelayRequests = sqliteTable('cloud_relay_requests', {
+  action: text('action').notNull(),
+  requestId: text('request_id').notNull(),
+  answerJson: text('answer_json'),
+  createdAt: text('created_at').notNull(),
+}, table => [
+  primaryKey({ columns: [table.action, table.requestId] }),
+  index('cloud_relay_requests_created_idx').on(table.createdAt),
+])
+
+/**
  * The explicit link between a Member and an identity outside this Server, such as a partner's account
  * (ADR 0012). It is how a partner names a Member through L4 Cloud. Email is never a key.
  */

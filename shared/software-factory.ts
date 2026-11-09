@@ -109,11 +109,11 @@ export const factoryStateLabel = (state: string) => FACTORY_STATES[state] ?? sta
 /**
  * A repository inside L4 (ADR 0013): one Artifacts repository per Project in the Server's own namespace, the one
  * `FACTORY_CODE` is bound to. It exists only where that binding does: a Server in the operator's own Cloudflare
- * account with Compute enabled. Hosted Servers get it later through the control plane.
+ * account with Compute enabled, and a hosted Server, whose installer binds a namespace of its own.
  */
 export const ARTIFACTS_UNAVAILABLE = {
   celld: 'Repositories in L4 need a Server in your own Cloudflare account with Compute enabled. On a VPS, connect GitHub or Gitea instead.',
-  cloud: 'Repositories in L4 are coming to hosted Servers. Connect GitHub or Gitea for now.',
+  cloud: 'This Server was installed before it had storage for repositories. It gets it with its next update; connect GitHub or Gitea for now.',
   compute: 'Enable Compute in Cloudflare first (Server settings → Compute → Server compute setup): it provisions the storage that holds Project repositories.',
 } as const
 /** Checkpoint repositories of boxes (`l4<server><box>`) and activation probes share the namespace; a Project never takes their names. */
