@@ -57,9 +57,17 @@ const taskCreateBody = z.object({
   links: z.array(z.string().url().max(2000)).max(20).default([]),
   attachments: z.array(z.object({ url: z.string().url().max(4000), name: z.string().trim().min(1).max(200), contentType: z.string().max(200), size: z.number().int().min(0).max(PARTNER_ATTACHMENT_BYTES) }).strict()).max(10).default([]),
   agent: z.object({ name: z.string().trim().min(1).max(80) }).strict().nullish(),
+  /** False: the Agent talks the idea through first, with no box and no Compute spent; a later message with `build` starts the work. */
+  build: z.boolean().default(true),
 }).strict()
 const taskGetBody = z.object({ identity: memberIdentitySchema, taskId: id }).strict()
-const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000) }).strict()
+const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true) }).strict()
+const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
+const projectFileBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().trim().min(1).max(1000) }).strict()
+/** What a chat-only turn is told, so the Agent talks instead of trying to work without its computer. */
+const TALK_ONLY = 'This turn is a conversation only: you have no computer and no repository in it. Talk the idea through with the creator, ask what you need, and say when you are ready to build; the creator starts the build.'
+/** The most of one file a partner reads, and of one folder it lists. */
+const FILE_BYTES = 512 * 1024, FOLDER_ENTRIES = 1000
 /** A chat message's own limit; a longer partner message goes into the discussion in parts and reaches the Agent whole. */
 const CHAT_CHARS = 2000
 
@@ -118,6 +126,52 @@ const status = (error: unknown) => (error as { statusCode?: number } | null)?.st
 function refusalText(error: unknown, fallback: string) {
   const typed = error as { statusMessage?: string; data?: { error?: { message?: string } }; message?: string } | null
   return (typed?.data?.error?.message || typed?.statusMessage || (error instanceof Error ? error.message : '') || fallback).slice(0, 2000)
+}
+
+/** The game's repository in L4 and the ref to read: a branch, a tag or a commit, by default its base branch. */
+async function gameRepository(env: L4Env, auth: AuthorizationContext, projectId: string, ref?: string) {
+  await readableProject(env, auth, projectId)
+  const repository = await projectArtifactsRepository(env, projectId)
+  if (!repository) fail(404, 'not_found', 'This Project has no repository in L4')
+  return { name: repository!.name, ref: ref ?? repository!.baseBranch }
+}
+
+/** One folder of the game's repository at a ref: folders first, then files, by name. An empty repository lists nothing. */
+async function projectFiles(env: L4Env, auth: AuthorizationContext, input: z.infer<typeof projectFilesBody>) {
+  const { name, ref } = await gameRepository(env, auth, input.projectId, input.ref)
+  const path = input.path.split('/').filter(Boolean)
+  if (path.some(part => part === '.' || part === '..')) fail(400, 'bad_request', 'Name a folder inside the repository')
+  return withRepository(env, name, async repo => {
+    const [head] = await repo.log({ ref, limit: 1 })
+    if (!head) return { ref, sha: null, path: path.join('/'), entries: [] }
+    let tree = head.treeHash
+    for (const part of path) {
+      const found = (await repo.readTree(tree))?.find(entry => entry.name === part && entry.type === 'tree')
+      if (!found) fail(404, 'not_found', 'No such folder')
+      tree = found!.hash
+    }
+    const entries = ((await repo.readTree(tree)) ?? []).filter(entry => entry.type !== 'gitlink')
+      .map(entry => ({ name: entry.name, type: entry.type === 'tree' ? 'folder' as const : 'file' as const }))
+      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1))
+    return { ref, sha: head.hash, path: path.join('/'), entries: entries.slice(0, FOLDER_ENTRIES), truncated: entries.length > FOLDER_ENTRIES }
+  })
+}
+
+/** One file of the game's repository at a ref: its text when it is text and not too large, else only its size. */
+async function projectFile(env: L4Env, auth: AuthorizationContext, input: z.infer<typeof projectFileBody>) {
+  const { name, ref } = await gameRepository(env, auth, input.projectId, input.ref)
+  const path = input.path.split('/').filter(Boolean)
+  if (!path.length || path.some(part => part === '.' || part === '..')) fail(400, 'bad_request', 'Name a file inside the repository')
+  return withRepository(env, name, async repo => {
+    const blob = await repo.readFile({ ref, path: path.join('/') })
+    if (!blob) fail(404, 'not_found', 'No such file')
+    const size = blob!.size
+    if (size > FILE_BYTES) return { ref, path: path.join('/'), size, text: null }
+    const bytes = new Uint8Array(await blob!.arrayBuffer())
+    let text: string | null = null
+    try { text = bytes.includes(0) ? null : new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { text = null }
+    return { ref, path: path.join('/'), size, text }
+  })
 }
 
 /** A Project the Member may read, or 404: one they may not read is as missing as one that does not exist. */
@@ -346,7 +400,7 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
   schedule((async () => {
     try {
       for (const attachment of input.attachments) await attachFromLink(env, auth, task, spaceId, attachment)
-      await createAgentRun(env, auth, { agentId: agentId!, taskId, channelId, prompt: `${title}\n\n${description}`, idempotencyKey: `cloud-relay:tasks/create:${input.requestId}` })
+      await createAgentRun(env, auth, { agentId: agentId!, taskId, channelId, prompt: `${input.build ? '' : `${TALK_ONLY}\n\n`}${title}\n\n${description}`, idempotencyKey: `cloud-relay:tasks/create:${input.requestId}` }, undefined, { withoutEnvironment: !input.build })
     }
     catch (error) {
       console.warn('cloud-partner.task_start_failed', { taskId, code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' })
@@ -372,11 +426,11 @@ async function messageGameTask(env: L4Env, auth: AuthorizationContext, input: z.
   const agent = task.assigneeId
     ? await env.DB.prepare("SELECT u.id FROM users u JOIN agents a ON a.user_id=u.id WHERE u.id=? AND u.kind='agent' AND u.status='active' AND a.status='active'").bind(task.assigneeId).first<{ id: string }>()
     : null
-  if (agent) schedule(wakeTaskAgent(env, auth, { task, agentId: agent.id, channelId, messageId: message!.id, text: input.text }))
+  if (agent) schedule(wakeTaskAgent(env, auth, { task, agentId: agent.id, channelId, messageId: message!.id, text: input.text, build: input.build }))
   return { id: message!.id, author: 'member' as const, name: member.user.displayName || null, text: input.text.slice(0, 20_000), createdAt: message!.createdAt }
 }
 
-async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { task: TaskRow; agentId: string; channelId: string; messageId: string; text: string }) {
+async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { task: TaskRow; agentId: string; channelId: string; messageId: string; text: string; build: boolean }) {
   try {
     if (env.AGENT_RUN_DO) {
       const active = await env.DB.prepare("SELECT id FROM agent_runs WHERE task_id=? AND agent_id=? AND initiated_by=? AND status='running' ORDER BY created_at DESC LIMIT 1")
@@ -386,7 +440,7 @@ async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { ta
         if (await run.steer(input.messageId, input.text, auth.principal.id)) return
       }
     }
-    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.text, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` })
+    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? input.text : `${TALK_ONLY}\n\n${input.text}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
     if (run.status !== 'failed' && input.task.status === 'failed') {
       await env.DB.prepare("UPDATE tasks SET status='ready',last_error=NULL,position=?,updated_at=? WHERE id=? AND status='failed'").bind(await firstTaskPosition(env, input.task.boardId, 'ready'), nowIso(), input.task.id).run()
       await signalTasksChanged(env, input.task.boardId, input.task.id).catch(() => undefined)
@@ -405,6 +459,16 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
       const input = projectCreateBody.parse(body)
       const { auth } = await actingMember(env, input.identity)
       return once(env, action, input.identity, input.requestId, async () => ({ ok: true, project: await createGameProject(env, auth, input.title) }))
+    }
+    case 'projects/files': {
+      const input = projectFilesBody.parse(body)
+      const { auth } = await actingMember(env, input.identity)
+      return { ok: true, files: await projectFiles(env, auth, input) }
+    }
+    case 'projects/file': {
+      const input = projectFileBody.parse(body)
+      const { auth } = await actingMember(env, input.identity)
+      return { ok: true, file: await projectFile(env, auth, input) }
     }
     case 'projects/get': {
       const input = projectGetBody.parse(body)
