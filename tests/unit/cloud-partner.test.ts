@@ -204,6 +204,31 @@ describe('the partner’s game doors', () => {
     }
   })
 
+  it('gives a game Project the partner’s secret, bound to its host and open in the Project’s network, and tells the box', async () => {
+    expect((await post('secrets/set', { secrets: { AFTERPROMPT_TOKEN: { value: 'apk_partner_publish_key', hosts: ['afterprompt.games'] } }, env: { AFTERPROMPT_URL: 'https://afterprompt.games' } })).status).toBe(200)
+    const made = await post('projects/create', { identity: owner, requestId: 'req-partner-access', title: 'Arena' })
+    const projectId = (made.body as { project: { projectId: string } }).project.projectId
+    const secret = row<{ name: string; placeholder: string; hosts_json: string; secret_ciphertext: string }>('SELECT name,placeholder,hosts_json,secret_ciphertext FROM project_secrets WHERE project_id=?', projectId)!
+    expect(secret).toMatchObject({ name: 'AFTERPROMPT_TOKEN', placeholder: 'L4_SECRET_AFTERPROMPT_TOKEN', hosts_json: '["afterprompt.games"]' })
+    expect(secret.secret_ciphertext).not.toContain('apk_partner_publish_key')
+    const network = JSON.parse(row<{ factory_json: string }>('SELECT factory_json FROM projects WHERE id=?', projectId)!.factory_json).network
+    expect(network.hosts).toEqual(['afterprompt.games'])
+    // The box's brief names the placeholder, the repository and the partner's settings, never the value.
+    const { boxRunBrief } = await import('../../server/utils/box-egress')
+    const brief = await boxRunBrief(e, { mandateJson: JSON.stringify({ projectId }), environmentJson: JSON.stringify({ remote: 'https://artifacts.example/arena.git' }) })
+    expect(brief).toContain('AFTERPROMPT_TOKEN=L4_SECRET_AFTERPROMPT_TOKEN (put in for afterprompt.games)')
+    expect(brief).toContain('https://artifacts.example/arena.git')
+    expect(brief).toContain('AFTERPROMPT_URL=https://afterprompt.games')
+    expect(brief).not.toContain('apk_partner_publish_key')
+    // A new key from the partner reaches the Project at its next build; the placeholder stays.
+    expect((await post('secrets/set', { secrets: { AFTERPROMPT_TOKEN: { value: 'apk_new_key', hosts: ['afterprompt.games'] } }, env: {} })).status).toBe(200)
+    const { applyPartnerConfig } = await import('../../server/utils/cloud-seed')
+    const before = row<{ secret_ciphertext: string }>('SELECT secret_ciphertext FROM project_secrets WHERE project_id=?', projectId)!.secret_ciphertext
+    await applyPartnerConfig(e, projectId, row<{ id: string }>('SELECT owner_id AS id FROM server')!.id)
+    expect(row<{ n: number }>('SELECT count(*) AS n FROM project_secrets WHERE project_id=?', projectId)!.n).toBe(1)
+    expect(row<{ secret_ciphertext: string }>('SELECT secret_ciphertext FROM project_secrets WHERE project_id=?', projectId)!.secret_ciphertext).not.toBe(before)
+  })
+
   it('gives the partner’s Agent a Task on the Project’s board with its repository, answers at once, then attaches its files and starts the Agent', async () => {
     const { body: { project } } = await createProject()
     const made = await createTask(project.projectId)
