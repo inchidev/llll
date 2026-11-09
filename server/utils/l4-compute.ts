@@ -255,6 +255,31 @@ export async function unconfirmedL4Boxes(env: L4Env, nodeId: string) {
   return rows.results.map(row => row.id)
 }
 
+/** How long a box's own Node on L4 Compute may stay silent before the box counts as lost. A Node syncs every few seconds. */
+export const L4_BOX_LOST_MS = 3 * 60_000
+/**
+ * A box on L4 Compute whose own Node is gone (its sandbox ended or was removed, or the Node is disabled) cannot take
+ * another turn: its disk went with its sandbox. Its llll.gg box is let go, its Node revoked, and the box goes back to
+ * the placement as new (no lease, no head), keeping what it published, so the turn asks llll.gg for a box again and
+ * starts from the pinned source. A box not yet paired, or whose Node is alive, is left alone. Returns whether it reset.
+ */
+export async function resetLostL4Box(env: L4Env, boxId: string, placementNodeId: string, now = Date.now()) {
+  const row = await env.DB.prepare(`SELECT b.cloud_box_id AS cloudBoxId,n.id AS nodeId,n.enabled,n.last_seen AS lastSeen,n.placement_id AS placementId
+    FROM factory_boxes b JOIN compute_nodes n ON n.id=b.node_id WHERE b.id=?`).bind(boxId).first<{ cloudBoxId: string | null; nodeId: string; enabled: number; lastSeen: string | null; placementId: string | null }>()
+  if (!row?.cloudBoxId || row.placementId !== placementNodeId) return false
+  if (row.enabled && row.lastSeen && Date.parse(row.lastSeen) >= now - L4_BOX_LOST_MS) return false
+  const credential = await l4ComputeCredential(env)
+  if (credential) await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}`, { method: 'DELETE' }).catch(() => undefined)
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,
+      head_sha=NULL,checkpoint_sha=NULL,updated_at=? WHERE id=?`).bind(placementNodeId, nowIso(), boxId),
+    env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE id=?').bind(await factoryHash(secret()), row.nodeId),
+    env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(boxId),
+  ])
+  console.warn('l4-compute.box_lost', { boxId })
+  return true
+}
+
 /**
  * Releases boxes of this Server on L4 Compute: llll.gg stops and bills each one, the box is released here and
  * its Node revoked. Boxes on other Nodes are left alone, so the caller may pass any box ids.

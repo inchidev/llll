@@ -3,7 +3,7 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-exec
 import { runtimeEventSchema } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { computeCapabilities, isCloudflareNode, isL4ComputeNode, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
-import { confirmL4Boxes, releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box, unconfirmedL4Boxes } from './l4-compute'
+import { confirmL4Boxes, releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box, resetLostL4Box, unconfirmedL4Boxes } from './l4-compute'
 import { newId, nowIso } from '../../shared/ids'
 import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -135,6 +135,8 @@ export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string, capab
     await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run()
     fail(403, 'factory_budget', 'This Task’s box has used its runtime. Raise the box runtime limit in Settings → Agents, or start a new Task.')
   }
+  // A box whose own Node is gone starts again on a new box; its disk went with it.
+  if (capabilities && isL4ComputeNode(capabilities) && box.cloudBoxId && await resetLostL4Box(env, box.id, nodeId)) box.cloudBoxId = null
   if (capabilities && isL4ComputeNode(capabilities) && !box.cloudBoxId) {
     try { await requestL4Box(env, { id: box.id, taskId: run.taskId!, initiatedBy: run.initiatedBy }) }
     catch (error) { await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run(); throw error }
