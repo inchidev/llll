@@ -302,8 +302,10 @@ async function discussionMessages(env: L4Env, channelId: string | null, limit: n
     for (const row of rows) {
       const runId = row.kind === 'agent' ? PRIVATE_NOTICE.exec(row.content)?.[1] : undefined
       if (!runId) continue
-      const run = await env.DB.prepare('SELECT result_text AS text FROM agent_runs WHERE id=? AND initiated_by=? AND result_text IS NOT NULL').bind(runId, reader).first<{ text: string }>()
+      const run = await env.DB.prepare('SELECT result_text AS text,status,last_error AS error FROM agent_runs WHERE id=? AND initiated_by=?').bind(runId, reader).first<{ text: string | null; status: string; error: string | null }>()
+      // A Run that ended without an answer says why, in the Server's words.
       if (run?.text) row.content = run.text
+      else if (run && ['failed', 'cancelled'].includes(run.status)) row.content = `The Agent stopped: ${run.error || run.status}`
     }
   }
   const texts = await readableMentions(env, rows.map(row => row.content))
