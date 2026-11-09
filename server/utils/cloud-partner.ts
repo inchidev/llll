@@ -168,10 +168,15 @@ async function projectFile(env: L4Env, auth: AuthorizationContext, input: z.infe
     const size = blob!.size
     if (size > FILE_BYTES) return { ref, path: path.join('/'), size, text: null }
     const bytes = new Uint8Array(await blob!.arrayBuffer())
-    let text: string | null = null
-    try { text = bytes.includes(0) ? null : new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { text = null }
-    return { ref, path: path.join('/'), size, text }
+    return { ref, path: path.join('/'), size, text: utf8Text(bytes) }
   })
+}
+
+/** The bytes as UTF-8 text, or null for binary: a NUL byte or invalid UTF-8. */
+function utf8Text(bytes: Uint8Array) {
+  if (bytes.includes(0)) return null
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+  catch { return null }
 }
 
 /** A Project the Member may read, or 404: one they may not read is as missing as one that does not exist. */
