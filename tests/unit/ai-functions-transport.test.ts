@@ -47,9 +47,14 @@ it('draws an agent picture with the Images model, or the Avatars model when Imag
     return Response.json({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${png}` } }] } }] })
   }) as unknown as typeof fetch
   try {
+    // Nothing to draw with: no model chosen and no OpenRouter connection.
+    await expect(generateImage(env, authorization, { prompt: 'a knight' }, transport)).rejects.toMatchObject({ statusCode: 409 })
+    // An OpenRouter connection alone draws with Nano Banana, even when its stored models do not list it.
+    await saveAgentProvider(env, 'router', { kind: 'openrouter', enabled: true, webSearch: false, apiKey: 'synthetic-provider-key', models: [{ id: 'other/painter', api: 'chat', tools: false, outputs: ['image'] }] })
+    expect((await generateImage(env, authorization, { prompt: 'a knight' }, transport)).mediaType).toBe('image/png')
+    expect(requests.at(-1)).toMatchObject({ model: 'google/gemini-2.5-flash-image' })
     await saveAgentProvider(env, 'router', { kind: 'openrouter', enabled: true, webSearch: false, apiKey: 'synthetic-provider-key', models: [
       { id: 'google/gemini-2.5-flash-image', api: 'chat', tools: false, outputs: ['image', 'text'] }, { id: 'other/painter', api: 'chat', tools: false, outputs: ['image'] }] })
-    await expect(generateImage(env, authorization, { prompt: 'a knight' }, transport)).rejects.toMatchObject({ statusCode: 409 })
     await saveAiFunction(env, authorization, 'avatar.generate', { model: 'l4:router:other/painter' })
     expect((await generateImage(env, authorization, { prompt: 'a knight' }, transport)).mediaType).toBe('image/png')
     expect(requests.at(-1)).toMatchObject({ model: 'other/painter', modalities: ['image', 'text'] })
