@@ -15,7 +15,7 @@ import { signalTasksChanged } from '../../workers/task-events'
 import { createAgentRun } from './agent-run-service'
 import { loadAuthorizationContext } from './authorization'
 import { fail } from './cf'
-import { partnerAgentId } from './cloud-seed'
+import { applyPartnerConfig, partnerAgentId } from './cloud-seed'
 import { createProjectRepository, starterFilesSchema, type StarterFiles, listProjectReleases, projectArtifactsRepository, requireArtifacts, withRepository } from './factory-artifacts'
 import { ensureL4PlacementNode } from './l4-compute'
 import { findMemberByIdentity } from './member-identities'
@@ -219,6 +219,7 @@ async function createGameProject(env: L4Env, auth: AuthorizationContext, title: 
   try {
     const computeNodeId = isCloudHosted(env) ? await ensureL4PlacementNode(env) : null
     await createProjectRepository(env, maker, project.id, computeNodeId ? { computeNodeId } : {}, files)
+    await applyPartnerConfig(env, project.id, maker.principal.id)
     if (maker !== auth) await assignProjectPolicy(env, maker, project.id, { policyId: DEVELOPER_POLICY, memberId: auth.principal.id })
   }
   catch (error) {
@@ -419,6 +420,7 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
   schedule((async () => {
     try {
       for (const attachment of input.attachments) await attachFromLink(env, auth, task, spaceId, attachment)
+      if (input.build) await applyPartnerConfig(env, project.id, auth.principal.id)
       await createAgentRun(env, auth, { agentId: agentId!, taskId, channelId, prompt: `${input.build ? '' : `${TALK_ONLY}\n\n`}${title}\n\n${description}`, idempotencyKey: `cloud-relay:tasks/create:${input.requestId}` }, undefined, { withoutEnvironment: !input.build })
     }
     catch (error) {
@@ -459,6 +461,7 @@ async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { ta
         if (await run.steer(input.messageId, input.text, auth.principal.id)) return
       }
     }
+    if (input.build && input.task.projectId) await applyPartnerConfig(env, input.task.projectId, auth.principal.id)
     const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? input.text : `${TALK_ONLY}\n\n${input.text}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
     if (run.status !== 'failed' && input.task.status === 'failed') {
       await env.DB.prepare("UPDATE tasks SET status='ready',last_error=NULL,position=?,updated_at=? WHERE id=? AND status='failed'").bind(await firstTaskPosition(env, input.task.boardId, 'ready'), nowIso(), input.task.id).run()

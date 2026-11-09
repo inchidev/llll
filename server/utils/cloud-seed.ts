@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm'
 import { agents, roles, spaceMembers, users } from '../../drizzle/schema'
 import { cloudSeedSchema, seedTokenScopes, type CloudSeed, type MemberIdentity, type SeedAgent } from '../../shared/cloud-seed'
-import { encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
+import { decryptSecret, encryptSecret, type EncryptedSecret } from '../../shared/encrypted-secret'
+import { projectNetwork, secretPlaceholder } from '../../shared/project-factory'
 import { newId, nowIso } from '../../shared/ids'
 import { MCP_DEFAULT_TOKEN_SCOPES } from '../../shared/mcp'
 import { Permission } from '../../shared/permissions'
@@ -194,6 +195,46 @@ export async function readPartnerConfig(env: L4Env): Promise<{ secrets: Record<s
   catch {
     return null
   }
+}
+
+/**
+ * Gives a partner's game Project what the partner left for it: each partner secret becomes a Project secret bound
+ * to the same hosts (its value replaced when the partner changed it), and those hosts open in the Project's
+ * network, so the Agent's box can reach the partner with the secret as a placeholder. Run again before each
+ * build, it brings an older Project up to date. Nothing else in the Project's network changes.
+ */
+export async function applyPartnerConfig(env: L4Env, projectId: string, actorId: string) {
+  const value = await readServerSetting(env.DB, PARTNER_SETTING)
+  if (!value || !env.AUTH_SECRET || env.AUTH_SECRET.length < 32) return { secrets: 0 }
+  let stored: StoredPartnerConfig
+  try { stored = JSON.parse(value) as StoredPartnerConfig } catch { return { secrets: 0 } }
+  const now = nowIso()
+  const hosts = new Set<string>()
+  for (const [name, entry] of Object.entries(stored.secrets)) {
+    if (!entry.hosts.length) continue
+    entry.hosts.forEach(host => hosts.add(host))
+    const plain = await decryptSecret(env.AUTH_SECRET, partnerSecretScope(name), entry.secret)
+    const existing = await env.DB.prepare('SELECT id FROM project_secrets WHERE project_id=? AND name=?').bind(projectId, name).first<{ id: string }>()
+    const id = existing?.id ?? newId()
+    const sealed = await encryptSecret(env.AUTH_SECRET, `project-secret:${id}`, plain)
+    if (existing) {
+      await env.DB.prepare('UPDATE project_secrets SET secret_ciphertext=?,secret_iv=?,secret_version=?,hosts_json=?,updated_at=? WHERE id=?')
+        .bind(sealed.ciphertext, sealed.iv, sealed.version, JSON.stringify(entry.hosts), now, id).run()
+    } else {
+      await env.DB.prepare(`INSERT INTO project_secrets(id,project_id,name,placeholder,hosts_json,secret_ciphertext,secret_iv,secret_version,created_by,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`).bind(id, projectId, name, secretPlaceholder(name), JSON.stringify(entry.hosts), sealed.ciphertext, sealed.iv, sealed.version, actorId, now, now).run()
+    }
+  }
+  if (hosts.size) {
+    const row = await env.DB.prepare('SELECT factory_json AS factoryJson FROM projects WHERE id=?').bind(projectId).first<{ factoryJson: string | null }>()
+    const network = projectNetwork(row?.factoryJson)
+    const open = [...new Set([...network.hosts, ...hosts])].slice(0, 50)
+    if (open.length !== network.hosts.length) {
+      await env.DB.prepare("UPDATE projects SET factory_json=json_set(COALESCE(factory_json,'{}'),'$.network',json(?)),version=version+1,updated_at=? WHERE id=?")
+        .bind(JSON.stringify({ ...network, hosts: open }), now, projectId).run()
+    }
+  }
+  return { secrets: Object.keys(stored.secrets).length }
 }
 
 export type { CloudSeed, MemberIdentity }

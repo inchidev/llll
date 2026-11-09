@@ -186,3 +186,23 @@ export const scrubText = (text: string, values: Array<{ placeholder: string; val
 /** Text bodies have their placeholders put in; others pass as they came. */
 export const TEXT_BODY = /^(?:text\/|multipart\/form-data|application\/(?:json|x-www-form-urlencoded|xml|javascript|graphql|x-ndjson|[\w.+-]+\+(?:json|xml)))/iu
 export const EGRESS_BODY_LIMIT = 1048576
+
+/**
+ * What a box turn's Agent is told about its box, beside the tools: the Project secrets it may send as
+ * placeholders (the egress layer puts each value in only at its bound hosts), the repository its checkout came
+ * from (the checkout itself keeps no remote), and the plain settings a partner left for its Agents.
+ */
+export async function boxRunBrief(env: L4Env, run: { mandateJson: string; environmentJson: string | null }): Promise<string> {
+  const projectId = (JSON.parse(run.mandateJson) as RunMandate).projectId
+  const environment = run.environmentJson ? JSON.parse(run.environmentJson) as { remote?: string } : null
+  const secrets = projectId ? (await projectEgressSecrets(env, [projectId])).get(projectId) ?? [] : []
+  const { readPartnerConfig } = await import('./cloud-seed')
+  const partner = await readPartnerConfig(env)
+  const lines = [
+    ...(environment?.remote ? [`This box's repository: ${environment.remote} (the checkout keeps no remote; publish commits with factory_publish).`] : []),
+    ...(secrets.length ? ['Project secrets in this box, as placeholders: send the placeholder, and the box puts the value in only on its way to the hosts named. Never try to read a value.',
+      ...secrets.map(secret => `- ${secret.name}=${secret.placeholder} (put in for ${secret.hosts.join(', ')})`)] : []),
+    ...(partner && Object.keys(partner.env).length ? ['Settings for this Server\'s Agents:', ...Object.entries(partner.env).map(([key, value]) => `- ${key}=${value}`)] : []),
+  ]
+  return lines.length ? `\n${lines.join('\n')}` : ''
+}
