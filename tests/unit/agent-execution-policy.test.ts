@@ -92,7 +92,17 @@ it('gives a box turn no more tools than the runtime in the box admits, whatever 
   // At 40 and beyond, the runtime refused every box turn before 0.0.20.
   expect(tools.length).toBeGreaterThanOrEqual(40)
   expect(tools.length).toBeLessThanOrEqual(MAX_RUNTIME_TOOLS)
-  const submission = { runId: crypto.randomUUID(), sessionId: crypto.randomUUID(), prompt: 'Build it', instructions: '', computer: true, box: true,
-    modelGateway: { url: 'https://server.test/v1', token: 'fixture-token-32-characters-long', model: 'fixture' }, toolEndpoint: 'https://server.test/tools', tools }
-  expect(runtimeInput.safeParse(submission).success).toBe(true)
+  // The most a policy allows, and a partner Agent's longest instructions with the Server's run brief after them.
+  const { agentExecutionPolicySchema } = await import('../../shared/agent-execution-policy')
+  const { seedAgentSchema } = await import('../../shared/cloud-seed')
+  const maxSteps = 2048
+  expect(agentExecutionPolicySchema.safeParse({ maxSteps }).success).toBe(true)
+  expect(agentExecutionPolicySchema.safeParse({ maxSteps: maxSteps + 1 }).success).toBe(false)
+  const seedInstructions = 'x'.repeat(200_000)
+  expect(seedAgentSchema.shape.instructions.safeParse(seedInstructions).success).toBe(true)
+  expect(seedAgentSchema.shape.instructions.safeParse(`${seedInstructions}x`).success).toBe(false)
+  const submission = { runId: crypto.randomUUID(), sessionId: crypto.randomUUID(), prompt: 'Build it', instructions: `${seedInstructions}\n${'y'.repeat(4000)}`, computer: true, box: true,
+    maxSteps, modelGateway: { url: 'https://server.test/v1', token: 'fixture-token-32-characters-long', model: 'fixture' }, toolEndpoint: 'https://server.test/tools', tools }
+  const admitted = runtimeInput.safeParse(submission)
+  expect(admitted.success ? null : admitted.error.issues).toBeNull()
 })
