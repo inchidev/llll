@@ -274,6 +274,22 @@ describe('the partner and agent doors', () => {
     expect(row<{ value: string }>("SELECT value FROM server_settings WHERE key='agents.defaultModel'")?.value).toBe('l4:openrouter:openai/gpt-5.2')
   })
 
+  it('prefers Sonnet over Opus and never a batch variant, and keeps the default among the stored models of a long catalog', async () => {
+    await post('claim-owner')
+    const filler = Array.from({ length: 250 }, (_, index) => ({ id: `vendor/model-${index}`, name: `Model ${index}`, supported_parameters: ['tools'] }))
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [
+      ...filler,
+      { id: 'anthropic/claude-opus-5.5', name: 'Claude Opus 5.5', supported_parameters: ['tools'] },
+      { id: 'anthropic/claude-sonnet-5.5:batch', name: 'Claude Sonnet 5.5 (batch)', supported_parameters: ['tools'] },
+      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', supported_parameters: ['tools'] },
+    ] })))
+    expect((await post('models/set', { provider: 'openrouter', key: 'sk-or-partner-key' })).status).toBe(200)
+    expect(row<{ value: string }>("SELECT value FROM server_settings WHERE key='agents.defaultModel'")?.value).toBe('l4:openrouter:anthropic/claude-sonnet-5.5')
+    const stored = JSON.parse(row<{ value: string }>("SELECT value FROM server_settings WHERE key='agents.provider.openrouter'")!.value) as { models: { id: string }[] }
+    expect(stored.models).toHaveLength(200)
+    expect(stored.models[0]!.id).toBe('anthropic/claude-sonnet-5.5')
+  })
+
   it('puts the Server to sleep by releasing its boxes on L4 Compute', async () => {
     await post('claim-owner')
     expect(await post('sleep', {})).toEqual({ status: 200, body: { ok: true, released: 0 } })
