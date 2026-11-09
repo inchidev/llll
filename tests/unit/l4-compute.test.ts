@@ -167,6 +167,29 @@ it('asks llll.gg for a box on the Task’s first turn with a one-use pairing cod
   expect((await listComputeNodes(f.env, await f.actor())).map(node => ({ id: node.id, placementId: node.placementId }))).toEqual([{ id: nodeId, placementId: null }, { id: paired.nodeId, placementId: nodeId }])
 })
 
+it('gives a Task a new box when its box’s own Node is gone, letting the old one go on llll.gg', async () => {
+  const nodeId = await link()
+  const run = await taskRun('task-l4-lost', nodeId)
+  const boxId = await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)
+  const paired = await pairComputeNode(f.env, calls[0]!.body!.pairingToken as string, { ...dockerCapabilities })
+  expect(boxRow(boxId).nodeId).toBe(paired.nodeId)
+  calls.length = 0
+  // Its Node synced a moment ago: the box is alive, nothing is asked.
+  expect(await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)).toBe(boxId)
+  expect(calls).toEqual([])
+  // Its sandbox went: the Node is silent past the limit. The next turn lets the old box go and asks for a new one.
+  f.db.prepare('UPDATE compute_nodes SET last_seen=? WHERE id=?').run(new Date(Date.now() - 10 * 60_000).toISOString(), paired.nodeId)
+  answers.box = () => started('bx_2')
+  expect(await ensureBox(f.env, run, nodeId, L4_COMPUTE_CAPABILITIES)).toBe(boxId)
+  expect(calls.map(call => `${call.method} ${call.url}`)).toEqual(['DELETE https://llll.gg/api/compute/boxes/bx_1', 'POST https://llll.gg/api/compute/boxes'])
+  expect(boxRow(boxId)).toMatchObject({ status: 'new', nodeId, cloudBoxId: 'bx_2', confirmedAt: null })
+  expect(f.db.prepare('SELECT enabled FROM compute_nodes WHERE id=?').get(paired.nodeId)).toEqual({ enabled: 0 })
+  await expect(requireComputeNode(f.env, paired.token)).rejects.toThrow()
+  // The new box pairs with its new code.
+  const again = await pairComputeNode(f.env, calls[1]!.body!.pairingToken as string, { ...dockerCapabilities })
+  expect(boxRow(boxId).nodeId).toBe(again.nodeId)
+})
+
 it('confirms the box on the Node’s next sync when llll.gg could not be told at pairing time', async () => {
   const nodeId = await link()
   const run = await taskRun('task-l4-confirm', nodeId)
