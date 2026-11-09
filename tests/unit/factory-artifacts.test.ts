@@ -82,14 +82,19 @@ beforeEach(async () => {
 afterEach(() => { f.db.close(); vi.unstubAllGlobals() })
 
 describe('where a repository in L4 exists', () => {
-  it('is available only with the Server’s own Artifacts binding on a Cloudflare-based Server', async () => {
+  it('is available only with the Server’s own Artifacts binding, on a Cloudflare-based or a hosted Server', async () => {
     expect(artifactsAvailability(f.env)).toEqual({ available: true, reason: null })
     expect(await gitAgentConfigured(f.env, null, 'artifacts')).toBe(true)
     f.env.LLLL_RUNTIME = 'celld'
     expect(artifactsAvailability(f.env)).toMatchObject({ available: false, reason: expect.stringContaining('own Cloudflare account') })
+    // A hosted Server has its namespace from its installer; one installed before that says so.
     f.env.LLLL_RUNTIME = 'cloud'
-    expect(artifactsAvailability(f.env)).toMatchObject({ available: false, reason: expect.stringContaining('coming to hosted Servers') })
-    await expect(createProjectRepository(f.env, await f.actor(), 'proj', {})).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('coming') })
+    expect(artifactsAvailability(f.env)).toEqual({ available: true, reason: null })
+    const binding = f.env.FACTORY_CODE
+    delete f.env.FACTORY_CODE
+    expect(artifactsAvailability(f.env)).toMatchObject({ available: false, reason: expect.stringContaining('next update') })
+    await expect(createProjectRepository(f.env, await f.actor(), 'proj', {})).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('next update') })
+    f.env.FACTORY_CODE = binding
     delete f.env.LLLL_RUNTIME; delete f.env.FACTORY_CODE
     expect(artifactsAvailability(f.env)).toMatchObject({ available: false, reason: expect.stringContaining('Enable Compute') })
     expect(await gitAgentConfigured(f.env, null, 'artifacts')).toBe(false)

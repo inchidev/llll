@@ -28,7 +28,8 @@ import { parseBody } from './validate'
  * that never reaches a box. Versions are annotated tags on the base branch, made from the Project.
  *
  * The binding is the connection: there is no row in git_connections. The provider exists only where the binding
- * does, on a Server in the operator's own Cloudflare account with Compute enabled; celld and hosted Servers say so.
+ * does: on a Server in the operator's own Cloudflare account with Compute enabled, and on a hosted Server, whose
+ * installer binds a namespace of its own. celld Servers, and hosted ones installed before that, say so.
  */
 type Artifacts = NonNullable<L4Env['FACTORY_CODE']>
 type Repository = Awaited<ReturnType<Artifacts['get']>>
@@ -37,7 +38,8 @@ const SHA = /^[a-f0-9]{40}$/u
 export type ArtifactsAvailability = { available: true; reason: null } | { available: false; reason: string }
 export function artifactsAvailability(env: L4Env): ArtifactsAvailability {
   const runtime = serverRuntime(env)
-  if (runtime !== 'cloudflare') return { available: false, reason: ARTIFACTS_UNAVAILABLE[runtime] }
+  if (runtime === 'celld') return { available: false, reason: ARTIFACTS_UNAVAILABLE.celld }
+  if (runtime === 'cloud' && !env.FACTORY_CODE) return { available: false, reason: ARTIFACTS_UNAVAILABLE.cloud }
   if (!env.FACTORY_CODE) return { available: false, reason: ARTIFACTS_UNAVAILABLE.compute }
   return { available: true, reason: null }
 }

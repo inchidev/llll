@@ -67,6 +67,27 @@ async function rememberSeedAgent(env: L4Env, name: string, record: StoredSeedAge
   await writeServerSetting(env.DB, SEED_AGENT_SETTING, JSON.stringify({ ...await storedSeedAgents(env), [name]: record }))
 }
 
+/**
+ * The active Agent a partner's Task goes to: the one with `name` when one is named, else the first the seed
+ * made that is still active. Null when there is none.
+ */
+export async function partnerAgentId(env: L4Env, name?: string | null): Promise<string | null> {
+  const active = (id: string) => env.DB.prepare(`SELECT u.id FROM users u JOIN agents a ON a.user_id=u.id
+    WHERE u.id=? AND u.kind='agent' AND u.status='active' AND a.status='active'`).bind(id).first<{ id: string }>()
+  if (name?.trim()) {
+    const seeded = (await storedSeedAgents(env))[name.trim()]
+    const found = seeded ? await active(seeded.userId) : null
+    if (found) return found.id
+    return (await env.DB.prepare(`SELECT u.id FROM users u JOIN agents a ON a.user_id=u.id
+      WHERE u.display_name=? AND u.kind='agent' AND u.status='active' AND a.status='active' ORDER BY u.created_at LIMIT 1`).bind(name.trim()).first<{ id: string }>())?.id ?? null
+  }
+  for (const record of Object.values(await storedSeedAgents(env))) {
+    const found = await active(record.userId)
+    if (found) return found.id
+  }
+  return null
+}
+
 /** The key of the Role a seeded Agent gets for `admin`, and its name. */
 export const CLOUD_AGENT_ROLE = { key: 'cloud-agent', name: 'Cloud agent' } as const
 /** What an Agent needs beyond `admin` to connect with its token and do the work it is asked to do. */

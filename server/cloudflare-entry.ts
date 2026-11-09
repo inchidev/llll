@@ -15,6 +15,7 @@ import { renewCloudflareAccess } from './utils/cloudflare-account-access'
 import { requestTiming, timingRequested } from './utils/request-timing'
 import { serverStartupSettled } from './utils/server-startup'
 import { cloudRelay } from './utils/cloud-relay'
+import { pruneRelayRequests } from './utils/cloud-partner'
 
 export { ChannelDurableObject } from '../workers/channel-do'
 export { ServerDurableObject } from '../workers/server-do'
@@ -36,7 +37,7 @@ export default {
     const gateway = url.pathname.match(AGENT_GATEWAY_PATH)
     if (gateway) return agentGateway(request, env, gateway[1]!, gateway[2]!, promise => context.waitUntil(promise))
     if (url.pathname === '/.llll/mail/inbound') return receiveMailGatewayRequest(request, env)
-    const relayed = await cloudRelay(request, env, url.pathname, runScheduled)
+    const relayed = await cloudRelay(request, env, url.pathname, runScheduled, promise => context.waitUntil(promise))
     if (relayed) return relayed
     if (request.headers.get('Upgrade') === 'websocket') {
       const channel = url.pathname.match(/^\/ws\/channel\/([^/]+)/)
@@ -95,8 +96,10 @@ export default {
   },
 }
 
-/** The weekly work: Access renewal, then a backup. L4 Cloud runs it through the relay when no Cron Trigger fires. */
+/** The weekly work: the relay's old answers, Access renewal, then a backup. L4 Cloud runs it through the relay when no Cron Trigger fires. */
 async function runScheduled(env: L4Env): Promise<void> {
+  // The relay's answers to partner requests are kept for a day, so that a repeated request does nothing twice.
+  await pruneRelayRequests(env).catch(error => console.warn('cloud-relay.prune_failed', { error: error instanceof Error ? error.message : String(error) }))
   // A renewal failure must not skip the backup; Settings shows when access needs reconnecting.
   try { await renewCloudflareAccess(env) }
   catch (error) { console.warn('cloudflare.access.renew_failed', { code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' }) }

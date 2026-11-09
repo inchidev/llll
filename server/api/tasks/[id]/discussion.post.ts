@@ -1,55 +1,10 @@
 import { getServerId } from '../../../../shared/server-id'
-import { and, eq, isNull } from 'drizzle-orm'
-import { channels, taskNumbers, tasks } from '../../../../drizzle/schema'
-import { newId, nowIso } from '../../../../shared/ids'
-import { Permission } from '../../../../shared/permissions'
-import { cf, fail } from '../../../utils/cf'
-import { getDb } from '../../../utils/db'
+import { cf } from '../../../utils/cf'
 import { requireMember } from '../../../utils/guards'
-import { requireTask, taskPermissionAllowed } from '../../../utils/task-policy'
-import { spaceOfResource } from '../../../utils/space-access'
+import { ensureTaskDiscussion } from '../../../utils/task-discussion'
 
-/**
- * Returns the task's discussion channel, creating it on first use. It is an
- * ordinary text channel, so messages, reactions, threads, files, and realtime all
- * work as in chat; the channel list leaves it out and only task managers can open it.
- */
+/** Returns the task's discussion channel, creating it on first use. */
 export default defineEventHandler(async (event) => {
   const actor = await requireMember(event, (await getServerId(cf(event).env.DB)))
-  const { env } = cf(event)
-  const db = getDb(env.DB)
-  const task = await requireTask(env, getRouterParam(event, 'id')!, actor.authorization)
-  if (!taskPermissionAllowed(actor.authorization, task, Permission.writeTasks) && !taskPermissionAllowed(actor.authorization, task, Permission.executeTasks)) fail(403, 'task_denied', 'Write tasks or Execute assigned tasks is required to prepare a discussion')
-  if (task.discussionChannelId) return { channelId: task.discussionChannelId }
-
-  const number = (await db.select({ number: taskNumbers.number }).from(taskNumbers)
-    .where(eq(taskNumbers.taskId, task.id)).limit(1))[0]?.number
-  const spaceId = await spaceOfResource(env, 'board', task.boardId)
-  if (!spaceId) fail(404, 'not_found', 'Task not found')
-  const id = newId()
-  const created = nowIso()
-  await db.insert(channels).values({
-    id,
-    spaceId,
-    name: number ? `task-${number}` : 'task',
-    topic: task.title,
-    type: 'text',
-    visibility: 'server',
-    categoryId: null,
-    position: 0,
-    liveMeetingId: null,
-    parentId: null,
-    parentMessageId: null,
-    createdAt: created,
-    updatedAt: created,
-  })
-  // Two people opening the task at once: the first link wins, the spare channel is removed.
-  const linked = await db.update(tasks).set({ discussionChannelId: id })
-    .where(and(eq(tasks.id, task.id), isNull(tasks.discussionChannelId)))
-  if (!linked.meta.changes) {
-    await db.delete(channels).where(eq(channels.id, id))
-    const current = await requireTask(env, task.id, actor.authorization)
-    return { channelId: current.discussionChannelId }
-  }
-  return { channelId: id }
+  return { channelId: await ensureTaskDiscussion(cf(event).env, actor.authorization, getRouterParam(event, 'id')!) }
 })
