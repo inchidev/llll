@@ -58,7 +58,7 @@ export const TOOL_RULES: Readonly<Record<string, ToolRule>> = {
   list_public_project_repositories: {}, inspect_public_project_repository: {},
   list_private_project_repositories: {}, inspect_private_project_repository: {}, read_private_project_file: {},
   // A Task's box and source repository.
-  factory_status: computer, factory_plan: computer, request_network_window: computer, factory_feedback: computer,
+  factory_status: computer, generate_image: computer, factory_plan: computer, request_network_window: computer, factory_feedback: computer,
   factory_publish: { actions: [A.proposeCode] }, factory_merge: { actions: [A.proposeCode] },
   read_github_repository: computer, read_github_issue: computer, read_github_pull_request: computer,
   read_code_tree: computer, read_code_file: computer, check_code_proposal: computer,

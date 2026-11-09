@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { d1 } from '../helpers/sqlite-d1'
-import { inferAiFunction, saveAiFunction } from '../../server/utils/ai-functions'
+import { generateImage, inferAiFunction, saveAiFunction } from '../../server/utils/ai-functions'
 import { saveAgentProvider } from '../../server/utils/agent-providers'
 import { ALL_PERMISSIONS } from '../../shared/permissions'
 import type { AuthorizationContext } from '../../shared/authorization'
@@ -32,5 +32,31 @@ it('uses the real AI SDK and named OpenRouter adapter for a bounded tool-free fu
     expect(JSON.stringify(requests[0])).toContain('Use only supplied indexes.')
     expect(requests[0]).not.toHaveProperty('tools')
     expect(JSON.stringify(db.prepare('SELECT meta_json FROM audit_log').all())).not.toContain('synthetic-provider-key')
+  } finally { db.close() }
+})
+
+it('draws an agent picture with the Images model, or the Avatars model when Images has none', async () => {
+  const db = new DatabaseSync(':memory:')
+  db.exec('CREATE TABLE server_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE audit_log(id TEXT,actor_id TEXT,action TEXT,target_type TEXT,target_id TEXT,meta_json TEXT,created_at TEXT)')
+  const env = { DB: d1(db), AUTH_SECRET: 'synthetic-function-secret-with-32-characters', RATE_LIMIT_DO: { getByName: () => ({ take: async () => true }) } } as unknown as L4Env
+  const authorization: AuthorizationContext = { serverId: 'server', principal: { id: 'owner', kind: 'human', roleId: 'role', roleName: 'Owner', isOwner: true, permissions: ALL_PERMISSIONS }, credential: { kind: 'session' } }
+  const requests: Record<string, unknown>[] = []
+  const png = btoa(String.fromCharCode(137, 80, 78, 71, 1, 2, 3))
+  const transport = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init!.body)))
+    return Response.json({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${png}` } }] } }] })
+  }) as unknown as typeof fetch
+  try {
+    await saveAgentProvider(env, 'router', { kind: 'openrouter', enabled: true, webSearch: false, apiKey: 'synthetic-provider-key', models: [
+      { id: 'google/gemini-2.5-flash-image', api: 'chat', tools: false, outputs: ['image', 'text'] }, { id: 'other/painter', api: 'chat', tools: false, outputs: ['image'] }] })
+    await expect(generateImage(env, authorization, { prompt: 'a knight' }, transport)).rejects.toMatchObject({ statusCode: 409 })
+    await saveAiFunction(env, authorization, 'avatar.generate', { model: 'l4:router:other/painter' })
+    expect((await generateImage(env, authorization, { prompt: 'a knight' }, transport)).mediaType).toBe('image/png')
+    expect(requests.at(-1)).toMatchObject({ model: 'other/painter', modalities: ['image', 'text'] })
+    await saveAiFunction(env, authorization, 'image.generate', { model: 'l4:router:google/gemini-2.5-flash-image' })
+    const image = await generateImage(env, authorization, { prompt: 'a fire spell icon on a plain background', aspectRatio: '16:9' }, transport)
+    expect(Array.from(image.bytes)).toEqual([137, 80, 78, 71, 1, 2, 3])
+    expect(requests.at(-1)).toMatchObject({ model: 'google/gemini-2.5-flash-image', image_config: { aspect_ratio: '16:9' } })
+    expect(JSON.stringify(requests.at(-1))).toContain('a fire spell icon')
   } finally { db.close() }
 })

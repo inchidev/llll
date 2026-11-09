@@ -11,6 +11,7 @@ import type { L4Env } from '../../workers/env'
 import { generatedUsername } from './account-identity'
 import { discoverAgentModels } from './agent-provider-models'
 import { saveAgentProvider } from './agent-providers'
+import { aiFunctionKey } from './ai-functions'
 import { provisionServerWithEnv } from './bootstrap'
 import { partnerAction } from './cloud-partner'
 import { applyCloudSeed, readCloudSeed, storePartnerConfig, upsertSeedAgent } from './cloud-seed'
@@ -143,17 +144,34 @@ export function preferredModel<T extends { id: string }>(models: readonly T[]) {
   return null
 }
 
+/** The image models a partner's Server draws game art with, cheapest good one first. */
+export const PREFERRED_IMAGE_MODELS = [/^google\/gemini-[\d.]+-flash-image/u, /^google\/gemini-[\d.]+-pro-image/u, /^openai\/gpt-[\d.]+-image(?!.*mini)/u]
+export function preferredImageModel<T extends { id: string; outputs?: readonly string[] }>(models: readonly T[]) {
+  const drawing = models.filter(model => model.outputs?.includes('image') && !/:free/u.test(model.id))
+  for (const family of PREFERRED_IMAGE_MODELS) {
+    const found = drawing.find(model => family.test(model.id))
+    if (found) return found
+  }
+  return drawing[0] ?? null
+}
+
 async function setModels(env: L4Env, body: z.infer<typeof modelsBody>) {
   const models = await discoverAgentModels(body.provider, body.key)
   if (!models.length) refuse(502, 'The provider listed no models')
   const usable = models.filter(model => model.tools !== false)
   const preferred = preferredModel(usable)
   // The catalog is large; the first two hundred keep the default and every tool-capable model the provider lists first.
-  const kept = [...(preferred ? [preferred] : []), ...usable.filter(model => model !== preferred), ...models.filter(model => model.tools === false)].slice(0, 200)
+  // The agent's art comes from an image model, kept beside the default even far down the catalog.
+  const drawing = body.provider === 'openrouter' ? preferredImageModel(models) : null
+  const first = [...(preferred ? [preferred] : []), ...(drawing && drawing !== preferred ? [drawing] : [])]
+  const kept = [...first, ...usable.filter(model => !first.includes(model)), ...models.filter(model => model.tools === false && !first.includes(model))].slice(0, 200)
   await saveAgentProvider(env, body.provider, { kind: body.provider, enabled: true, webSearch: false, apiKey: body.key, models: kept })
   const chosen = preferred ?? usable[0] ?? kept[0]
   if (await readServerSetting(env.DB, 'agents.defaultModel') === null && chosen) {
     await writeServerSetting(env.DB, 'agents.defaultModel', agentModelRef(body.provider, chosen.id))
+  }
+  if (drawing && await readServerSetting(env.DB, aiFunctionKey('image.generate')) === null) {
+    await writeServerSetting(env.DB, aiFunctionKey('image.generate'), JSON.stringify({ model: agentModelRef(body.provider, drawing.id) }))
   }
   return { ok: true as const, configured: true as const, models: kept.length }
 }

@@ -1,3 +1,4 @@
+import { fileStorage } from '../../shared/file-storage'
 import { withIntegrations } from '../../workers/integrations'
 import { markUntrustedContext } from './agent-tool-security'
 import { reserveRunInference } from './agent-inference-budget'
@@ -125,7 +126,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
 }
 
 /** The gateway operations a Run's executor calls back on this Server. */
-export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files|events|session)$/u
+export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files|events|session|images\/[0-9a-zA-Z_-]{8,64})$/u
 
 export async function agentGateway(request: Request, deployment: L4Env, runId: string, operation: string, schedule: (promise: Promise<unknown>) => void): Promise<Response> {
   const env = await withIntegrations(deployment)
@@ -150,6 +151,18 @@ export async function agentGateway(request: Request, deployment: L4Env, runId: s
     const body = await readLimitedStream(request.body, 2_000_000)
     if (!body.ok) return new Response('Invalid request size', { status: 413 })
     return await boxRun(env, run.id).boxSession(run.id, new TextDecoder().decode(body.bytes)) ? Response.json({ ok: true }) : new Response('This Run has no box', { status: 409 })
+  }
+  // A picture generate_image drew for this Run, fetched once by its box.
+  if (request.method === 'GET' && operation.startsWith('images/')) {
+    const id = operation.slice('images/'.length)
+    if (!/^[0-9a-zA-Z_-]{8,64}$/u.test(id)) return new Response('Not found', { status: 404 })
+    const { agentImageKey } = await import('./agent-tools')
+    const storage = fileStorage(env)
+    const object = await storage.get(agentImageKey(run.id, id))
+    if (!object) return new Response('This picture was already fetched', { status: 404 })
+    const bytes = await object.arrayBuffer()
+    await storage.delete(agentImageKey(run.id, id))
+    return new Response(bytes, { headers: { 'Content-Type': object.httpMetadata?.contentType ?? 'application/octet-stream', 'Cache-Control': 'no-store' } })
   }
   if (request.method === 'GET' && operation === 'files') {
     try { await runAuthorization(env, run); await markUntrustedContext(env, run); return await runtimeFiles(env, run) } catch { return new Response('Files unavailable', { status: 403 }) }

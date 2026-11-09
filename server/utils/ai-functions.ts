@@ -1,5 +1,5 @@
 import { streamText } from 'ai'
-import { aiFunctions, aiFunctionConfigSchema, modelMeetsRequirement, type AiFunctionId, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
+import { aiFunctions, aiFunctionConfigSchema, drawingAiFunctions, modelMeetsRequirement, type AiFunctionId, type ImageAspectRatio, type AiFunctionConfig, type AiFunctionDTO } from '../../shared/ai-functions'
 import { parseAgentModelRef } from '../../shared/agent-providers'
 import { pausedAiFunctions } from '../../shared/features'
 import { readServerSetting } from '../../shared/server-settings'
@@ -33,7 +33,7 @@ export async function aiFunctionCatalog(env: L4Env, actorId: string) {
     const requires = 'requires' in definition ? definition.requires : undefined
     const available = Boolean(provider?.configured && provider.enabled && chosen && modelMeetsRequirement(chosen, requires)
       && (definition.id !== 'web.search' || (provider.kind === 'openrouter' && provider.webSearch))
-      && (definition.id !== 'avatar.generate' || provider.kind === 'openrouter'))
+      && (!drawingAiFunctions.has(definition.id) || provider.kind === 'openrouter'))
     return { ...definition, ...config, available, ...(chosen && provider ? { modelLabel: `${provider.name} / ${chosen.label || chosen.id}` } : {}) }
   }))
   return { functions, models: catalog.models.map(model => ({ ...model, webSearch: catalog.providers.some(provider => provider.id === parseAgentModelRef(model.value)?.provider && provider.kind === 'openrouter' && provider.webSearch) })) }
@@ -48,7 +48,7 @@ export async function saveAiFunction(env: L4Env, authorization: AuthorizationCon
     const definition = aiFunctions.find(item => item.id === id)!
     const option = catalog.models.find(model => model.value === config.model)!
     if ('requires' in definition && !modelMeetsRequirement(option, definition.requires)) fail(400, 'model_capability', `${definition.label} needs a model that ${definition.requires === 'image-output' ? 'outputs images' : definition.requires === 'image-input' ? 'reads images' : 'reads audio'}. Load the provider's models again if it should.`)
-    if (id === 'avatar.generate' && (await agentProviderCatalog(env, { actorId: authorization.principal.id, requireTools: false })).providers.find(provider => provider.id === parseAgentModelRef(option.value)?.provider)?.kind !== 'openrouter') fail(400, 'model_capability', 'Avatars currently draw with an OpenRouter image model')
+    if (drawingAiFunctions.has(id) && (await agentProviderCatalog(env, { actorId: authorization.principal.id, requireTools: false })).providers.find(provider => provider.id === parseAgentModelRef(option.value)?.provider)?.kind !== 'openrouter') fail(400, 'model_capability', `${definition.label} currently draw with an OpenRouter image model`)
     if (id === 'web.search') {
       const provider = catalog.models.find(model => model.value === config.model)
       const parsed = parseAgentModelRef(provider!.value)!
@@ -149,25 +149,70 @@ export async function generateAvatar(env: L4Env, authorization: AuthorizationCon
     input.description ? `Request: ${input.description.slice(0, 1000)}` : 'No further request: choose a fitting subject.',
     references.length ? `The ${logo ? 'remaining' : ''} attached image${references.length > 1 ? 's are' : ' is'} the person's reference${references.length > 1 ? 's' : ''}: follow them as the request describes, without copying any text in them.` : '',
   ].filter(Boolean).join('\n\n')
-  const images = [...(logo ? [logo] : []), ...references].map(url => ({ type: 'image_url', image_url: { url } }))
+  const images = [...(logo ? [logo] : []), ...references]
   let status = 'failed'
   try {
-    const response = await transport('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(120_000),
-      headers: { Authorization: `Bearer ${saved.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: saved.model.id, modalities: ['image', 'text'], messages: [{ role: 'user', content: [{ type: 'text', text: request }, ...images] }] }),
-    })
-    const body = await readLimitedStream(response.body, 8_000_000)
-    if (!response.ok || !body.ok) fail(502, 'ai_function_failed', `The image model did not answer (${response.status})`)
-    const data = JSON.parse(new TextDecoder().decode(body.bytes)) as { choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }> }
-    const image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url ?? ''
-    // Only an inline PNG, JPEG or WebP no larger than an avatar upload is passed on.
-    if (!dataImage.test(image) || image.length > 2_800_000) fail(502, 'ai_function_failed', 'The image model returned no usable picture. Try again or choose another model.')
+    const image = await drawWithOpenRouter(saved.apiKey, saved.model.id, request, images, {}, transport)
+    // Only a picture no larger than an avatar upload is passed on.
+    if (image.length > 2_800_000) fail(502, 'ai_function_failed', 'The image model returned no usable picture. Try again or choose another model.')
     status = 'completed'
     return image
   }
   finally {
     await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: 'avatar.generate', meta: { model: reference, status, references: references.length, l4Style: Boolean(input.l4Style) }, authorization })
+  }
+}
+
+/** One picture from an OpenRouter model with image output, as an inline PNG, JPEG or WebP data URL. */
+async function drawWithOpenRouter(apiKey: string, model: string, request: string, images: string[], options: { aspectRatio?: ImageAspectRatio }, transport: typeof fetch) {
+  const response = await transport('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(120_000),
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, modalities: ['image', 'text'], ...(options.aspectRatio ? { image_config: { aspect_ratio: options.aspectRatio } } : {}),
+      messages: [{ role: 'user', content: [{ type: 'text', text: request }, ...images.map(url => ({ type: 'image_url', image_url: { url } }))] }] }),
+  })
+  const body = await readLimitedStream(response.body, 16_000_000)
+  if (!response.ok || !body.ok) fail(502, 'ai_function_failed', `The image model did not answer (${response.status})`)
+  const data = JSON.parse(new TextDecoder().decode(body.bytes)) as { choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }> }
+  const image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url ?? ''
+  if (!dataImage.test(image)) fail(502, 'ai_function_failed', 'The image model returned no usable picture. Try again or choose another model.')
+  return image
+}
+
+/** The largest picture an agent receives: a full-screen PNG fits, a raw camera frame does not. */
+export const AGENT_IMAGE_MAX_BYTES = 8_000_000
+const imageBrief = [
+  'You draw one picture an agent asked for while making something, such as art for a game or an app.',
+  'Follow the request exactly: subject, style, framing and background. Draw no text, letters, watermarks or signatures unless the request asks for them.',
+  'When the request asks for a transparent or plain background, use one flat solid colour that can be cut away, with no shadow on it.',
+  'Never depict a real, identifiable person or another work\'s characters or logos.',
+].join(' ')
+
+/**
+ * Draw one picture an agent asked for, with the Images function's OpenRouter model, or the Avatars model when
+ * Images has none. The picture is paid for by the Server's own provider key, like the agent's model.
+ */
+export async function generateImage(env: L4Env, authorization: AuthorizationContext, input: { prompt: string; aspectRatio?: ImageAspectRatio }, transport: typeof fetch = fetch): Promise<{ mediaType: string; bytes: Uint8Array }> {
+  const id = (await aiFunctionConfig(env, 'image.generate')).model ? 'image.generate' : 'avatar.generate'
+  let reference: string
+  try { reference = await resolveAiFunction(env, id, authorization.principal.id) }
+  catch { fail(409, 'ai_function_unconfigured', 'No image model is set. Ask the Owner to choose an OpenRouter model that outputs images for Images in Models → Defaults.') }
+  const limiter = asRpc<{ take: (limit: number, windowMs: number) => Promise<boolean> }>(env.RATE_LIMIT_DO.getByName(`ai-image:${authorization.principal.id}`))
+  if (!await limiter.take(30, 60_000)) fail(429, 'rate_limited', 'Too many pictures at once. Wait a minute and try again.')
+  const saved = await resolveSavedAgentModel(env, reference, authorization.principal.id)
+  if (!saved || saved.id !== 'openrouter') fail(409, 'ai_function_unavailable', 'Images need an OpenRouter image model. Choose one in Models → Defaults.')
+  let status = 'failed'
+  try {
+    const url = await drawWithOpenRouter(saved.apiKey, saved.model.id, `${imageBrief}\n\nRequest: ${input.prompt.slice(0, 4000)}`, [], { aspectRatio: input.aspectRatio }, transport)
+    const [, mediaType, data] = /^data:(image\/[a-z]+);base64,(.*)$/u.exec(url)!
+    const binary = atob(data!)
+    if (binary.length > AGENT_IMAGE_MAX_BYTES) fail(502, 'ai_function_failed', 'The picture is too large. Ask for a smaller one.')
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+    status = 'completed'
+    return { mediaType: mediaType!, bytes }
+  }
+  finally {
+    await writeAudit(env, { serverId: authorization.serverId, actorId: authorization.principal.id, action: 'ai.function.call', targetType: 'ai_function', targetId: id, meta: { model: reference, status }, authorization })
   }
 }
 
