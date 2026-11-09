@@ -179,6 +179,19 @@ describe('the partner’s game doors', () => {
     expect((await post('projects/files', { identity: owner, projectId: 'missing' })).status).toBe(404)
   })
 
+  it('starts a game’s repository from the partner’s kit: its files in their folders in the first commit', async () => {
+    const files = [{ path: 'index.html', text: '<!doctype html><script type="module" src="src/main.js"></script>' }, { path: 'src/main.js', text: 'export {}\n' }, { path: 'src/net/room.js', text: '// room\n' }]
+    const made = await post('projects/create', { identity: owner, requestId: 'req-kit', title: 'Arena', files })
+    expect(made.status).toBe(200)
+    const projectId = (made.body as { project: { projectId: string } }).project.projectId
+    const root = await post('projects/files', { identity: owner, projectId })
+    expect((root.body as { files: { entries: unknown[] } }).files.entries).toEqual([{ name: 'src', type: 'folder' }, { name: 'index.html', type: 'file' }, { name: 'README.md', type: 'file' }])
+    expect(await post('projects/file', { identity: owner, projectId, path: 'src/net/room.js' })).toMatchObject({ status: 200, body: { file: { text: '// room\n' } } })
+    for (const bad of [[{ path: '../x', text: '' }], [{ path: '.env', text: '' }], [{ path: 'a', text: '' }, { path: 'a/b', text: '' }], [{ path: 'x', text: 'a' }, { path: 'x', text: 'b' }]]) {
+      expect((await post('projects/create', { identity: owner, requestId: `req-bad-${bad[0]!.path}${bad.length}`, title: 'Bad', files: bad })).status).toBe(400)
+    }
+  })
+
   it('gives the partner’s Agent a Task on the Project’s board with its repository, answers at once, then attaches its files and starts the Agent', async () => {
     const { body: { project } } = await createProject()
     const made = await createTask(project.projectId)

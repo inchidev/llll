@@ -16,7 +16,7 @@ import { createAgentRun } from './agent-run-service'
 import { loadAuthorizationContext } from './authorization'
 import { fail } from './cf'
 import { partnerAgentId } from './cloud-seed'
-import { createProjectRepository, listProjectReleases, projectArtifactsRepository, requireArtifacts, withRepository } from './factory-artifacts'
+import { createProjectRepository, starterFilesSchema, type StarterFiles, listProjectReleases, projectArtifactsRepository, requireArtifacts, withRepository } from './factory-artifacts'
 import { ensureL4PlacementNode } from './l4-compute'
 import { findMemberByIdentity } from './member-identities'
 import { readableMentions } from './member-names'
@@ -49,7 +49,7 @@ export const PARTNER_ATTACHMENT_BYTES = 100 * 1024 * 1024
 const ATTACHMENT_FETCH_MS = 25_000
 const DAY_MS = 86_400_000
 
-const projectCreateBody = z.object({ identity: memberIdentitySchema, requestId, title: z.string().trim().min(1).max(200) }).strict()
+const projectCreateBody = z.object({ identity: memberIdentitySchema, requestId, title: z.string().trim().min(1).max(200), files: starterFilesSchema.default([]) }).strict()
 const projectGetBody = z.object({ identity: memberIdentitySchema, projectId: id }).strict()
 const taskCreateBody = z.object({
   identity: memberIdentitySchema, requestId, projectId: id,
@@ -207,7 +207,7 @@ async function projectAnswer(env: L4Env, auth: AuthorizationContext, projectId: 
  * L4 Compute placement. It needs the same rights as there (the Owner has them; a Member needs Manage projects and
  * Manage server), checked before anything is made. A Project whose repository could not be made is removed again.
  */
-async function createGameProject(env: L4Env, auth: AuthorizationContext, title: string) {
+async function createGameProject(env: L4Env, auth: AuthorizationContext, title: string, files: StarterFiles = []) {
   // A friend the creator invited into their Studio starts games too. The Owner, who invited them through the
   // partner, makes the Project and its repository, and the friend gets Developer access to that Project only.
   const ownerId = auth.principal.isOwner ? null : (await env.DB.prepare('SELECT owner_id AS id FROM server WHERE owner_id IS NOT NULL').first<{ id: string }>())?.id
@@ -218,7 +218,7 @@ async function createGameProject(env: L4Env, auth: AuthorizationContext, title: 
   const project = await createProject(env, maker, { name: title.slice(0, 100), description: '' })
   try {
     const computeNodeId = isCloudHosted(env) ? await ensureL4PlacementNode(env) : null
-    await createProjectRepository(env, maker, project.id, computeNodeId ? { computeNodeId } : {})
+    await createProjectRepository(env, maker, project.id, computeNodeId ? { computeNodeId } : {}, files)
     if (maker !== auth) await assignProjectPolicy(env, maker, project.id, { policyId: DEVELOPER_POLICY, memberId: auth.principal.id })
   }
   catch (error) {
@@ -463,7 +463,7 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
     case 'projects/create': {
       const input = projectCreateBody.parse(body)
       const { auth } = await actingMember(env, input.identity)
-      return once(env, action, input.identity, input.requestId, async () => ({ ok: true, project: await createGameProject(env, auth, input.title) }))
+      return once(env, action, input.identity, input.requestId, async () => ({ ok: true, project: await createGameProject(env, auth, input.title, input.files) }))
     }
     case 'projects/files': {
       const input = projectFilesBody.parse(body)
