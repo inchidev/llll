@@ -22,7 +22,6 @@ import { findMemberByIdentity } from './member-identities'
 import { readableMentions } from './member-names'
 import { requireMessageMember, sendChannelMessage } from './message-service'
 import { writeAudit } from './messages'
-import { PRIVATE_RUN_SUMMARY } from './agent-tool-security'
 import { boundedBytes, fetchPreview } from './preview-fetch'
 import { publishTarget, repositoryGitFlow } from './project-git-flow'
 import { createProject, ensureFirstBoard, projectPermission, requireProject } from './project-service'
@@ -292,7 +291,7 @@ async function branchCommits(env: L4Env, branch: NonNullable<Awaited<ReturnType<
 
 type PartnerMessage = { id: string; author: 'agent' | 'member' | 'system'; name: string | null; text: string; createdAt: string }
 /** The Run a Task's private-result notice points to, by the link the notice carries. */
-const PRIVATE_NOTICE = new RegExp(`${PRIVATE_RUN_SUMMARY.replace(/[.]/gu, '\\.')}\\s*\\[Open private Run\\]\\(/runs/([0-9a-f-]{36})\\)`, 'u')
+const PRIVATE_NOTICE = /Private result available to the initiating Member\.\s*\[Open private Run\]\(\/runs\/([0-9a-f-]{36})\)/u
 async function discussionMessages(env: L4Env, channelId: string | null, limit: number, reader: string | null = null): Promise<PartnerMessage[]> {
   if (!channelId || limit <= 0) return []
   const rows = (await env.DB.prepare(`SELECT m.id,m.content,m.created_at AS createdAt,u.kind,u.display_name AS name FROM messages m JOIN users u ON u.id=m.author_id
