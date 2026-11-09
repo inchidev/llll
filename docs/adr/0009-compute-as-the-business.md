@@ -32,9 +32,23 @@ The earlier plan of a flat Cloud price per Server (and before it a Business key 
 
 The ceilings take one shape: a free base per Cloud Server plus a fixed increment per dollar of Compute spent in the month, one for files in gigabytes and one for call participant-minutes. Over the files ceiling, new uploads pause and nothing is deleted; over the calls ceiling, new calls wait for the next month. The numbers live only in `llll-cloud`, next to the prices. A Server on its own infrastructure has no ceilings: the storage and the calls are the operator's.
 
-**Compute is prepaid credit in money, under a spend limit.** Paddle's metering does not bill overage, so Compute is bought as credit (a prepaid balance in cents, never per hour pack), and each box run draws minutes times its size's price from that balance. The Owner sets a monthly spend limit; a box is not started when the limit or the balance is reached. A balance belongs to one Server and does not expire; refunds take back the same share. Hours as the unit of the ledger go, because sizes have different prices.
+**Compute is prepaid credit in money, under a spend limit.** *(Superseded for accounts by the amendment below; partners keep it.)* Paddle's metering does not bill overage, so Compute is bought as credit (a prepaid balance in cents, never per hour pack), and each box run draws minutes times its size's price from that balance. The Owner sets a monthly spend limit; a box is not started when the limit or the balance is reached. A balance belongs to one Server and does not expire; refunds take back the same share. Hours as the unit of the ledger go, because sizes have different prices.
 
 **Features stay off the strategy.** A feature enters the roadmap when it removes an obstacle for a real team using L4, not because Orbit shipped it, an announcement looked good, an agent could build it overnight or issues piled up.
+
+## Amendment 2026-11-09: a Compute subscription per account
+
+Decided with the owner after making the Lizard templates and reading how Lizard bills us. It replaces "Compute is prepaid credit in money" above for everything except partners; the workspace stays free, and nothing is priced per Server, Space, person, message or feature.
+
+**L4 Compute is a subscription of an account: $19 a month, which includes $19 of Compute use.** Use is still priced by the minute of a box at its size's hourly price. Included use that a billing period does not spend expires at its end, so $19 is the least a paying account pays in a month; use beyond it is overage, billed after the fact by a one-time charge on the subscription (Paddle's `POST /subscriptions/{id}/charge`), at the end of the period or at once when it reaches $20, and never above the account's monthly limit. There is no free Compute and no trial: every minute of a box costs us money at Lizard, and a card on file is the barrier that keeps free boxes from mining and spam, as Lizard keeps its own.
+
+**One wallet for all of an account's Servers.** The subscription belongs to the account, not to a Server, so a person with several Servers has one balance and one bill. A hosted Server is paid by the account that owns it on L4 Cloud; a Server on its own infrastructure linked to L4 Compute is paid by the account that linked it. The account sets a monthly limit on its total (by default $50) and may set a limit per Server. A box does not start without an active subscription, while a payment is past due, or at either limit; running boxes stop at the next hourly sweep, and no data is touched.
+
+**Partners keep prepaid credit per Server.** A partner such as AfterPrompt pays L4 Cloud for its users' Servers by adding credit to a Server (ADR 0012's `credit/add`); that credit does not expire, and such a Server needs no subscription.
+
+**Why not prepaid packs any more.** Paddle cannot bill metered overage by itself, which is why credit was prepaid; it can charge a subscription's card once for an amount we compute, which removes the reason. Packs made the buyer decide how much to buy before working and left credit stranded on one Server. Nothing had been sold under packs, so nothing moves.
+
+**Lizard's ceiling.** Lizard's Pro plan runs at most 40 vCPU of sandboxes at once for the whole of L4 Cloud (20 Small boxes); its higher plans raise that. The plan has to grow with paying accounts before it is the limit.
 
 ## Unknowns to settle before building billing
 
