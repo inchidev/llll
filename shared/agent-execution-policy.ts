@@ -8,9 +8,11 @@ export const agentExecutionPolicySchema = z.object({
   maxSteps: z.number().int().min(1).max(2048).default(256),
   maxModelCalls: z.number().int().min(1).max(2048).default(256),
   maxToolCalls: z.number().int().min(1).max(32768).default(4096),
-  maxTokens: z.number().int().min(16000).max(20000000).default(2000000),
+  /** Every model call resends the conversation, so a build of a few dozen calls with a large context needs tens of
+   * millions; the limit stops a runaway Run, not ordinary work. */
+  maxTokens: z.number().int().min(16000).max(100000000).default(20000000),
   maxDurationMs: z.number().int().min(60000).max(86400000).default(21600000),
-  dailyTokens: z.number().int().min(16000).max(200000000).default(20000000),
+  dailyTokens: z.number().int().min(16000).max(1000000000).default(200000000),
   dailyRuns: z.number().int().min(1).max(10000).default(500),
   repeatedToolCalls: z.number().int().min(2).max(50).default(6),
   maxChildRuns: z.number().int().min(0).max(256).default(64),
