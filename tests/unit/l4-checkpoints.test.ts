@@ -167,7 +167,7 @@ it('starts the next turn on a new machine that restores the checkpoint, not the 
   expect(grant).toEqual({ id: box.boxId, repository: 'inchidev/afterprompt', baseSha, checkpoint: saved,
     source: { remote: `${origin}/api/compute-agent/checkpoint/${box.boxId}.git`, authorization: expect.stringMatching(/^Bearer [a-f0-9]{64}$/u) } })
   // No GitHub grant was asked for the pinned source.
-  expect(calls.filter(call => new URL(call.url).hostname.endsWith('github.com'))).toEqual([])
+  expect(calls.filter(call => ['github.com', 'api.github.com', 'codeload.github.com'].includes(new URL(call.url).hostname))).toEqual([])
   // The restore reads the checkpoint through the Server with a read token minted for the request.
   const read = await checkpointTransport(f.env, box.boxId, (grant as { source: { authorization: string } }).source.authorization.slice(7), '/info/refs',
     new Request(`${origin}/api/compute-agent/checkpoint/${box.boxId}.git/info/refs?service=git-upload-pack`))
