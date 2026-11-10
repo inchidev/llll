@@ -10,7 +10,7 @@ try {
   // GitHub: a single-repository read token. Otherwise the Server's own read-only source address and capability.
   const brokered=typeof remote==='string'
   if(!/^[a-f0-9]{40}$/u.test(baseSha))throw new Error('Invalid source request')
-  if(brokered?!(/^https:\/\/[^/@]+\/api\/compute-agent\/source\/[a-f0-9-]{36}\.git$/u.test(remote)&&/^Bearer [a-f0-9]{64}$/u.test(authorization)):!(/^[\w.-]+\/[\w.-]+$/u.test(repository)&&typeof token==='string'))throw new Error('Invalid source request')
+  if(brokered?!(/^https:\/\/[^/@]+\/api\/compute-agent\/(?:source|checkpoint)\/[a-f0-9-]{36}\.git$/u.test(remote)&&/^Bearer [a-f0-9]{64}$/u.test(authorization)):!(/^[\w.-]+\/[\w.-]+$/u.test(repository)&&typeof token==='string'))throw new Error('Invalid source request')
   const url=brokered?remote:`https://github.com/${repository}.git`
   const env={PATH:process.env.PATH,HOME:'/tmp',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ASKPASS:'/bin/false',
     GIT_CONFIG_COUNT:'4',GIT_CONFIG_KEY_0:brokered?`http.${new URL(remote).origin}/.extraheader`:'http.https://github.com/.extraheader',GIT_CONFIG_VALUE_0:brokered?'AUTHORIZATION: '+authorization:'AUTHORIZATION: basic '+Buffer.from('x-access-token:'+token).toString('base64'),

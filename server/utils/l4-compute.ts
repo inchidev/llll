@@ -12,6 +12,7 @@ import { fail } from './cf'
 import { requireComputeOwner } from './compute-nodes'
 import { factoryHash } from './factory-authority'
 import { sameCapability } from './factory-boxes'
+import { deleteBoxCheckpoints } from './box-checkpoints'
 import { writeAudit } from './messages'
 
 /**
@@ -260,8 +261,9 @@ export const L4_BOX_LOST_MS = 3 * 60_000
 /**
  * A box on L4 Compute whose own Node is gone (its sandbox ended or was removed, or the Node is disabled) cannot take
  * another turn: its disk went with its sandbox. Its llll.gg box is let go, its Node revoked, and the box goes back to
- * the placement as new (no lease, no head), keeping what it published, so the turn asks llll.gg for a box again and
- * starts from the pinned source. A box not yet paired, or whose Node is alive, is left alone. Returns whether it reset.
+ * the placement as new (no lease), keeping what it published and its last acknowledged checkpoint, so the turn asks
+ * llll.gg for a box again and starts from that checkpoint, or from the pinned source when it has none. Work after the
+ * checkpoint went with the sandbox. A box not yet paired, or whose Node is alive, is left alone. Returns whether it reset.
  */
 export async function resetLostL4Box(env: L4Env, boxId: string, placementNodeId: string, now = Date.now()) {
   const row = await env.DB.prepare(`SELECT b.cloud_box_id AS cloudBoxId,n.id AS nodeId,n.enabled,n.last_seen AS lastSeen,n.placement_id AS placementId
@@ -272,7 +274,7 @@ export async function resetLostL4Box(env: L4Env, boxId: string, placementNodeId:
   if (credential) await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}`, { method: 'DELETE' }).catch(() => undefined)
   await env.DB.batch([
     env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,
-      head_sha=NULL,checkpoint_sha=NULL,updated_at=? WHERE id=?`).bind(placementNodeId, nowIso(), boxId),
+      updated_at=? WHERE id=?`).bind(placementNodeId, nowIso(), boxId),
     env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE id=?').bind(await factoryHash(secret()), row.nodeId),
     env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(boxId),
   ])
@@ -281,8 +283,35 @@ export async function resetLostL4Box(env: L4Env, boxId: string, placementNodeId:
 }
 
 /**
- * Releases boxes of this Server on L4 Compute: llll.gg stops and bills each one, the box is released here and
- * its Node revoked. Boxes on other Nodes are left alone, so the caller may pass any box ids.
+ * An idle box on L4 Compute gives its machine back: llll.gg bills a box for as long as it lives, and an idle one only
+ * keeps its disk. Its daemon saved the disk to the box's checkpoint and says, as it reports the box stopped, which
+ * checkpoint that is. Only when that is the box's acknowledged checkpoint and no turn waits for it does the box go
+ * back to the placement as new, keeping its checkpoint, and its llll.gg box and Node go; the next turn asks llll.gg
+ * for a box, which restores the checkpoint. The box moves first, in one statement that a new turn's claim on it
+ * would fail, so a turn never waits on a machine that is going. Returns whether it parked.
+ */
+export async function parkL4Box(env: L4Env, boxId: string, nodeId: string, placementNodeId: string, saved: string) {
+  const row = await env.DB.prepare(`SELECT cloud_box_id AS cloudBoxId FROM factory_boxes WHERE id=? AND node_id=? AND status='stopped' AND checkpoint_sha=? AND cloud_box_id IS NOT NULL`)
+    .bind(boxId, nodeId, saved).first<{ cloudBoxId: string }>()
+  if (!row) return false
+  const moved = await env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=?
+    WHERE id=? AND node_id=? AND status='stopped' AND checkpoint_sha=? AND cloud_box_id=? AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')) RETURNING id`)
+    .bind(placementNodeId, nowIso(), boxId, nodeId, saved, row.cloudBoxId).first()
+  if (!moved) return false
+  await env.DB.batch([
+    env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE id=?').bind(await factoryHash(secret()), nodeId),
+    env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(boxId),
+  ])
+  // Like a release, one llll.gg cannot be told about now is left to its sweep.
+  const credential = await l4ComputeCredential(env)
+  if (credential) await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}`, { method: 'DELETE' }).catch(() => undefined)
+  console.info('l4-compute.box_parked', { boxId })
+  return true
+}
+
+/**
+ * Releases boxes of this Server on L4 Compute: llll.gg stops and bills each one, the box is released here, its Node
+ * revoked and its checkpoint repository deleted. Boxes on other Nodes are left alone, so the caller may pass any box ids.
  */
 export async function releaseL4Boxes(env: L4Env, boxIds: string[]) {
   if (!boxIds.length) return []
@@ -299,6 +328,7 @@ export async function releaseL4Boxes(env: L4Env, boxIds: string[]) {
       env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(row.id),
     ])
   }
+  await deleteBoxCheckpoints(env, rows.results.map(row => row.id))
   return rows.results.map(row => row.id)
 }
 

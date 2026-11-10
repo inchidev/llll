@@ -14,6 +14,7 @@ import { requireArtifacts } from './factory-artifacts'
 import { fail } from './cf'
 import { boxSecretsInput, boxSourceInput, boxSyncInput, boxTurnInput, computeSecrets, computeSync, computeTurn, leaseCapability, leasedBox } from './factory-boxes'
 import type { RunEnvironment } from '../../shared/code-environments'
+import { boxCheckpointedInput, boxCheckpointInput, checkpointRestore, computeCheckpoint, computeCheckpointed } from './box-checkpoints'
 
 /** A Gitea token never reaches a Node. The Node fetches through this Server with a capability bound to
  * the box and its lease, so it ends with the lease. */
@@ -93,19 +94,26 @@ export const computePollSchema = z.discriminatedUnion('operation', [
   boxTurnInput,
   boxSourceInput,
   boxSecretsInput,
+  // An L4 Compute box saves its disk to its checkpoint when idle, and it is acknowledged.
+  boxCheckpointInput,
+  boxCheckpointedInput,
   z.object({ operation: z.literal('publish'), approvalId }).strict(),
   z.object({ operation: z.literal('published'), approvalId, ok: z.boolean(), message: z.string().max(500).optional() }).strict(),
 ])
 /**
  * A box's first start fetches the Task's pinned source, as a bootstrap did: GitHub gives the Node's trusted
  * fetch broker a single-repository read token, which it revokes after use; for Gitea the Node fetches through
- * this Server with a capability bound to the box and its lease. Either ends with the lease.
+ * this Server with a capability bound to the box and its lease. Either ends with the lease. A box on L4 Compute
+ * starting on a new machine with a checkpoint is given that checkpoint instead, through this Server the same way.
  */
 export async function computeBoxSource(env: L4Env, nodeId: string, input: z.infer<typeof boxSourceInput>) {
   const box = await leasedBox(env, input.boxId, input.lease, nodeId)
   if (!box) fail(403, 'box_source_denied', 'This box holds no lease for a running turn')
   const environment = JSON.parse(box.environmentJson) as RunEnvironment
   const pinned = { id: box.id, repository: environment.sourceRepo, baseSha: environment.baseSha }
+  // An L4 Compute box with a checkpoint continues from it on its new machine, never from the pinned source.
+  const restore = await checkpointRestore(env, nodeId, box.id, input.lease)
+  if (restore) return { ...pinned, ...restore }
   if (environment.provider === 'gitea' || environment.provider === 'artifacts') {
     // The credential stays on the Server: the Node fetches through it.
     if (environment.provider === 'gitea') await giteaCredentials(env, environment.gitConnectionId)
@@ -124,6 +132,8 @@ export async function computePoll(env: L4Env, nodeId: string, input: z.infer<typ
   if (input.operation === 'turn') return computeTurn(env, nodeId, input)
   if (input.operation === 'source') return computeBoxSource(env, nodeId, input)
   if (input.operation === 'secrets') return computeSecrets(env, nodeId, input)
+  if (input.operation === 'checkpoint') return computeCheckpoint(env, nodeId, input)
+  if (input.operation === 'checkpointed') return computeCheckpointed(env, nodeId, input)
   await expireApprovals(env)
   if (input.operation === 'publish') return computePublish(env, nodeId, input.approvalId)
   return publishedApproval(env, nodeId, input.approvalId, input)

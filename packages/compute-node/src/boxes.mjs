@@ -1,16 +1,19 @@
 import { createBoxCa } from './box-ca.mjs'
 import { pushRef } from './push-branch.mjs'
 
-/** A box with no turn for this long stops; its disk stays until its Task is Done. */
+/** A box with no turn for this long stops; its disk stays until its Task is Done, or on L4 Compute until it is saved. */
 export const BOX_IDLE_MS = 15 * 60 * 1000
 const MAX_REPORTED = 64, NO_LEASE = '0'.repeat(64)
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value)
 const lease = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
 const commit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value)
-const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}` })
+const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}`, save: `l4-save-${id}` })
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'FTP_PROXY', 'ftp_proxy']
 /** Where the box finds its own authority: Node adds it to its roots, the rest read the bundle with the system roots. */
 const BOX_CA = ['--env', 'NODE_EXTRA_CA_CERTS=/run/l4-ca/ca.pem', ...['SSL_CERT_FILE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'].flatMap(key => ['--env', `${key}=/run/l4-ca/bundle.pem`])]
+
+/** What the conversation hears when a box on a new machine cannot get its saved work back. */
+export const RESTORE_FAILED = 'The Agent’s box could not bring back its saved work on a new machine, and did not start over from the repository instead. Ask again; if this happens again, the Task’s checkpoint needs a look.'
 
 /** Why a box refused a turn, in the box's own words when they are short and plain, for the conversation. */
 export function refusal(error) {
@@ -52,6 +55,12 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  * Project secret the proxy terminates TLS with the box's own authority, made fresh for each start; the box gets
  * only its certificate. The authority's key and the secrets' values go to the proxy through its control socket
  * by docker exec, never through a disk, an environment variable or the box.
+ *
+ * On L4 Compute, where the machine is billed for as long as it lives, the Server's sync says `checkpoint`: an idle
+ * box is then stopped, its disk saved to the box's private checkpoint repository through the Server (checkpoint.mjs:
+ * a throwaway container with no network writes it to the scratch disk, another with the scratch disk only pushes it),
+ * and once the Server has acknowledged it the box is reported stopped with that checkpoint, so the Server may let the
+ * machine go. A box starting on a new machine is restored from its checkpoint instead of the pinned source.
  */
 export function createBoxHost({ docker, poll, disks, fetchSource, records, connection, image, server, capacity, diskFree,
   scratch, upload, egressFiles, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
@@ -61,7 +70,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
 
   const track = saved => {
     const box = { id: saved.id, lease: saved.lease, taskId: saved.taskId, ready: Boolean(saved.ready), runtimeMs: saved.runtimeMs ?? 0, state: 'stopped',
-      upSince: null, lastActive: now(), runId: null, finished: new Set(), pending: null, queue: Promise.resolve(), answer: null, mount: null }
+      upSince: null, lastActive: now(), runId: null, finished: new Set(), pending: null, queue: Promise.resolve(), answer: null, mount: null, checkpoint: false, saved: null }
     boxes.set(box.id, box)
     return box
   }
@@ -82,8 +91,10 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     const start = stopped.length ? rotation % stopped.length : 0
     rotation += room
     const listed = [...working.slice(0, MAX_REPORTED), ...[...stopped.slice(start), ...stopped.slice(0, start)].slice(0, room)]
-    // A box being stopped no longer counts against the Node.
-    return listed.map(box => ({ id: box.id, lease: box.lease, state: box.state === 'stopping' ? 'stopped' : box.state, ...(box.runId ? { runId: box.runId } : {}), runtimeMs: runtime(box) }))
+    // A box being stopped no longer counts against the Node; one being saved keeps its lease, which its save needs.
+    // A stopped box says which acknowledged checkpoint its disk is, with no turn since: the Server may then let it go.
+    return listed.map(box => ({ id: box.id, lease: box.lease, state: box.state === 'stopping' ? 'stopped' : box.state === 'saving' ? 'idle' : box.state,
+      ...(box.runId ? { runId: box.runId } : {}), runtimeMs: runtime(box), ...(box.state === 'stopped' && box.saved ? { saved: box.saved } : {}) }))
   }
 
   async function control(box, request, options = {}) {
@@ -103,17 +114,26 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     } catch { /* The Run ends at its deadline instead. */ }
   }
 
+  /**
+   * The box's first start on this Node: the Task's pinned source, or for a box that gave its machine back, its
+   * acknowledged checkpoint, fetched the same way and restored in the same throwaway container. A checkpoint that
+   * cannot be restored fails the start; the box never starts over from the pinned source instead.
+   */
   async function bootstrap(box) {
     const grant = await poll({ operation: 'source', boxId: box.id, lease: box.lease })
-    const fetched = await fetchSource(grant)
+    const restoring = grant?.checkpoint !== undefined
     try {
-      const output = await docker(['run', '--rm', '-i', '--name', names(box.id).checkout, ...labels(box), '--network', 'none', '--read-only', '--user', '1000:1000',
-        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '64', '--memory', '1g', '--cpus', '1',
-        '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000', '--mount', `type=volume,src=${names(box.id).volume},dst=/work`,
-        '--mount', `type=bind,src=${fetched.bundle},dst=/bootstrap/source.bundle,readonly`, image, 'node', '/opt/agent/src/checkout.mjs'],
-      { input: JSON.stringify({ baseSha: grant.baseSha }), timeoutMs: 300000, limit: 10000 })
-      if (!lines(output).at(-1)?.ok) throw new Error('Checkout failed')
-    } finally { await fetched.release() }
+      if (restoring && !commit(grant.checkpoint)) throw new Error('Invalid checkpoint grant')
+      const fetched = await fetchSource(restoring ? { ...grant, baseSha: grant.checkpoint } : grant)
+      try {
+        const output = await docker(['run', '--rm', '-i', '--name', names(box.id).checkout, ...labels(box), '--network', 'none', '--read-only', '--user', '1000:1000',
+          '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '64', '--memory', '1g', '--cpus', '1',
+          '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000', '--mount', `type=volume,src=${names(box.id).volume},dst=/work`,
+          '--mount', `type=bind,src=${fetched.bundle},dst=/bootstrap/source.bundle,readonly`, image, 'node', restoring ? '/opt/l4/checkpoint.mjs' : '/opt/agent/src/checkout.mjs'],
+        { input: JSON.stringify(restoring ? { operation: 'restore', checkpoint: grant.checkpoint, baseSha: grant.baseSha } : { baseSha: grant.baseSha }), timeoutMs: 300000, limit: 10000 })
+        if (!lines(output).at(-1)?.ok) throw new Error('Checkout failed')
+      } finally { await fetched.release() }
+    } catch (error) { throw restoring ? Object.assign(new Error('Restore failed', { cause: error }), { restore: true }) : error }
   }
 
   let systemRoots = null
@@ -164,6 +184,8 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     const want = box.answer
     if (!want || box.state !== 'starting') return
     const { box: name, egress, network, volume } = names(box.id)
+    // From here the disk may change again: it is no longer the checkpoint it was saved as.
+    box.saved = null
     try {
       if (want.image !== image) throw new Error('The Server names another box image')
       let existing
@@ -210,7 +232,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       log('compute.box_start_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' })
       const runId = box.pending
       box.pending = null
-      if (runId) { box.finished.add(runId); await failTurn(box, runId, 'The Agent’s box could not start on its Compute Node. Check the Node’s disk, source access and Docker, then ask again.') }
+      if (runId) { box.finished.add(runId); await failTurn(box, runId, error?.restore ? RESTORE_FAILED : 'The Agent’s box could not start on its Compute Node. Check the Node’s disk, source access and Docker, then ask again.') }
       return
     }
     if (box.pending) beginTurn(box, box.pending)
@@ -329,6 +351,43 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     }
   }
 
+  /**
+   * Saves a stopped box's disk as its checkpoint, through the Server with the capability it grants for this box and
+   * lease, and has the Server acknowledge it. Returns the acknowledged checkpoint. It uses the scratch disk, so it
+   * waits for any publication, as each publication waits for the one before.
+   */
+  async function checkpoint(box) {
+    const grant = await poll({ operation: 'checkpoint', boxId: box.id, lease: box.lease })
+    if (!commit(grant?.baseSha) || (grant.previous !== null && !commit(grant.previous)) || typeof grant.remote !== 'string' || typeof grant.authorization !== 'string') throw new Error('Invalid checkpoint grant')
+    const id = crypto.randomUUID(), directory = await scratch.ensure(id)
+    try {
+      const saved = lines(await docker(['run', '--rm', '-i', '--name', names(box.id).save, ...labels(box), '--network', 'none', ...hardened,
+        '--mount', `type=volume,src=${names(box.id).volume},dst=/work`, '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/checkpoint.mjs'],
+      { input: JSON.stringify({ operation: 'save', baseSha: grant.baseSha, previous: grant.previous }), timeoutMs: 600000, limit: 10000 })).at(-1)
+      if (!saved?.ok || !commit(saved.checkpoint) || !commit(saved.head)) throw new Error('The checkpoint could not be written')
+      // The capability goes on stdin to a container with the copy only; the box's disk is not there.
+      const pushed = lines(await docker(['run', '--rm', '-i', '--name', names(box.id).push, ...labels(box), '--network', 'bridge', ...hardened,
+        '--mount', `type=bind,src=${directory},dst=/mirror`, image, 'node', '/opt/l4/checkpoint.mjs'],
+      { input: JSON.stringify({ operation: 'push', remote: grant.remote, authorization: grant.authorization, sha: saved.checkpoint }), timeoutMs: 600000, limit: 10000 })).at(-1)
+      if (!pushed?.ok) throw new Error('The checkpoint could not be pushed')
+      await poll({ operation: 'checkpointed', boxId: box.id, lease: box.lease, checkpoint: saved.checkpoint, head: saved.head })
+      return saved.checkpoint
+    } finally { await scratch.remove(id).catch(() => {}) }
+  }
+
+  /** An idle box on L4 Compute: it stops, so nothing writes while its disk is saved, and is reported stopped with its checkpoint. */
+  async function park(box) {
+    if (box.state !== 'saving') return
+    await removeContainers(box)
+    let saved = null
+    const saving = publishing.then(() => checkpoint(box))
+    publishing = saving.catch(() => {})
+    try { saved = await saving } catch (error) { log('compute.box_checkpoint_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed', status: error?.status }) }
+    // Unsaved, the box only stops: its disk and machine stay until the next idle save or the Task is Done.
+    await stop(box)
+    box.saved = saved
+  }
+
   function apply(answer) {
     if (!answer || !uuid(answer.id) || !lease(answer.lease) || !['running', 'stopped', 'released'].includes(answer.want)) return
     let box = boxes.get(answer.id)
@@ -345,6 +404,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     // The box holds this lease now; one the Node held before is taken over, its containers kept.
     if (box.lease !== answer.lease) { box.lease = answer.lease; save(box) }
     box.answer = answer
+    box.checkpoint = answer.checkpoint === true
     const turn = uuid(answer.turn?.runId) ? answer.turn.runId : null
     if (answer.cancelRunId && box.runId === answer.cancelRunId) void control(box, { op: 'cancel', runId: answer.cancelRunId }).catch(() => {})
     if (box.state === 'stopped' || box.state === 'failed') {
@@ -366,7 +426,11 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     async sync() {
       const answer = await poll({ operation: 'sync', capacity: { ...capacity, diskFree: await diskFree() }, boxes: report() })
       for (const box of Array.isArray(answer?.boxes) ? answer.boxes : []) apply(box)
-      for (const box of boxes.values()) if (box.state === 'idle' && !box.runId && now() - box.lastActive >= idleMs) { box.state = 'stopping'; enqueue(box, () => stop(box)) }
+      for (const box of boxes.values()) if (box.state === 'idle' && !box.runId && now() - box.lastActive >= idleMs) {
+        // On L4 Compute the box is saved first, so its machine can go; it keeps its lease meanwhile.
+        if (box.checkpoint && scratch) { box.state = 'saving'; enqueue(box, () => park(box)) }
+        else { box.state = 'stopping'; enqueue(box, () => stop(box)) }
+      }
     },
     /** Every queued start, stop and release, and every publication, has finished. */
     async settled() { await Promise.all([...boxes.values()].flatMap(box => [box.queue, box.egressQueue])); await publishing },

@@ -32,7 +32,7 @@ export async function factoryStatus(env: L4Env, runId: string) {
   const modeInstruction = mode === 'role' ? 'Publishing your branch needs nobody’s approval in this mode.'
     : mode === 'plan' ? plan?.status === 'approved' ? 'Your approved plan covers publishing. Propose a new plan with factory_plan if the work changes.' : 'Propose a plan with factory_plan. Until a person approves it, each publication waits for review.'
     : 'Each publication waits for a person, who reads its diff.'
-  return { approvalMode: mode, provider: cloud ? 'cloudflare-containers' : isL4ComputeNode(context.capabilities) ? 'l4-compute' : 'docker-node', disk: cloud ? 'checkpointed to Artifacts between turns' : 'persistent Task disk',
+  return { approvalMode: mode, provider: cloud ? 'cloudflare-containers' : isL4ComputeNode(context.capabilities) ? 'l4-compute' : 'docker-node', disk: cloud ? 'checkpointed to Artifacts between turns' : isL4ComputeNode(context.capabilities) && env.FACTORY_CODE ? 'Task disk, checkpointed to Artifacts after 15 idle minutes and restored on a new machine; ignored files and dependency caches are not kept' : 'persistent Task disk',
     boxId: box?.id ?? null, status: box?.status ?? 'new', repository: context.environment.sourceRepo, gitProvider: context.environment.provider, baseBranch: context.environment.baseBranch, baseSha: context.environment.baseSha,
     branch: target?.ref ?? null, gitFlow, pushedSha: box?.pushedSha ?? null, runtimeMs: box?.runtimeMs ?? 0, publications: box?.publicationCount ?? 0,
     pull: box?.pullJson ? JSON.parse(box.pullJson) : null,

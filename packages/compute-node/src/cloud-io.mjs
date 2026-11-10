@@ -38,6 +38,56 @@ async function publication(input) {
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
+
+/**
+ * The private checkpoint of a box's checkout, as `l4-state` holds it: a commit whose first parent is HEAD, whose
+ * second is the index, written as a commit of its own, and whose third, when there is one, is the previous
+ * checkpoint. Its tree is every working file, untracked ones too, except what the repository ignores and the
+ * disposable caches below. A Cloudflare box and an L4 Compute box (checkpoint.mjs) both write and read exactly this,
+ * through `run(cwd, args, env)`, their own hardened Git; restoring one gives back HEAD, the index and the files.
+ */
+export async function writeCheckpoint(run, root, { baseSha, previous }) {
+  await run(root, ['merge-base', '--is-ancestor', baseSha, 'HEAD'])
+  const head = await run(root, ['rev-parse', 'HEAD'])
+  const index = await run(root, ['write-tree'])
+  const identity = { GIT_AUTHOR_NAME: 'L4 private checkpoint', GIT_AUTHOR_EMAIL: 'checkpoint@local.invalid', GIT_COMMITTER_NAME: 'L4 private checkpoint', GIT_COMMITTER_EMAIL: 'checkpoint@local.invalid' }
+  const staged = await run(root, ['commit-tree', index, '-p', head, '-m', 'Private index checkpoint'], identity)
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'l4-checkpoint-'))
+  try {
+    const temporaryIndex = join(temporaryDirectory, 'index')
+    const ignore = join(temporaryDirectory, 'ignore')
+    const temporaryEnv = { ...identity, GIT_INDEX_FILE: temporaryIndex }
+    await run(root, ['read-tree', head], temporaryEnv)
+    // Explicitly disposable caches. Tracked source remains in history and checkpoints.
+    await writeFile(ignore, 'node_modules/\n.nuxt/\n.output/\ndist/\nbuild/\n.cache/\n', { flag: 'wx', mode: 0o600 })
+    await run(root, ['-c', `core.excludesFile=${ignore}`, 'add', '-A'], temporaryEnv)
+    const tree = await run(root, ['write-tree'], temporaryEnv)
+    const checkpoint = await run(root, ['commit-tree', tree, '-p', head, '-p', staged, ...(previous ? ['-p', previous] : []), '-m', 'Private working files checkpoint'], identity)
+    const count = await run(root, ['count-objects', '-v'])
+    const sizes = Object.fromEntries(count.split('\n').map(line => line.split(': ')))
+    if (1024 * (Number(sizes.size) + Number(sizes['size-pack'])) > 500000000) throw new Error('Code history exceeds the configured 500 MB checkpoint budget; export source before continuing')
+    return { checkpoint, head, tree }
+  } finally { await rm(temporaryDirectory, { recursive: true, force: true }) }
+}
+
+/** A fresh clone holding checkpoint `state` becomes the box's checkout again: branch `work` at its HEAD, its index and its files. */
+export async function checkoutCheckpoint(run, root, state) {
+  const parents = (await run(root, ['show', '-s', '--format=%P', state])).split(' ')
+  if (parents.length < 2 || parents.length > 3) throw new Error('Invalid code checkpoint')
+  await run(root, ['checkout', '-b', 'work', parents[0]])
+  await run(root, ['read-tree', '--reset', '-u', state])
+  await run(root, ['read-tree', parents[1]])
+}
+
+/** The checkout is the box's own from here: on the pinned base's history, no remote pointing back, no hooks. */
+export async function settleCheckout(run, root, baseSha) {
+  await run(root, ['merge-base', '--is-ancestor', baseSha, 'HEAD'])
+  await run(root, ['remote', 'remove', 'origin'])
+  await run(root, ['config', 'user.name', 'L4 Agent'])
+  await run(root, ['config', 'user.email', 'agent@local.invalid'])
+  await run(root, ['config', 'core.hooksPath', '/dev/null'])
+}
+
 export async function codeState(input) {
   if (input.operation === 'review' || input.operation === 'publish') {
     try { return await publication(input) } catch (error) { return { ok: false, message: error instanceof Error ? error.message.slice(0, 300) : 'Publication failed' } }
@@ -53,43 +103,17 @@ export async function codeState(input) {
       if (!/^[a-f0-9]{40}$/u.test(input.checkpoint)) throw new Error('Missing acknowledged checkpoint')
       const state = await git(root, ['rev-parse', 'refs/remotes/origin/l4-state'])
       if (state !== input.checkpoint) throw new Error('Checkpoint differs from the acknowledged state; inspect recovery')
-      const parents = (await git(root, ['show', '-s', '--format=%P', state])).split(' ')
-      if (parents.length < 2 || parents.length > 3) throw new Error('Invalid code checkpoint')
-      await git(root, ['checkout', '-b', 'work', parents[0]])
-      await git(root, ['read-tree', '--reset', '-u', state])
-      await git(root, ['read-tree', parents[1]])
+      await checkoutCheckpoint(git, root, state)
     }
-    await git(root, ['merge-base', '--is-ancestor', input.baseSha, 'HEAD'])
-    await git(root, ['remote', 'remove', 'origin'])
-    await git(root, ['config', 'user.name', 'L4 Agent'])
-    await git(root, ['config', 'user.email', 'agent@local.invalid'])
-    await git(root, ['config', 'core.hooksPath', '/dev/null'])
+    await settleCheckout(git, root, input.baseSha)
     return { ok: true }
   }
   if (input.operation !== 'checkpoint') throw new Error('Invalid code storage operation')
-  await git(root, ['merge-base', '--is-ancestor', input.baseSha, 'HEAD'])
-  const head = await git(root, ['rev-parse', 'HEAD'])
-  const index = await git(root, ['write-tree'])
-  const identity = { GIT_AUTHOR_NAME: 'L4 private checkpoint', GIT_AUTHOR_EMAIL: 'checkpoint@local.invalid', GIT_COMMITTER_NAME: 'L4 private checkpoint', GIT_COMMITTER_EMAIL: 'checkpoint@local.invalid' }
-  const staged = await git(root, ['commit-tree', index, '-p', head, '-m', 'Private index checkpoint'], identity)
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'l4-checkpoint-'))
-  try {
-  const temporaryIndex = join(temporaryDirectory, 'index')
-  const ignore = join(temporaryDirectory, 'ignore')
-  const temporaryEnv = { ...identity, GIT_INDEX_FILE: temporaryIndex }
-  await git(root, ['read-tree', head], temporaryEnv)
-  // Explicitly disposable caches. Tracked source remains in history and checkpoints.
-  await writeFile(ignore, 'node_modules/\n.nuxt/\n.output/\ndist/\nbuild/\n.cache/\n', { flag: 'wx', mode: 0o600 })
-  await git(root, ['-c', `core.excludesFile=${ignore}`, 'add', '-A'], temporaryEnv)
-  const tree = await git(root, ['write-tree'], temporaryEnv)
-  const checkpoint = await git(root, ['commit-tree', tree, '-p', head, '-p', staged, ...(input.checkpoint ? ['-p', input.checkpoint] : []), '-m', 'Private working files checkpoint'], identity)
-  const count = await git(root, ['count-objects', '-v'])
-  const sizes = Object.fromEntries(count.split('\n').map(line => line.split(': ')))
-  if (1024 * (Number(sizes.size) + Number(sizes['size-pack'])) > 500000000) throw new Error('Code history exceeds the configured 500 MB checkpoint budget; export source before continuing')
+  const { checkpoint, head, tree } = await writeCheckpoint(git, root, { baseSha: input.baseSha, previous: input.checkpoint })
   await git(root, ['push', `--force-with-lease=refs/heads/l4-state:${input.checkpoint ?? ''}`, input.remote, `${checkpoint}:refs/heads/l4-state`])
   return { ok: true, checkpoint, head, tree }
-  } finally { await rm(temporaryDirectory, { recursive: true, force: true }) }
 }
+
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   try {

@@ -5,8 +5,11 @@
  * A push to a base branch (a direct_push Git flow) must also replace exactly the head the Server read when it
  * claimed the push: the receiving server applies the update only while the branch is still there.
  */
-/** What one approved push may do: set `ref` to `sha`, and where `old` is given, only from that head. */
-export type ExpectedPush = { ref: string; sha: string; old?: string }
+/**
+ * What one approved push may do: set `ref` to `sha`, and where `old` is given, only from that head. A `sha` of null
+ * lets any commit through: only a box's own private checkpoint, whose content is the box's disk anyway.
+ */
+export type ExpectedPush = { ref: string; sha: string | null; old?: string }
 export type ReceiveCommand = { old: string; new: string; ref: string }
 export type ReceivePack = { commands: ReceiveCommand[]; capabilities: string[]; end: number }
 
@@ -66,7 +69,7 @@ export function receivePackRefusal(pack: ReceivePack, expected: ExpectedPush) {
   if (!SHA.test(command.old) || !SHA.test(command.new)) return 'Invalid object name'
   if (command.ref !== expected.ref) return 'Only the Task’s own branch may be pushed'
   if (command.new === ZERO) return 'A branch cannot be deleted'
-  if (command.new !== expected.sha) return 'Only the approved commit may be pushed'
+  if (expected.sha !== null && command.new !== expected.sha) return 'Only the approved commit may be pushed'
   if (expected.old !== undefined && command.old !== expected.old) return 'The base branch may only move forward from the head it had when the push was approved'
   const unknown = pack.capabilities.find(capability => !CAPABILITIES.has(capability) && !PREFIXED.some(prefix => capability.startsWith(prefix)))
   if (unknown) return `Push capability ${unknown.split('=')[0]} is not accepted`

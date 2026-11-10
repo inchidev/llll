@@ -326,11 +326,12 @@ export async function createProjectRelease(env: L4Env, auth: AuthorizationContex
 }
 
 /**
- * Git smart HTTP for a VPS Node, through this Server: one service of the Project's repository, with a token
- * minted for this request and revoked after it. A receive-pack forwards only `<old> <approved sha> <ref>`, read
- * before anything is sent, as for Gitea; redirects are refused.
+ * Git smart HTTP for a Node, through this Server: one service of the Project's repository, or of an L4 Compute
+ * box's private checkpoint repository, with a token minted for this request and revoked after it. A receive-pack
+ * forwards only `<old> <approved sha> <ref>`, read before anything is sent, as for Gitea; redirects are refused.
+ * A repository whose remote the environment recorded must still be there; a checkpoint repository has none (null).
  */
-export async function artifactsTransport(env: L4Env, item: RunEnvironment, suffix: string, incoming: Request, access: { service: 'git-upload-pack' } | { service: 'git-receive-pack'; expected: ExpectedPush }) {
+export async function artifactsTransport(env: L4Env, item: Pick<RunEnvironment, 'sourceRepo'> & { remote?: string | null }, suffix: string, incoming: Request, access: { service: 'git-upload-pack' } | { service: 'git-receive-pack'; expected: ExpectedPush }) {
   const url = new URL(incoming.url)
   const advertisement = incoming.method === 'GET' && suffix === '/info/refs' && url.searchParams.get('service') === access.service && [...url.searchParams.keys()].length === 1
   if (!advertisement && !(incoming.method === 'POST' && suffix === `/${access.service}` && !url.search)) return new Response('Repository capability denied', { status: 403 })
@@ -343,7 +344,7 @@ export async function artifactsTransport(env: L4Env, item: RunEnvironment, suffi
   }
   const grant = await artifactsGrant(env, item.sourceRepo, access.service === 'git-receive-pack' ? 'write' : 'read', 120)
   try {
-    if (grant.remote !== item.remote) return new Response('Repository capability denied', { status: 403 })
+    if (item.remote !== null && grant.remote !== item.remote) return new Response('Repository capability denied', { status: 403 })
     const headers = new Headers({ Authorization: `Bearer ${grant.token}`, 'User-Agent': 'L4-git' })
     for (const name of ['content-type', 'accept', 'git-protocol', ...(access.service === 'git-upload-pack' ? ['content-encoding'] : [])]) { const value = incoming.headers.get(name); if (value) headers.set(name, value) }
     const response = await fetch(`${grant.remote}${suffix}${url.search}`, { method: incoming.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(120000), ...(body ? { duplex: 'half' } : {}) } as RequestInit)
