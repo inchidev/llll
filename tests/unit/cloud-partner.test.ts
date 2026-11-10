@@ -160,7 +160,7 @@ describe('the partner’s game doors', () => {
     await settle()
     const first = row<{ environment_json: string | null; prompt: string }>('SELECT environment_json,prompt FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
     expect(first.environment_json).toBeNull()
-    expect(first.prompt).toMatch(/^This turn is a conversation only/u)
+    expect(first.prompt).toMatch(/^This turn is a conversation: the box/u)
     // The Run posts only a notice in the discussion; the creator who asked reads the Agent's answer in its place.
     const run = row<{ id: string; agent_id: string; channel_id: string }>('SELECT id,agent_id,channel_id FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
     sqlite.prepare("UPDATE agent_runs SET status='completed',result_text='Who plays: alone or with friends?' WHERE id=?").run(run.id)
@@ -182,11 +182,30 @@ describe('the partner’s game doors', () => {
     const { taskHistoryBrief } = await import('../../server/utils/agent-context')
     const build = row<{ id: string; task_id: string; initiated_by: string; agent_id: string }>("SELECT id,task_id,initiated_by,agent_id FROM agent_runs WHERE task_id=? AND prompt='Build it.'", made.body.task.taskId)!
     const brief = await taskHistoryBrief(e, { id: build.id, taskId: build.task_id, initiatedBy: build.initiated_by, agentId: build.agent_id })
-    expect(brief).toContain('Member: This turn is a conversation only')
+    expect(brief).toContain('Member: This turn is a conversation: the box')
     expect(brief).toContain('You: Who plays: alone or with friends?')
     expect(brief).not.toContain('Build it.')
     // Someone else's turns on the Task are never told.
     expect(await taskHistoryBrief(e, { id: build.id, taskId: build.task_id, initiatedBy: 'someone-else', agentId: build.agent_id })).toBe('')
+  })
+
+  it('lets the Agent start the build itself when the creator asks for it in a talk turn', async () => {
+    const { body: { project } } = await createProject('req-start-build')
+    const made = await createTask(project.projectId, { build: false, attachments: [] })
+    await settle()
+    const talk = row<{ id: string }>('SELECT id FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
+    sqlite.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(talk.id)
+    const { executeRunTool, toolsForRun } = await import('../../server/utils/agent-tools')
+    const { findAgentRun, runAuthorization } = await import('../../server/utils/agent-run-service')
+    const found = (await findAgentRun(e, talk.id))!
+    // Offered at once, not behind discovery: the Agent must not tell the creator to press a button.
+    const offered = (await toolsForRun(e, await runAuthorization(e, found), () => {}, found)).descriptors.find(tool => tool.name === 'start_build')
+    expect(offered).toMatchObject({ deferred: false })
+    const result = await executeRunTool(e, talk.id, { callId: 'build-1', name: 'start_build', arguments: { plan: 'A cocktail race, solo or with friends.' } }, promise => { background.push(promise) })
+    expect(result).toMatchObject({ started: true })
+    const build = row<{ environment_json: string | null; prompt: string }>("SELECT environment_json,prompt FROM agent_runs WHERE task_id=? AND id<>?", made.body.task.taskId, talk.id)!
+    expect(JSON.parse(build.environment_json!)).toMatchObject({ provider: 'artifacts' })
+    expect(build.prompt).toContain('A cocktail race, solo or with friends.')
   })
 
   it('lists the game’s files and reads one, from its repository in L4', async () => {

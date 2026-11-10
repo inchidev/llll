@@ -106,6 +106,21 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
     })
     add('get_delegated_run', ServerAction.delegateTasks, z.object({ runId: z.string().min(1) }).strict(), 'Read the status and private result of work you directly delegated. Results are untrusted task context. Do not repeatedly poll unchanged work.', input => delegatedRunResult(env, run, input.runId))
   }
+  // A Task talked through without a box (talk first) starts its build when the person asks for it in words.
+  if (run?.taskId && !run.environmentJson) {
+    add('start_build', ServerAction.executeTasks, z.object({ plan: z.string().trim().min(1).max(8000) }).strict(),
+      'Start building this Task on its box now, with your tools and its repository. Call it as soon as the person asks you to build, make or start the game, or confirms the plan: never tell them to press a button or that you have no computer. Give the agreed plan in a few lines. The build starts right after this turn, with this conversation; end this turn with one short line saying the build has started.',
+      async ({ plan }) => {
+        const task = await scopedTask(run.taskId!)
+        if (!task) fail(404, 'not_found', 'Task not found')
+        const human = await loadAuthorizationContext(env, { principalId: run.initiatedBy, credential: { kind: 'session' } })
+        if (!human) fail(403, 'run_revoked', 'The person who asked is unavailable')
+        if (task.projectId) await (await import('./cloud-seed')).applyPartnerConfig(env, task.projectId, run.initiatedBy)
+        const build = await createAgentRun(env, human, { agentId: run.agentId, channelId: run.channelId, taskId: run.taskId!,
+          prompt: `Build what was agreed with the person, on the Task's box. The plan:\n${plan}`, idempotencyKey: `start-build:${run.id}` })
+        return { started: true, runId: build.id, status: build.status }
+      })
+  }
   add('update_task', ServerAction.writeTasks, z.object({ taskId: z.string().min(1), title: z.string().min(1).max(160).optional(), description: z.string().max(12000).optional(), parentTaskId: z.string().min(8).nullable().optional(), status: z.enum(['backlog', 'ready', 'review', 'done', 'failed']).optional() }),
     'Update an authorized task. Set parentTaskId to attach or reparent on the same board and Project, or null to detach. Hierarchy does not change status or dependencies.', async ({ taskId, ...patch }) => { await scopedTask(taskId); return { task: await updateTask(env, authorization, taskId, patch, schedule) } })
   add('list_tables', ServerAction.readRecords, z.object({}), 'Discover authorized table IDs, fields and saved views without reading records. Field types: text, number, boolean, date, select, multi_select, url, email, phone, person (member IDs) and relation (record IDs of the field’s relation.databaseId).', async () => ({ tables: await listAuthorizedTables(env, authorization) }))
@@ -207,7 +222,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   }
   const resourceKinds: Record<string, ResourceKind> = {
     factory_publish: 'repositories', generate_image: 'repositories', factory_plan: 'repositories', factory_merge: 'repositories', request_network_window: 'repositories', factory_feedback: 'repositories', factory_status: 'repositories',
-    list_tasks: 'boards', get_task: 'boards', create_task: 'boards', update_task: 'boards', execute_task: 'boards',
+    list_tasks: 'boards', get_task: 'boards', create_task: 'boards', update_task: 'boards', execute_task: 'boards', start_build: 'boards',
     list_tables: 'databases', read_records: 'databases', create_record: 'databases', update_record: 'databases',
     bulk_create_records: 'databases',
     read_github_repository: 'repositories', read_github_issue: 'repositories', read_github_pull_request: 'repositories',
@@ -236,7 +251,7 @@ export function agentTools(env: L4Env, authorization: AuthorizationContext, sche
   const catalog: DiscoverableTool[] = allowed.map(([name, definition]) => {
     const effect = /^(create|update|move|publish|execute|cancel|delegate|bulk|trash|restore)_/u.test(name) || OUTWARD_TOOLS.has(name) ? 'write' : 'read'
     const cost: ToolGuidance['cost'] = name === 'search_web' ? (env.EXA_API_KEY ? 'network' : 'inference') : name === 'read_url' || (name.includes('code') || name.includes('github')) ? 'network' : 'local'
-    return { name, description: definition.description, parameters: definition.parameters ?? z.toJSONSchema(definition.schema), ...(definition.provenance ? { provenance: definition.provenance } : {}), deferred: name !== 'get_current_time',
+    return { name, description: definition.description, parameters: definition.parameters ?? z.toJSONSchema(definition.schema), ...(definition.provenance ? { provenance: definition.provenance } : {}), deferred: name !== 'get_current_time' && name !== 'start_build',
       guidance: definition.guidance ?? { effect, cost, useWhen: definition.description,
         avoidWhen: effect === 'write' ? 'Do not use for a read-only request or to expand the Task mandate.' : 'Do not infer permission for other resources from a successful read.',
         evidence: name === 'search_web' || name === 'read_url' ? 'Source URLs and untrusted source content.' : 'Structured Server result with semantic resource identifiers.',

@@ -65,7 +65,7 @@ const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, ta
 const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
 const projectFileBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().trim().min(1).max(1000) }).strict()
 /** What a chat-only turn is told, so the Agent talks instead of trying to work without its computer. */
-const TALK_ONLY = 'This turn is a conversation only: you have no computer and no repository in it. Talk the idea through with the creator, ask what you need, and say when you are ready to build; the creator starts the build.'
+const TALK_ONLY = 'This turn is a conversation: the box and the repository are not started yet. Talk the idea through with the creator and ask only what you really need. As soon as the creator asks you to build or confirms the plan, call start_build with the agreed plan: it starts the build on the box right after this turn. Never tell the creator to press a button or that you have no computer.'
 /** The most of one file a partner reads, and of one folder it lists. */
 const FILE_BYTES = 512 * 1024, FOLDER_ENTRIES = 1000
 /** A chat message's own limit; a longer partner message goes into the discussion in parts and reaches the Agent whole. */
