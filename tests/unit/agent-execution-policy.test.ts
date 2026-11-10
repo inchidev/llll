@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => f.db.close())
 it('admits generous role-authorized limits and exposes permitted writes after reading untrusted content', async () => {
   const { run, authorization } = await f.run()
-  expect(JSON.parse(run.mandateJson)).toMatchObject({ execution: defaultAgentExecutionPolicy(), maxToolCalls: 4096, maxTokens: 2000000 })
+  expect(JSON.parse(run.mandateJson)).toMatchObject({ execution: defaultAgentExecutionPolicy(), maxToolCalls: 4096, maxTokens: 20000000 })
   await markUntrustedContext(f.env, run)
   expect((await toolsForRun(f.env, authorization, () => {}, run)).descriptors.some(t => t.name === 'create_task')).toBe(true)
   const result = await executeRunTool(f.env, run.id, { callId: 'write', name: 'create_task', arguments: { boardId: 'test-board', title: 'Authorized task' } }, () => {})

@@ -49,7 +49,7 @@ Some abilities are always explicit opt-ins on a Role, never implied by an admini
 
 ## Limits
 
-Runs are bounded. The Owner can set limits for new Runs in **Server settings → Agents → Execution**. The defaults are six hours, 256 steps and model calls, 4,096 tool calls and two million tokens per Run, and 500 Runs and 20 million tokens per Agent in 24 hours. A tool call whose outcome is uncertain is never silently repeated.
+Runs are bounded. The Owner can set limits for new Runs in **Server settings → Agents → Execution**. The defaults are six hours, 256 steps and model calls, 4,096 tool calls and 20 million tokens per Run, and 500 Runs and 200 million tokens per Agent in 24 hours. A tool call whose outcome is uncertain is never silently repeated.
 
 ## Schedules
 
