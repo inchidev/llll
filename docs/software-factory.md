@@ -146,7 +146,7 @@ The Server's execution mode (**Server settings → Agents → Execution**) gates
 | `plan` | Covered by the latest approved plan | Needs nobody without secrets; covered by the plan | Covered if the plan names it, else a person | Only those the plan names |
 | `review` | A person, after reading the diff | Needs nobody without secrets, else a person | A person | Only through a window a person opened |
 
-`factory_plan` names the plan's steps, hosts and secrets. A person approves it once in the Inbox or the Run, and it covers the Task until the Agent proposes a new one. A window that names a secret, once a person opens it, allows that secret at its host in any mode. Decisions are made by the person who started the Run, in the Inbox or on the Run page. A Task may publish 50 times by default and its box may run six hours in all; both are execution settings.
+`factory_plan` names the plan's steps, hosts and secrets. A person approves it once in the Inbox or the Run, and it covers the Task until the Agent proposes a new one. A window that names a secret, once a person opens it, allows that secret at its host in any mode. Decisions are made by the person who started the Run, in the Inbox or on the Run page, or in a partner's own chat (below). A Task may publish 50 times by default and its box may run six hours in all; both are execution settings.
 
 ## Network windows and Project secrets
 
@@ -163,6 +163,15 @@ The Agent sees a placeholder such as `L4_SECRET_TELEGRAM_TOKEN`. The egress laye
 **On a VPS Node** each sync carries the compiled hosts and their revision. The daemon writes them to a policy file the proxy reads read-only. It fetches the values in effect and hands them, with the box's certificate authority, to the proxy's control socket by `docker exec`; they live only in the proxy's memory. The authority is new for each start, and only its certificate is installed in the box, through `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `GIT_SSL_CAINFO` and `REQUESTS_CA_BUNDLE`. The proxy terminates TLS only for hosts with a bound secret and verifies the real host itself. Every other open host stays a plain CONNECT tunnel, so a package manager that pins certificates still works there. On a terminated connection only the response headers the proxy knows reach the box, such as content, caching, rate-limit and GitHub headers; any other is dropped. Private, numeric and rebinding destinations are refused.
 
 **On Cloudflare** BoxOutbound checks every request against the same list and does the same replacement and scrubbing. It also checks the box's lease on every request.
+
+## Decisions in a partner's chat
+
+A partner such as AfterPrompt shows a Task in its own chat, where the creator never sees L4's Run page. Its relay actions act as the creator's Member, so the creator decides there what they would decide on the Run page:
+
+- **`tasks/get`** answers `requests`: what the Task's Agent waits on this Member for, oldest first. Only the open requests (`pending`, or `pending_diff` while a push's review is being made) of running turns this Member started, since a Run's requests are private to the Member who started it. Each is `{ id, kind, status, digest, createdAt, expiresAt }` with what it asks in plain fields: a window's `host`, `minutes`, `reason` and `secrets` (names, never a value); a plan's `summary`, `steps`, `hosts` and `secrets`; a push's `title`, `summary`, `sha` and `branch`. A Server before 0.0.28 has no `requests`.
+- **`tasks/decide { identity, taskId, requestId?, approvalId, approve, digest }`** decides one, quoting the `digest` `tasks/get` showed, through the same `decideApproval` as the Run page: the Member must read the Task and the Run's conversation, have started the Run and may approve Agent actions. It answers `{ ok, request: { id, kind, status, decidedAt } }`; 404 for a request that is not the Task's; 409 for one already decided, closed with its turn, whose review is still being made, or whose digest changed. A repeated `requestId` answers the first answer.
+- **A turn that ran out of time** while a request waited stops with that reason in plain words, such as "The agent waited for your answer about unpkg.com until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again." The request closes with the turn; the Agent asks again in the next one.
+- **Hosts without a window.** A partner names hosts it opens in every game Project's network with no secret, such as a package CDN: `hosts` in the seed, in `secrets/set`, or alone with `hosts/set { hosts }`. Public DNS names only (no IP address, port, wildcard or local name), twenty at most. Each build of a partner's Project adds them to its network, beside the hosts of the partner's secrets; nothing is closed. A box's brief names the hosts it reaches without asking.
 
 ## Git flow and merge
 

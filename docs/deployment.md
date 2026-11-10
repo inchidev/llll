@@ -60,7 +60,8 @@ Such a Server runs as `LLLL_RUNTIME=cloud` with no account token and no `ACCOUNT
 - `members/remove` `{ identity }`: removes the Member as the Owner would, sessions and tokens included; the Owner's identity is refused with 409.
 - `session-link` `{ identity }`: a one-time URL `<origin>/signin/link#<token>` that signs that Member in, good for ten minutes. Answers `{ ok, url, expiresAt }`.
 - `agents/upsert` `{ name, role, instructions, version, token? }`: the seed's Agent by name, created if missing with the pre-hashed token, its instructions replaced when `version` grows.
-- `secrets/set` `{ secrets, env }`: kept encrypted in `server_settings` under `cloud.partner` for Projects the partner later creates; nothing is applied to Projects that exist.
+- `secrets/set` `{ secrets, env, hosts? }`: kept encrypted in `server_settings` under `cloud.partner` for the partner's game Projects, applied to each before its builds. `hosts` (from 0.0.28) are public host names opened in those Projects' network with no secret; left out, the hosts stored before stay.
+- `hosts/set` `{ hosts }` (from 0.0.28): replaces only those hosts, at most twenty, so the partner need not send its secrets again. See [Software Factory](software-factory.md#decisions-in-a-partners-chat), which also describes `tasks/get`'s `requests` and `tasks/decide`.
 - `models/set` `{ provider: "openrouter", key }`: saves the provider as **Server settings → Models** would, enabled with its current model list, and sets the default model when none is. Answers `{ ok, configured: true }`.
 - `sleep`: releases the Server's boxes on L4 Compute; the script's deletion is the control plane's.
 

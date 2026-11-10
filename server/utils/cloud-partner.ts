@@ -17,10 +17,12 @@ import type { AuthorizationContext } from '../../shared/authorization'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { cloudflareNetwork, type L4Env } from '../../workers/env'
 import { signalTasksChanged } from '../../workers/task-events'
-import { createAgentRun } from './agent-run-service'
+import { createAgentRun, findAgentRun } from './agent-run-service'
+import { requireChannelAccessForMember } from './channel-access'
 import { loadAuthorizationContext } from './authorization'
 import { fail } from './cf'
 import { applyPartnerConfig, partnerAgentId } from './cloud-seed'
+import { decideTaskRequest, taskRequests, UNANSWERED_PREFIX } from './factory-approvals'
 import { createProjectRepository, starterFilesSchema, type StarterFiles, listProjectReleases, projectArtifactsRepository, requireArtifacts, withRepository } from './factory-artifacts'
 import { ensureL4PlacementNode } from './l4-compute'
 import { findMemberByIdentity } from './member-identities'
@@ -73,6 +75,8 @@ const taskCreateBody = z.object({
 }).strict()
 const taskGetBody = z.object({ identity: memberIdentitySchema, taskId: id }).strict()
 const taskPreviewBody = taskGetBody
+/** A person's answer to one of the Task's `requests`, quoting the digest `tasks/get` showed. `requestId` makes a repeat answer the first. */
+const taskDecideBody = z.object({ identity: memberIdentitySchema, taskId: id, requestId: requestId.optional(), approvalId: z.string().uuid(), approve: z.boolean(), digest: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
 const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true), attachments: partnerAttachments, ...turnChoice }).strict()
 const modelsListBody = z.object({ identity: memberIdentitySchema }).strict()
 const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
@@ -321,7 +325,7 @@ async function discussionMessages(env: L4Env, channelId: string | null, limit: n
       const run = await env.DB.prepare('SELECT result_text AS text,status,last_error AS error FROM agent_runs WHERE id=? AND initiated_by=?').bind(runId, reader).first<{ text: string | null; status: string; error: string | null }>()
       // A Run that ended without an answer says why, in the Server's words.
       if (run?.text) row.content = run.text
-      else if (run && ['failed', 'cancelled'].includes(run.status)) row.content = `The Agent stopped: ${run.error || run.status}`
+      else if (run && ['failed', 'cancelled'].includes(run.status)) row.content = run.error?.startsWith(UNANSWERED_PREFIX) ? run.error : `The Agent stopped: ${run.error || run.status}`
     }
   }
   const texts = await readableMentions(env, rows.map(row => row.content))
@@ -344,6 +348,8 @@ async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }, rea
     activity: state === 'working' ? await taskActivity(env, task.id) : null,
     // Whether `tasks/preview` has a box screen to show now.
     preview: Boolean(watchable),
+    // What the Agent waits on this Member for: a window, a plan or a push to decide with `tasks/decide`.
+    requests: reader ? await taskRequests(env, task.id, reader) : [],
     messages: reason ? [...messages, reason] : messages,
     commits: branch ? await branchCommits(env, branch) : [],
   }
@@ -525,6 +531,22 @@ async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { ta
   }
 }
 
+/**
+ * The Member's decision on one of the Task's requests, as on the Run's page: the Member must read the Task and the
+ * Run's conversation, and `decideApproval` checks the rest (the Member started the Run, may approve Agent actions,
+ * and quotes the digest of the request as it stands).
+ */
+async function decideGameRequest(env: L4Env, auth: AuthorizationContext, input: z.infer<typeof taskDecideBody>) {
+  const task = await readableTask(env, auth, input.taskId)
+  const approval = await env.DB.prepare('SELECT a.run_id AS runId FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id WHERE a.id=? AND b.task_id=?').bind(input.approvalId, task.id).first<{ runId: string }>()
+  const run = approval ? await findAgentRun(env, approval.runId) : null
+  if (!run) fail(404, 'not_found', 'This Task has no such request')
+  await requireChannelAccessForMember(env, await requireMessageMember(env, auth, 'messages:write'), run!.channelId, undefined, 'POST')
+  const decided = await decideTaskRequest(env, task.id, auth.principal.id, { id: input.approvalId, digest: input.digest, approve: input.approve })
+  await signalTasksChanged(env, task.boardId, task.id).catch(() => undefined)
+  return { id: decided.id, kind: decided.kind, status: decided.status, decidedAt: decided.decidedAt }
+}
+
 /** The models the Server's Agents may use, with the default, as the conversation's model picker lists them. */
 async function listModels(env: L4Env, auth: AuthorizationContext) {
   const catalog = await agentProviderCatalog(env, { actorId: auth.principal.id })
@@ -606,6 +628,12 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
       const preview = await taskPreview(env, auth, input.taskId)
       if (!preview) fail(404, 'not_found', 'The Task’s box is not running')
       return { ok: true, url: preview!.url, expiresAt: preview!.expiresAt }
+    }
+    case 'tasks/decide': {
+      const input = taskDecideBody.parse(body)
+      const { auth } = await actingMember(env, input.identity)
+      const decide = async () => ({ ok: true, request: await decideGameRequest(env, auth, input) })
+      return input.requestId ? once(env, action, input.identity, input.requestId, decide) : decide()
     }
     case 'tasks/message': {
       const input = taskMessageBody.parse(body)
