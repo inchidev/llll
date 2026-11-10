@@ -6,6 +6,8 @@ export function inferenceFailure(error: unknown, depth = 0): string {
   if (/model.{0,40}(?:not found|unknown|does not exist)|unknown model/u.test(signal)) return 'The selected model was not found by the provider. Refresh its catalog and choose an available model.'
   if (/verify.{0,30}email|email.{0,30}verif/u.test(signal)) return 'Verify the provider account email, then reconnect the provider before retrying.'
   const status = detail.statusCode ?? detail.status
+  // A provider account out of money: OpenRouter answers 402, or says so in an error event mid-stream.
+  if (status === 402 || /insufficient.{0,20}(?:credit|balance|fund)|(?:credit|balance)s?.{0,30}(?:exhausted|too low|insufficient)|payment required/u.test(signal)) return 'The model provider account has no credits left (402). Top it up (OpenRouter: openrouter.ai/settings/credits), then retry.'
   if (status === 401 || status === 403) return `The model provider rejected access (${status}). Check the connection and model permissions.`
   if (status === 409) return 'The selected model or provider is no longer available. Choose an available model in settings.'
   if (status === 429) return 'The model provider reached its usage or rate limit (429). Retry later or choose another model.'
