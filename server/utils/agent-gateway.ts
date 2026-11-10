@@ -74,14 +74,18 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   const settings = { model, instructions, maxRetries: 2, ...(effort !== 'auto' ? { reasoning: effort } : {}), onError: ({ error }: { error: unknown }) => { providerFailure = error }, messages: await messagesForModel(input.messages.filter(message => message.role !== 'system'), images), tools, maxOutputTokens,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Date.parse(run.deadline) - Date.now()))]) }
   if (input.stream) {
-    const abort = new AbortController()
-    const result = streamText({ ...settings, abortSignal: AbortSignal.any([settings.abortSignal, abort.signal]) })
+    let abort = new AbortController()
+    const begin = () => streamText({ ...settings, abortSignal: AbortSignal.any([settings.abortSignal, abort.signal]) })
+    let result = begin()
+    // Nothing has reached the box yet (keep-alive comments aside): a failed provider call can be asked again unseen.
+    let sent = false
+    let retries = 0
     const encoder = new TextEncoder()
     const id = `l4-${run.id}-${run.modelCalls + 1}`
     const created = Math.floor(Date.now() / 1000)
     let callIndex = 0
     const chunk = (delta: unknown, finish: string | null = null) => encoder.encode(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: run.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`)
-    const iterator = result.fullStream[Symbol.asyncIterator]()
+    let iterator = result.fullStream[Symbol.asyncIterator]()
     // While the model thinks or writes a long tool call, nothing reaches the box; an SSE comment every few seconds
     // keeps every hop between them from closing the silent connection (OpenAI-style clients skip comment lines).
     let keepAlive: ReturnType<typeof setInterval> | undefined
@@ -91,7 +95,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
         keepAlive = setInterval(() => { try { controller.enqueue(encoder.encode(': keep-alive\n\n')) } catch { stopKeepAlive() } }, GATEWAY_KEEP_ALIVE_MS)
       },
       async pull(controller) {
-        try {
+        for (;;) try {
           for (;;) {
             const next = await iterator.next()
             if (next.done) {
@@ -106,13 +110,29 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
             const part = next.value
             if (part.type === 'error') throw part.error
             if (part.type === 'abort') throw new Error('Inference interrupted')
-            if (part.type === 'text-delta') { controller.enqueue(chunk({ content: part.text })); return }
+            if (part.type === 'text-delta') { sent = true; controller.enqueue(chunk({ content: part.text })); return }
             if (part.type === 'tool-call') {
+              sent = true
               controller.enqueue(chunk({ tool_calls: [{ index: callIndex++, id: part.toolCallId, type: 'function', function: { name: part.toolName, arguments: JSON.stringify(part.input) } }] }))
               return
             }
           }
-        } catch (error) { stopKeepAlive(); abort.abort(); controller.error(new Error(await failed(error))) }
+        } catch (error) {
+          // An overloaded or dropped provider call that sent nothing yet is asked again, so one bad call does not end
+          // the Agent's turn; what the box already received cannot be taken back, so a call that streamed fails.
+          if (!sent && retries < GATEWAY_RETRIES && !signal.aborted && retryableInference(error)) {
+            retries += 1
+            abort.abort()
+            await iterator.return?.().catch(() => undefined)
+            await new Promise(resolve => setTimeout(resolve, GATEWAY_RETRY_MS * retries))
+            abort = new AbortController()
+            result = begin()
+            iterator = result.fullStream[Symbol.asyncIterator]()
+            continue
+          }
+          stopKeepAlive(); abort.abort(); controller.error(new Error(await failed(error)))
+          return
+        }
       },
       async cancel() { stopKeepAlive(); abort.abort(); await iterator.return?.(); await failed(new Error('Inference cancelled')) },
     })
@@ -131,6 +151,21 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
     message: { role: 'assistant', content: result.text || null, ...(calls.length ? { tool_calls: calls } : {}) }, finish_reason: calls.length ? 'tool_calls' : 'stop' }],
   usage: { total_tokens: used } })
 
+}
+
+/** How many times a model call that failed before sending anything is asked again, and the first wait before it. */
+export const GATEWAY_RETRIES = 2
+export const GATEWAY_RETRY_MS = 1500
+
+/**
+ * Whether a failed provider call is worth asking again: a dropped or ended stream, a timeout, 408, 409, 429 or a
+ * 5xx. A refused request (another 4xx: no credit, a bad key, a request the provider will not take) is not.
+ */
+export function retryableInference(error: unknown) {
+  const detail = error as { statusCode?: unknown; status?: unknown; cause?: { statusCode?: unknown; status?: unknown }; name?: unknown }
+  const status = [detail?.statusCode, detail?.status, detail?.cause?.statusCode, detail?.cause?.status].find(value => typeof value === 'number') as number | undefined
+  if (status === undefined) return detail?.name !== 'AbortError'
+  return status === 408 || status === 409 || status === 429 || status >= 500
 }
 
 /** How often a silent model stream sends a keep-alive comment to the box. */
