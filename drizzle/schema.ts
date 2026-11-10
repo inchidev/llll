@@ -1694,6 +1694,8 @@ export const factoryBoxes = sqliteTable('factory_boxes', {
   cloudBoxId: text('cloud_box_id'),
   cloudSize: text('cloud_size'),
   cloudConfirmedAt: text('cloud_confirmed_at'),
+  /** 1 while the box's Node reports a viewer of its screen for a person to watch; the Node's sync keeps it current. */
+  preview: integer('preview').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, table => [

@@ -6,6 +6,7 @@ import { runtimeInput } from './protocol.mjs'
 import { callGatewayTool, gatewayUrl, probeGateway } from './gateway.mjs'
 import { createPushBatcher } from './push.mjs'
 import { restoreSession, savedTranscript } from './session.mjs'
+import { startDisplay } from './display.mjs'
 
 /** Turn events a box may send in one turn, as the container executor allowed. */
 const TURN_EVENT_BYTES = 2_000_000, KEPT_TURNS = 100
@@ -148,7 +149,9 @@ export function serveControl(box) {
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const socket = process.env.LLLL_BOX_SOCKET || '/run/l4/control.sock'
   await rm(socket, { force: true })
+  // The box's screen, when the daemon gives it one: the Agent's browser draws there, and a person may watch it.
+  const display = startDisplay()
   const server = serveControl(boxRuntime({ root: process.env.LLLL_BOX_ROOT || '/work' }))
   server.listen(socket)
-  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(); process.exit(0) })
+  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { display.stop(); server.close(); process.exit(0) })
 }

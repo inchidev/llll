@@ -411,6 +411,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   'tasks/[id]/discussion.post': inSpace('task', 'id', 'task.create'),
   'tasks/[id]/merge.get': inSpace('task', 'id', 'task.read'),
   'tasks/[id]/merge.post': inSpace('task', 'id', 'task.update'),
+  // Watching the Task's box is reading the Task: it changes nothing and takes no turn.
+  'tasks/[id]/preview.post': inSpace('task', 'id', 'task.read'),
   'users/[id]/avatar.get': memberOf('id', 'member.avatar.read'),
   'servers/[id]/spaces.get': onServer('space.list'),
   'servers/[id]/spaces.post': onServer('space.create'),

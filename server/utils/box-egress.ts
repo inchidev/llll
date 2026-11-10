@@ -187,19 +187,33 @@ export const scrubText = (text: string, values: Array<{ placeholder: string; val
 export const TEXT_BODY = /^(?:text\/|multipart\/form-data|application\/(?:json|x-www-form-urlencoded|xml|javascript|graphql|x-ndjson|[\w.+-]+\+(?:json|xml)))/iu
 export const EGRESS_BODY_LIMIT = 1048576
 
+/** What the Agent is told of its box's screen and browser (a box on a Docker Node or L4 Compute has them; one on Cloudflare does not). */
+export const BOX_SCREEN_BRIEF = 'This box has a screen and a browser: DISPLAY=:99 (1280x720) is set in your shell, and Chromium is /usr/bin/chromium. '
+  + 'Test a web game the way a player sees it: serve it in the box (for example python3 -m http.server 8000 &) and open it with '
+  + 'chromium --window-position=0,0 --window-size=1280,720 http://localhost:8000 &, or drive it with Playwright: playwright-core is installed '
+  + "(in a .cjs script, require('playwright-core').chromium.launch({ executablePath: '/usr/bin/chromium', headless: false })), which also gives you screenshots and console errors. "
+  + 'Close the browser when you are done.'
+/** Where a person may watch the box (L4 Compute): the Agent should know its screen is not private. */
+export const BOX_WATCHED_BRIEF = 'The person who asked for this work may be watching this screen live. Keep what you open there on the work, and show the game running when it does.'
+
 /**
  * What a box turn's Agent is told about its box, beside the tools: the Project secrets it may send as
  * placeholders (the egress layer puts each value in only at its bound hosts), the repository its checkout came
- * from (the checkout itself keeps no remote), and the plain settings a partner left for its Agents.
+ * from (the checkout itself keeps no remote), its screen and browser and whether someone may watch them, and the
+ * plain settings a partner left for its Agents.
  */
 export async function boxRunBrief(env: L4Env, run: { mandateJson: string; environmentJson: string | null }): Promise<string> {
   const projectId = (JSON.parse(run.mandateJson) as RunMandate).projectId
-  const environment = run.environmentJson ? JSON.parse(run.environmentJson) as { remote?: string } : null
+  const environment = run.environmentJson ? JSON.parse(run.environmentJson) as { remote?: string; computeNodeId?: string } : null
   const secrets = projectId ? (await projectEgressSecrets(env, [projectId])).get(projectId) ?? [] : []
   const { readPartnerConfig } = await import('./cloud-seed')
   const partner = await readPartnerConfig(env)
+  const node = environment?.computeNodeId
+    ? await env.DB.prepare("SELECT json_extract(capabilities_json,'$.provider') AS provider FROM compute_nodes WHERE id=?").bind(environment.computeNodeId).first<{ provider: string | null }>()
+    : null
   const lines = [
     ...(environment?.remote ? [`This box's repository: ${environment.remote} (the checkout keeps no remote; publish commits with factory_publish).`] : []),
+    ...(node && node.provider !== 'cloudflare-containers' ? [BOX_SCREEN_BRIEF, ...(node.provider === 'l4-compute' ? [BOX_WATCHED_BRIEF] : [])] : []),
     ...(secrets.length ? ['Project secrets in this box, as placeholders: send the placeholder, and the box puts the value in only on its way to the hosts named. Never try to read a value.',
       ...secrets.map(secret => `- ${secret.name}=${secret.placeholder} (put in for ${secret.hosts.join(', ')})`)] : []),
     ...(partner && Object.keys(partner.env).length ? ['Settings for this Server\'s Agents:', ...Object.entries(partner.env).map(([key, value]) => `- ${key}=${value}`)] : []),

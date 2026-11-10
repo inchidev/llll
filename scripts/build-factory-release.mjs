@@ -20,7 +20,9 @@ const image = `llll-workspace:${version}`
 execFileSync('docker', ['build', '--platform', 'linux/amd64', '-t', image, '-f', 'packages/compute-node/Dockerfile.workspace', '.'], { stdio: 'inherit' })
 // A box that cannot load Pi, or whose entry points are missing, must never be published.
 execFileSync('docker', ['run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--read-only', '--user', '1000:1000', image, 'node', '--input-type=module', '-e',
-  "await import('/opt/agent/src/box.mjs'); await import('/opt/agent/src/pi.mjs'); for (const entry of ['/opt/agent/src/control.mjs', '/opt/agent/src/checkout.mjs', '/opt/l4/proxy.mjs', '/opt/l4/fetch-source.mjs', '/opt/l4/checkpoint.mjs']) (await import('node:fs')).accessSync(entry)"], { stdio: 'inherit' })
+  "await import('/opt/agent/src/box.mjs'); await import('/opt/agent/src/pi.mjs'); await import('/opt/agent/src/display.mjs'); for (const entry of ['/opt/agent/src/control.mjs', '/opt/agent/src/checkout.mjs', '/opt/l4/proxy.mjs', '/opt/l4/fetch-source.mjs', '/opt/l4/checkpoint.mjs', '/opt/l4/viewer.mjs', '/opt/voxl/NOTICE', '/usr/bin/Xvfb', '/usr/bin/chromium']) (await import('node:fs')).accessSync(entry)"], { stdio: 'inherit' })
+// The box's screen and its viewer: voxl runs, and Chromium is there for the Agent.
+execFileSync('docker', ['run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--read-only', '--user', '1000:1000', image, '/opt/voxl/bin/voxl', '--version'], { stdio: 'inherit' })
 const imageId = execFileSync('docker', ['image', 'inspect', image, '--format', '{{.Id}}'], { encoding: 'utf8' }).trim()
 execFileSync('docker', ['save', '-o', join(output, 'workspace.tar'), image], { stdio: 'inherit' })
 const workspaceExtracted = join(output, 'workspace-image')

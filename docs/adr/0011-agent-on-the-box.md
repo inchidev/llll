@@ -1,6 +1,6 @@
 # The Agent works on its box
 
-Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 and Destinations are not. Built differently from the text below, or not yet:
+Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 in part since (below), and Destinations not. Built differently from the text below, or not yet:
 
 - **Model limits:** the window and answer limit come from what the provider reported, then what the Owner set in Server settings → Models for a model whose provider reported none, then Pi's catalog, then a default, capped at 200,000 and 32,000 tokens. Reasoning and image input for Pi are not built: Pi is still told the model takes text and does not reason.
 - **Streaming from a box:** the box pushes HTTP batches of events to the gateway, about every 150 ms while text flows, instead of holding a WebSocket to the Run's Durable Object. The answers carry cancellation and steering.
@@ -9,6 +9,7 @@ Proposed on 2026-11-07. Items 1 to 7 are built in this pull request; item 8 and 
 - **No Git server on the VPS Node.** The daemon copies the approved commit out of the box with hardened Git in a throwaway container without network, and pushes from that copy with a short token. Git LFS is not built.
 - **The Agent's branch** is `<prefix><box id>`, `l4-agent/` by default, not `l4-agent/<task>`. The target is always the repository's base branch.
 - **TLS termination on a VPS** happens only for hosts with a bound Project secret; every other open host stays a plain CONNECT tunnel, so pinned certificates keep working there.
+- **Item 8, in part (amended 2026-11-10): a screen, a browser, and a person watching.** Every box on a Docker Node or L4 Compute has Xvfb on `DISPLAY=:99`, Chromium and `playwright-core`, so the Agent plays the game it builds. On L4 Compute a person who may read the Task watches the box's screen live: voxl in a viewer container beside the box with no network, behind the daemon's preview gate on the port llll.gg exposes, opened by a 30-minute ticket the Server signs with a key derived from the box's lease. This is a stream of the screen, not the "preview of a box port through the Server's address" the item names: a dev server's own port is still not reachable, and nothing goes through the Server's address, since the provider's HTTPS address carries the stream directly and the Server stays out of its path. A VPS Node and Cloudflare have no viewer. voxl links x264 (GPL), so it ships as a separate program with its source in the image. See [Software Factory](../software-factory.md#watching-a-box).
 - **A person may merge a head with no reported checks** (no check, status or Actions job, and no required check in the repository environment) two minutes after its push, and L4 says so. The Agent's merge always needs a passing check and none failed or pending.
 
 Destinations stay deferred, as decided below. The acceptance runs below are not recorded yet. See [Software Factory](../software-factory.md) for what works today.

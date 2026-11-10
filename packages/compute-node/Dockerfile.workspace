@@ -1,6 +1,6 @@
 # The Agent's box: Pi with its own tools, Git and the usual build tools, working in the Task's disk at
 # /work. The daemon runs it read-only as uid 1000 without capabilities; the trusted helpers in /opt/l4 run
-# in their own containers from the same image (source checkout, egress proxy, Cloudflare operations).
+# in their own containers from the same image (source checkout, egress proxy, box viewer, Cloudflare operations).
 FROM node:26.13.0-bookworm-slim AS agent
 RUN --mount=type=secret,id=proxy_ca \
     if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
@@ -16,16 +16,56 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     pnpm --config.inject-workspace-packages=true --filter @llll/agent-runtime deploy --prod /out
 
-FROM node:26.13.0-bookworm-slim
+# voxl streams the box's screen to a person watching (https://github.com/tembo/voxl). Its code is MIT, but it links
+# x264 (GPL-2.0-or-later), so the binary is distributed under the GPL as a separate program: it runs only in the
+# box's viewer container, never inside L4's own processes. It is built from its published crate at a pinned
+# version with its own Cargo.lock; the crates it is built from are kept beside it as its corresponding source.
+FROM rust:1.99.1-bookworm AS voxl
+ARG VOXL_VERSION=0.3.4
 RUN --mount=type=secret,id=proxy_ca \
     proxy_ca_bundle=/etc/ssl/certs/ca-certificates.crt; \
     if [ -s /run/secrets/proxy_ca ]; then proxy_ca_bundle=/run/secrets/proxy_ca; fi; \
     apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" update && \
-    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends git python3 ripgrep ca-certificates procps util-linux && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /work /opt/l4 /run/l4 && chown node:node /work /run/l4
+    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends pkg-config clang libclang-dev esbuild \
+      libx264-dev libyuv-dev libopus-dev libpulse-dev && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then export CARGO_HTTP_CAINFO=/run/secrets/proxy_ca; fi; \
+    cargo install voxl-server --version "$VOXL_VERSION" --locked --root /opt/voxl && \
+    mkdir -p /opt/voxl/share/source /opt/voxl/share/licenses && \
+    cp "$CARGO_HOME"/registry/cache/*/*.crate /opt/voxl/share/source/ && \
+    for crate in "$CARGO_HOME"/registry/src/*/*/; do \
+      name=$(basename "$crate"); \
+      for file in "$crate"LICENSE* "$crate"COPYING* "$crate"NOTICE* "$crate"UNLICENSE*; do \
+        if [ -f "$file" ]; then mkdir -p "/opt/voxl/share/licenses/$name" && cp "$file" "/opt/voxl/share/licenses/$name/"; fi; \
+      done; \
+    done && \
+    /opt/voxl/bin/voxl --version
+
+FROM node:26.13.0-bookworm-slim
+ARG VOXL_VERSION=0.3.4
+# Xvfb is the box's screen and Chromium the browser the Agent tests in; the x264, libyuv, Opus and PulseAudio
+# libraries are voxl's. Chromium runs without its own sandbox: the box is the sandbox, and it has no user namespaces.
+RUN --mount=type=secret,id=proxy_ca \
+    proxy_ca_bundle=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/proxy_ca ]; then proxy_ca_bundle=/run/secrets/proxy_ca; fi; \
+    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" update && \
+    apt-get -o Acquire::https::CaInfo="$proxy_ca_bundle" install -y --no-install-recommends git python3 ripgrep ca-certificates procps util-linux \
+      xvfb chromium fonts-liberation libx264-164 libyuv0 libopus0 libpulse0 && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm install --global --ignore-scripts playwright-core@1.64.1 && npm cache clean --force
+RUN mkdir -p /work /opt/l4 /run/l4 /run/l4-view && chown node:node /work /run/l4 /run/l4-view && \
+    printf '%s\n' '# The box: Chromium runs on the box screen ($DISPLAY) as uid 1000 without user namespaces, and draws WebGL in software.' \
+      'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox --test-type --disable-dev-shm-usage --no-first-run --no-default-browser-check --password-store=basic --use-angle=swiftshader --enable-unsafe-swiftshader"' \
+      > /etc/chromium.d/l4-box
 COPY --from=agent /out /opt/agent
-COPY --chmod=0644 packages/compute-node/src/review-diff.mjs packages/compute-node/src/push-branch.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/box-ca.mjs packages/compute-node/src/fetch-source.mjs packages/compute-node/src/cloud-io.mjs packages/compute-node/src/checkpoint.mjs /opt/l4/
+COPY --from=voxl /opt/voxl /opt/voxl
+COPY --chmod=0644 packages/compute-node/VOXL-NOTICE /opt/voxl/NOTICE
+COPY --chmod=0644 packages/compute-node/src/review-diff.mjs packages/compute-node/src/push-branch.mjs packages/compute-node/src/process.mjs packages/compute-node/src/proxy.mjs packages/compute-node/src/box-ca.mjs packages/compute-node/src/fetch-source.mjs packages/compute-node/src/cloud-io.mjs packages/compute-node/src/checkpoint.mjs packages/compute-node/src/viewer.mjs /opt/l4/
+RUN printf 'x264 in this image: Debian package libx264-164 %s, source at https://snapshot.debian.org/package/x264/%s/\n' \
+      "$(dpkg-query -W -f='${Version}' libx264-164)" "$(dpkg-query -W -f='${source:Version}' libx264-164)" >> /opt/voxl/NOTICE && \
+    /opt/voxl/bin/voxl --version
 USER node
 WORKDIR /work
-ENV HOME=/tmp LLLL_BOX_ROOT=/work LLLL_BOX_SOCKET=/run/l4/control.sock
+ENV HOME=/tmp LLLL_BOX_ROOT=/work LLLL_BOX_SOCKET=/run/l4/control.sock NODE_PATH=/usr/local/lib/node_modules
 CMD ["node", "/opt/agent/src/box.mjs"]

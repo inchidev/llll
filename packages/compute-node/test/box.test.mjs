@@ -495,3 +495,120 @@ test('a box on a new machine is restored from its checkpoint, and one that canno
     }
   }
 })
+
+/** A Node with a preview gate (L4 Compute): the viewers' directories, and docker's options per container it runs. */
+function previewHost(docker, server, clock = { now: 1_000_000 }, extra = {}) {
+  const options = new Map()
+  const recording = { ...docker, docker: async (args, opts = {}) => { if (args[0] === 'run' && args[1] === '-d') options.set(flag(args, '--name')[0], opts); return docker.docker(args, opts) } }
+  const preview = { origins: ['https://server.example', 'https://afterprompt.games'], files: {
+    async prepare(id) { return { x11: `/state/box-view/${id}/x11`, socket: `/state/box-view/${id}/socket` } },
+    async remove() {} } }
+  return { h: host({ docker: recording, server, clock, publisher: { ...extra, preview } }), options }
+}
+const previewKey = 'f'.repeat(64)
+
+test('an idle L4 Compute box is saved with its viewer stopped, and a box restored on a new machine gets a viewer again', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const { h } = previewHost(docker, server, undefined, p.options)
+  server.answer = () => [want({ checkpoint: true, preview: { key: previewKey } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.viewers.get(boxId)?.key, previewKey)
+  h.clock.now += BOX_IDLE_MS
+  await h.boxes.sync(); await h.boxes.settled()
+  // Saved and stopped: the viewer went before the disk was saved, and nothing is reported to watch.
+  assert.equal(h.boxes.boxes.get(boxId).state, 'stopped')
+  assert.equal(h.boxes.viewers.get(boxId), null)
+  assert.ok(!docker.containers.has(`l4-view-${boxId}`))
+  const removedViewer = docker.calls.findIndex(args => args[0] === 'rm' && args[2] === `l4-view-${boxId}`)
+  const savedDisk = docker.calls.findIndex(args => args[0] === 'run' && args.at(-1) === '/opt/l4/checkpoint.mjs')
+  assert.ok(removedViewer >= 0 && removedViewer < savedDisk, 'the viewer stops before the save')
+  server.answer = () => [want({ want: 'stopped', checkpoint: true })]
+  await h.boxes.sync()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'stopped', runtimeMs: BOX_IDLE_MS, saved: 'e'.repeat(40) }])
+  // The machine went; the next turn is on a new machine, restored from the checkpoint, under a new lease and key.
+  const restored = fakeDocker(), again = previewHost(restored, server, undefined, p.options)
+  server.source = body => ({ id: body.boxId, repository: 'inchidev/afterprompt', baseSha: 'c'.repeat(40), checkpoint: 'e'.repeat(40),
+    source: { remote: `https://server.example/api/compute-agent/checkpoint/${body.boxId}.git`, authorization: `Bearer ${'9'.repeat(64)}` } })
+  server.answer = () => [want({ lease: leaseB, turn: { runId }, checkpoint: true, preview: { key: 'e'.repeat(64) } })]
+  await again.h.boxes.sync(); await again.h.boxes.settled()
+  assert.ok(restored.runs().some(args => args.at(-1) === '/opt/l4/checkpoint.mjs'), 'restored from its checkpoint')
+  assert.equal(again.h.boxes.viewers.get(boxId)?.key, 'e'.repeat(64))
+  assert.ok(restored.containers.has(`l4-view-${boxId}`))
+  await waitFor(() => restored.turns.length === 1, 'the turn')
+  restored.turns[0].end({ done: true, ok: true, result: 'result' })
+})
+
+test('every box has a screen; a box the Server gives a preview key gets a viewer beside it, with voxl’s password only in its environment', async () => {
+  const docker = fakeDocker(), server = fakeServer()
+  const { h, options } = previewHost(docker, server)
+  server.answer = () => [want({ preview: { key: previewKey } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  const box = docker.runs().find(args => flag(args, '--name')[0] === `l4-box-${boxId}`)
+  assert.ok(flag(box, '--env').includes('DISPLAY=:99'))
+  assert.deepEqual(flag(box, '--ipc'), ['shareable'])
+  assert.ok(box.includes(`type=bind,src=/state/box-view/${boxId}/x11,dst=/tmp/.X11-unix`))
+  const viewer = docker.runs().find(args => flag(args, '--name')[0] === `l4-view-${boxId}`)
+  for (const [name, value] of [['--network', 'none'], ['--ipc', `container:l4-box-${boxId}`], ['--user', '1000:1000'], ['--cap-drop', 'ALL'], ['--security-opt', 'no-new-privileges']]) assert.deepEqual(flag(viewer, name), [value], name)
+  assert.ok(viewer.includes('--read-only'))
+  assert.ok(viewer.includes(`type=bind,src=/state/box-view/${boxId}/x11,dst=/tmp/.X11-unix,readonly`))
+  assert.ok(viewer.includes(`type=bind,src=/state/box-view/${boxId}/socket,dst=/run/l4-view`))
+  assert.deepEqual(flag(viewer, '--env'), ['DISPLAY=:99', 'VOXL_PASSWORD', 'LLLL_VIEW_ORIGINS=https://server.example,https://afterprompt.games'])
+  assert.deepEqual(viewer.slice(-3), [image, 'node', '/opt/l4/viewer.mjs'])
+  // The password reaches docker's environment, never its arguments, and neither the box nor the Server.
+  const password = options.get(`l4-view-${boxId}`).env.VOXL_PASSWORD
+  assert.match(password, /^[a-f0-9]{64}$/u)
+  assert.ok(!docker.calls.flat().some(value => value.includes(password)))
+  assert.deepEqual(h.boxes.viewers.get(boxId), { boxId, key: previewKey, password, socket: `/state/box-view/${boxId}/socket/voxl.sock` })
+  assert.equal(h.boxes.viewers.any(), h.boxes.viewers.get(boxId))
+  await h.boxes.sync()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'idle', runtimeMs: 0, preview: true }])
+  assert.ok(!JSON.stringify(server.syncs).includes(password))
+  // A new key (the box taken over under a new lease) starts the viewer again with it.
+  server.answer = () => [want({ preview: { key: 'e'.repeat(64) } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.viewers.get(boxId).key, 'e'.repeat(64))
+  assert.notEqual(h.boxes.viewers.get(boxId).password, password)
+  // The box stops when idle whoever watches; its viewer goes with it.
+  h.clock.now += BOX_IDLE_MS
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.boxes.get(boxId).state, 'stopped')
+  assert.equal(h.boxes.viewers.get(boxId), null)
+  assert.ok(!docker.containers.has(`l4-view-${boxId}`))
+  await h.boxes.sync()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'stopped', runtimeMs: BOX_IDLE_MS }])
+})
+
+test('without a preview key, or on a Node with no gate, a box has its screen and no viewer, and reports nothing new', async () => {
+  for (const [gate, answer] of [[true, want()], [false, want({ preview: { key: previewKey } })]]) {
+    const docker = fakeDocker(), server = fakeServer()
+    const h = gate ? previewHost(docker, server).h : host({ docker, server })
+    server.answer = () => [answer]
+    await h.boxes.sync(); await h.boxes.settled(); await h.boxes.sync()
+    const box = docker.runs().find(args => flag(args, '--name')[0] === `l4-box-${boxId}`)
+    assert.ok(flag(box, '--env').includes('DISPLAY=:99'))
+    assert.equal(docker.runs().some(args => flag(args, '--name')[0] === `l4-view-${boxId}`), false)
+    assert.equal(h.boxes.viewers.get(boxId), null)
+    assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'idle', runtimeMs: 0 }])
+    if (!gate) assert.equal(flag(box, '--ipc').length, 0)
+  }
+})
+
+test('a viewer that cannot start leaves the box working and is tried again a minute later, not on every sync', async () => {
+  const docker = fakeDocker(), server = fakeServer()
+  const failing = { ...docker, docker: async (args, options) => { if (args[0] === 'run' && flag(args, '--name')[0] === `l4-view-${boxId}`) throw new Error('no viewer'); return docker.docker(args, options) } }
+  const { h } = previewHost(failing, server)
+  server.answer = () => [want({ preview: { key: previewKey }, turn: { runId } })]
+  await h.boxes.sync(); await h.boxes.settled()
+  await waitFor(() => docker.turns.length === 1, 'the turn')
+  assert.equal(h.boxes.viewers.get(boxId), null)
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'running', runId, runtimeMs: 0, preview: false }])
+  const tries = () => docker.calls.filter(args => args[0] === 'rm' && args[2] === `l4-view-${boxId}`).length
+  const before = tries()
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(tries(), before)
+  h.clock.now += 60_000
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.ok(tries() > before)
+  docker.turns[0].end({ done: true, ok: true, result: 'result' })
+})

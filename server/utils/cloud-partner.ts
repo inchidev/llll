@@ -31,6 +31,7 @@ import { boundedBytes, fetchPreview } from './preview-fetch'
 import { publishTarget, repositoryGitFlow } from './project-git-flow'
 import { createProject, ensureFirstBoard, projectPermission, requireProject } from './project-service'
 import { assignProjectPolicy } from './project-policies'
+import { previewableBox, taskPreview } from './box-preview'
 import { spaceOfResource } from './space-access'
 import { requireStorageQuota } from './space-quota'
 import { ensureTaskDiscussion } from './task-discussion'
@@ -71,6 +72,7 @@ const taskCreateBody = z.object({
   ...turnChoice,
 }).strict()
 const taskGetBody = z.object({ identity: memberIdentitySchema, taskId: id }).strict()
+const taskPreviewBody = taskGetBody
 const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true), attachments: partnerAttachments, ...turnChoice }).strict()
 const modelsListBody = z.object({ identity: memberIdentitySchema }).strict()
 const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
@@ -325,10 +327,11 @@ async function discussionMessages(env: L4Env, channelId: string | null, limit: n
 }
 
 async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }, reader: string | null = null) {
-  const [lastRun, review, branch] = await Promise.all([
+  const [lastRun, review, branch, watchable] = await Promise.all([
     env.DB.prepare('SELECT status FROM agent_runs WHERE task_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(task.id).first<{ status: string }>(),
     env.DB.prepare("SELECT 1 AS waiting FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id WHERE b.task_id=? AND a.status IN ('pending','pending_diff') LIMIT 1").bind(task.id).first(),
     taskBranch(env, task.id),
+    previewableBox(env, task.id),
   ])
   const state = partnerTaskState({ status: task.status, factoryState: task.factoryState, lastError: task.lastError, lastRun: lastRun?.status ?? null, reviewPending: Boolean(review) })
   // Why it failed, when the Task itself records it: the partner sees it as the Server's word in the discussion.
@@ -337,6 +340,8 @@ async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }, rea
   return {
     taskId: task.id, projectId: task.projectId, title: task.title.slice(0, 200), state, branch: branch?.name ?? null,
     activity: state === 'working' ? await taskActivity(env, task.id) : null,
+    // Whether `tasks/preview` has a box screen to show now.
+    preview: Boolean(watchable),
     messages: reason ? [...messages, reason] : messages,
     commits: branch ? await branchCommits(env, branch) : [],
   }
@@ -538,7 +543,7 @@ async function taskActivity(env: L4Env, taskId: string) {
   return { startedAt: run.startedAt, build: Boolean(run.environmentJson), box: box?.status ?? null, modelCalls: calls?.n ?? 0, steps }
 }
 
-/** The five partner actions; null for any other. The caller has checked the bearer secret and that an Owner exists. */
+/** The partner actions; null for any other. The caller has checked the bearer secret and that an Owner exists. */
 export async function partnerAction(env: L4Env, action: string, body: unknown, schedule: Schedule): Promise<Answer | null> {
   switch (action) {
     case 'projects/create': {
@@ -575,6 +580,15 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
       const input = modelsListBody.parse(body)
       const { auth } = await actingMember(env, input.identity)
       return { ok: true, ...await listModels(env, auth) }
+    }
+    case 'tasks/preview': {
+      // A short-lived link to watch the Task's box; 404 while no box runs with a viewer. It takes no turn.
+      const input = taskPreviewBody.parse(body)
+      const { auth } = await actingMember(env, input.identity)
+      await readableTask(env, auth, input.taskId)
+      const preview = await taskPreview(env, auth, input.taskId)
+      if (!preview) fail(404, 'not_found', 'The Task’s box is not running')
+      return { ok: true, url: preview!.url, expiresAt: preview!.expiresAt }
     }
     case 'tasks/message': {
       const input = taskMessageBody.parse(body)

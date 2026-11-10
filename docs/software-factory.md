@@ -90,6 +90,20 @@ A celld Server says a repository in L4 needs a Cloudflare-based Server; a hosted
 
 The Agent's L4 tools in a box are `factory_status`, `factory_publish`, `factory_feedback`, `request_network_window`, `factory_plan` in plan mode and `factory_merge` where the Git flow allows it.
 
+**A screen and a browser.** A box on a Docker Node or L4 Compute has a screen: the box runtime keeps Xvfb running on `DISPLAY=:99` (1280×720, framebuffer in shared memory, no network listener), and the Agent's shell has `DISPLAY` set. Debian's Chromium is `/usr/bin/chromium`, flagged for the box (no sandbox of its own, since the box is the sandbox and has no user namespaces; WebGL drawn by SwiftShader), and `playwright-core` is installed globally (`NODE_PATH` finds it from a `.cjs` script; launch with `executablePath: '/usr/bin/chromium'`). So the Agent opens and plays the game it builds the way a player sees it, with screenshots and console errors, instead of testing with Node alone. A box on Cloudflare has no screen yet. The Agent is told this in its brief (`boxRunBrief`).
+
+## Watching a box
+
+On L4 Compute, a person who may read a Task watches its box's screen live, as the Agent works and tests the game. Watching is no turn and keeps nothing running: the box stops when idle whoever watches (and is saved to its checkpoint, its machine given back), its viewer stops with it, and its stream ends. A box started again, on its machine or restored from its checkpoint on a new one, gets a new viewer under a new key; earlier links no longer open.
+
+- **The viewer.** Beside each box the daemon runs `l4-view-<id>`, a container from the same image with no network at all, which shares only the box's X socket (a directory the daemon mounts into both) and its System V shared memory (`--ipc container:l4-box-<id>`). In it, [voxl](https://github.com/tembo/voxl) streams the screen as H.264 over one WebSocket: read-only (viewers cannot type or click), without sound, clipboard, files or resizing. voxl's password is made by the daemon for each viewer and reaches only the viewer's environment, never the box or the Server.
+- **The gate.** Where the provider exposes a port (`LLLL_BOX_PREVIEW_PORT`, which only the L4 Compute template sets), the daemon listens on it on loopback and carries requests to the viewer's socket. voxl's page assets pass; everything else, the stream included, needs a **ticket** as `?token=`: `<box id>.<expires, ms>.<HMAC-SHA256(key, "<box id>.<expires>")>`. The key is derived on the Server from the box's lease (`compute-preview`, as the source and publish capabilities are), so it changes with every start of the box; the Server sends it only to the box's Node in its sync and stores nothing new. A ticket lasts 30 minutes for new connections; an open stream lasts while the box runs. Every answer carries `Content-Security-Policy: frame-ancestors 'self' <Server origin> <LLLL_BOX_PREVIEW_ORIGINS>`, so only the Server and a partner's site (llll.gg names it for a partner's Server) can frame it.
+- **What the Server keeps.** The Node reports `preview: true` for a box whose viewer runs, only once the Server gave that box a key, so an earlier Server never sees the field. `factory_boxes.preview` (migration `0009`) holds it, cleared when the box stops.
+- **The link.** `POST /api/tasks/:id/preview`, for a signed-in person who may read the Task, and the partner relay action `tasks/preview { identity, taskId }`, answer `{ url, expiresAt }`: llll.gg exposes the box's port over HTTPS (`POST https://llll.gg/api/compute/boxes/:id/preview`, which answers the provider's address with its own access token), and the Server adds the ticket. 404 while no box of the Task runs with a viewer. `tasks/get` says `preview: true|false`.
+- **Not on a VPS Node.** A VPS Node starts no viewer and opens no port: a Server has no address of its own for a box there yet. Nor on Cloudflare.
+
+voxl's code is MIT; it links x264 (GPL-2.0-or-later), so the voxl binary is distributed under the GPL as a separate program that only the viewer container runs. The image keeps its notice at `/opt/voxl/NOTICE`, the license files of every crate it is built from in `/opt/voxl/share/licenses`, and those crates themselves, its complete corresponding source, in `/opt/voxl/share/source`; x264 and the other libraries are Debian's packages with their copyright files.
+
 ## Git and publication
 
 The checkout is an ordinary repository. Binary files, lockfiles and large changes are ordinary commits. Git LFS is not supported yet. D1 keeps only SHAs, statuses and digests; review diffs are in R2.
@@ -191,8 +205,9 @@ What the boundary does not cover:
 - **The Run's own credential is in the box.** It lets the box call the model and the Run's tools through the gateway, within the Run's authority and budgets, until the Run ends.
 - **Repository content is untrusted.** Code, CI logs and pull request text never authorize a push, window or merge. Trusted components read the box's repository only through the hardened copy in throwaway containers.
 - **Review approves a SHA, not intent.** A person who approves a push should read its diff; Git's hashes guarantee only that what was read is what is pushed.
+- **Watching a box shows its screen.** Whoever may read the Task may watch, on L4 Compute; anything the Agent opens on the screen is seen. The viewer is read-only and has no network, but it parses an X server the box controls: a voxl flaw could reach the viewer container, which holds only voxl's password for that box.
 
-Windows and macOS hosts, a preview of a box port, Chromium in the box, Git LFS and Destinations (setting up deployment from L4) are not built.
+Windows and macOS hosts, a preview of a box's port (a dev server's own address) and of a box's screen on a VPS Node or Cloudflare, Git LFS and Destinations (setting up deployment from L4) are not built.
 
 ## Verification
 
