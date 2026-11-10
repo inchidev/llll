@@ -35,7 +35,7 @@ export const TOOL_RULES: Readonly<Record<string, ToolRule>> = {
   list_tasks: tasksRead, list_task_boards: tasksRead, get_task: tasksRead, list_project_agents: tasksRead,
   create_task: tasksWrite, update_task: tasksWrite,
   delegate_task: { actions: [A.delegateTasks] }, get_delegated_run: { actions: [A.delegateTasks] },
-  execute_task: { actions: [A.executeTasks] },
+  execute_task: { actions: [A.executeTasks] }, start_build: { actions: [A.executeTasks] },
   // Data: tables and records.
   list_tables: { actions: [A.readRecords] }, read_records: { actions: [A.readRecords] },
   create_record: { actions: [A.writeRecords] }, update_record: { actions: [A.writeRecords] }, bulk_create_records: { actions: [A.writeRecords] },
