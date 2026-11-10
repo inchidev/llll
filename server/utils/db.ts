@@ -9,6 +9,7 @@ import projectReleasesSql from '../../drizzle/server-migrations/0005_project_rel
 import l4ComputeSql from '../../drizzle/server-migrations/0006_l4_compute.sql?raw'
 import cloudSeedSql from '../../drizzle/server-migrations/0007_cloud_seed.sql?raw'
 import cloudRelayRequestsSql from '../../drizzle/server-migrations/0008_cloud_relay_requests.sql?raw'
+import boxPreviewSql from '../../drizzle/server-migrations/0009_box_preview.sql?raw'
 import { schema } from '../../drizzle/schema'
 import { isUuidV4 } from '../../shared/server-settings'
 import { isOperatorManaged } from '../../shared/server-runtime'
@@ -42,6 +43,7 @@ export const INIT_SQL = d1ExecSql([
   l4ComputeSql,
   cloudSeedSql,
   cloudRelayRequestsSql,
+  boxPreviewSql,
 ].join('\n--> statement-breakpoint\n'))
 
 /** Bootstrap is only for an empty database. Deployed changes use D1 migrations. */

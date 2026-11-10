@@ -127,6 +127,8 @@ When a Task on such a repository starts, the Server asks llll.gg for a box of th
 
 A box is billed while it lives, so it does not wait for the Agent's next turn. After 15 minutes without a turn the box saves its work to a private repository in L4 of its own and lets its machine go; billing stops there. The next message to the Agent starts a new box, which takes about a minute, and puts the work back as it was: the Agent's branch, its uncommitted changes and new files. Files the repository ignores, installed dependencies and build output are not kept, so the Agent installs or builds again. If the saved work cannot be brought back, the turn says so instead of starting over. That repository is deleted when the Task is Done. A Server that cannot hold repositories in L4 keeps the box until the Task is Done.
 
+A box on L4 Compute or a VPS Node has a screen and a browser (Chromium), so the Agent can open and play what it builds; a box in Cloudflare Containers does not have one yet. On L4 Compute, anyone who may read the Task can also watch that screen live while the box runs, through a link that works for half an hour; watching does not keep the box running or count as work. In the API it is `POST /api/tasks/:id/preview`, which answers `{ url, expiresAt }`, or 404 while no box runs.
+
 Set the box size per Project on the Project page, under **L4 Compute box size**: **Small** (the default), **Medium** or **Large**. It applies to the next box of that Project. Prices for each size are on [Pricing](https://llll.gg/pricing).
 
 ### Credit and the spend limit

@@ -23,7 +23,7 @@ const leaseUntil = () => new Date(Date.now() + BOX_LEASE_MS).toISOString()
  * A bearer capability for a trusted component of a Node, bound to one purpose, one box or approval and the
  * box's current lease: it ends with the lease. Gitea credentials stay on the Server behind it.
  */
-export async function leaseCapability(env: L4Env, purpose: 'compute-source' | 'compute-publish' | 'compute-checkpoint', id: string, lease: string) {
+export async function leaseCapability(env: L4Env, purpose: 'compute-source' | 'compute-publish' | 'compute-checkpoint' | 'compute-preview', id: string, lease: string) {
   if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'compute_source', 'Server credential encryption is unavailable')
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${purpose}:${id}:${lease}`)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
@@ -59,7 +59,9 @@ export const boxSyncInput = z.object({ operation: z.literal('sync'),
   boxes: z.array(z.object({ id: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), state: z.enum(['starting', 'running', 'idle', 'stopped', 'failed']),
     runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12),
     // A stopped L4 Compute box whose disk is exactly this acknowledged checkpoint, with no turn since.
-    saved: z.string().regex(/^[a-f0-9]{40}$/u).optional() }).strict()).max(64) }).strict()
+    saved: z.string().regex(/^[a-f0-9]{40}$/u).optional(),
+    /** Whether the box's viewer runs; a Node sends it only for a box this Server gave a preview key. */
+    preview: z.boolean().optional() }).strict()).max(64) }).strict()
 export const boxTurnInput = z.object({ operation: z.literal('turn'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), runId: z.string().uuid() }).strict()
 export const boxSourceInput = z.object({ operation: z.literal('source'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
 export const boxSecretsInput = z.object({ operation: z.literal('secrets'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
@@ -189,15 +191,15 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
     // A paired Node reports what its host has now; a Cloudflare Node's capacity is what it was provisioned with.
     env.DB.prepare(`UPDATE compute_nodes SET capabilities_json=CASE WHEN json_extract(capabilities_json,'$.docker')=1 THEN json_set(capabilities_json,'$.capacity',json(?)) ELSE capabilities_json END
       WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 RETURNING capabilities_json AS capabilitiesJson,enabled,placement_id AS placementId`).bind(JSON.stringify(capacity), nodeId),
-    env.DB.prepare(`UPDATE factory_boxes SET status='stopped',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,updated_at=? WHERE node_id=? AND status IN ${ACTIVE} AND lease_until<=?`).bind(now, nodeId, now),
+    env.DB.prepare(`UPDATE factory_boxes SET status='stopped',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,preview=0,updated_at=? WHERE node_id=? AND status IN ${ACTIVE} AND lease_until<=?`).bind(now, nodeId, now),
     // A Done or archived Task's work is in its pull request; with no turn running, the Node may drop its disk.
-    env.DB.prepare(`UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=? WHERE node_id=? AND status<>'released'
+    env.DB.prepare(`UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,preview=0,updated_at=? WHERE node_id=? AND status<>'released'
       AND task_id IN (SELECT id FROM tasks WHERE status='done' OR archived_at IS NOT NULL) AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')) RETURNING id`).bind(now, nodeId),
     env.DB.prepare("UPDATE factory_boxes SET run_id=NULL,updated_at=? WHERE node_id=? AND run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')").bind(now, nodeId),
     ...input.boxes.map(box => env.DB.prepare(`UPDATE factory_boxes SET status=?,lease_until=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE ? END,
       lease_token=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE lease_token END,cpu=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE cpu END,
-      memory_mib=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE memory_mib END,runtime_ms=MAX(runtime_ms,?),updated_at=?
-      WHERE id=? AND node_id=? AND lease_token=? AND status IN ${ACTIVE}`).bind(box.state, box.state, renewed, box.state, box.state, box.state, box.runtimeMs, now, box.id, nodeId, box.lease)),
+      memory_mib=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE memory_mib END,runtime_ms=MAX(runtime_ms,?),preview=CASE WHEN ? IN ('idle','running') AND ? THEN 1 ELSE 0 END,updated_at=?
+      WHERE id=? AND node_id=? AND lease_token=? AND status IN ${ACTIVE}`).bind(box.state, box.state, renewed, box.state, box.state, box.state, box.runtimeMs, box.state, box.preview ? 1 : 0, now, box.id, nodeId, box.lease)),
   ])
   const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number; placementId: string | null }> | undefined)?.[0]
   const capabilities = stored ? computeCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
@@ -269,9 +271,12 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   const running = listed.filter(box => box.want === 'running').map(box => box.id)
   const [outward, egress] = await Promise.all([boxOutwardWork(env, running), boxEgress(env, running)])
   const closed = { revision: 'closed', hosts: [] as string[], secretHosts: [] as string[] }
+  // An L4 Compute box's own Node exposes a preview gate; its key, from the lease, lets the gate check the Server's tickets.
+  const previewKeys = new Map(stored!.placementId ? await Promise.all(listed.filter(box => box.want === 'running').map(async box => [box.id, await leaseCapability(env, 'compute-preview', box.id, box.lease)] as const)) : [])
   const boxes = listed.map(box => {
-    const compiled = egress.get(box.id)
-    return { ...box, egress: compiled ? { revision: compiled.revision, hosts: compiled.hosts, secretHosts: compiled.secretHosts } : closed, ...outward.get(box.id) }
+    const compiled = egress.get(box.id), previewKey = previewKeys.get(box.id)
+    return { ...box, egress: compiled ? { revision: compiled.revision, hosts: compiled.hosts, secretHosts: compiled.secretHosts } : closed, ...outward.get(box.id),
+      ...(previewKey ? { preview: { key: previewKey } } : {}) }
   })
   const started = admitted.filter(row => row.status === 'starting' && leases.get(row.id) === row.leaseToken).map(row => row.id)
   return { boxes, admitted: started, released: [...releasedIds] }

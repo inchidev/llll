@@ -1,0 +1,1 @@
+ALTER TABLE `factory_boxes` ADD `preview` integer DEFAULT 0 NOT NULL;

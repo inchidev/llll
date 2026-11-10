@@ -2,9 +2,10 @@ import { LoopDiskStore } from './disk-store.mjs'
 import { join, resolve } from 'node:path'
 import { runProcess } from './process.mjs'
 import { openNodeState, serverOrigin } from './state-store.mjs'
-import { statfs, mkdir, chmod, writeFile, rename, rm } from 'node:fs/promises'
+import { statfs, mkdir, chmod, chown, writeFile, rename, rm } from 'node:fs/promises'
 import { nodeCapacity } from './capacity.mjs'
 import { createBoxHost } from './boxes.mjs'
+import { createPreviewGate } from './preview-gate.mjs'
 
 const state = resolve(process.env.LLLL_NODE_STATE || './compute-node-state')
 const image = process.env.LLLL_WORKSPACE_IMAGE
@@ -131,8 +132,24 @@ const egressFiles={
   async writeCa(id,cert,bundle){await publicFile(join(egressDirectory(id),'ca','ca.pem'),cert);await publicFile(join(egressDirectory(id),'ca','bundle.pem'),bundle)},
   remove:id=>rm(egressDirectory(id),{recursive:true,force:true}),
 }
-const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,scratch,upload,egressFiles,revoke:revokeToken,
+// The preview gate, only where a provider exposes its port (L4 Compute sets LLLL_BOX_PREVIEW_PORT): a person the
+// Server let in watches a box's screen. The viewers' directories hold the box's X socket and voxl's socket.
+const previewPort=process.env.LLLL_BOX_PREVIEW_PORT?Number(process.env.LLLL_BOX_PREVIEW_PORT):null
+if(previewPort!==null&&!(Number.isInteger(previewPort)&&previewPort>=1024&&previewPort<=65535))throw new Error('LLLL_BOX_PREVIEW_PORT must be a port from 1024 to 65535')
+const previewOrigins=[server,...(process.env.LLLL_BOX_PREVIEW_ORIGINS??'').split(',').map(origin=>origin.trim()).filter(Boolean)]
+for(const origin of previewOrigins)if(new URL(origin).origin!==origin||!/^https?:$/u.test(new URL(origin).protocol))throw new Error('LLLL_BOX_PREVIEW_ORIGINS lists origins such as https://example.com')
+const viewRoot=join(state,'box-view')
+const viewDirectory=id=>{if(!/^[a-f0-9-]{36}$/u.test(id))throw new Error('Invalid box');return join(viewRoot,id)}
+const viewFiles={
+  async prepare(id){const base=viewDirectory(id),files={x11:join(base,'x11'),socket:join(base,'socket')};await mkdir(base,{recursive:true});await chmod(base,0o755)
+    for(const path of [files.x11,files.socket]){await mkdir(path,{recursive:true});await chown(path,1000,1000);await chmod(path,0o700)}return files},
+  remove:id=>rm(viewDirectory(id),{recursive:true,force:true}),
+}
+const preview=previewPort===null?null:{files:viewFiles,origins:[...new Set(previewOrigins)]}
+const host=createBoxHost({docker,poll,disks,fetchSource,records:store.boxes,connection,image,server,capacity:capabilities.capacity,diskFree,scratch,upload,egressFiles,preview,revoke:revokeToken,
   log:(event,detail)=>console.warn(event,detail)})
+const gate=preview?createPreviewGate({viewers:host.viewers,origins:preview.origins,log:(event,detail)=>console.warn(event,detail)}):null
+if(gate)await gate.listen(previewPort)
 // A box disk without a record, from a lost state file, is reported until the Server says what it is.
 for (const name of (await docker(['volume','ls','-q',...owned])).trim().split('\n').filter(Boolean)) {
   // The per-command Factory before protocol 2 left a volume per workspace. Its Server dropped those
@@ -151,4 +168,5 @@ while(!stopping){
   await new Promise(resolveWait=>{wake=resolveWait;setTimeout(resolveWait,2000)})
 }
 await host.shutdown()
+await gate?.close()
 store.close()

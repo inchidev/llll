@@ -285,7 +285,7 @@ describe('the partner’s game doors', () => {
     const made = await createTask(project.projectId)
     expect(made.status).toBe(200)
     const task = made.body.task
-    expect(task).toEqual({ activity: null, taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, messages: [], commits: [] })
+    expect(task).toEqual({ activity: null, taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, preview: false, messages: [], commits: [] })
     const stored = row<{ board: string; assignee_id: string; environment_id: string; description: string; discussion_channel_id: string; status: string }>(
       'SELECT b.name AS board,t.assignee_id,t.environment_id,t.description,t.discussion_channel_id,t.status FROM tasks t JOIN task_boards b ON b.id=t.board_id WHERE t.id=?', task.taskId)!
     expect(stored).toMatchObject({ board: 'Tasks', assignee_id: agentId(), status: 'ready', discussion_channel_id: expect.any(String) })
@@ -427,6 +427,40 @@ describe('the partner’s game doors', () => {
     // A review waiting on the box is a question for the person.
     sqlite.prepare("INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,expires_at,created_at) VALUES('a1','box1',?,'c1','publish','{}','d','pending_diff','2099-01-01','2026-11-09')").run(run.id)
     expect((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task.state).toBe('waiting')
+  })
+
+  it('hands the creator a short-lived link to watch the Task’s box while it runs with a viewer, and 404 otherwise', async () => {
+    const { body: { project } } = await createProject()
+    const { body: { task } } = await createTask(project.projectId, { attachments: [] })
+    await settle()
+    expect(await post('tasks/preview', { identity: owner, taskId: task.taskId })).toEqual({ status: 404, body: { error: 'The Task’s box is not running' } })
+    expect((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task).toMatchObject({ preview: false })
+    // The Task's box on its own L4 Compute Node, running under a live lease, with its viewer reported.
+    const run = row<{ id: string; channel_id: string; initiated_by: string }>('SELECT id,channel_id,initiated_by FROM agent_runs WHERE task_id=?', task.taskId)!
+    const placement = row<{ id: string }>("SELECT id FROM compute_nodes WHERE json_extract(capabilities_json,'$.provider')='l4-compute' AND placement_id IS NULL")!.id
+    sqlite.prepare("INSERT INTO compute_nodes(id,name,token_hash,capabilities_json,created_by,created_at,placement_id,box_id) VALUES('boxnode','L4 Compute','h','{}',?,'2026-11-10',?,'box1')").run(run.initiated_by, placement)
+    const environment = row<{ id: string; config: string }>('SELECT e.id,e.config_json AS config FROM agent_environments e JOIN project_repositories r ON r.environment_id=e.id WHERE r.project_id=?', project.projectId)!
+    sqlite.prepare("INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,status,lease_token,lease_until,cloud_box_id,preview,created_at,updated_at) VALUES('box1',?,?,?,?,'boxnode',?,?,'idle',?,?,'bx_9',1,'2026-11-10','2026-11-10')")
+      .run(run.channel_id, task.taskId, agentId(), run.initiated_by, JSON.stringify({ ...JSON.parse(environment.config), id: environment.id }), run.id, 'e'.repeat(64), new Date(Date.now() + 60_000).toISOString())
+    const asked: string[] = []
+    const network = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (!url.startsWith('https://llll.gg/')) return network(input, init)
+      asked.push(`${init?.method} ${url} ${new Headers(init?.headers).get('authorization')}`)
+      return Response.json({ url: 'https://sbx-6901.sandbox.us-east-1.onlizard.com/?lizard_token=t' })
+    })
+    expect((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task).toMatchObject({ preview: true })
+    const watched = await post('tasks/preview', { identity: owner, taskId: task.taskId }) as unknown as { status: number; body: { ok: true; url: string; expiresAt: string } }
+    expect(watched.status).toBe(200)
+    expect(asked).toEqual([`POST https://llll.gg/api/compute/boxes/bx_9/preview Bearer l4h.${SERVER}.${SECRET}`])
+    const url = new URL(watched.body.url)
+    expect(url.searchParams.get('token')).toMatch(/^box1\.\d{13}\.[a-f0-9]{64}$/u)
+    expect(Date.parse(watched.body.expiresAt) - Date.now()).toBeGreaterThan(29 * 60_000)
+    // Another person, or a Task they cannot read, gets nothing.
+    expect((await post('tasks/preview', { identity: friend, taskId: task.taskId })).status).toBe(404)
+    expect((await post('tasks/preview', { identity: owner, taskId: 'missing' })).status).toBe(404)
+    expect(asked).toHaveLength(1)
   })
 
   it('forgets answers after a day, so the same request acts again', async () => {

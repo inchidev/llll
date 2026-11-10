@@ -1,0 +1,19 @@
+voxl in the L4 box image
+
+/opt/voxl/bin/voxl is voxl 0.3.4 (crate voxl-server 0.3.4), a separate program that streams the box's screen
+to a person watching it. L4 runs it only in the box's viewer container, as its own process; no L4 code links it.
+
+voxl's own code is under the MIT License (/opt/voxl/share/licenses/voxl-server-0.3.4/LICENSE), copyright its
+authors. Its source: https://github.com/tembo/voxl/tree/v0.3.4 and https://crates.io/crates/voxl-server/0.3.4.
+
+voxl links x264, which is under the GNU General Public License, version 2 or later. The voxl binary, as a whole,
+is therefore distributed under the GNU GPL version 2 (/usr/share/common-licenses/GPL-2). Its complete
+corresponding source is in this image: /opt/voxl/share/source holds the exact crates it was built from (voxl-server
+and every crate in its Cargo.lock used for Linux), built with `cargo install voxl-server --version 0.3.4 --locked`
+on rust:1.99.1-bookworm (see packages/compute-node/Dockerfile.workspace in https://github.com/inchidev/llll). The
+license files of those crates are in /opt/voxl/share/licenses. x264, libyuv, Opus and PulseAudio are Debian's
+packages, used as Debian ships them; their copyright files are in /usr/share/doc/<package>/copyright.
+
+You may ask for a copy of this source from the L4 maintainers at https://github.com/inchidev/llll for three years
+from the release that contains this image.
+

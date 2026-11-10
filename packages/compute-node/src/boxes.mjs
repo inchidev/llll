@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
 import { createBoxCa } from './box-ca.mjs'
 import { pushRef } from './push-branch.mjs'
 
@@ -7,7 +9,12 @@ const MAX_REPORTED = 64, NO_LEASE = '0'.repeat(64)
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value)
 const lease = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
 const commit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value)
-const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}`, save: `l4-save-${id}` })
+const names = id => ({ box: `l4-box-${id}`, egress: `l4-egress-${id}`, network: `l4-boxnet-${id}`, volume: `l4-disk-${id}`, checkout: `l4-checkout-${id}`, copy: `l4-copy-${id}`, push: `l4-push-${id}`, save: `l4-save-${id}`, view: `l4-view-${id}` })
+/** The box's screen: Xvfb in the box (packages/agent-runtime/src/display.mjs), the Agent's browser on it. */
+export const BOX_DISPLAY = ':99'
+/** A viewer that failed to start is tried again this long after, not on every sync. */
+const VIEWER_RETRY_MS = 60000
+const previewKey = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'FTP_PROXY', 'ftp_proxy']
 /** Where the box finds its own authority: Node adds it to its roots, the rest read the bundle with the system roots. */
 const BOX_CA = ['--env', 'NODE_EXTRA_CA_CERTS=/run/l4-ca/ca.pem', ...['SSL_CERT_FILE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'].flatMap(key => ['--env', `${key}=/run/l4-ca/bundle.pem`])]
@@ -61,9 +68,16 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  * a throwaway container with no network writes it to the scratch disk, another with the scratch disk only pushes it),
  * and once the Server has acknowledged it the box is reported stopped with that checkpoint, so the Server may let the
  * machine go. A box starting on a new machine is restored from its checkpoint instead of the pinned source.
+ *
+ * Every box has a screen (`DISPLAY`) for the Agent's browser. On a Node with a preview gate (`preview`, which only
+ * L4 Compute sets up), a box the Server gives a preview key also gets a viewer, `l4-view-<id>`: voxl streaming that
+ * screen, with no network, sharing only the box's X socket and shared memory. The gate (preview-gate.mjs) lets a
+ * person in with a ticket the Server minted from that key; voxl's own password is made here for each viewer and
+ * goes only to the viewer. Viewing is no turn: a box with only viewers stops when idle like any other, its viewer
+ * with it, and a box started again on its checkpoint gets a viewer again.
  */
 export function createBoxHost({ docker, poll, disks, fetchSource, records, connection, image, server, capacity, diskFree,
-  scratch, upload, egressFiles, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
+  scratch, upload, egressFiles, preview = null, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
   const boxes = new Map()
   const labels = (box) => ['--label', `l4.node=${connection.nodeId}`, '--label', `l4.server=${connection.serverId}`, '--label', `l4.box=${box.id}`, '--label', `l4.task=${box.taskId}`]
   let rotation = 0
@@ -93,8 +107,10 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     const listed = [...working.slice(0, MAX_REPORTED), ...[...stopped.slice(start), ...stopped.slice(0, start)].slice(0, room)]
     // A box being stopped no longer counts against the Node; one being saved keeps its lease, which its save needs.
     // A stopped box says which acknowledged checkpoint its disk is, with no turn since: the Server may then let it go.
+    // A viewer is reported only to a Server that gave the box a preview key, so an earlier Server never sees the field.
     return listed.map(box => ({ id: box.id, lease: box.lease, state: box.state === 'stopping' ? 'stopped' : box.state === 'saving' ? 'idle' : box.state,
-      ...(box.runId ? { runId: box.runId } : {}), runtimeMs: runtime(box), ...(box.state === 'stopped' && box.saved ? { saved: box.saved } : {}) }))
+      ...(box.runId ? { runId: box.runId } : {}), runtimeMs: runtime(box), ...(box.state === 'stopped' && box.saved ? { saved: box.saved } : {}),
+      ...(box.previewAsked ? { preview: Boolean(box.viewer) && ['idle', 'running'].includes(box.state) } : {}) }))
   }
 
   async function control(box, request, options = {}) {
@@ -173,8 +189,37 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       .finally(() => { if (box.egressPending === policy.revision) box.egressPending = null })
   }
 
+  /** The box's viewer, for the key the Server gave this start. It never holds up the box: a viewer that fails is only not there. */
+  async function startViewer(box, key) {
+    const { box: name, view } = names(box.id)
+    box.viewer = null
+    await docker(['rm', '-f', view]).catch(() => {})
+    try {
+      const files = await preview.files.prepare(box.id), password = randomBytes(32).toString('hex')
+      await docker(['run', '-d', '--name', view, ...labels(box), '--network', 'none', '--read-only', '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+        '--pids-limit', '64', '--memory', '512m', '--cpus', '1', '--ipc', `container:${name}`, '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000',
+        '--mount', `type=bind,src=${files.x11},dst=/tmp/.X11-unix,readonly`, '--mount', `type=bind,src=${files.socket},dst=/run/l4-view`,
+        '--env', `DISPLAY=${BOX_DISPLAY}`, '--env', 'VOXL_PASSWORD', '--env', `LLLL_VIEW_ORIGINS=${preview.origins.join(',')}`, image, 'node', '/opt/l4/viewer.mjs'],
+      { env: { VOXL_PASSWORD: password } })
+      box.viewer = { boxId: box.id, key, password, socket: join(files.socket, 'voxl.sock') }
+    } catch (error) {
+      box.viewerFailed = { key, at: now() }
+      await docker(['rm', '-f', view]).catch(() => {})
+      log('compute.box_viewer_failed', { boxId: box.id, error: error instanceof Error ? error.message : 'failed' })
+    }
+  }
+  /** A key the box did not start with (a Server that began to give one): the viewer starts, or starts again, beside the box. */
+  function refreshViewer(box, key) {
+    if (!preview || !previewKey(key) || box.viewer?.key === key || box.viewerPending === key) return
+    if (box.viewerFailed?.key === key && now() - box.viewerFailed.at < VIEWER_RETRY_MS) return
+    box.viewerPending = key
+    enqueue(box, async () => { if (['idle', 'running'].includes(box.state)) await startViewer(box, key) }).finally(() => { if (box.viewerPending === key) box.viewerPending = null })
+  }
+
   async function removeContainers(box) {
-    const { box: name, egress, network } = names(box.id)
+    const { box: name, egress, network, view } = names(box.id)
+    box.viewer = null
+    await docker(['rm', '-f', view]).catch(() => {})
     await docker(['rm', '-f', name]).catch(() => {})
     await docker(['rm', '-f', egress]).catch(() => {})
     await docker(['network', 'rm', network]).catch(() => {})
@@ -214,7 +259,10 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       const proxy = `http://${address}:8080`
       await loadEgress(box, policy)
       box.egressRevision = policy.revision
+      // With a preview gate, the box's X socket is in a directory its viewer mounts too, and its shared memory may be joined.
+      const view = preview ? await preview.files.prepare(box.id) : null
       await docker(['run', '-d', '--name', name, ...labels(box), '--network', network, '--dns', '127.0.0.1', '--init', '--read-only', '--user', '1000:1000',
+        ...(view ? ['--ipc', 'shareable', '--mount', `type=bind,src=${view.x11},dst=/tmp/.X11-unix`] : []), '--env', `DISPLAY=${BOX_DISPLAY}`,
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', `${want.memoryMiB}m`, '--memory-swap', `${want.memoryMiB}m`, '--cpus', String(Math.max(0.01, Math.round(want.cpu * 100) / 100)),
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=512m,uid=1000,gid=1000', '--tmpfs', '/run/l4:rw,noexec,nosuid,size=1m,uid=1000,gid=1000',
         '--mount', `type=volume,src=${volume},dst=/work`, '--mount', `type=bind,src=${files.ca},dst=/run/l4-ca,readonly`, ...BOX_CA,
@@ -225,6 +273,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
       box.state = 'idle'
       box.upSince = now()
       box.lastActive = now()
+      if (preview && previewKey(want.preview?.key)) await startViewer(box, want.preview.key)
     } catch (error) {
       await removeContainers(box)
       box.state = 'failed'
@@ -240,6 +289,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
 
   async function stop(box, state = 'stopped') {
     await removeContainers(box)
+    box.previewAsked = false
     box.ca = null
     box.egressRevision = null
     if (box.mount) await disks.flush(box.mount).catch(() => {})
@@ -256,6 +306,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     await docker(['volume', 'rm', volume]).catch(() => {})
     await disks.remove(box.id)
     await egressFiles.remove(box.id).catch(() => {})
+    if (preview) await preview.files.remove(box.id).catch(() => {})
     boxes.delete(box.id)
     records.forget(box.id)
   }
@@ -405,6 +456,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     if (box.lease !== answer.lease) { box.lease = answer.lease; save(box) }
     box.answer = answer
     box.checkpoint = answer.checkpoint === true
+    box.previewAsked = Boolean(preview && previewKey(answer.preview?.key))
     const turn = uuid(answer.turn?.runId) ? answer.turn.runId : null
     if (answer.cancelRunId && box.runId === answer.cancelRunId) void control(box, { op: 'cancel', runId: answer.cancelRunId }).catch(() => {})
     if (box.state === 'stopped' || box.state === 'failed') {
@@ -415,6 +467,7 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
     }
     if (turn && box.state === 'starting') box.pending = turn
     if (['idle', 'running'].includes(box.state) && answer.egress) refreshEgress(box, answer.egress)
+    if (['idle', 'running'].includes(box.state)) refreshViewer(box, answer.preview?.key)
     if (turn && box.state === 'idle') beginTurn(box, turn)
     if (['idle', 'running'].includes(box.state) && scratch && upload) outwardWork(box, answer)
   }
@@ -422,6 +475,11 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
   return {
     boxes,
     report,
+    /** The viewers the preview gate may open: a box's own by its ticket, and any one for voxl's public assets. */
+    viewers: {
+      get: id => { const box = boxes.get(id); return box?.viewer && ['idle', 'running'].includes(box.state) ? box.viewer : null },
+      any: () => [...boxes.values()].find(box => box.viewer && ['idle', 'running'].includes(box.state))?.viewer ?? null,
+    },
     /** One sync: report every box, renew their leases and do what the Server answers. */
     async sync() {
       const answer = await poll({ operation: 'sync', capacity: { ...capacity, diskFree: await diskFree() }, boxes: report() })

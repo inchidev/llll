@@ -273,7 +273,7 @@ export async function resetLostL4Box(env: L4Env, boxId: string, placementNodeId:
   const credential = await l4ComputeCredential(env)
   if (credential) await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}`, { method: 'DELETE' }).catch(() => undefined)
   await env.DB.batch([
-    env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,
+    env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,preview=0,
       updated_at=? WHERE id=?`).bind(placementNodeId, nowIso(), boxId),
     env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE id=?').bind(await factoryHash(secret()), row.nodeId),
     env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(boxId),
@@ -294,7 +294,7 @@ export async function parkL4Box(env: L4Env, boxId: string, nodeId: string, place
   const row = await env.DB.prepare(`SELECT cloud_box_id AS cloudBoxId FROM factory_boxes WHERE id=? AND node_id=? AND status='stopped' AND checkpoint_sha=? AND cloud_box_id IS NOT NULL`)
     .bind(boxId, nodeId, saved).first<{ cloudBoxId: string }>()
   if (!row) return false
-  const moved = await env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=?
+  const moved = await env.DB.prepare(`UPDATE factory_boxes SET node_id=?,status='new',cloud_box_id=NULL,cloud_size=NULL,cloud_confirmed_at=NULL,lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,preview=0,run_id=NULL,updated_at=?
     WHERE id=? AND node_id=? AND status='stopped' AND checkpoint_sha=? AND cloud_box_id=? AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM agent_runs WHERE status='running')) RETURNING id`)
     .bind(placementNodeId, nowIso(), boxId, nodeId, saved, row.cloudBoxId).first()
   if (!moved) return false
@@ -323,7 +323,7 @@ export async function releaseL4Boxes(env: L4Env, boxIds: string[]) {
     // A box llll.gg no longer knows is released all the same; one it cannot be told about now is stopped by its own idle rule.
     if (credential && row.cloudBoxId) await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(row.cloudBoxId)}`, { method: 'DELETE' }).catch(() => undefined)
     await env.DB.batch([
-      env.DB.prepare("UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=? WHERE id=?").bind(nowIso(), row.id),
+      env.DB.prepare("UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,preview=0,updated_at=? WHERE id=?").bind(nowIso(), row.id),
       env.DB.prepare('UPDATE compute_nodes SET enabled=0,token_hash=? WHERE box_id=?').bind(await factoryHash(secret()), row.id),
       env.DB.prepare('DELETE FROM compute_pairings WHERE box_id=?').bind(row.id),
     ])
@@ -340,4 +340,23 @@ export async function releaseL4BoxesForTasks(env: L4Env, taskIds: string[]) {
     AND (n.placement_id IS NOT NULL OR json_extract(n.capabilities_json,'$.provider')='l4-compute')
     AND (b.run_id IS NULL OR b.run_id NOT IN (SELECT id FROM agent_runs WHERE status='running'))`).bind(JSON.stringify(taskIds)).all<{ id: string }>()
   return releaseL4Boxes(env, rows.results.map(row => row.id))
+}
+
+const previewResponse = z.object({ url: z.string().url().max(4096) }).passthrough()
+/**
+ * Where a box's screen can be watched: llll.gg exposes the box's preview port over HTTPS (`POST
+ * /api/compute/boxes/:id/preview`) and answers its address, which carries the provider's own access token. Null when
+ * llll.gg has no preview for the box (gone, not running, or a template without one); a failure to reach it is a 502.
+ */
+export async function l4BoxPreviewUrl(env: L4Env, cloudBoxId: string) {
+  const credential = await l4ComputeCredential(env)
+  if (!credential) return null
+  let response: Response
+  try { response = await l4Fetch(env, credential, `/api/compute/boxes/${encodeURIComponent(cloudBoxId)}/preview`, { method: 'POST' }, 15000) }
+  catch { fail(502, 'preview_unreachable', `${L4_COMPUTE_UNREACHABLE}; the box’s screen cannot be shown now.`) }
+  if (response.status === 404 || response.status === 409) { await response.body?.cancel(); return null }
+  if (!response.ok) { await response.body?.cancel(); fail(502, 'preview_unreachable', `llll.gg did not open the box’s screen (${response.status}).`) }
+  const parsed = previewResponse.safeParse(await response.json().catch(() => null))
+  if (!parsed.success || new URL(parsed.data.url).protocol !== 'https:') fail(502, 'preview_unreachable', 'llll.gg answered the preview in an unexpected form')
+  return parsed.data.url
 }
