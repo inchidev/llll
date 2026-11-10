@@ -198,6 +198,7 @@ Every merge attempt is a `factory_approvals` row of kind `merge`, completed, fai
 | Box CPU and memory | An equal share of the host | 0.25 CPU/1 GiB, 0.5 CPU/4 GiB or 1 CPU/6 GiB |
 | Boxes at once | One per CPU while each gets 1 GiB, or `LLLL_NODE_BOXES` (≤ 64) | Chosen at setup, 4 by default (≤ 64) |
 | Task disk | 10 GiB hard quota (or 1 GiB with `LLLL_WORKSPACE_DISK_BYTES`), kept until Done | 4, 8 or 12 GB temporary; the checkout is checkpointed |
+| Scratch disk | One at a time for a review, a push or an idle save: 2 GiB, or what `LLLL_SCRATCH_DISK_BYTES` says (256 MiB to 2 GiB; L4 Compute takes 768 MiB on Small and 1 GiB on Medium and Large) | — |
 | Processes | 512 per box | Chosen at setup, 128 by default |
 | Idle stop | 15 minutes without a turn | 10 minutes without a turn |
 

@@ -20,8 +20,11 @@ const store = await openNodeState(state)
 const boxDiskRoot = join(state,'box-disks'), diskSizes = [1073741824, 10737418240]
 const boxDisks = bytes => new LoopDiskStore(boxDiskRoot,{bytes,maxDisks:64})
 const sourceDisks = new LoopDiskStore(join(state,'source-disks'),{bytes:536870912,maxDisks:1})
-// One commit copy at a time, for a review or a push; it never outlives its publication.
-const publishDisks = new LoopDiskStore(join(state,'publish-disks'),{bytes:2147483648,maxDisks:1})
+// One commit copy or checkpoint at a time, for a review, a push or an idle save; it never outlives its use. A machine
+// with little disk (an L4 Compute Small box has one 5.4 GB disk beside the box image) sets a smaller one.
+const scratchBytes = Number(process.env.LLLL_SCRATCH_DISK_BYTES || 2147483648)
+if (!Number.isInteger(scratchBytes) || scratchBytes < 268435456 || scratchBytes > 2147483648 || scratchBytes % 1048576) throw new Error('LLLL_SCRATCH_DISK_BYTES must be whole MiB from 256 MiB to 2 GiB')
+const publishDisks = new LoopDiskStore(join(state,'publish-disks'),{bytes:scratchBytes,maxDisks:1})
 await boxDisks(configuredDiskBytes).initialize(); await sourceDisks.initialize(); await publishDisks.initialize()
 const probe = new LoopDiskStore(join(state,'probe-disks'),{bytes:33554432,maxDisks:1})
 await probe.initialize()
