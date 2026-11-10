@@ -5,6 +5,8 @@ import { pushRef } from './push-branch.mjs'
 
 /** A box with no turn for this long stops; its disk stays until its Task is Done, or on L4 Compute until it is saved. */
 export const BOX_IDLE_MS = 15 * 60 * 1000
+/** How long a new box may take to answer its first health check before it counts as failed to start. */
+export const BOX_READY_MS = 90 * 1000
 const MAX_REPORTED = 64, NO_LEASE = '0'.repeat(64)
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value)
 const lease = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
@@ -77,7 +79,8 @@ const lines = output => output.split('\n').filter(Boolean).map(line => { try { r
  * with it, and a box started again on its checkpoint gets a viewer again.
  */
 export function createBoxHost({ docker, poll, disks, fetchSource, records, connection, image, server, capacity, diskFree,
-  scratch, upload, egressFiles, preview = null, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, log = () => {} }) {
+  scratch, upload, egressFiles, preview = null, revoke = async () => {}, fetcher = fetch, now = Date.now, idleMs = BOX_IDLE_MS, readyMs = BOX_READY_MS,
+  readyRetryMs = 1000, log = () => {} }) {
   const boxes = new Map()
   const labels = (box) => ['--label', `l4.node=${connection.nodeId}`, '--label', `l4.server=${connection.serverId}`, '--label', `l4.box=${box.id}`, '--label', `l4.task=${box.taskId}`]
   let rotation = 0
@@ -116,6 +119,19 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
   async function control(box, request, options = {}) {
     const output = await docker(['exec', '-i', names(box.id).box, 'node', '/opt/agent/src/control.mjs'], { input: JSON.stringify(request), timeoutMs: 30000, limit: 100000, ...options })
     return lines(output)
+  }
+
+  /**
+   * A new box's health, asked again while its control socket does not listen yet: control.mjs waits ten seconds for
+   * it, and on a busy machine the box's code takes longer to load (measured 12 to 17 s on a Small L4 Compute box).
+   */
+  async function health(box) {
+    const until = Date.now() + readyMs
+    for (;;) {
+      try { return (await control(box, { op: 'health' })).at(-1) }
+      catch (error) { if (Date.now() + readyRetryMs >= until) throw error }
+      await new Promise(resolve => setTimeout(resolve, readyRetryMs))
+    }
   }
 
   /** Ends a Run's turn that never reached its box, so the conversation hears why instead of waiting. */
@@ -268,8 +284,8 @@ export function createBoxHost({ docker, poll, disks, fetchSource, records, conne
         '--mount', `type=volume,src=${volume},dst=/work`, '--mount', `type=bind,src=${files.ca},dst=/run/l4-ca,readonly`, ...BOX_CA,
         ...PROXY_VARIABLES.flatMap(key => ['--env', `${key}=${proxy}`]), '--env', 'NO_PROXY=', '--env', 'no_proxy=',
         '--env', 'NODE_USE_ENV_PROXY=1', '--env', 'HOME=/tmp', image, 'node', '/opt/agent/src/box.mjs'])
-      const health = (await control(box, { op: 'health' })).at(-1)
-      if (health?.status !== 'ready' || health.checkout !== true) throw new Error('The box did not become ready')
+      const answer = await health(box)
+      if (answer?.status !== 'ready' || answer.checkout !== true) throw new Error('The box did not become ready')
       box.state = 'idle'
       box.upSince = now()
       box.lastActive = now()

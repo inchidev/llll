@@ -269,6 +269,36 @@ test('a box that cannot start fails its turn in the conversation instead of leav
   assert.equal(server.syncs.at(-1).boxes[0].state, 'failed')
 })
 
+test('a box slow to listen is asked again until it answers, and one that never does fails its turn', async () => {
+  /** Docker where the box's control socket listens only from the `from`th health check on (never, with Infinity). */
+  const slow = from => {
+    const docker = fakeDocker(), inner = docker.docker
+    docker.asked = 0
+    docker.docker = async (args, options) => {
+      if (args[0] === 'exec' && args.at(-1) === '/opt/agent/src/control.mjs' && JSON.parse(options.input).op === 'health' && ++docker.asked < from) {
+        throw Object.assign(new Error('Docker operation failed'), { output: '{"error":"The box is not running"}\n' })
+      }
+      return inner(args, options)
+    }
+    return docker
+  }
+  const late = slow(3), server = fakeServer()
+  const h = host({ docker: late, server, publisher: { readyRetryMs: 1 } })
+  server.answer = () => [want({ turn: { runId } })]
+  await h.boxes.sync()
+  await waitFor(() => late.turns.length === 1, 'the turn to reach the box')
+  assert.equal(late.asked, 3)
+
+  const never = slow(Infinity), other = fakeServer()
+  const g = host({ docker: never, server: other, publisher: { readyMs: 20, readyRetryMs: 1 } })
+  other.answer = () => [want({ turn: { runId } })]
+  await g.boxes.sync()
+  await g.boxes.settled()
+  assert.equal(g.boxes.boxes.get(boxId).state, 'failed')
+  assert.ok(never.asked > 1)
+  assert.equal(never.turns.length, 0)
+})
+
 test('a volume another Node or Task labelled is never mounted', async () => {
   const docker = fakeDocker(), server = fakeServer()
   docker.volumes.set(`l4-disk-${boxId}`, { Driver: 'local', Labels: { 'l4.node': connection.nodeId, 'l4.server': connection.serverId, 'l4.box': boxId, 'l4.task': '00000000-0000-4000-8000-0000000000ff' }, Options: { device: `/state/box-disks/${boxId}` } })
