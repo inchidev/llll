@@ -326,6 +326,8 @@ async function discussionMessages(env: L4Env, channelId: string | null, limit: n
       // A Run that ended without an answer says why, in the Server's words.
       if (run?.text) row.content = run.text
       else if (run && ['failed', 'cancelled'].includes(run.status)) row.content = run.error?.startsWith(UNANSWERED_PREFIX) ? run.error : `The Agent stopped: ${run.error || run.status}`
+      // A finished turn whose model ended with no words: say so, rather than point at a private page with nothing on it.
+      else if (run?.status === 'completed') row.content = 'The Agent finished this turn without a reply. Ask it to continue, or what it did.'
     }
   }
   const texts = await readableMentions(env, rows.map(row => row.content))

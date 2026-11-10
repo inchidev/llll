@@ -172,6 +172,10 @@ describe('the partner’s game doors', () => {
     sqlite.prepare("UPDATE agent_runs SET status='failed',result_text=NULL,last_error='The Agent’s box refused this turn. Ask again.' WHERE id=?").run(run.id)
     const failed = await post('tasks/get', { identity: owner, taskId: made.body.task.taskId })
     expect((failed.body as { task: { messages: Array<{ text: string }> } }).task.messages.at(-1)!.text).toBe('The Agent stopped: The Agent’s box refused this turn. Ask again.')
+    // A turn that ended with no words says so, rather than pointing at an empty private page.
+    sqlite.prepare("UPDATE agent_runs SET status='completed',result_text=NULL,last_error=NULL WHERE id=?").run(run.id)
+    const silent = await post('tasks/get', { identity: owner, taskId: made.body.task.taskId })
+    expect((silent.body as { task: { messages: Array<{ text: string }> } }).task.messages.at(-1)!.text).toBe('The Agent finished this turn without a reply. Ask it to continue, or what it did.')
     sqlite.prepare("UPDATE agent_runs SET status='completed',result_text='Who plays: alone or with friends?',last_error=NULL WHERE id=?").run(run.id)
     // The creator says go: this turn has the repository, so the Agent works on its box.
     await post('tasks/message', { identity: owner, requestId: 'req-build', taskId: made.body.task.taskId, text: 'Build it.', build: true })

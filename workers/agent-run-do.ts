@@ -21,6 +21,9 @@ import { unansweredRequest } from '../server/utils/factory-approvals'
 import { isCloudflareNode } from '../shared/software-factory'
 import { z } from 'zod'
 
+/** The longest turn the agent runtime accepts (`timeoutMs` in packages/agent-runtime/src/protocol.mjs). */
+const RUNTIME_TURN_MAX_MS = 1_800_000
+
 const pollSchema = z.object({ status: z.enum(['running', 'finished', 'interrupted', 'idle']), events: z.array(runtimeEventSchema).max(100), nextCursor: z.number().int().min(0), result: runtimeEventSchema.nullable().optional() })
 /** What the Run keeps of its events for the poll; the reply stream sees every one. */
 const STORED_EVENTS = 2000, STORED_EVENT_CHARS = 256000
@@ -450,7 +453,8 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
           // tools bypass the Server's per-call policy and audit boundary. On the box they are the point
           // (ADR 0011): its boundary is the box and its egress layer, and what leaves it is gated.
           computer: box, ...(box ? { box: true } : {}), maxSteps: mandate.maxSteps, transcript,
-          timeoutMs: Math.min(900000, Math.max(1000, Date.parse(run.deadline) - Date.now())),
+          // A build turn of a few dozen model calls runs past 15 minutes; the runtime takes at most 30 (protocol.mjs).
+          timeoutMs: Math.min(RUNTIME_TURN_MAX_MS, Math.max(1000, Date.parse(run.deadline) - Date.now())),
         })
         if (!started.ok) throw new Error(`Executor rejected the run (${started.status})`)
         await this.ctx.storage.put('submitted', true)
