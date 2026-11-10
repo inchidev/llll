@@ -270,8 +270,10 @@ export function partnerTaskState(input: { status: string; factoryState: string |
   if (input.status === 'done') return 'done'
   if (input.status === 'failed' || input.factoryState === 'l4_credit' || input.factoryState === 'l4_unreachable' || input.lastRun === 'failed') return 'failed'
   if (!input.lastRun && input.lastError) return 'failed'
-  if (input.reviewPending || input.status === 'review') return 'waiting'
+  // An approval the box waits on is the person's move; a Task left in review by an earlier turn is not, once a new turn runs.
+  if (input.reviewPending) return 'waiting'
   if (input.lastRun === 'queued' || input.lastRun === 'running') return 'working'
+  if (input.status === 'review') return 'waiting'
   if (input.lastRun) return 'waiting'
   return 'open'
 }
@@ -400,6 +402,19 @@ async function attachFromLink(env: L4Env, auth: AuthorizationContext, task: { id
 }
 
 /** The images among a turn's attachments, as references the gateway resolves for the model (or describes for a text-only one). */
+/**
+ * The images given with this Task before this message, newest first and within the image limit with the new ones,
+ * so a later turn still sees the screenshot the Task started from rather than only its name in the history.
+ */
+async function earlierTaskImages(env: L4Env, taskId: string, attached: Array<{ id: string; contentType: string }>) {
+  const room = agentImageLimit - attached.filter(file => (agentImageTypes as readonly string[]).includes(file.contentType)).length
+  if (room <= 0) return ''
+  const rows = (await env.DB.prepare(`SELECT id FROM task_attachments WHERE task_id=? AND role='file' AND content_type IN (${agentImageTypes.map(() => '?').join(',')})
+    ORDER BY created_at DESC,id DESC LIMIT ?`).bind(taskId, ...agentImageTypes, agentImageLimit + attached.length).all<{ id: string }>()).results
+  const earlier = rows.filter(row => !attached.some(file => file.id === row.id)).slice(0, room)
+  return earlier.length ? `\n\nImages given with this Task earlier:\n${earlier.map(row => agentImageMarker(row.id)).join('\n')}` : ''
+}
+
 function imageReferences(attached: Array<{ id: string; contentType: string }>) {
   const images = attached.filter(file => (agentImageTypes as readonly string[]).includes(file.contentType)).slice(0, agentImageLimit)
   return images.length ? `\n\nAttached images:\n${images.map(file => agentImageMarker(file.id)).join('\n')}` : ''
@@ -496,7 +511,9 @@ async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { ta
       }
     }
     if (input.build && input.task.projectId) await applyPartnerConfig(env, input.task.projectId, auth.principal.id)
-    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? text : `${TALK_ONLY}\n\n${text}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
+    // A new turn starts without the earlier turns' pictures: it is given the Task's images again.
+    const prompt = `${text}${await earlierTaskImages(env, input.task.id, attached)}`
+    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? prompt : `${TALK_ONLY}\n\n${prompt}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
     if (run.status !== 'failed' && input.task.status === 'failed') {
       await env.DB.prepare("UPDATE tasks SET status='ready',last_error=NULL,position=?,updated_at=? WHERE id=? AND status='failed'").bind(await firstTaskPosition(env, input.task.boardId, 'ready'), nowIso(), input.task.id).run()
       await signalTasksChanged(env, input.task.boardId, input.task.id).catch(() => undefined)
