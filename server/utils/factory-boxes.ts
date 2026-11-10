@@ -3,7 +3,8 @@ import type { AgentRun, RunMandate, RuntimeEvent } from '../../shared/agent-exec
 import { runtimeEventSchema } from '../../shared/agent-execution'
 import type { RunEnvironment } from '../../shared/code-environments'
 import { computeCapabilities, isCloudflareNode, isL4ComputeNode, nodeCapacity, type ComputeCapabilities } from '../../shared/software-factory'
-import { confirmL4Boxes, releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box, resetLostL4Box, unconfirmedL4Boxes } from './l4-compute'
+import { confirmL4Boxes, parkL4Box, releaseL4Boxes, releaseL4BoxesForTasks, requestL4Box, resetLostL4Box, unconfirmedL4Boxes } from './l4-compute'
+import { checkpointsIdleBoxes } from './box-checkpoints'
 import { newId, nowIso } from '../../shared/ids'
 import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
@@ -22,7 +23,7 @@ const leaseUntil = () => new Date(Date.now() + BOX_LEASE_MS).toISOString()
  * A bearer capability for a trusted component of a Node, bound to one purpose, one box or approval and the
  * box's current lease: it ends with the lease. Gitea credentials stay on the Server behind it.
  */
-export async function leaseCapability(env: L4Env, purpose: 'compute-source' | 'compute-publish', id: string, lease: string) {
+export async function leaseCapability(env: L4Env, purpose: 'compute-source' | 'compute-publish' | 'compute-checkpoint', id: string, lease: string) {
   if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'compute_source', 'Server credential encryption is unavailable')
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${purpose}:${id}:${lease}`)))].map(byte => byte.toString(16).padStart(2, '0')).join('')
@@ -56,7 +57,9 @@ export const boxRun = (env: L4Env, runId: string) => {
 export const boxSyncInput = z.object({ operation: z.literal('sync'),
   capacity: z.object({ ...nodeCapacity.shape, diskFree: z.number().int().min(0) }).strict(),
   boxes: z.array(z.object({ id: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), state: z.enum(['starting', 'running', 'idle', 'stopped', 'failed']),
-    runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12) }).strict()).max(64) }).strict()
+    runId: z.string().uuid().optional(), runtimeMs: z.number().int().min(0).max(1e12),
+    // A stopped L4 Compute box whose disk is exactly this acknowledged checkpoint, with no turn since.
+    saved: z.string().regex(/^[a-f0-9]{40}$/u).optional() }).strict()).max(64) }).strict()
 export const boxTurnInput = z.object({ operation: z.literal('turn'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u), runId: z.string().uuid() }).strict()
 export const boxSourceInput = z.object({ operation: z.literal('source'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
 export const boxSecretsInput = z.object({ operation: z.literal('secrets'), boxId: z.string().uuid(), lease: z.string().regex(/^[a-f0-9]{64}$/u) }).strict()
@@ -135,7 +138,8 @@ export async function ensureBox(env: L4Env, run: AgentRun, nodeId: string, capab
     await env.DB.prepare('UPDATE factory_boxes SET run_id=NULL WHERE id=? AND run_id=?').bind(box.id, run.id).run()
     fail(403, 'factory_budget', 'This Task’s box has used its runtime. Raise the box runtime limit in Settings → Agents, or start a new Task.')
   }
-  // A box whose own Node is gone starts again on a new box; its disk went with it.
+  // A box whose own Node is gone starts again on a new box, from its last checkpoint if it has one; its disk went with it.
+  // So does a box that gave its machine back when idle (parkL4Box): it is on the placement again with no llll.gg box.
   if (capabilities && isL4ComputeNode(capabilities) && box.cloudBoxId && await resetLostL4Box(env, box.id, nodeId)) box.cloudBoxId = null
   if (capabilities && isL4ComputeNode(capabilities) && !box.cloudBoxId) {
     try { await requestL4Box(env, { id: box.id, taskId: run.taskId!, initiatedBy: run.initiatedBy }) }
@@ -184,7 +188,7 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   const [node, , released] = await env.DB.batch([
     // A paired Node reports what its host has now; a Cloudflare Node's capacity is what it was provisioned with.
     env.DB.prepare(`UPDATE compute_nodes SET capabilities_json=CASE WHEN json_extract(capabilities_json,'$.docker')=1 THEN json_set(capabilities_json,'$.capacity',json(?)) ELSE capabilities_json END
-      WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 RETURNING capabilities_json AS capabilitiesJson,enabled`).bind(JSON.stringify(capacity), nodeId),
+      WHERE id=? AND json_extract(capabilities_json,'$.protocol')=2 RETURNING capabilities_json AS capabilitiesJson,enabled,placement_id AS placementId`).bind(JSON.stringify(capacity), nodeId),
     env.DB.prepare(`UPDATE factory_boxes SET status='stopped',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,updated_at=? WHERE node_id=? AND status IN ${ACTIVE} AND lease_until<=?`).bind(now, nodeId, now),
     // A Done or archived Task's work is in its pull request; with no turn running, the Node may drop its disk.
     env.DB.prepare(`UPDATE factory_boxes SET status='released',lease_token=NULL,lease_until=NULL,cpu=NULL,memory_mib=NULL,run_id=NULL,updated_at=? WHERE node_id=? AND status<>'released'
@@ -195,7 +199,7 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
       memory_mib=CASE WHEN ? IN ('stopped','failed') THEN NULL ELSE memory_mib END,runtime_ms=MAX(runtime_ms,?),updated_at=?
       WHERE id=? AND node_id=? AND lease_token=? AND status IN ${ACTIVE}`).bind(box.state, box.state, renewed, box.state, box.state, box.state, box.runtimeMs, now, box.id, nodeId, box.lease)),
   ])
-  const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number }> | undefined)?.[0]
+  const stored = (node?.results as Array<{ capabilitiesJson: string; enabled: number; placementId: string | null }> | undefined)?.[0]
   const capabilities = stored ? computeCapabilities.safeParse(JSON.parse(stored.capabilitiesJson)) : null
   if (!capabilities?.success) fail(409, 'compute_protocol', 'This Node runs the Compute Node of an earlier release (protocol 1). On the Server’s VPS run sudo llll compute enable --trust-shared-kernel; any other Node is paired again from Server settings → Compute.')
   // The L4 Compute placement has no daemon: each of its boxes syncs as a Node of its own.
@@ -205,6 +209,12 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
   // A released L4 Compute box is told to llll.gg, which stops the box and its billing; one whose pairing it has not heard of yet is confirmed.
   if (releasedIds.size) await releaseL4Boxes(env, [...releasedIds]).catch(() => undefined)
   await confirmL4Boxes(env, await unconfirmedL4Boxes(env, nodeId)).catch(() => undefined)
+  // An idle L4 Compute box saved to its checkpoint gives its machine back; the Task's next turn starts a new one from it.
+  // Such a box is no longer this Node's, so its answer below is to let go.
+  const checkpoints = checkpointsIdleBoxes(env, stored!)
+  if (checkpoints) for (const report of input.boxes) {
+    if (report.state === 'stopped' && report.saved) await parkL4Box(env, report.id, nodeId, stored!.placementId!, report.saved).catch(() => false)
+  }
   const rows = (await env.DB.prepare(`SELECT ${boxColumns},(SELECT status FROM agent_runs WHERE id=factory_boxes.run_id) AS runStatus FROM factory_boxes
     WHERE node_id=? AND (status<>'released' OR id IN (SELECT value FROM json_each(?))) ORDER BY updated_at,id`).bind(nodeId, JSON.stringify([...reported.keys()])).all<SyncRow>()).results
 
@@ -244,6 +254,8 @@ export async function syncBoxes(env: L4Env, nodeId: string, input: z.infer<typeo
     const turnRunId = holds && row.runId && row.runStatus === 'running' ? row.runId : null
     return { id, lease: holds ? row.leaseToken! : report!.lease, want, taskId: row?.taskId ?? null, image: nodeCapabilities.image, diskBytes: nodeCapabilities.diskBytes,
       cpu: row?.cpu ?? reservation.cpu, memoryMiB: row?.memoryMib ?? reservation.memoryMiB,
+      // Save the box to its checkpoint when it goes idle, and say so when it stops (box-checkpoints.ts).
+      ...(checkpoints ? { checkpoint: true } : {}),
       ...(turnRunId ? { turn: { runId: turnRunId } } : {}),
       // The Node is running a turn that is no longer the box's: cancelled, failed or replaced.
       ...(report?.runId && report.runId !== turnRunId ? { cancelRunId: report.runId } : {}) }

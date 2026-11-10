@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createBoxHost, BOX_IDLE_MS } from '../src/boxes.mjs'
+import { createBoxHost, BOX_IDLE_MS, RESTORE_FAILED } from '../src/boxes.mjs'
 
 const connection = { nodeId: '00000000-0000-4000-8000-0000000000a1', serverId: '00000000-0000-4000-8000-0000000000b1' }
 const image = 'registry.example/l4-box@sha256:' + 'a'.repeat(64)
@@ -15,8 +15,8 @@ const waitFor = async (check, label = 'condition') => {
 const flag = (args, name) => args.filter((value, index) => args[index - 1] === name)
 
 /** Docker as the host sees it: containers, volumes and networks by name, and each box's control socket. */
-function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
-  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = [], pushes = [], loads = []
+function fakeDocker({ health = { status: 'ready', checkout: true }, checkpoints = {} } = {}) {
+  const calls = [], containers = new Map(), volumes = new Map(), networks = new Set(), controls = [], turns = [], pushes = [], loads = [], saves = []
   async function docker(args, options = {}) {
     calls.push(args)
     const [command, sub] = args
@@ -40,6 +40,14 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
         return JSON.stringify(request.review ? { ok: true, review: { sha: request.sha, baseSha: request.baseSha, commits: [], stat: '', patch: '+change', truncated: false } } : { ok: true, sha: request.sha }) + '\n'
       }
       if (args.at(-1) === '/opt/l4/push-branch.mjs') { pushes.push(JSON.parse(options.input)); return JSON.stringify({ ok: true }) + '\n' }
+      if (args.at(-1) === '/opt/l4/checkpoint.mjs') {
+        // What the box's containers were when the step ran: a save never runs beside the box.
+        const request = JSON.parse(options.input), step = { ...request, running: [...containers.keys()] }
+        saves.push(step)
+        const answer = checkpoints[request.operation] ?? (request.operation === 'save' ? { ok: true, checkpoint: 'e'.repeat(40), head: 'd'.repeat(40) } : { ok: true })
+        if (!answer.ok) throw Object.assign(new Error('Docker operation failed'), { output: JSON.stringify(answer) + '\n' })
+        return JSON.stringify(answer) + '\n'
+      }
       if (args.at(-1) === '/etc/ssl/certs/ca-certificates.crt') return '-----BEGIN CERTIFICATE-----\nsystem\n-----END CERTIFICATE-----\n'
       return JSON.stringify({ ok: true })
     }
@@ -57,19 +65,22 @@ function fakeDocker({ health = { status: 'ready', checkout: true } } = {}) {
     }
     throw new Error('Unexpected docker ' + args.join(' '))
   }
-  return { docker, calls, containers, volumes, networks, controls, turns, pushes, loads, runs: () => calls.filter(args => args[0] === 'run' && args.at(-1) !== '/etc/ssl/certs/ca-certificates.crt') }
+  return { docker, calls, containers, volumes, networks, controls, turns, pushes, loads, saves, runs: () => calls.filter(args => args[0] === 'run' && args.at(-1) !== '/etc/ssl/certs/ca-certificates.crt') }
 }
 
 /** The Server's side of the Node protocol: each sync gets the answer the test sets. */
 function fakeServer() {
-  const syncs = [], sources = [], turnRequests = [], events = [], publications = [], secretPolls = []
+  const syncs = [], sources = [], turnRequests = [], events = [], publications = [], secretPolls = [], checkpoints = []
+  let source = body => ({ id: body.boxId, repository: 'inchidev/afterprompt', baseSha: 'c'.repeat(40), sourceToken: 'ghs_read' })
   let answer = () => [], grant = body => ({ approvalId: body.approvalId, repository: 'inchidev/afterprompt', ref: `refs/heads/l4-agent/${boxId}`, sha: 'd'.repeat(40), baseSha: 'c'.repeat(40), expectedOld: null,
     remote: 'https://github.com/inchidev/afterprompt.git', token: 'ghs_single_repository_push' })
   const submission = id => ({ runId: id, sessionId: id, prompt: 'Ship it', computer: true, box: true, timeoutMs: 60000,
     modelGateway: { url: `https://server.example/api/agent-runs/${id}/gateway/v1`, token, model: 'm' }, toolEndpoint: `https://server.example/api/agent-runs/${id}/gateway/tools` })
   const poll = async body => {
     if (body.operation === 'sync') { syncs.push(body); return { boxes: answer(body) } }
-    if (body.operation === 'source') { sources.push(body); return { id: body.boxId, repository: 'inchidev/afterprompt', baseSha: 'c'.repeat(40), sourceToken: 'ghs_read' } }
+    if (body.operation === 'source') { sources.push(body); return source(body) }
+    if (body.operation === 'checkpoint') { checkpoints.push(body); return { remote: `https://server.example/api/compute-agent/checkpoint/${body.boxId}.git`, authorization: `Bearer ${'9'.repeat(64)}`, baseSha: 'c'.repeat(40), previous: null } }
+    if (body.operation === 'checkpointed') { checkpoints.push(body); return { ok: true } }
     if (body.operation === 'turn') { turnRequests.push(body); return { submission: submission(body.runId) } }
     if (body.operation === 'publish') { publications.push(body); return grant(body) }
     if (body.operation === 'published') { publications.push(body); return { accepted: true } }
@@ -77,7 +88,7 @@ function fakeServer() {
     throw new Error('Unexpected operation')
   }
   const fetcher = async (url, init) => { events.push({ url, authorization: init.headers.Authorization, body: JSON.parse(init.body) }); return Response.json({ ack: 0, cancel: false, steer: [] }) }
-  return { poll, fetcher, syncs, sources, turnRequests, events, publications, secretPolls, set answer(value) { answer = value }, set grant(value) { grant = value } }
+  return { poll, fetcher, syncs, sources, turnRequests, events, publications, secretPolls, checkpoints, set answer(value) { answer = value }, set grant(value) { grant = value }, set source(value) { source = value } }
 }
 const want = (overrides = {}) => ({ id: boxId, lease: leaseA, want: 'running', taskId, image, diskBytes: 10737418240, cpu: 1, memoryMiB: 4096,
   egress: { revision: 'r1', hosts: ['registry.npmjs.org'], secretHosts: [] }, ...overrides })
@@ -388,4 +399,99 @@ test('a refused turn says why in the box’s own words only when they are short 
   assert.equal(refusal('Not a turn this box takes (tools: too_big)'), 'The Agent’s box refused this turn (Not a turn this box takes (tools: too_big)). Ask again.')
   assert.equal(refusal('<script>alert(1)</script>'), 'The Agent’s box refused this turn. Ask again.')
   assert.equal(refusal(undefined), 'The Agent’s box refused this turn. Ask again.')
+})
+
+test('an idle box on L4 Compute is saved to its checkpoint before it stops, and says so, so its machine can go', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want({ checkpoint: true })]
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.boxes.get(boxId).state, 'idle')
+  h.clock.now += BOX_IDLE_MS
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.boxes.get(boxId).state, 'stopped')
+  // The grant and the acknowledgement go under the box's lease, which it kept while it was saved.
+  const checkpoint = 'e'.repeat(40), headSha = 'd'.repeat(40)
+  assert.deepEqual(server.checkpoints, [{ operation: 'checkpoint', boxId, lease: leaseA }, { operation: 'checkpointed', boxId, lease: leaseA, checkpoint, head: headSha }])
+  const [save, push] = docker.runs().filter(args => args.at(-1) === '/opt/l4/checkpoint.mjs')
+  // The save: no network, the box's disk and the scratch disk, after the box itself stopped.
+  assert.equal(flag(save, '--network')[0], 'none')
+  assert.ok(save.includes(`type=volume,src=l4-disk-${boxId},dst=/work`))
+  assert.ok(save.includes(`type=bind,src=/state/publish-disks/${p.scratched[0]},dst=/mirror`))
+  for (const [name, value] of [['--user', '1000:1000'], ['--cap-drop', 'ALL'], ['--security-opt', 'no-new-privileges']]) assert.deepEqual(flag(save, name), [value], name)
+  assert.ok(save.includes('--read-only'))
+  assert.deepEqual(docker.saves[0], { operation: 'save', baseSha: 'c'.repeat(40), previous: null, running: [] })
+  // The push: the network and the copy only, the capability on stdin.
+  assert.equal(flag(push, '--network')[0], 'bridge')
+  assert.ok(!push.some(value => value.includes(`l4-disk-${boxId}`)))
+  assert.deepEqual(docker.saves[1], { operation: 'push', remote: `https://server.example/api/compute-agent/checkpoint/${boxId}.git`, authorization: `Bearer ${'9'.repeat(64)}`, sha: checkpoint, running: [] })
+  assert.ok(!docker.calls.flat().some(value => value.includes('9'.repeat(64))), 'the capability goes on stdin only')
+  assert.deepEqual(p.removed, p.scratched)
+  // Stopped, at that checkpoint: the Server may let the machine go.
+  server.answer = () => [want({ want: 'stopped', checkpoint: true })]
+  await h.boxes.sync()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'stopped', runtimeMs: BOX_IDLE_MS, saved: checkpoint }])
+  // It did not: a new turn starts the box on its disk again, which is then no longer that checkpoint.
+  server.answer = () => [want({ lease: leaseB, turn: { runId }, checkpoint: true })]
+  await h.boxes.sync(); await h.boxes.settled()
+  await waitFor(() => docker.turns.length === 1, 'the turn')
+  assert.equal(server.sources.length, 1)
+  await h.boxes.sync()
+  assert.ok(!('saved' in server.syncs.at(-1).boxes[0]))
+  docker.turns[0].end({ done: true, ok: true, result: 'result' })
+})
+
+test('a box whose save fails only stops, and never says it was saved', async () => {
+  const docker = fakeDocker({ checkpoints: { push: { ok: false } } }), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want({ checkpoint: true })]
+  await h.boxes.sync(); await h.boxes.settled()
+  h.clock.now += BOX_IDLE_MS
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.boxes.get(boxId).state, 'stopped')
+  assert.deepEqual(server.checkpoints.map(body => body.operation), ['checkpoint'])
+  assert.ok(docker.volumes.has(`l4-disk-${boxId}`))
+  assert.deepEqual(p.removed, p.scratched)
+  await h.boxes.sync()
+  assert.deepEqual(server.syncs.at(-1).boxes, [{ id: boxId, lease: leaseA, state: 'stopped', runtimeMs: BOX_IDLE_MS }])
+})
+
+test('a Node not told to save its boxes stops them as before, and says nothing of checkpoints', async () => {
+  const docker = fakeDocker(), server = fakeServer(), p = publisher()
+  const h = host({ docker, server, publisher: p.options })
+  server.answer = () => [want()]
+  await h.boxes.sync(); await h.boxes.settled()
+  h.clock.now += BOX_IDLE_MS
+  await h.boxes.sync(); await h.boxes.settled()
+  assert.equal(h.boxes.boxes.get(boxId).state, 'stopped')
+  assert.deepEqual(server.checkpoints, [])
+  assert.deepEqual(docker.saves, [])
+})
+
+test('a box on a new machine is restored from its checkpoint, and one that cannot be fails its turn instead of starting over', async () => {
+  const checkpoint = 'e'.repeat(40)
+  for (const restore of [{ ok: true }, { ok: false }]) {
+    const docker = fakeDocker({ checkpoints: { restore } }), server = fakeServer()
+    const h = host({ docker, server })
+    server.source = body => ({ id: body.boxId, repository: 'inchidev/afterprompt', baseSha: 'c'.repeat(40), checkpoint,
+      source: { remote: `https://server.example/api/compute-agent/checkpoint/${body.boxId}.git`, authorization: `Bearer ${'9'.repeat(64)}` } })
+    server.answer = () => [want({ turn: { runId }, checkpoint: true })]
+    await h.boxes.sync(); await h.boxes.settled()
+    // The checkpoint is what is fetched, through the Server's checkpoint address, and restored with no network.
+    assert.equal(h.fetched[0].baseSha, checkpoint)
+    assert.equal(h.fetched[0].source.remote, `https://server.example/api/compute-agent/checkpoint/${boxId}.git`)
+    const restored = docker.runs().find(args => args.at(-1) === '/opt/l4/checkpoint.mjs')
+    assert.equal(flag(restored, '--network')[0], 'none')
+    assert.ok(restored.includes('type=bind,src=/state/source-disks/bundle,dst=/bootstrap/source.bundle,readonly'))
+    assert.deepEqual(docker.saves[0], { operation: 'restore', checkpoint, baseSha: 'c'.repeat(40), running: [] })
+    assert.ok(!docker.runs().some(args => args.at(-1) === '/opt/agent/src/checkout.mjs'), 'never the pinned source')
+    assert.deepEqual(h.released, [boxId])
+    if (restore.ok) {
+      await waitFor(() => docker.turns.length === 1, 'the turn')
+      docker.turns[0].end({ done: true, ok: true, result: 'result' })
+    } else {
+      assert.equal(h.boxes.boxes.get(boxId).state, 'failed')
+      assert.deepEqual(server.events.map(event => event.body.result.message), [RESTORE_FAILED])
+    }
+  }
 })
