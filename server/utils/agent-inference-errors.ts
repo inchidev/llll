@@ -15,11 +15,11 @@ export function inferenceFailure(error: unknown, depth = 0): string {
   if (status === 400 || status === 404 || status === 422) return 'The model provider did not accept this model or request. Check the selected model and its tool support.'
   if (detail.cause && detail.cause !== error && depth < 3) {
     const cause = inferenceFailure(detail.cause, depth + 1)
-    if (cause !== 'Model inference was interrupted or unavailable. Check the provider connection before retrying.') return cause
+    if (cause !== 'The model service is temporarily unavailable, or its answer was interrupted. Check the provider connection before retrying.') return cause
   }
   const code = typeof detail.code === 'string' ? detail.code : ''
   if (/CERT|TLS|SSL/u.test(code) || /certificate|tls handshake|unable to verify|unknown issuer/u.test(signal)) return 'The runtime could not verify the model provider TLS connection. Ask the operator to configure its trusted CA certificates, then retry.'
   if (detail.name === 'TimeoutError' || code === 'ETIMEDOUT' || /timed? out|timeout/u.test(signal)) return 'The model provider connection timed out. Check runtime connectivity and retry later.'
   if (/^(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH)$/u.test(code) || /fetch failed|network error|connection refused|dns/u.test(signal)) return 'The runtime could not reach the model provider. Ask the operator to check DNS, proxy and outbound connectivity, then retry.'
-  return 'Model inference was interrupted or unavailable. Check the provider connection before retrying.'
+  return 'The model service is temporarily unavailable, or its answer was interrupted. Check the provider connection before retrying.'
 }

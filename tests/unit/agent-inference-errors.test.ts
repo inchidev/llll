@@ -17,12 +17,12 @@ it.each([
 it('bounds recursive causes and never copies an unknown provider error', () => {
   const error: { message: string; cause?: unknown } = { message: 'credential=secret-token private prompt' }
   error.cause = { cause: error }
-  expect(inferenceFailure(error)).toBe('Model inference was interrupted or unavailable. Check the provider connection before retrying.')
+  expect(inferenceFailure(error)).toBe('The model service is temporarily unavailable, or its answer was interrupted. Check the provider connection before retrying.')
 })
 
 it('says when the provider account has no credits left, by status or in a stream error', async () => {
   const { inferenceFailure } = await import('../../server/utils/agent-inference-errors')
   expect(inferenceFailure({ statusCode: 402 })).toMatch(/no credits left \(402\)/u)
   expect(inferenceFailure(new Error('Insufficient credits. Add more using https://openrouter.ai/settings/credits'))).toMatch(/no credits left/u)
-  expect(inferenceFailure({ message: 'stream ended' })).toMatch(/interrupted or unavailable/u)
+  expect(inferenceFailure({ message: 'stream ended' })).toMatch(/temporarily unavailable, or its answer was interrupted/u)
 })

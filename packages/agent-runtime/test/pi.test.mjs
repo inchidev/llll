@@ -205,3 +205,27 @@ test('a picture the Server drew is fetched once and saved inside the checkout, n
     }
   } finally { await rm(cwd, { recursive: true, force: true }) }
 })
+
+for (const failure of [
+  { name: 'an overloaded provider', status: 503, body: { error: { message: 'The model service is temporarily unavailable, or its answer was interrupted. Check the provider connection before retrying.' } } },
+  { name: 'a stream the gateway broke off', broken: true },
+]) test(`a model call that fails with ${failure.name} is asked again instead of ending the turn`, async () => {
+  let asked = 0
+  const model = createServer(async (request, response) => {
+    request.resume(); await new Promise(resolve => request.on('end', resolve))
+    asked++
+    if (asked === 1 && failure.status) { response.writeHead(failure.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(failure.body)); return }
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    if (asked === 1) { response.write(': keep-alive\n\n'); response.destroy(); return }
+    for (const choice of [{ delta: { role: 'assistant', content: 'Built.' }, finish_reason: null }, { delta: {}, finish_reason: 'stop' }]) response.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, ...choice }] })}\n\n`)
+    response.end('data: [DONE]\n\n')
+  })
+  await new Promise(resolve => model.listen(0, '127.0.0.1', resolve))
+  const directory = await mkdtemp(join(tmpdir(), 'llll-pi-retry-'))
+  try {
+    const pi = await openPi({ modelGateway: { url: `http://127.0.0.1:${model.address().port}/v1`, model: 'fixture', token: 'fixture-token' }, instructions: 'Build.', tools: [], computer: false, maxSteps: 3 },
+      { directory, emit: () => {}, callTool: async () => { throw new Error('Unexpected Server tool') } })
+    assert.equal((await pi.run('Build the prototype.')).text, 'Built.')
+    assert.equal(asked, 2)
+  } finally { model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); await rm(directory, { recursive: true, force: true }) }
+})

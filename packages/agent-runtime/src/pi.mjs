@@ -105,7 +105,9 @@ export async function openPi(input, { directory, cwd: checkout, emit, callTool, 
   const compaction = input.modelGateway.compaction
   const { session } = await createAgentSession({ cwd, agentDir: directory, modelRuntime: runtime, model,
     tools, customTools, resourceLoader: loader, sessionManager,
-    settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: true,
+    // A dropped or overloaded model call is asked again with backoff instead of ending the turn; Pi
+    // retries only transient errors (overload, 5xx, 429, a broken stream), never a refused or unpaid account.
+    settingsManager: SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 }, compaction: { enabled: true,
       // pi-coding-agent has no background threshold; it takes the other two.
       ...(compaction ? { reserveTokens: compaction.reserveTokens, keepRecentTokens: compaction.keepRecentTokens } : {}) } }),
     thinkingLevel: 'off',
