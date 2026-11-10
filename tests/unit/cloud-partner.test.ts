@@ -208,6 +208,29 @@ describe('the partner’s game doors', () => {
     expect(build.prompt).toContain('A cocktail race, solo or with friends.')
   })
 
+  it('lists the Server’s models, keeps a chosen model and effort on the Task’s conversation, and shows the Agent at work', async () => {
+    const { saveAgentProvider } = await import('../../server/utils/agent-providers')
+    await saveAgentProvider(e, 'openrouter', { kind: 'openrouter', enabled: true, webSearch: false, apiKey: 'sk-or-test-key', models: [{ id: 'anthropic/claude-sonnet-5.5', api: 'chat', tools: true }, { id: 'openai/gpt-5.2', api: 'chat', tools: true }] })
+    const listed = await post('models/list', { identity: owner })
+    expect(listed.status).toBe(200)
+    expect((listed.body as { models: Array<{ id: string }> }).models.map(model => model.id)).toEqual(expect.arrayContaining(['l4:openrouter:anthropic/claude-sonnet-5.5', 'l4:openrouter:openai/gpt-5.2']))
+    expect((listed.body as { efforts: string[] }).efforts).toEqual(['auto', 'low', 'medium', 'high'])
+    const { body: { project } } = await createProject('req-models')
+    const made = await createTask(project.projectId, { build: false, attachments: [], model: 'l4:openrouter:openai/gpt-5.2', effort: 'high' })
+    expect(made.status).toBe(200)
+    await settle()
+    const channel = row<{ channel_id: string }>('SELECT channel_id FROM agent_runs WHERE task_id=?', made.body.task.taskId)!.channel_id
+    expect(row<{ value: string }>('SELECT value FROM server_settings WHERE key=?', `agents.conversation.${channel}.model`)?.value).toBe('l4:openrouter:openai/gpt-5.2')
+    expect(row<{ value: string }>('SELECT value FROM server_settings WHERE key=?', `agents.conversation.${channel}.effort`)?.value).toBe('high')
+    expect((await post('tasks/message', { identity: owner, requestId: 'req-bad-model', taskId: made.body.task.taskId, text: 'Hi', model: 'l4:openrouter:nope' })).status).toBe(400)
+    // While it works, the partner sees its steps.
+    const run = row<{ id: string }>('SELECT id FROM agent_runs WHERE task_id=?', made.body.task.taskId)!
+    sqlite.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
+    sqlite.prepare("INSERT INTO agent_run_events(run_id,sequence,event_json,created_at) VALUES(?,0,?,?)").run(run.id, JSON.stringify({ type: 'tool', name: 'generate_image', purpose: 'Draw the cover' }), new Date().toISOString())
+    const read = await post('tasks/get', { identity: owner, taskId: made.body.task.taskId })
+    expect((read.body as { task: { state: string; activity: unknown } }).task).toMatchObject({ state: 'working', activity: { build: false, steps: [{ name: 'generate_image', purpose: 'Draw the cover' }] } })
+  })
+
   it('lists the game’s files and reads one, from its repository in L4', async () => {
     const { body: { project } } = await createProject()
     const root = await post('projects/files', { identity: owner, projectId: project.projectId })
@@ -262,7 +285,7 @@ describe('the partner’s game doors', () => {
     const made = await createTask(project.projectId)
     expect(made.status).toBe(200)
     const task = made.body.task
-    expect(task).toEqual({ taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, messages: [], commits: [] })
+    expect(task).toEqual({ activity: null, taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, messages: [], commits: [] })
     const stored = row<{ board: string; assignee_id: string; environment_id: string; description: string; discussion_channel_id: string; status: string }>(
       'SELECT b.name AS board,t.assignee_id,t.environment_id,t.description,t.discussion_channel_id,t.status FROM tasks t JOIN task_boards b ON b.id=t.board_id WHERE t.id=?', task.taskId)!
     expect(stored).toMatchObject({ board: 'Tasks', assignee_id: agentId(), status: 'ready', discussion_channel_id: expect.any(String) })

@@ -1,3 +1,7 @@
+import { writeServerSetting } from '../../shared/server-settings'
+import { agentEfforts, agentModelLabel, type AgentEffort } from '../../shared/agent-providers'
+import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
+import { agentConversationEffortKey, agentConversationModelKey } from './agent-conversation-model'
 import { z } from 'zod'
 import { memberIdentitySchema, type MemberIdentity } from '../../shared/cloud-seed'
 import { newId, nowIso } from '../../shared/ids'
@@ -51,6 +55,8 @@ const DAY_MS = 86_400_000
 
 const projectCreateBody = z.object({ identity: memberIdentitySchema, requestId, title: z.string().trim().min(1).max(200), files: starterFilesSchema.default([]) }).strict()
 const projectGetBody = z.object({ identity: memberIdentitySchema, projectId: id }).strict()
+/** The model and reasoning effort a member chose for the Task's conversation, kept for its later turns too. */
+const turnChoice = { model: z.string().trim().min(1).max(300).optional(), effort: z.enum(agentEfforts).optional() }
 const taskCreateBody = z.object({
   identity: memberIdentitySchema, requestId, projectId: id,
   title: z.string().trim().min(1).max(200), body: z.string().max(12_000).default(''),
@@ -59,9 +65,11 @@ const taskCreateBody = z.object({
   agent: z.object({ name: z.string().trim().min(1).max(80) }).strict().nullish(),
   /** False: the Agent talks the idea through first, with no box and no Compute spent; a later message with `build` starts the work. */
   build: z.boolean().default(true),
+  ...turnChoice,
 }).strict()
 const taskGetBody = z.object({ identity: memberIdentitySchema, taskId: id }).strict()
-const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true) }).strict()
+const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true), ...turnChoice }).strict()
+const modelsListBody = z.object({ identity: memberIdentitySchema }).strict()
 const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
 const projectFileBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().trim().min(1).max(1000) }).strict()
 /** What a chat-only turn is told, so the Agent talks instead of trying to work without its computer. */
@@ -325,6 +333,7 @@ async function taskAnswer(env: L4Env, task: TaskRow & { projectId: string }, rea
   const messages = await discussionMessages(env, task.discussionChannelId, reason ? 499 : 500, reader)
   return {
     taskId: task.id, projectId: task.projectId, title: task.title.slice(0, 200), state, branch: branch?.name ?? null,
+    activity: state === 'working' ? await taskActivity(env, task.id) : null,
     messages: reason ? [...messages, reason] : messages,
     commits: branch ? await branchCommits(env, branch) : [],
   }
@@ -415,6 +424,7 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
   const taskId = await insertTask(env, auth, boardId, { title, description, priority: 'normal', dueAt: null, assigneeId: agentId, channelId: null, projectId: project.id,
     ...(repository?.environmentId ? { environmentId: repository.environmentId } : {}), labelIds: [], dependencyIds: [] }, schedule)
   const channelId = await ensureTaskDiscussion(env, auth, taskId)
+  if (input.model || input.effort) await chooseForConversation(env, auth, channelId, input)
   const task = { id: taskId, boardId }
   const answer = await taskAnswer(env, (await env.DB.prepare(`SELECT ${taskColumns} FROM tasks WHERE id=?`).bind(taskId).first<TaskRow & { projectId: string }>())!, auth.principal.id)
   schedule((async () => {
@@ -474,6 +484,41 @@ async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { ta
   }
 }
 
+/** The models the Server's Agents may use, with the default, as the conversation's model picker lists them. */
+async function listModels(env: L4Env, auth: AuthorizationContext) {
+  const catalog = await agentProviderCatalog(env, { actorId: auth.principal.id })
+  const models = catalog.models.filter(model => model.tools !== false).slice(0, 200)
+    .map(model => ({ id: model.value, label: agentModelLabel(model), reasoning: model.reasoning ?? null }))
+  return { models, defaultModel: catalog.defaultModel, efforts: [...agentEfforts] }
+}
+
+/** Keeps a member's choice of model and effort on the Task's conversation, where every later turn reads it. */
+async function chooseForConversation(env: L4Env, auth: AuthorizationContext, channelId: string, choice: { model?: string; effort?: AgentEffort }) {
+  if (choice.effort) await writeServerSetting(env.DB, await agentConversationEffortKey(env, channelId), choice.effort)
+  if (!choice.model) return
+  const selected = catalogAgentModel(env, choice.model, await agentProviderCatalog(env, { actorId: auth.principal.id }))
+  if (!selected) fail(400, 'model_unavailable', 'Choose one of the Server\'s models')
+  await writeServerSetting(env.DB, await agentConversationModelKey(env, channelId), selected)
+}
+
+/** What the Agent is doing on the Task right now: its running turn, the box it waits for, and its latest steps. */
+async function taskActivity(env: L4Env, taskId: string) {
+  const run = await env.DB.prepare("SELECT id,created_at AS startedAt,environment_json AS environmentJson FROM agent_runs WHERE task_id=? AND status='running' ORDER BY created_at DESC LIMIT 1")
+    .bind(taskId).first<{ id: string; startedAt: string; environmentJson: string | null }>()
+  if (!run) return null
+  const events = (await env.DB.prepare('SELECT event_json AS eventJson,created_at AS at FROM agent_run_events WHERE run_id=? ORDER BY sequence DESC LIMIT 15')
+    .bind(run.id).all<{ eventJson: string; at: string }>()).results.reverse()
+  const steps = events.flatMap(row => {
+    try {
+      const event = JSON.parse(row.eventJson) as { type?: string; name?: string; purpose?: string }
+      return event.type === 'tool' && event.name ? [{ name: event.name, ...(event.purpose ? { purpose: event.purpose.slice(0, 240) } : {}), at: row.at }] : []
+    } catch { return [] }
+  })
+  const calls = await env.DB.prepare('SELECT count(*) AS n FROM agent_model_calls WHERE run_id=?').bind(run.id).first<{ n: number }>()
+  const box = run.environmentJson ? await env.DB.prepare('SELECT status FROM factory_boxes WHERE task_id=? ORDER BY updated_at DESC LIMIT 1').bind(taskId).first<{ status: string }>() : null
+  return { startedAt: run.startedAt, build: Boolean(run.environmentJson), box: box?.status ?? null, modelCalls: calls?.n ?? 0, steps }
+}
+
 /** The five partner actions; null for any other. The caller has checked the bearer secret and that an Owner exists. */
 export async function partnerAction(env: L4Env, action: string, body: unknown, schedule: Schedule): Promise<Answer | null> {
   switch (action) {
@@ -507,9 +552,15 @@ export async function partnerAction(env: L4Env, action: string, body: unknown, s
       const { auth } = await actingMember(env, input.identity)
       return { ok: true, task: await taskAnswer(env, await readableTask(env, auth, input.taskId), auth.principal.id) }
     }
+    case 'models/list': {
+      const input = modelsListBody.parse(body)
+      const { auth } = await actingMember(env, input.identity)
+      return { ok: true, ...await listModels(env, auth) }
+    }
     case 'tasks/message': {
       const input = taskMessageBody.parse(body)
       const { auth } = await actingMember(env, input.identity)
+      if (input.model || input.effort) await chooseForConversation(env, auth, await ensureTaskDiscussion(env, auth, (await readableTask(env, auth, input.taskId)).id), input)
       return once(env, action, input.identity, input.requestId, async () => ({ ok: true, message: await messageGameTask(env, auth, input, schedule) }))
     }
     default: return null
