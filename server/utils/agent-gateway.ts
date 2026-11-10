@@ -82,7 +82,14 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
     let callIndex = 0
     const chunk = (delta: unknown, finish: string | null = null) => encoder.encode(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: run.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`)
     const iterator = result.fullStream[Symbol.asyncIterator]()
+    // While the model thinks or writes a long tool call, nothing reaches the box; an SSE comment every few seconds
+    // keeps every hop between them from closing the silent connection (OpenAI-style clients skip comment lines).
+    let keepAlive: ReturnType<typeof setInterval> | undefined
+    const stopKeepAlive = () => { if (keepAlive) clearInterval(keepAlive); keepAlive = undefined }
     const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        keepAlive = setInterval(() => { try { controller.enqueue(encoder.encode(': keep-alive\n\n')) } catch { stopKeepAlive() } }, GATEWAY_KEEP_ALIVE_MS)
+      },
       async pull(controller) {
         try {
           for (;;) {
@@ -92,6 +99,7 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
               await complete(usage.totalTokens ?? reservation)
               controller.enqueue(chunk({}, callIndex ? 'tool_calls' : 'stop'))
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: run.model, choices: [], usage: { prompt_tokens: usage.inputTokens ?? 0, completion_tokens: usage.outputTokens ?? 0, total_tokens: usage.totalTokens ?? 0 } })}\n\ndata: [DONE]\n\n`))
+              stopKeepAlive()
               controller.close()
               return
             }
@@ -104,9 +112,9 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
               return
             }
           }
-        } catch (error) { abort.abort(); controller.error(new Error(await failed(error))) }
+        } catch (error) { stopKeepAlive(); abort.abort(); controller.error(new Error(await failed(error))) }
       },
-      async cancel() { abort.abort(); await iterator.return?.(); await failed(new Error('Inference cancelled')) },
+      async cancel() { stopKeepAlive(); abort.abort(); await iterator.return?.(); await failed(new Error('Inference cancelled')) },
     })
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
   }
@@ -124,6 +132,9 @@ async function modelResponse(env: L4Env, run: AgentRun, input: z.infer<typeof mo
   usage: { total_tokens: used } })
 
 }
+
+/** How often a silent model stream sends a keep-alive comment to the box. */
+export const GATEWAY_KEEP_ALIVE_MS = 10_000
 
 /** The gateway operations a Run's executor calls back on this Server. */
 export const AGENT_GATEWAY_PATH = /^\/api\/agent-runs\/([0-9a-f-]{36})\/gateway\/(v1\/chat\/completions|tools|repository\/archive|files|events|session|images\/[0-9a-zA-Z_-]{8,64})$/u
