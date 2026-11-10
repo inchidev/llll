@@ -24,3 +24,31 @@ export async function previousRunTranscript(env: L4Env, run: AgentRun): Promise<
   if (!object || object.size > 2_000_000) throw new Error('Saved private context is unavailable')
   return object.text()
 }
+
+/** How much of a Task's earlier conversation a turn without its transcript is told: the latest turns, in order. */
+export const TASK_HISTORY = { turns: 12, chars: 24_000, perTurn: 4_000 }
+
+/**
+ * A Task's earlier conversation for a turn that starts without its transcript, such as the first turn on the
+ * Task's box after talking the idea through without one, whose authority differs so its private context is
+ * not restored. Only the asking Member's own turns are told: what they said and what the Agent answered them,
+ * which they already read on each Run's page. The latest turns that fit, oldest first; nothing else.
+ */
+export async function taskHistoryBrief(env: L4Env, run: Pick<AgentRun, 'id' | 'taskId' | 'initiatedBy' | 'agentId'>): Promise<string> {
+  if (!run.taskId) return ''
+  const rows = (await env.DB.prepare(`SELECT prompt,result_text AS answer FROM agent_runs
+    WHERE task_id=? AND initiated_by=? AND agent_id=? AND id<>? AND status='completed' AND result_text IS NOT NULL
+    ORDER BY created_at DESC,id DESC LIMIT ?`).bind(run.taskId, run.initiatedBy, run.agentId, run.id, TASK_HISTORY.turns)
+    .all<{ prompt: string; answer: string }>()).results
+  const turns: string[] = []
+  let used = 0
+  for (const row of rows) {
+    const clip = (text: string) => text.length > TASK_HISTORY.perTurn ? `${text.slice(0, TASK_HISTORY.perTurn)}…` : text
+    const turn = `Member: ${clip(row.prompt)}\nYou: ${clip(row.answer)}`
+    if (used + turn.length > TASK_HISTORY.chars) break
+    turns.unshift(turn)
+    used += turn.length
+  }
+  if (!turns.length) return ''
+  return `\nEarlier in this Task, before this turn (your own conversation with the Member who asks now; the Task, its repository and its commits are the record of what was done):\n${turns.join('\n\n')}`
+}

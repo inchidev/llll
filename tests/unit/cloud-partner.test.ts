@@ -178,6 +178,15 @@ describe('the partner’s game doors', () => {
     await settle()
     const second = row<{ environment_json: string | null; prompt: string }>("SELECT environment_json,prompt FROM agent_runs WHERE task_id=? AND prompt='Build it.'", made.body.task.taskId)!
     expect(JSON.parse(second.environment_json!)).toMatchObject({ provider: 'artifacts' })
+    // The build turn has another authority, so the talk's transcript is not restored; it is told the conversation instead.
+    const { taskHistoryBrief } = await import('../../server/utils/agent-context')
+    const build = row<{ id: string; task_id: string; initiated_by: string; agent_id: string }>("SELECT id,task_id,initiated_by,agent_id FROM agent_runs WHERE task_id=? AND prompt='Build it.'", made.body.task.taskId)!
+    const brief = await taskHistoryBrief(e, { id: build.id, taskId: build.task_id, initiatedBy: build.initiated_by, agentId: build.agent_id })
+    expect(brief).toContain('Member: This turn is a conversation only')
+    expect(brief).toContain('You: Who plays: alone or with friends?')
+    expect(brief).not.toContain('Build it.')
+    // Someone else's turns on the Task are never told.
+    expect(await taskHistoryBrief(e, { id: build.id, taskId: build.task_id, initiatedBy: 'someone-else', agentId: build.agent_id })).toBe('')
   })
 
   it('lists the game’s files and reads one, from its repository in L4', async () => {
