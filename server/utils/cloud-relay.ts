@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { cloudSeedSchema, memberIdentitySchema, partnerEnvSchema, partnerSecretsSchema, seedAgentSchema } from '../../shared/cloud-seed'
+import { cloudSeedSchema, memberIdentitySchema, partnerEnvSchema, partnerHostList, partnerSecretsSchema, seedAgentSchema } from '../../shared/cloud-seed'
 import { agentModelRef } from '../../shared/agent-providers'
 import { fileStorage } from '../../shared/file-storage'
 import { isUsername } from '../../shared/account'
@@ -14,7 +14,7 @@ import { saveAgentProvider } from './agent-providers'
 import { aiFunctionKey } from './ai-functions'
 import { provisionServerWithEnv } from './bootstrap'
 import { partnerAction } from './cloud-partner'
-import { applyCloudSeed, readCloudSeed, storePartnerConfig, upsertSeedAgent } from './cloud-seed'
+import { applyCloudSeed, readCloudSeed, storePartnerConfig, storePartnerHosts, upsertSeedAgent } from './cloud-seed'
 import { getDb, serverReady } from './db'
 import { releaseL4Boxes } from './l4-compute'
 import { findMemberByIdentity, removePartnerMember, upsertPartnerMember } from './member-identities'
@@ -83,7 +83,9 @@ async function requireOwner(env: L4Env) {
 const identityBody = z.object({ identity: memberIdentitySchema }).strict()
 const upsertMemberBody = z.object({ identity: memberIdentitySchema, name: z.string().trim().min(1).max(80), role: z.literal('member').default('member') }).strict()
 const upsertAgentBody = seedAgentSchema
-const secretsBody = z.object({ secrets: partnerSecretsSchema, env: partnerEnvSchema }).strict()
+/** `hosts` from L4 0.0.28: left out, the hosts stored before stay. */
+const secretsBody = z.object({ secrets: partnerSecretsSchema, env: partnerEnvSchema, hosts: partnerHostList.optional() }).strict()
+const hostsBody = z.object({ hosts: partnerHostList }).strict()
 const modelsBody = z.object({ provider: z.literal('openrouter'), key: z.string().trim().min(1).max(4096) }).strict()
 
 /**
@@ -221,12 +223,17 @@ async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L
     }
     case 'secrets/set': {
       const input = secretsBody.parse(body)
-      const stored = await storePartnerConfig(env, { secrets: input.secrets, env: input.env })
-      return { ok: true, secrets: stored.secrets, env: stored.env }
+      const stored = await storePartnerConfig(env, { secrets: input.secrets, env: input.env, ...(input.hosts ? { hosts: input.hosts } : {}) })
+      return { ok: true, secrets: stored.secrets, env: stored.env, hosts: stored.hosts }
+    }
+    case 'hosts/set': {
+      // Only the hosts the partner opens without a secret, so the partner need not send its secrets again.
+      const input = hostsBody.parse(body)
+      return { ok: true, ...await storePartnerHosts(env, input.hosts) }
     }
     case 'models/set': return setModels(env, modelsBody.parse(body))
     case 'sleep': return sleep(env)
-    case 'projects/create': case 'projects/get': case 'projects/files': case 'projects/file': case 'tasks/create': case 'tasks/get': case 'tasks/message': case 'models/list': case 'tasks/preview':
+    case 'projects/create': case 'projects/get': case 'projects/files': case 'projects/file': case 'tasks/create': case 'tasks/get': case 'tasks/message': case 'models/list': case 'tasks/preview': case 'tasks/decide':
       await requireOwner(env)
       return partnerAction(env, action, body, schedule)
     default: return null

@@ -403,6 +403,7 @@ export type HostedSeed = {
   agent?: { name: string; role: string; token?: { hash: string; prefix: string; scopes: string[] }; instructions?: string; version?: number }
   secrets?: Record<string, { value: string; hosts?: string[] }>
   env?: Record<string, string>
+  hosts?: string[]
 }
 
 export async function seedNewServer(

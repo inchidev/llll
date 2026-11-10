@@ -17,6 +17,7 @@ import { agentWebhook, agentWebhookPayload, externalAgentReply, sendAgentWebhook
 import { newId, nowIso } from '../shared/ids'
 import { readLimitedStream } from './inbound-email-signature'
 import { boxCompletion, boxNodeFor, ensureBox, releaseBoxTurn, wakeCloudBox, type BoxEventsAck } from '../server/utils/factory-boxes'
+import { unansweredRequest } from '../server/utils/factory-approvals'
 import { isCloudflareNode } from '../shared/software-factory'
 import { z } from 'zod'
 
@@ -505,7 +506,9 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       // A box's commits are in Git and its publications in factory_approvals, independently of this transcript.
       if (terminal.type !== 'result' && terminal.type !== 'error') throw new Error('Missing terminal result')
       const current = terminal.type === 'error' ? await findAgentRun(this.env, run.id) : null
-      const failure = terminal.type === 'error' ? current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')
+      // A turn that ran out of time while a person's answer was awaited says so, rather than that it was cancelled.
+      const unanswered = terminal.type === 'error' ? await unansweredRequest(this.env, run).catch(() => null) : null
+      const failure = terminal.type === 'error' ? unanswered || current?.lastError || (current?.modelCalls === 0 && terminal.message.startsWith('Embedded Pi')
         ? 'No model request reached the Server. Ask the operator to check AGENT_CALLBACK_ORIGIN, runtime connectivity and trusted CA certificates, then retry.'
         : terminal.message) : null
       await this.closeReplyStream()
@@ -524,9 +527,10 @@ export class AgentRunDurableObject extends DurableObject<L4Env> {
       const permanent = queueExpired || forbidden || (run.status === 'running' && run.deadline <= nowIso()) || (error instanceof Error && error.message.includes('interrupted'))
       if (!permanent) return
       const diagnosed = await findAgentRun(this.env, run.id)
+      const unanswered = run.status === 'running' ? await unansweredRequest(this.env, run).catch(() => null) : null
       await this.env.DB.prepare("UPDATE agent_runs SET status='failed',last_error=?,result_message_id=COALESCE(result_message_id,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
         // Keep the check's own reason (missing permission, paused agent, no channel access), not a generic label.
-        .bind(forbidden ? (error as { data?: { error?: { message?: string } } }).data?.error?.message || `Not authorized: ${(error instanceof Error && error.message) || 'authorization revoked'}` : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
+        .bind(forbidden ? (error as { data?: { error?: { message?: string } } }).data?.error?.message || `Not authorized: ${(error instanceof Error && error.message) || 'authorization revoked'}` : queueExpired ? 'Run waited 24 hours for an execution slot. Start a new attempt.' : unanswered || diagnosed?.lastError || 'Run interrupted or deadline reached', newId(), nowIso(), run.id).run()
       try { if (run.status === 'running') await this.runtime(run, 'run', 'DELETE') } catch { /* Gateway authorization is already revoked. */ }
       await this.closeReplyStream()
       const failed = await findAgentRun(this.env, run.id)

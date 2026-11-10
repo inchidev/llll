@@ -232,7 +232,7 @@ describe('the partner and agent doors', () => {
   it('keeps the partner’s secrets encrypted and never answers a value', async () => {
     await post('claim-owner')
     const answer = await post('secrets/set', { secrets: { OTHER_KEY: { value: 'plain-secret-value' } }, env: { OTHER_URL: 'https://example.test' } })
-    expect(answer).toEqual({ status: 200, body: { ok: true, secrets: 1, env: 1 } })
+    expect(answer).toEqual({ status: 200, body: { ok: true, secrets: 1, env: 1, hosts: 0 } })
     const stored = row<{ value: string }>("SELECT value FROM server_settings WHERE key='cloud.partner'")!.value
     expect(stored).not.toContain('plain-secret-value')
     expect(stored).not.toContain('apk_secret_value')

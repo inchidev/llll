@@ -206,6 +206,8 @@ export async function boxRunBrief(env: L4Env, run: { mandateJson: string; enviro
   const projectId = (JSON.parse(run.mandateJson) as RunMandate).projectId
   const environment = run.environmentJson ? JSON.parse(run.environmentJson) as { remote?: string; computeNodeId?: string } : null
   const secrets = projectId ? (await projectEgressSecrets(env, [projectId])).get(projectId) ?? [] : []
+  const project = projectId ? await env.DB.prepare('SELECT factory_json AS factoryJson FROM projects WHERE id=?').bind(projectId).first<{ factoryJson: string | null }>() : null
+  const open = project ? networkHosts(projectNetwork(project.factoryJson)) : []
   const { readPartnerConfig } = await import('./cloud-seed')
   const partner = await readPartnerConfig(env)
   const node = environment?.computeNodeId
@@ -214,6 +216,7 @@ export async function boxRunBrief(env: L4Env, run: { mandateJson: string; enviro
   const lines = [
     ...(environment?.remote ? [`This box's repository: ${environment.remote} (the checkout keeps no remote; publish commits with factory_publish).`] : []),
     ...(node && node.provider !== 'cloudflare-containers' ? [BOX_SCREEN_BRIEF, ...(node.provider === 'l4-compute' ? [BOX_WATCHED_BRIEF] : [])] : []),
+    ...(open.length ? [`Hosts this box reaches without asking, its Project's network: ${open.join(', ')}. Ask with request_network_window only for another host.`] : []),
     ...(secrets.length ? ['Project secrets in this box, as placeholders: send the placeholder, and the box puts the value in only on its way to the hosts named. Never try to read a value.',
       ...secrets.map(secret => `- ${secret.name}=${secret.placeholder} (put in for ${secret.hosts.join(', ')})`)] : []),
     ...(partner && Object.keys(partner.env).length ? ['Settings for this Server\'s Agents:', ...Object.entries(partner.env).map(([key, value]) => `- ${key}=${value}`)] : []),

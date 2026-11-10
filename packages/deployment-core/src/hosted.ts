@@ -42,6 +42,8 @@ export const hostedSeedSchema = z.object({
   }).strict().optional(),
   secrets: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.object({ value: z.string().min(1).max(8192), hosts: z.array(z.string().trim().min(1).max(253)).max(32).optional() }).strict()).optional(),
   env: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u), z.string().max(4096)).optional(),
+  /** Hosts a partner opens in its game Projects with no secret (L4 0.0.28); the Server checks each name. */
+  hosts: z.array(z.string().trim().min(1).max(253)).max(20).optional(),
 }).strict()
 
 export type HostedResources = {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MCP_SCOPES } from './mcp'
+import { egressHost } from './project-factory'
 
 /**
  * What L4 Cloud asks the first claim to create besides the Owner (ADR 0012), as `server_setup.seed_json`
@@ -40,6 +41,14 @@ export const partnerSecretsSchema = z.record(secretName, z.object({
   hosts: z.array(z.string().trim().min(1).max(253)).max(32).default([]),
 }).strict()).default({})
 export const partnerEnvSchema = z.record(secretName, z.string().max(4096)).default({})
+/** The most hosts a partner opens for its game Projects without a secret. */
+export const PARTNER_HOSTS = 20
+/**
+ * Hosts a partner opens in its game Projects' network with no secret, such as a package CDN: public DNS names
+ * only, as a Project's own hosts are (no IP address, port, wildcard or local name).
+ */
+export const partnerHostList = z.array(egressHost).max(PARTNER_HOSTS).transform(hosts => [...new Set(hosts)])
+export const partnerHostsSchema = partnerHostList.default([])
 
 export const cloudSeedSchema = z.object({
   owner: z.object({
@@ -50,6 +59,8 @@ export const cloudSeedSchema = z.object({
   agent: seedAgentSchema.optional(),
   secrets: partnerSecretsSchema,
   env: partnerEnvSchema,
+  /** From L4 0.0.28; an earlier Server refuses a seed that has it. */
+  hosts: partnerHostsSchema,
 }).strict()
 export type CloudSeed = z.infer<typeof cloudSeedSchema>
 

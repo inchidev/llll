@@ -222,6 +222,83 @@ export async function decideApproval(env: L4Env, runId: string, actorId: string,
   return visible(updated)
 }
 
+/**
+ * A request of a Task's Agent that waits for a person, as a partner shows it in its own chat: what it asks in
+ * plain fields, and the digest a decision must quote. `pending_diff` is a push whose review is still being made;
+ * it cannot be decided yet, and its digest changes once the review is there. A window names its secrets, never
+ * a value.
+ */
+export type PersonRequest = {
+  id: string; kind: FactoryApprovalKind; status: 'pending' | 'pending_diff'; digest: string; createdAt: string; expiresAt: string
+  host?: string; minutes?: number; reason?: string; secrets?: string[]
+  title?: string; summary?: string; steps?: string[]; hosts?: string[]; sha?: string; branch?: string
+}
+
+function personRequest(row: ApprovalRow): PersonRequest {
+  const base = { id: row.id, kind: row.kind, status: row.status as PersonRequest['status'], digest: row.digest, createdAt: row.createdAt, expiresAt: row.expiresAt }
+  let request: unknown
+  try { request = JSON.parse(row.requestJson) } catch { return base }
+  if (row.kind === 'window') {
+    const parsed = windowToolSchema.safeParse(request)
+    return parsed.success ? { ...base, host: parsed.data.host, minutes: parsed.data.minutes, reason: parsed.data.reason, secrets: parsed.data.secrets } : base
+  }
+  if (row.kind === 'plan') {
+    const parsed = planToolSchema.safeParse(request)
+    return parsed.success ? { ...base, summary: parsed.data.summary, steps: parsed.data.steps, hosts: parsed.data.hosts, secrets: parsed.data.secrets } : base
+  }
+  if (row.kind === 'publish') {
+    const parsed = publishRequest.safeParse(request)
+    return parsed.success ? { ...base, title: parsed.data.title, summary: parsed.data.body.slice(0, 4000), sha: parsed.data.sha, branch: parsed.data.ref } : base
+  }
+  const sha = (request as { sha?: unknown } | null)?.sha
+  return typeof sha === 'string' ? { ...base, sha } : base
+}
+
+/**
+ * What the Task's Agent waits on a person for, oldest first: the open requests of its running turns that `reader`
+ * started, since only the Member who started a Run decides for it (and reads it).
+ */
+export async function taskRequests(env: L4Env, taskId: string, reader: string): Promise<PersonRequest[]> {
+  const rows = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE id IN (SELECT a.id FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id JOIN agent_runs r ON r.id=a.run_id
+    WHERE b.task_id=? AND r.initiated_by=? AND r.status='running' AND a.status IN ('pending','pending_diff') AND a.expires_at>?) ORDER BY created_at,id LIMIT 20`)
+    .bind(taskId, reader, nowIso()).all<ApprovalRow>()
+  return rows.results.map(personRequest)
+}
+
+/**
+ * A decision on one request of this Task, through `decideApproval` as from the Run page: the caller has checked
+ * that the person may read the Task and its Run's conversation. 404 for a request that is not the Task's; 409 for
+ * one already decided, closed, still being reviewed, or whose digest changed.
+ */
+export async function decideTaskRequest(env: L4Env, taskId: string, actorId: string, input: { id: string; digest: string; approve: boolean }) {
+  await expireApprovals(env)
+  const row = await env.DB.prepare('SELECT a.id,a.run_id AS runId,a.status FROM factory_approvals a JOIN factory_boxes b ON b.id=a.box_id WHERE a.id=? AND b.task_id=?')
+    .bind(input.id, taskId).first<{ id: string; runId: string; status: string }>()
+  if (!row) fail(404, 'not_found', 'This Task has no such request')
+  if (row!.status === 'pending_diff') fail(409, 'factory_review_pending', 'The review of this push is still being made. Look again shortly.')
+  if (row!.status === 'expired') fail(409, 'factory_expired', 'This request closed when the Agent’s turn ended. Ask the Agent to continue; it will ask again.')
+  if (row!.status !== 'pending') fail(409, 'factory_settled', 'This request was already decided')
+  return decideApproval(env, row!.runId, actorId, { id: row!.id, digest: input.digest, decision: input.approve ? 'approve' : 'reject' })
+}
+
+/** How the Task's discussion begins the reason of a turn that ran out of time while it waited for a person. */
+export const UNANSWERED_PREFIX = 'The agent waited for your answer'
+
+/**
+ * Why a Run stopped, in plain words, when its deadline passed while one of its requests still waited for a
+ * person; null otherwise. Its request closes with the turn, so the person asks the Agent to continue, and it asks
+ * again.
+ */
+export async function unansweredRequest(env: L4Env, run: { id: string; deadline: string }) {
+  if (run.deadline > nowIso()) return null
+  const row = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND kind IN ('window','plan','publish') AND decided_at IS NULL
+    AND status IN ('pending','pending_diff','expired') ORDER BY created_at DESC,id DESC LIMIT 1`).bind(run.id).first<ApprovalRow>()
+  if (!row) return null
+  const request = personRequest(row)
+  const about = request.kind === 'window' && request.host ? `about ${request.host}` : request.kind === 'plan' ? 'about its plan' : request.title ? `about publishing “${request.title.slice(0, 120)}”` : 'about publishing its work'
+  return `${UNANSWERED_PREFIX} ${about} until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again.`
+}
+
 /** A person's view of the Task's box and what it asked to send out, newest first. */
 export async function listBoxReview(env: L4Env, runId: string, actorId: string) {
   const run = await findAgentRun(env, runId)

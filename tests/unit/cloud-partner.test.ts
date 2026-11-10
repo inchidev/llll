@@ -285,7 +285,7 @@ describe('the partner’s game doors', () => {
     const made = await createTask(project.projectId)
     expect(made.status).toBe(200)
     const task = made.body.task
-    expect(task).toEqual({ activity: null, taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, preview: false, messages: [], commits: [] })
+    expect(task).toEqual({ activity: null, taskId: expect.stringMatching(ID), projectId: project.projectId, title: 'Add a level', state: 'open', branch: null, preview: false, requests: [], messages: [], commits: [] })
     const stored = row<{ board: string; assignee_id: string; environment_id: string; description: string; discussion_channel_id: string; status: string }>(
       'SELECT b.name AS board,t.assignee_id,t.environment_id,t.description,t.discussion_channel_id,t.status FROM tasks t JOIN task_boards b ON b.id=t.board_id WHERE t.id=?', task.taskId)!
     expect(stored).toMatchObject({ board: 'Tasks', assignee_id: agentId(), status: 'ready', discussion_channel_id: expect.any(String) })
@@ -467,6 +467,112 @@ describe('the partner’s game doors', () => {
     expect((await post('tasks/preview', { identity: friend, taskId: task.taskId })).status).toBe(404)
     expect((await post('tasks/preview', { identity: owner, taskId: 'missing' })).status).toBe(404)
     expect(asked).toHaveLength(1)
+  })
+
+  /** A Task whose Agent is at work on its box, in a running turn, with a request of each kind waiting for the creator. */
+  async function waitingTask() {
+    const { body: { project } } = await createProject()
+    const { body: { task } } = await createTask(project.projectId, { attachments: [] })
+    await settle()
+    const run = row<{ id: string; channel_id: string; initiated_by: string; environment_json: string }>('SELECT id,channel_id,initiated_by,environment_json FROM agent_runs WHERE task_id=?', task.taskId)!
+    const deadline = new Date(Date.now() + 30 * 60_000).toISOString()
+    sqlite.prepare("UPDATE agent_runs SET status='running',deadline=? WHERE id=?").run(deadline, run.id)
+    sqlite.prepare("INSERT INTO factory_boxes(id,channel_id,task_id,agent_id,initiated_by,node_id,environment_json,origin_run_id,status,created_at,updated_at) VALUES('box1',?,?,?,?,?,?,?,'running','2026-11-10','2026-11-10')")
+      .run(run.channel_id, task.taskId, agentId(), run.initiated_by, JSON.parse(run.environment_json).computeNodeId, run.environment_json, run.id)
+    const window = { id: '11111111-1111-4111-8111-111111111111', digest: 'a'.repeat(64) }
+    const approve = (id: string, kind: string, request: unknown, digest: string, status: string, created: string) => sqlite.prepare('INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,expires_at,created_at) VALUES(?,\'box1\',?,?,?,?,?,?,?,?)')
+      .run(id, run.id, `call-${id}`, kind, JSON.stringify(request), digest, status, deadline, created)
+    approve(window.id, 'window', { host: 'unpkg.com', minutes: 15, secrets: [], reason: 'Download three.module.js once and bundle it' }, window.digest, 'pending', '2026-11-10T10:00:00.000Z')
+    approve('22222222-2222-4222-8222-222222222222', 'publish', { sha: 'f'.repeat(40), title: 'Add the tubes', body: 'Three tubes and a ball.', ref: 'l4-agent/box1' }, 'b'.repeat(64), 'pending_diff', '2026-11-10T10:01:00.000Z')
+    return { task, run, window, deadline }
+  }
+
+  it('lists what the Agent waits on the creator for, in plain words with the digest to quote, and nothing of another person’s turn', async () => {
+    const { task, run, window, deadline } = await waitingTask()
+    const got = (await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task as unknown as { state: string; requests: unknown[] }
+    expect(got.state).toBe('waiting')
+    expect(got.requests).toEqual([
+      { id: window.id, kind: 'window', status: 'pending', digest: window.digest, createdAt: '2026-11-10T10:00:00.000Z', expiresAt: deadline, host: 'unpkg.com', minutes: 15, reason: 'Download three.module.js once and bundle it', secrets: [] },
+      { id: '22222222-2222-4222-8222-222222222222', kind: 'publish', status: 'pending_diff', digest: 'b'.repeat(64), createdAt: '2026-11-10T10:01:00.000Z', expiresAt: deadline, title: 'Add the tubes', summary: 'Three tubes and a ball.', sha: 'f'.repeat(40), branch: 'l4-agent/box1' },
+    ])
+    // A turn someone else started is theirs to decide; a turn that ended asks nothing any more.
+    sqlite.prepare("UPDATE agent_runs SET initiated_by=(SELECT id FROM users WHERE kind='agent' LIMIT 1) WHERE id=?").run(run.id)
+    expect(((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task as unknown as { requests: unknown[] }).requests).toEqual([])
+    sqlite.prepare("UPDATE agent_runs SET initiated_by=?,status='completed' WHERE id=?").run(run.initiated_by, run.id)
+    expect(((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task as unknown as { requests: unknown[] }).requests).toEqual([])
+  })
+
+  it('lets the creator open a host for the Agent from the partner’s chat, as on the Run’s page, against the digest they saw', async () => {
+    const { task, run, window } = await waitingTask()
+    const decide = (extra: Record<string, unknown>) => post('tasks/decide', { identity: owner, taskId: task.taskId, approvalId: window.id, approve: true, digest: window.digest, ...extra }) as unknown as Promise<{ status: number; body: { error?: string; request?: Record<string, unknown> } }>
+    expect(await decide({ approvalId: '33333333-3333-4333-8333-333333333333' })).toEqual({ status: 404, body: { error: 'This Task has no such request' } })
+    expect(await decide({ digest: 'c'.repeat(64) })).toEqual({ status: 409, body: { error: 'Review the exact request again' } })
+    expect(await decide({ approvalId: '22222222-2222-4222-8222-222222222222', digest: 'b'.repeat(64) })).toMatchObject({ status: 409 })
+    // A request of another Task is not this Task's.
+    expect((await post('tasks/decide', { identity: owner, taskId: 'other-task', approvalId: window.id, approve: true, digest: window.digest })).status).toBe(404)
+    const opened = await decide({ requestId: 'req-decide-1' })
+    expect(opened.status).toBe(200)
+    expect(opened.body.request).toMatchObject({ id: window.id, kind: 'window', status: 'approved' })
+    const stored = row<{ status: string; decided_by: string; result_json: string; expires_at: string }>('SELECT status,decided_by,result_json,expires_at FROM factory_approvals WHERE id=?', window.id)!
+    expect(stored).toMatchObject({ status: 'approved', decided_by: run.initiated_by })
+    expect(JSON.parse(stored.result_json)).toMatchObject({ open: true, host: 'unpkg.com' })
+    // The same request ID answers the first answer; a new one is told it is decided already.
+    expect(await decide({ requestId: 'req-decide-1' })).toEqual(opened)
+    expect(await decide({})).toEqual({ status: 409, body: { error: 'This request was already decided' } })
+    expect(((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task as unknown as { requests: Array<{ id: string }> }).requests.map(request => request.id)).toEqual(['22222222-2222-4222-8222-222222222222'])
+  })
+
+  it('refuses a decision from someone who cannot read the Task, and keeps a rejection as one', async () => {
+    const { task, window } = await waitingTask()
+    await post('members/upsert', { identity: friend, name: 'Petya' })
+    // The friend cannot read the Task at all.
+    expect((await post('tasks/decide', { identity: friend, taskId: task.taskId, approvalId: window.id, approve: true, digest: window.digest })).status).toBe(404)
+    const rejected = await post('tasks/decide', { identity: owner, taskId: task.taskId, approvalId: window.id, approve: false, digest: window.digest }) as unknown as { status: number; body: { request: { status: string } } }
+    expect(rejected).toMatchObject({ status: 200, body: { request: { status: 'rejected' } } })
+  })
+
+  it('says in plain words that the Agent waited for the creator’s answer when its turn ran out of time', async () => {
+    const { task, run } = await waitingTask()
+    const { unansweredRequest } = await import('../../server/utils/factory-approvals')
+    // Still in time: nothing to say.
+    expect(await unansweredRequest(e, { id: run.id, deadline: new Date(Date.now() + 60_000).toISOString() })).toBeNull()
+    const past = new Date(Date.now() - 1000).toISOString()
+    sqlite.prepare("UPDATE factory_approvals SET status='expired' WHERE kind='window'").run()
+    const reason = await unansweredRequest(e, { id: run.id, deadline: past })
+    expect(reason).toBe('The agent waited for your answer about publishing “Add the tubes” until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again.')
+    sqlite.prepare("DELETE FROM factory_approvals WHERE kind='publish'").run()
+    expect(await unansweredRequest(e, { id: run.id, deadline: past })).toBe('The agent waited for your answer about unpkg.com until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again.')
+    // A window the creator opened was answered.
+    sqlite.prepare("UPDATE factory_approvals SET decided_at='2026-11-10' WHERE kind='window'").run()
+    expect(await unansweredRequest(e, { id: run.id, deadline: past })).toBeNull()
+    sqlite.prepare("UPDATE factory_approvals SET decided_at=NULL WHERE kind='window'").run()
+    // The Task's discussion says it as it is, not as a bare stop.
+    sqlite.prepare("UPDATE agent_runs SET status='failed',last_error=? WHERE id=?").run((await unansweredRequest(e, { id: run.id, deadline: past }))!, run.id)
+    const agent = row<{ agent_id: string }>('SELECT agent_id FROM agent_runs WHERE id=?', run.id)!.agent_id
+    sqlite.prepare("INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES('m-notice',?,?,?,?)")
+      .run(row<{ discussion_channel_id: string }>('SELECT discussion_channel_id FROM tasks WHERE id=?', task.taskId)!.discussion_channel_id, agent, `Run failed. ${PRIVATE_RUN_SUMMARY}\n\n[Open private Run](/runs/${run.id})`, new Date().toISOString())
+    const messages = ((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task.messages)
+    expect(messages.at(-1)!.text).toBe('The agent waited for your answer about unpkg.com until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again.')
+  })
+
+  it('opens the partner’s package hosts in its game Projects without a window, and keeps them when the secrets change', async () => {
+    for (const hosts of [['*.npmjs.org'], ['127.0.0.1'], ['localhost'], ['cdn.local'], ['https://unpkg.com'], Array.from({ length: 21 }, (_, index) => `h${index}.example.com`)])
+      expect((await post('hosts/set', { hosts })).status).toBe(400)
+    expect(await post('hosts/set', { hosts: ['unpkg.com', 'cdn.jsdelivr.net', 'registry.npmjs.org', 'UNPKG.com'] })).toEqual({ status: 200, body: { ok: true, hosts: 3 } })
+    // New secrets keep the hosts; the hosts never carry one.
+    expect((await post('secrets/set', { secrets: { AFTERPROMPT_TOKEN: { value: 'apk_partner_publish_key', hosts: ['afterprompt.games'] } }, env: {} })).body).toMatchObject({ ok: true, secrets: 1, hosts: 3 })
+    const made = await post('projects/create', { identity: owner, requestId: 'req-hosts', title: 'SuckTubes' })
+    const projectId = made.body.project.projectId
+    expect(JSON.parse(row<{ factory_json: string }>('SELECT factory_json FROM projects WHERE id=?', projectId)!.factory_json).network.hosts).toEqual(['unpkg.com', 'cdn.jsdelivr.net', 'registry.npmjs.org', 'afterprompt.games'])
+    expect(row<{ n: number }>('SELECT count(*) AS n FROM project_secrets WHERE project_id=?', projectId)!.n).toBe(1)
+    // The Agent is told which hosts it reaches without asking.
+    const { boxRunBrief } = await import('../../server/utils/box-egress')
+    expect(await boxRunBrief(e, { mandateJson: JSON.stringify({ projectId }), environmentJson: null })).toContain('Hosts this box reaches without asking, its Project\'s network: unpkg.com, cdn.jsdelivr.net, registry.npmjs.org, afterprompt.games.')
+    // secrets/set with its own hosts replaces them; a later build adds what is new and closes nothing.
+    expect((await post('secrets/set', { secrets: {}, env: {}, hosts: ['esm.sh'] })).body).toMatchObject({ hosts: 1 })
+    const { applyPartnerConfig } = await import('../../server/utils/cloud-seed')
+    await applyPartnerConfig(e, projectId, row<{ id: string }>('SELECT owner_id AS id FROM server')!.id)
+    expect(JSON.parse(row<{ factory_json: string }>('SELECT factory_json FROM projects WHERE id=?', projectId)!.factory_json).network.hosts).toEqual(['unpkg.com', 'cdn.jsdelivr.net', 'registry.npmjs.org', 'afterprompt.games', 'esm.sh'])
   })
 
   it('forgets answers after a day, so the same request acts again', async () => {

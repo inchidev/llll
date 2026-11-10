@@ -37,12 +37,16 @@ describe('the seed a claim applies', () => {
     sqlite.prepare('UPDATE server_setup SET seed_json=?').run('{not json')
     expect(await readCloudSeed(env.DB)).toBeNull()
     sqlite.prepare('UPDATE server_setup SET seed_json=?').run(JSON.stringify({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: [] } } }))
-    expect(await readCloudSeed(env.DB)).toEqual({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: [] }, instructions: '', version: 1 }, secrets: {}, env: {} })
+    expect(await readCloudSeed(env.DB)).toEqual({ agent: { name: 'Claude', role: 'admin', token: { hash: 'ab'.repeat(32), prefix: 'dfmcp_', scopes: [] }, instructions: '', version: 1 }, secrets: {}, env: {}, hosts: [] })
     expect(cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: '' } } }).success).toBe(false)
     // A partner's seed, as llll-cloud sends it: an Owner identity, an Agent without a token, secrets and env.
     const partner = cloudSeedSchema.safeParse({ owner: { identity: { provider: 'afterprompt', subject: 'acct_1' }, name: 'Ivan', username: 'ivan' }, agent: { name: 'Claude', role: 'admin', instructions: 'x'.repeat(100_000), version: 3 }, secrets: { K: { value: 'v'.repeat(8192), hosts: [] } }, env: { U: 'https://x' } })
     expect(partner.success).toBe(true)
     expect(partner.data?.agent?.token).toBeUndefined()
+    expect(partner.data?.hosts).toEqual([])
+    // Hosts it opens with no secret (L4 0.0.28): public names only.
+    expect(cloudSeedSchema.safeParse({ hosts: ['unpkg.com', 'cdn.jsdelivr.net'] }).data?.hosts).toEqual(['unpkg.com', 'cdn.jsdelivr.net'])
+    for (const host of ['*.jsdelivr.net', '10.0.0.1', 'localhost', 'box.internal']) expect(cloudSeedSchema.safeParse({ hosts: [host] }).success).toBe(false)
     expect(seedTokenScopes(['tasks:read', 'not-a-scope', 'mail:read'])).toEqual(['tasks:read', 'mail:read'])
   })
 

@@ -30,6 +30,8 @@ const partnerSecretScope = (name: string) => `cloud-partner-secret:${name}`
 export type StoredPartnerConfig = {
   secrets: Record<string, { secret: EncryptedSecret; hosts: string[] }>
   env: Record<string, string>
+  /** Hosts opened with no secret, such as a package CDN; absent before L4 0.0.28. */
+  hosts?: string[]
   updatedAt: string
 }
 
@@ -51,7 +53,7 @@ export async function applyCloudSeed(env: L4Env, input: { serverId: string; owne
   const { seed } = input
   if (seed.owner?.identity) await recordMemberIdentity(env, seed.owner.identity, input.ownerId)
   const agent = seed.agent ? await upsertSeedAgent(env, { serverId: input.serverId, ownerId: input.ownerId, agent: seed.agent }) : null
-  if (Object.keys(seed.secrets).length || Object.keys(seed.env).length) await storePartnerConfig(env, { secrets: seed.secrets, env: seed.env })
+  if (Object.keys(seed.secrets).length || Object.keys(seed.env).length || seed.hosts.length) await storePartnerConfig(env, { secrets: seed.secrets, env: seed.env, hosts: seed.hosts })
   return { agentId: agent?.agentId ?? null }
 }
 
@@ -169,48 +171,56 @@ async function writeSeedToken(env: L4Env, input: { serverId: string; ownerId: st
   return id
 }
 
+async function storedPartnerConfig(env: L4Env): Promise<StoredPartnerConfig | null> {
+  const value = await readServerSetting(env.DB, PARTNER_SETTING)
+  if (!value) return null
+  try { return JSON.parse(value) as StoredPartnerConfig } catch { return null }
+}
+
 /**
  * The partner's secrets and env for Projects it later creates, kept encrypted under one setting. A later call
- * replaces the set; nothing is applied to a Project that exists, and no value is ever read back out.
+ * replaces the secrets and env; the hosts are replaced only when given, so a caller that does not know them keeps
+ * them. No value is ever read back out. Each build of a partner's Project applies the set again.
  */
-export async function storePartnerConfig(env: L4Env, input: { secrets: Record<string, { value: string; hosts: string[] }>; env: Record<string, string> }) {
+export async function storePartnerConfig(env: L4Env, input: { secrets: Record<string, { value: string; hosts: string[] }>; env: Record<string, string>; hosts?: string[] }) {
   if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) fail(503, 'secret_unavailable', 'Server encryption is unavailable')
   const secrets: StoredPartnerConfig['secrets'] = {}
   for (const [name, entry] of Object.entries(input.secrets)) {
     secrets[name] = { secret: await encryptSecret(env.AUTH_SECRET, partnerSecretScope(name), entry.value), hosts: entry.hosts }
   }
-  const stored: StoredPartnerConfig = { secrets, env: input.env, updatedAt: nowIso() }
+  const hosts = input.hosts ?? (await storedPartnerConfig(env))?.hosts ?? []
+  const stored: StoredPartnerConfig = { secrets, env: input.env, hosts, updatedAt: nowIso() }
   await writeServerSetting(env.DB, PARTNER_SETTING, JSON.stringify(stored))
-  return { secrets: Object.keys(secrets).length, env: Object.keys(input.env).length }
+  return { secrets: Object.keys(secrets).length, env: Object.keys(input.env).length, hosts: hosts.length }
+}
+
+/** Replaces only the hosts the partner opens without a secret; its secrets and env stay as they are. */
+export async function storePartnerHosts(env: L4Env, hosts: string[]) {
+  const stored = await storedPartnerConfig(env) ?? { secrets: {}, env: {} }
+  await writeServerSetting(env.DB, PARTNER_SETTING, JSON.stringify({ ...stored, hosts, updatedAt: nowIso() } satisfies StoredPartnerConfig))
+  return { hosts: hosts.length }
 }
 
 /** What the partner left for later Projects, without any secret value: the names, their hosts and the env. */
-export async function readPartnerConfig(env: L4Env): Promise<{ secrets: Record<string, { hosts: string[] }>; env: Record<string, string> } | null> {
-  const value = await readServerSetting(env.DB, PARTNER_SETTING)
-  if (!value) return null
-  try {
-    const stored = JSON.parse(value) as StoredPartnerConfig
-    return { secrets: Object.fromEntries(Object.entries(stored.secrets).map(([name, entry]) => [name, { hosts: entry.hosts }])), env: stored.env }
-  }
-  catch {
-    return null
-  }
+export async function readPartnerConfig(env: L4Env): Promise<{ secrets: Record<string, { hosts: string[] }>; env: Record<string, string>; hosts: string[] } | null> {
+  const stored = await storedPartnerConfig(env)
+  if (!stored) return null
+  return { secrets: Object.fromEntries(Object.entries(stored.secrets ?? {}).map(([name, entry]) => [name, { hosts: entry.hosts }])), env: stored.env ?? {}, hosts: stored.hosts ?? [] }
 }
 
 /**
  * Gives a partner's game Project what the partner left for it: each partner secret becomes a Project secret bound
  * to the same hosts (its value replaced when the partner changed it), and those hosts open in the Project's
- * network, so the Agent's box can reach the partner with the secret as a placeholder. Run again before each
- * build, it brings an older Project up to date. Nothing else in the Project's network changes.
+ * network, so the Agent's box can reach the partner with the secret as a placeholder; the partner's hosts without
+ * a secret open there too, so the box needs no window for them. Run again before each build, it brings an older
+ * Project up to date. Nothing else in the Project's network changes, and nothing is ever closed.
  */
 export async function applyPartnerConfig(env: L4Env, projectId: string, actorId: string) {
-  const value = await readServerSetting(env.DB, PARTNER_SETTING)
-  if (!value || !env.AUTH_SECRET || env.AUTH_SECRET.length < 32) return { secrets: 0 }
-  let stored: StoredPartnerConfig
-  try { stored = JSON.parse(value) as StoredPartnerConfig } catch { return { secrets: 0 } }
+  const stored = await storedPartnerConfig(env)
+  if (!stored || !env.AUTH_SECRET || env.AUTH_SECRET.length < 32) return { secrets: 0 }
   const now = nowIso()
-  const hosts = new Set<string>()
-  for (const [name, entry] of Object.entries(stored.secrets)) {
+  const hosts = new Set<string>(stored.hosts ?? [])
+  for (const [name, entry] of Object.entries(stored.secrets ?? {})) {
     if (!entry.hosts.length) continue
     entry.hosts.forEach(host => hosts.add(host))
     const plain = await decryptSecret(env.AUTH_SECRET, partnerSecretScope(name), entry.secret)
@@ -234,7 +244,7 @@ export async function applyPartnerConfig(env: L4Env, projectId: string, actorId:
         .bind(JSON.stringify({ ...network, hosts: open }), now, projectId).run()
     }
   }
-  return { secrets: Object.keys(stored.secrets).length }
+  return { secrets: Object.keys(stored.secrets ?? {}).length }
 }
 
 export type { CloudSeed, MemberIdentity }
