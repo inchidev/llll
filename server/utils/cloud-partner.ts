@@ -1,3 +1,4 @@
+import { agentImageLimit, agentImageMarker, agentImageTypes } from '../../shared/agent-images'
 import { writeServerSetting } from '../../shared/server-settings'
 import { agentEfforts, agentModelLabel, type AgentEffort } from '../../shared/agent-providers'
 import { agentProviderCatalog, catalogAgentModel } from './agent-providers'
@@ -57,18 +58,20 @@ const projectCreateBody = z.object({ identity: memberIdentitySchema, requestId, 
 const projectGetBody = z.object({ identity: memberIdentitySchema, projectId: id }).strict()
 /** The model and reasoning effort a member chose for the Task's conversation, kept for its later turns too. */
 const turnChoice = { model: z.string().trim().min(1).max(300).optional(), effort: z.enum(agentEfforts).optional() }
+/** Files a member gives with a Task or a message, fetched from the partner's short-lived links into the Task. */
+const partnerAttachments = z.array(z.object({ url: z.string().url().max(4000), name: z.string().trim().min(1).max(200), contentType: z.string().max(200), size: z.number().int().min(0).max(PARTNER_ATTACHMENT_BYTES) }).strict()).max(10).default([])
 const taskCreateBody = z.object({
   identity: memberIdentitySchema, requestId, projectId: id,
   title: z.string().trim().min(1).max(200), body: z.string().max(12_000).default(''),
   links: z.array(z.string().url().max(2000)).max(20).default([]),
-  attachments: z.array(z.object({ url: z.string().url().max(4000), name: z.string().trim().min(1).max(200), contentType: z.string().max(200), size: z.number().int().min(0).max(PARTNER_ATTACHMENT_BYTES) }).strict()).max(10).default([]),
+  attachments: partnerAttachments,
   agent: z.object({ name: z.string().trim().min(1).max(80) }).strict().nullish(),
   /** False: the Agent talks the idea through first, with no box and no Compute spent; a later message with `build` starts the work. */
   build: z.boolean().default(true),
   ...turnChoice,
 }).strict()
 const taskGetBody = z.object({ identity: memberIdentitySchema, taskId: id }).strict()
-const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true), ...turnChoice }).strict()
+const taskMessageBody = z.object({ identity: memberIdentitySchema, requestId, taskId: id, text: z.string().trim().min(1).max(20_000), build: z.boolean().default(true), attachments: partnerAttachments, ...turnChoice }).strict()
 const modelsListBody = z.object({ identity: memberIdentitySchema }).strict()
 const projectFilesBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().max(1000).default('') }).strict()
 const projectFileBody = z.object({ identity: memberIdentitySchema, projectId: id, ref: z.string().trim().min(1).max(200).optional(), path: z.string().trim().min(1).max(1000) }).strict()
@@ -388,6 +391,13 @@ async function attachFromLink(env: L4Env, auth: AuthorizationContext, task: { id
   catch (error) { await files.delete(key); throw error }
   await writeAudit(env, { serverId: auth.serverId, actorId: auth.principal.id, action: 'task_attachment.create', targetType: 'task', targetId: task.id, meta: { attachmentId: id, filename, partner: true }, authorization: auth })
   await signalTasksChanged(env, task.boardId, task.id).catch(() => undefined)
+  return { id, contentType }
+}
+
+/** The images among a turn's attachments, as references the gateway resolves for the model (or describes for a text-only one). */
+function imageReferences(attached: Array<{ id: string; contentType: string }>) {
+  const images = attached.filter(file => (agentImageTypes as readonly string[]).includes(file.contentType)).slice(0, agentImageLimit)
+  return images.length ? `\n\nAttached images:\n${images.map(file => agentImageMarker(file.id)).join('\n')}` : ''
 }
 
 /** The board a Project's new Tasks go on: the first one of its Space, not the Shots board. */
@@ -429,9 +439,10 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
   const answer = await taskAnswer(env, (await env.DB.prepare(`SELECT ${taskColumns} FROM tasks WHERE id=?`).bind(taskId).first<TaskRow & { projectId: string }>())!, auth.principal.id)
   schedule((async () => {
     try {
-      for (const attachment of input.attachments) await attachFromLink(env, auth, task, spaceId, attachment)
+      const attached = []
+      for (const attachment of input.attachments) attached.push(await attachFromLink(env, auth, task, spaceId, attachment))
       if (input.build) await applyPartnerConfig(env, project.id, auth.principal.id)
-      await createAgentRun(env, auth, { agentId: agentId!, taskId, channelId, prompt: `${input.build ? '' : `${TALK_ONLY}\n\n`}${title}\n\n${description}`, idempotencyKey: `cloud-relay:tasks/create:${input.requestId}` }, undefined, { withoutEnvironment: !input.build })
+      await createAgentRun(env, auth, { agentId: agentId!, taskId, channelId, prompt: `${input.build ? '' : `${TALK_ONLY}\n\n`}${title}\n\n${description}${imageReferences(attached)}`, idempotencyKey: `cloud-relay:tasks/create:${input.requestId}` }, undefined, { withoutEnvironment: !input.build })
     }
     catch (error) {
       console.warn('cloud-partner.task_start_failed', { taskId, code: (error as { data?: { error?: { code?: string } } })?.data?.error?.code ?? 'unknown' })
@@ -448,6 +459,7 @@ async function createGameTask(env: L4Env, auth: AuthorizationContext, input: z.i
  */
 async function messageGameTask(env: L4Env, auth: AuthorizationContext, input: z.infer<typeof taskMessageBody>, schedule: Schedule) {
   const task = await readableTask(env, auth, input.taskId)
+  if (input.attachments.length && !mayAttach(auth)) fail(403, 'forbidden', 'Missing attach-files permission')
   const member = await requireMessageMember(env, auth, 'messages:write')
   const channelId = await ensureTaskDiscussion(env, auth, task.id)
   // The Agent is woken below, on the Task; a mention must not start a second, chat-only turn.
@@ -457,22 +469,29 @@ async function messageGameTask(env: L4Env, auth: AuthorizationContext, input: z.
   const agent = task.assigneeId
     ? await env.DB.prepare("SELECT u.id FROM users u JOIN agents a ON a.user_id=u.id WHERE u.id=? AND u.kind='agent' AND u.status='active' AND a.status='active'").bind(task.assigneeId).first<{ id: string }>()
     : null
-  if (agent) schedule(wakeTaskAgent(env, auth, { task, agentId: agent.id, channelId, messageId: message!.id, text: input.text, build: input.build }))
+  if (agent) schedule(wakeTaskAgent(env, auth, { task, agentId: agent.id, channelId, messageId: message!.id, text: input.text, build: input.build, attachments: input.attachments }))
   return { id: message!.id, author: 'member' as const, name: member.user.displayName || null, text: input.text.slice(0, 20_000), createdAt: message!.createdAt }
 }
 
-async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { task: TaskRow; agentId: string; channelId: string; messageId: string; text: string; build: boolean }) {
+async function wakeTaskAgent(env: L4Env, auth: AuthorizationContext, input: { task: TaskRow; agentId: string; channelId: string; messageId: string; text: string; build: boolean; attachments?: z.infer<typeof partnerAttachments> }) {
   try {
+    // The message's files join the Task first, so this turn (or the running one it steers) sees its images.
+    const attached = []
+    if (input.attachments?.length && input.task.projectId) {
+      const { spaceId } = await projectBoard(env, auth, input.task.projectId)
+      for (const attachment of input.attachments) attached.push(await attachFromLink(env, auth, input.task, spaceId, attachment))
+    }
+    const text = `${input.text}${imageReferences(attached)}`
     if (env.AGENT_RUN_DO) {
       const active = await env.DB.prepare("SELECT id FROM agent_runs WHERE task_id=? AND agent_id=? AND initiated_by=? AND status='running' ORDER BY created_at DESC LIMIT 1")
         .bind(input.task.id, input.agentId, auth.principal.id).first<{ id: string }>()
       if (active) {
         const run = env.AGENT_RUN_DO.getByName(`run:${active.id}`) as unknown as { steer: (messageId: string, content: string, actorId: string) => Promise<boolean> }
-        if (await run.steer(input.messageId, input.text, auth.principal.id)) return
+        if (await run.steer(input.messageId, text, auth.principal.id)) return
       }
     }
     if (input.build && input.task.projectId) await applyPartnerConfig(env, input.task.projectId, auth.principal.id)
-    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? input.text : `${TALK_ONLY}\n\n${input.text}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
+    const run = await createAgentRun(env, auth, { agentId: input.agentId, taskId: input.task.id, channelId: input.channelId, prompt: input.build ? text : `${TALK_ONLY}\n\n${text}`, sourceMessageId: input.messageId, idempotencyKey: `cloud-relay:${input.messageId}` }, undefined, { withoutEnvironment: !input.build })
     if (run.status !== 'failed' && input.task.status === 'failed') {
       await env.DB.prepare("UPDATE tasks SET status='ready',last_error=NULL,position=?,updated_at=? WHERE id=? AND status='failed'").bind(await firstTaskPosition(env, input.task.boardId, 'ready'), nowIso(), input.task.id).run()
       await signalTasksChanged(env, input.task.boardId, input.task.id).catch(() => undefined)
