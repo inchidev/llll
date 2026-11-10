@@ -226,7 +226,7 @@ async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L
     }
     case 'models/set': return setModels(env, modelsBody.parse(body))
     case 'sleep': return sleep(env)
-    case 'projects/create': case 'projects/get': case 'projects/files': case 'projects/file': case 'tasks/create': case 'tasks/get': case 'tasks/message':
+    case 'projects/create': case 'projects/get': case 'projects/files': case 'projects/file': case 'tasks/create': case 'tasks/get': case 'tasks/message': case 'models/list':
       await requireOwner(env)
       return partnerAction(env, action, body, schedule)
     default: return null
