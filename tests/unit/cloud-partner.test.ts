@@ -531,6 +531,23 @@ describe('the partner’s game doors', () => {
     expect(rejected).toMatchObject({ status: 200, body: { request: { status: 'rejected' } } })
   })
 
+  it('tells L4 Cloud whether the Agents are working, so that an update waits for the turn to end', async () => {
+    expect(await post('activity')).toEqual({ status: 200, body: { ok: true, running: 0, boxes: 0 } })
+    const { run } = await waitingTask()
+    // A running turn holding its box on L4 Compute.
+    sqlite.prepare("UPDATE factory_boxes SET run_id=? WHERE id='box1'").run(run.id)
+    expect(await post('activity')).toEqual({ status: 200, body: { ok: true, running: 1, boxes: 1 } })
+    // A turn past its deadline is not work an update could cut short, and neither is the box it left.
+    sqlite.prepare('UPDATE agent_runs SET deadline=? WHERE id=?').run(new Date(Date.now() - 1000).toISOString(), run.id)
+    expect(await post('activity')).toEqual({ status: 200, body: { ok: true, running: 0, boxes: 0 } })
+    // A box being started counts until it is up; a released one never does.
+    sqlite.prepare("UPDATE factory_boxes SET status='starting' WHERE id='box1'").run()
+    expect((await post('activity')).body).toMatchObject({ running: 0, boxes: 1 })
+    sqlite.prepare("UPDATE factory_boxes SET status='released' WHERE id='box1'").run()
+    sqlite.prepare("UPDATE agent_runs SET status='queued',deadline=? WHERE id=?").run(new Date(Date.now() + 60_000).toISOString(), run.id)
+    expect((await post('activity')).body).toMatchObject({ running: 1, boxes: 0 })
+  })
+
   it('says in plain words that the Agent waited for the creator’s answer when its turn ran out of time', async () => {
     const { task, run } = await waitingTask()
     const { unansweredRequest } = await import('../../server/utils/factory-approvals')

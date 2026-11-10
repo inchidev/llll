@@ -25,7 +25,7 @@ import { mintSignInLink } from './signin-link'
  * What L4 Cloud asks of a hosted Server, under `/.llll/cloud/`, with the Server's own `CLOUD_SECRET` as a bearer
  * token: run the scheduled work (user Workers may get no Cron Trigger of their own), empty the files bucket before
  * the control plane deletes it, and the partner and agent doors of ADR 0012: claim the Owner, keep a partner's
- * Members, sign one in, keep its Agent, secrets and models, and put the Server to sleep; and the partner's game
+ * Members, sign one in, keep its Agent, secrets and models, say whether its Agents are working and put the Server to sleep; and the partner's game
  * doors (`projects/*`, `tasks/*` in `cloud-partner.ts`), which act as the Member an identity names. Only a Server with
  * `LLLL_RUNTIME=cloud` and a secret answers; everything else is 404, so that the paths say nothing on any other
  * Server. Every action is idempotent and answers `{ ok: true, … }` or `{ error }` with a 4xx.
@@ -186,6 +186,21 @@ async function sleep(env: L4Env) {
   return { ok: true as const, released: released.length }
 }
 
+/**
+ * Whether the Server's Agents are working now, so that L4 Cloud can hold an update that would cut a turn short:
+ * `running` counts the Runs queued or running whose deadline has not passed, `boxes` the boxes on L4 Compute being
+ * started or held by such a Run. Both zero means nothing is lost by updating. From L4 0.0.29.
+ */
+async function activity(env: L4Env) {
+  const now = new Date().toISOString()
+  const live = "SELECT id FROM agent_runs WHERE status IN ('queued','running') AND deadline>?1"
+  const row = await env.DB.prepare(`SELECT (SELECT count(*) FROM (${live})) AS running,
+    (SELECT count(*) FROM factory_boxes b JOIN compute_nodes n ON n.id=b.node_id
+      WHERE b.status<>'released' AND (n.placement_id IS NOT NULL OR json_extract(n.capabilities_json,'$.provider')='l4-compute')
+      AND (b.status='starting' OR b.run_id IN (${live}))) AS boxes`).bind(now).first<{ running: number; boxes: number }>()
+  return { ok: true as const, running: Number(row?.running ?? 0), boxes: Number(row?.boxes ?? 0) }
+}
+
 type Schedule = (promise: Promise<unknown>) => void
 
 async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L4Env) => Promise<void>, schedule: Schedule): Promise<Record<string, unknown> | null> {
@@ -233,6 +248,7 @@ async function act(env: L4Env, action: string, body: unknown, scheduled: (env: L
     }
     case 'models/set': return setModels(env, modelsBody.parse(body))
     case 'sleep': return sleep(env)
+    case 'activity': return activity(env)
     case 'projects/create': case 'projects/get': case 'projects/files': case 'projects/file': case 'tasks/create': case 'tasks/get': case 'tasks/message': case 'models/list': case 'tasks/preview': case 'tasks/decide':
       await requireOwner(env)
       return partnerAction(env, action, body, schedule)
