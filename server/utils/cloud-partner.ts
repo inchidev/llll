@@ -270,8 +270,10 @@ export function partnerTaskState(input: { status: string; factoryState: string |
   if (input.status === 'done') return 'done'
   if (input.status === 'failed' || input.factoryState === 'l4_credit' || input.factoryState === 'l4_unreachable' || input.lastRun === 'failed') return 'failed'
   if (!input.lastRun && input.lastError) return 'failed'
-  if (input.reviewPending || input.status === 'review') return 'waiting'
+  // An approval the box waits on is the person's move; a Task left in review by an earlier turn is not, once a new turn runs.
+  if (input.reviewPending) return 'waiting'
   if (input.lastRun === 'queued' || input.lastRun === 'running') return 'working'
+  if (input.status === 'review') return 'waiting'
   if (input.lastRun) return 'waiting'
   return 'open'
 }

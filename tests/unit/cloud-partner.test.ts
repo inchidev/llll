@@ -489,6 +489,8 @@ describe('a Task’s state for the partner', () => {
     expect(state({ lastRun: 'completed' })).toBe('waiting')
     expect(state({ lastRun: 'cancelled' })).toBe('waiting')
     expect(state({ status: 'review', lastRun: 'completed' })).toBe('waiting')
+    // A new turn on a Task an earlier turn left in review is working.
+    expect(state({ status: 'review', lastRun: 'running' })).toBe('working')
     expect(state({ lastRun: 'failed' })).toBe('failed')
     expect(state({ lastRun: 'running', factoryState: 'l4_credit' })).toBe('failed')
     expect(state({ lastRun: 'running', factoryState: 'l4_unreachable' })).toBe('failed')
