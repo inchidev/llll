@@ -388,6 +388,12 @@ describe('the partner’s game doors', () => {
     await settle()
     const file = row<{ id: string; filename: string }>("SELECT id,filename FROM task_attachments WHERE task_id=? AND filename='shot.png'", task.taskId)!
     expect(row<{ prompt: string }>('SELECT prompt FROM agent_runs WHERE source_message_id IS NOT NULL')!.prompt).toContain(`Ideas from this?\n\nAttached images:\n[l4-image:${file.id}]`)
+
+    // A later turn still gets the Task's screenshot, not only its name.
+    sqlite.prepare("UPDATE agent_runs SET status='completed' WHERE task_id=?").run(task.taskId)
+    expect((await post('tasks/message', { identity: owner, requestId: 'req-later', taskId: task.taskId, text: 'And now?', build: false })).status).toBe(200)
+    await settle()
+    expect(row<{ prompt: string }>("SELECT prompt FROM agent_runs WHERE idempotency_key LIKE 'cloud-relay:%' ORDER BY created_at DESC,rowid DESC LIMIT 1")!.prompt).toContain(`And now?\n\nImages given with this Task earlier:\n[l4-image:${file.id}]`)
   })
 
   it('reopens a failed Task when the Member’s word starts its Agent', async () => {
