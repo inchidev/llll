@@ -298,6 +298,8 @@ describe('the partner’s game doors', () => {
     const run = row<{ agent_id: string; channel_id: string; prompt: string; idempotency_key: string; status: string }>('SELECT agent_id,channel_id,prompt,idempotency_key,status FROM agent_runs WHERE task_id=?', task.taskId)!
     expect(run).toMatchObject({ agent_id: agentId(), channel_id: stored.discussion_channel_id, idempotency_key: 'cloud-relay:tasks/create:req-task-1', status: 'queued' })
     expect(run.prompt).toContain(`Add a level\n\n${stored.description}`)
+    // The model sees the screenshot itself, not just its name.
+    expect(run.prompt).toContain(`Attached images:\n[l4-image:${row<{ id: string }>('SELECT id FROM task_attachments WHERE task_id=?', task.taskId)!.id}]`)
     expect((await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task).toMatchObject({ state: 'working' })
 
     // The same request again answers the first answer and makes nothing.
@@ -374,6 +376,18 @@ describe('the partner’s game doors', () => {
     await settle()
     expect(row<{ n: number }>('SELECT count(*) AS n FROM messages')!.n).toBe(before + 2)
     expect(row<{ prompt: string }>('SELECT prompt FROM agent_runs ORDER BY created_at DESC, rowid DESC LIMIT 1')!.prompt).toBe(long)
+  })
+
+  it('gives the Agent a screenshot sent with a message, on the Task and in the turn', async () => {
+    const { body: { project } } = await createProject()
+    const { body: { task } } = await createTask(project.projectId, { attachments: [] })
+    await settle()
+    sqlite.prepare("UPDATE agent_runs SET status='completed' WHERE task_id=?").run(task.taskId)
+    const shot = { url: 'https://files.afterprompt.games/signed/sprite.png', name: 'shot.png', contentType: 'image/png', size: PNG.length }
+    expect((await post('tasks/message', { identity: owner, requestId: 'req-shot', taskId: task.taskId, text: 'Ideas from this?', build: false, attachments: [shot] })).status).toBe(200)
+    await settle()
+    const file = row<{ id: string; filename: string }>("SELECT id,filename FROM task_attachments WHERE task_id=? AND filename='shot.png'", task.taskId)!
+    expect(row<{ prompt: string }>('SELECT prompt FROM agent_runs WHERE source_message_id IS NOT NULL')!.prompt).toContain(`Ideas from this?\n\nAttached images:\n[l4-image:${file.id}]`)
   })
 
   it('reopens a failed Task when the Member’s word starts its Agent', async () => {

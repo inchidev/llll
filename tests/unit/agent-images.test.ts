@@ -31,6 +31,14 @@ it('loads only the initiator’s images from this conversation', async () => {
   expect(await images.parts('no images')).toBe('no images')
 })
 
+it('loads an image attached to the run’s own Task, and no other Task’s', async () => {
+  sqlite.exec(`INSERT INTO task_attachments(id,task_id,uploader_id,r2_key,filename,content_type,size_bytes,role,created_at) VALUES
+    ('task-shot-1','task-a','${owner}','shot','s.png','image/png',4,'file','2026-01-01'),('task-shot-2','task-b','${owner}','b','b.png','image/png',4,'file','2026-01-01')`)
+  const images = agentImageResolver(env, { channelId: 'thread', initiatedBy: other, taskId: 'task-a' }, async () => true)
+  expect(await images.parts('[l4-image:task-shot-1][l4-image:task-shot-2]')).toEqual([
+    { type: 'image', image: bytes, mediaType: 'image/png' }, { type: 'text', text: '[An attached image is no longer available.]' }])
+})
+
 it('tells a text-only model about the image instead of sending it', async () => {
   const parts = await agentImageResolver(env, { channelId: 'thread', initiatedBy: owner }, async () => false).parts('[l4-image:image-own-1]')
   expect(parts).toEqual([{ type: 'text', text: expect.stringContaining('cannot view images') }])

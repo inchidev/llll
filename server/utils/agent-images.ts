@@ -1,6 +1,6 @@
 import type { ImagePart, TextPart } from 'ai'
 import { z } from 'zod'
-import { agentAttachmentTypes, agentAudioMaxBytes, agentImageMaxBytes, splitAgentImageMarkers } from '../../shared/agent-images'
+import { agentAttachmentTypes, agentAudioMaxBytes, agentImageMaxBytes, agentImageTypes, splitAgentImageMarkers } from '../../shared/agent-images'
 import { parseAgentModelRef } from '../../shared/agent-providers'
 import { fileStorage } from '../../shared/file-storage'
 import type { AgentRun } from '../../shared/agent-execution'
@@ -40,7 +40,9 @@ export function agentImageResolver(env: L4Env, run: Pick<AgentRun, 'channelId' |
   const load = async (id: string): Promise<TextPart | ImagePart> => {
     // Only the initiator's own image in this conversation, still within limits, is readable.
     // So is a frame of the recording on this Run's own Task.
-    const frame = run.taskId ? await env.DB.prepare("SELECT r2_key AS key,filename,content_type AS type FROM task_attachments WHERE id=? AND task_id=? AND role='frame'").bind(id, run.taskId).first<{ key: string; filename: string; type: string }>() : null
+    // So is an image attached to that Task itself, such as a screenshot the person gave with it.
+    const frame = run.taskId ? await env.DB.prepare(`SELECT r2_key AS key,filename,content_type AS type FROM task_attachments WHERE id=? AND task_id=?
+      AND (role='frame' OR (role='file' AND content_type IN (${agentImageTypes.map(() => '?').join(',')})))`).bind(id, run.taskId, ...agentImageTypes).first<{ key: string; filename: string; type: string }>() : null
     const row = frame ?? await env.DB.prepare(`SELECT a.r2_key AS key,a.filename,a.content_type AS type FROM attachments a
       WHERE a.id=? AND a.uploader_id=? AND a.message_id IS NOT NULL AND a.size_bytes<=CASE WHEN a.content_type LIKE 'audio/%' THEN ? ELSE ? END AND a.content_type IN (${agentAttachmentTypes.map(() => '?').join(',')})
       AND a.channel_id IN (?, (SELECT parent_id FROM channels WHERE id=?))`)
