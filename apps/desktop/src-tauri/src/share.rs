@@ -71,6 +71,11 @@ fn page_origin(webview: &Webview) -> Result<String, String> {
     Ok(webview.url().map_err(|error| error.to_string())?.origin().ascii_serialization())
 }
 
+/// The name this device's Server list gives an origin, for the app's own questions about it.
+pub fn server_name(app: &AppHandle, origin: &str) -> Option<String> {
+    read_saved(app).servers.into_iter().find(|server| server.origin == origin).map(|server| server.name)
+}
+
 #[tauri::command]
 pub fn sync_servers(app: AppHandle, webview: Webview, servers: Vec<Server>) -> Result<(), String> {
     if !is_bundled_list(&webview) {

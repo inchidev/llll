@@ -13,6 +13,10 @@ const toast = useToast()
 const portal = ref<OpenedPortal | null>(null)
 const busy = ref(false)
 const failed = ref('')
+/** Inside the L4 Mac app the app opens PartyPortal itself, after its own question; in a browser it is a link. */
+const nativePortal = window.__LLLL_NATIVE_PORTAL__
+const opening = ref(false)
+const openFailed = ref('')
 
 watch(open, (value) => {
   if (value && !portal.value && !busy.value) void start()
@@ -29,6 +33,21 @@ async function start() {
   }
   finally {
     busy.value = false
+  }
+}
+
+async function openOnThisMac() {
+  if (!portal.value || !nativePortal) return
+  opening.value = true
+  openFailed.value = ''
+  try {
+    await nativePortal.share(portal.value.hostLink)
+  }
+  catch (error) {
+    openFailed.value = typeof error === 'string' ? error : (error as Error)?.message || 'PartyPortal could not be opened.'
+  }
+  finally {
+    opening.value = false
   }
 }
 
@@ -71,7 +90,11 @@ async function end() {
           <div class="space-y-1.5">
             <p class="font-medium">1. Open PartyPortal on this Mac</p>
             <p class="text-muted">It asks which window to share and connects it to this Portal.</p>
-            <UButton :to="portal.hostLink" external icon="i-ph-app-window" label="Open PartyPortal" />
+            <template v-if="nativePortal">
+              <UButton icon="i-ph-app-window" label="Open PartyPortal" :loading="opening" @click="openOnThisMac" />
+              <p v-if="openFailed" class="text-error">{{ openFailed }}</p>
+            </template>
+            <UButton v-else :to="portal.hostLink" external icon="i-ph-app-window" label="Open PartyPortal" />
           </div>
           <div class="space-y-1.5">
             <p class="font-medium">2. Send this link to your guest</p>

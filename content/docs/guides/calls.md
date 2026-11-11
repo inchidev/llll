@@ -66,7 +66,7 @@ Cloudflare RealtimeKit usage is billed to your Cloudflare account. See [Costs an
 A Portal shows one window of your Mac to a guest, who watches in any browser without an account and can ask to control it. Unlike screen sharing in a call, only that window is sent, and what the guest may see or do is decided on your Mac: control stays off until you allow it there, and you can take it back at any time.
 
 1. In a channel or Direct Message, select the window button (**Share a window**).
-2. Select **Open PartyPortal**. The PartyPortal app on your Mac asks which window to share and connects it to the Portal. The L4 app for Mac will include this; until then it needs the PartyPortal app.
+2. Select **Open PartyPortal**. The PartyPortal app on your Mac asks which window to share and connects it to the Portal. The L4 app for Mac will include this; until then it needs the PartyPortal app. In the L4 app for Mac (coming), the app first asks in its own dialog whether this Server may have you share a window, and says so if PartyPortal is not installed.
 3. Copy the guest link and send it to your guest.
 
 Opening a Portal needs **Start live sessions** in your Role. The picture goes directly between your Mac and the guest whenever the network allows it; the Server only connects the two. When no direct path exists, it goes through Cloudflare's TURN relay on the Server's own Cloudflare account, which the Server sets up by itself when it keeps Cloudflare access, and which is billed to that account. One guest can watch at a time. The Portal ends when you select **End Portal**, when a channel manager ends it, when you lose access to the conversation, or twelve hours after you opened it; its links stop working then.

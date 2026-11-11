@@ -100,6 +100,24 @@ an origin the bridge's permissions (`allow_server` in
 `apps/desktop/src-tauri/src/lib.rs`), for the current run; any other page has no
 native access.
 
+Native permissions are granted per Server origin (`allow_origin` in `lib.rs`): the
+window controls, the badge, notifications, opening links, the recording key, and
+`allow-portal-share`. That last one lets a Server's page ask to share a window of
+this Mac through a [Portal](adr/0014-portal.md) and nothing more: `portal_share`
+(`src-tauri/src/portal.rs`) accepts only a `partyportal://portal?url=…&key=…&t=…`
+link whose `url` is `/portal/<id>` on the asking page's own origin, asks in an alert
+drawn by the app (naming the Server from the app's own list, with its address), and
+on **Open PartyPortal** hands the link to Launch Services. PartyPortal then asks which
+window. If no app opens `partyportal://` links, the Client shows "Install PartyPortal
+for Mac to share a window." A page cannot open a Portal of another Server, skip the
+alert, or stack alerts.
+
+PartyPortal can be built into the app: set `PARTYPORTAL_APP` to a built
+`PartyPortal.app` when running `pnpm macos:build`, and it is copied into
+`L4.app/Contents/Helpers`, where the app opens Portal links with it before any other
+copy. Sign it with the same identity as the app. Without the variable the build is
+unchanged and Portal uses a PartyPortal installed on the Mac.
+
 Build and launch a development app:
 
 ```bash
