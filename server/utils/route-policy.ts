@@ -97,6 +97,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   'channels/[id]/live/heartbeat.post': inSpace('channel', 'id', 'channel.create'),
   'channels/[id]/live/leave.post': inSpace('channel', 'id', 'channel.create'),
   'channels/[id]/live/remove.post': inSpace('channel', 'id', 'channel.create'),
+  'channels/[id]/portals.post': inSpace('channel', 'id', 'portal.create'),
+  'channels/[id]/portals/[portalId].delete': inSpace('channel', 'id', 'portal.delete'),
   'channels/[id]/members.get': inSpace('channel', 'id', 'channel.read'),
   'channels/[id]/members.post': inSpace('channel', 'id', 'channel.create'),
   'channels/[id]/members/[userId].delete': inSpace('channel', 'id', 'channel.delete'),

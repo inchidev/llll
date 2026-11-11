@@ -78,6 +78,10 @@
       {
         "name": "AGENT_SCHEDULE_DO",
         "class_name": "AgentScheduleDurableObject"
+      },
+      {
+        "name": "PORTAL_DO",
+        "class_name": "PortalDurableObject"
       }
     ]
   },
@@ -111,7 +115,8 @@
     },
     { "tag": "v5-factory-executor", "new_sqlite_classes": ["FactoryComputeDurableObject"] },
     { "tag": "v6-lizard-compute", "new_sqlite_classes": ["LizardComputeDurableObject"] },
-    { "tag": "v7-retire-lizard-compute", "deleted_classes": ["LizardComputeDurableObject"] }
+    { "tag": "v7-retire-lizard-compute", "deleted_classes": ["LizardComputeDurableObject"] },
+    { "tag": "v8-portal", "new_sqlite_classes": ["PortalDurableObject"] }
   ],
   "vars": {
     "PUBLIC_ORIGIN": "http://localhost:3000",
@@ -141,7 +146,8 @@
         { "name": "NOTIFICATION_DO", "class_name": "NotificationDurableObject" },
         { "name": "AGENT_DO", "class_name": "L4Agent" },
         { "name": "AGENT_RUN_DO", "class_name": "AgentRunDurableObject" },
-        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" }
+        { "name": "AGENT_SCHEDULE_DO", "class_name": "AgentScheduleDurableObject" },
+        { "name": "PORTAL_DO", "class_name": "PortalDurableObject" }
       ]
     },
     "d1_databases": [

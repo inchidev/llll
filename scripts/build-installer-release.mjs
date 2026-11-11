@@ -113,6 +113,7 @@ const manifest = {
     { tag: 'v5-factory-executor', new_sqlite_classes: ['FactoryComputeDurableObject'] },
     { tag: 'v6-lizard-compute', new_sqlite_classes: ['LizardComputeDurableObject'] },
     { tag: 'v7-retire-lizard-compute', deleted_classes: ['LizardComputeDurableObject'] },
+    { tag: 'v8-portal', new_sqlite_classes: ['PortalDurableObject'] },
   ],
   durableObjects: [
     { binding: 'CHANNEL_DO', className: 'ChannelDurableObject', migration: 'v1' },
@@ -122,6 +123,7 @@ const manifest = {
     { binding: 'AGENT_DO', className: 'L4Agent', migration: 'v1' },
     { binding: 'AGENT_RUN_DO', className: 'AgentRunDurableObject', migration: 'v2-agent-runs' },
     { binding: 'AGENT_SCHEDULE_DO', className: 'AgentScheduleDurableObject', migration: 'v3-agent-schedules' },
+    { binding: 'PORTAL_DO', className: 'PortalDurableObject', migration: 'v8-portal' },
   ],
 
 }

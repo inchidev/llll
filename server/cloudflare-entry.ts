@@ -24,6 +24,7 @@ export { NotificationDurableObject } from '../workers/notification-do'
 export { L4Agent } from '../workers/llll-agent'
 export { AgentRunDurableObject } from '../workers/agent-run-do'
 export { AgentScheduleDurableObject } from '../workers/agent-schedule-do'
+export { PortalDurableObject } from '../workers/portal-do'
 export { AgentComputeDurableObject } from '../workers/agent-compute'
 export { AgentOutbound } from '../workers/agent-outbound'
 
