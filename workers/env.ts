@@ -25,6 +25,9 @@ export type L4Env = {
   /** A Cloudflare Realtime TURN key for Portals; without it a Server in its own account makes one with its kept access. */
   REALTIME_TURN_KEY_ID?: string
   REALTIME_TURN_KEY_API_TOKEN?: string
+  /** A Cloudflare Realtime SFU app for Portals with several viewers; same rule as the TURN key. */
+  REALTIME_SFU_APP_ID?: string
+  REALTIME_SFU_APP_TOKEN?: string
   AGENT_COMPUTE?: DurableObjectNamespace
   AGENT_RUNNER_URL?: string
   AGENT_RUNNER_TOKEN?: string
