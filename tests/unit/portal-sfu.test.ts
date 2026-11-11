@@ -26,8 +26,14 @@ describe('Portal SFU app', () => {
     expect(transport).not.toHaveBeenCalled()
   })
 
-  it('makes one app with the kept Cloudflare access, keeps it sealed and reuses it', async () => {
-    const e = env()
+  it('makes no app of its own unless the operator opts in', async () => {
+    const transport = vi.fn(async () => Response.json({ success: true, result: { uid: 'x', secret: 'y' } }))
+    expect(await portalSfuApp(env(), transport as typeof fetch)).toBeNull()
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it('makes one app with the kept Cloudflare access when opted in, keeps it sealed and reuses it', async () => {
+    const e = env({ PORTAL_SFU_AUTO: '1' } as Partial<L4Env>)
     const transport = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe(`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/calls/apps`)
       expect(init?.body).toBe('{"name":"L4 Portal"}')
@@ -44,11 +50,12 @@ describe('Portal SFU app', () => {
 
   it('has no app on a Server it may not provision for, when Cloudflare refuses, or when the answer lacks the secret', async () => {
     const refuse = vi.fn(async () => new Response('no', { status: 403 }))
-    expect(await portalSfuApp(env({ LLLL_RUNTIME: 'cloud' } as Partial<L4Env>), refuse as typeof fetch)).toBeNull()
+    expect(await portalSfuApp(env({ LLLL_RUNTIME: 'cloud', PORTAL_SFU_AUTO: '1' } as Partial<L4Env>), refuse as typeof fetch)).toBeNull()
     expect(refuse).not.toHaveBeenCalled()
-    expect(await portalSfuApp(env(), refuse as typeof fetch)).toBeNull()
+    const optedIn = { PORTAL_SFU_AUTO: '1' } as Partial<L4Env>
+    expect(await portalSfuApp(env(optedIn), refuse as typeof fetch)).toBeNull()
     const half = vi.fn(async () => Response.json({ success: true, result: { uid: 'only-id' } }))
-    expect(await portalSfuApp(env(), half as typeof fetch)).toBeNull()
+    expect(await portalSfuApp(env(optedIn), half as typeof fetch)).toBeNull()
   })
 })
 

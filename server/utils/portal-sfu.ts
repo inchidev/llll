@@ -27,6 +27,9 @@ export async function portalSfuApp(env: L4Env, transport: Transport = fetch): Pr
   if (appId && appToken) return { appId, appToken }
   const saved = await savedApp(env)
   if (saved) return saved
+  // Several viewers have not yet run against Cloudflare's SFU itself, so a Server makes its own app only when its
+  // operator opts in with PORTAL_SFU_AUTO=1; until then the variables above are the way in (ADR 0014, stage 3).
+  if (env.PORTAL_SFU_AUTO?.trim() !== '1') return null
   // Only a Server in the operator's own Cloudflare account can make one; L4 Cloud and celld bring theirs in variables.
   if (isOperatorManaged(env)) return null
   if (!(await cloudflareAccessStatus(env)).connected) return null

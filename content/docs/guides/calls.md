@@ -71,9 +71,9 @@ A Portal shows one window of your Mac to a guest, who watches in any browser wit
 
 Opening a Portal needs **Start live sessions** in your Role. The picture goes directly between your Mac and the guest whenever the network allows it; the Server only connects the two. When no direct path exists, it goes through Cloudflare's TURN relay on the Server's own Cloudflare account, which the Server sets up by itself when it keeps Cloudflare access, and which is billed to that account. The Portal ends when you select **End Portal**, when a channel manager ends it, when you lose access to the conversation, or twelve hours after you opened it; its links stop working then.
 
-### Several viewers
+### Several viewers (preview)
 
-When the Server has Cloudflare Realtime set up, up to 16 people can watch one Portal at once. Your Mac sends the picture and sound once to Cloudflare's Realtime SFU in the Server's own Cloudflare account, and each viewer receives it from there in the size that suits their screen. A Server that keeps Cloudflare access sets this up by itself; otherwise the operator sets `REALTIME_SFU_APP_ID` and `REALTIME_SFU_APP_TOKEN`. SFU traffic is billed to that Cloudflare account. Without it, one guest can watch at a time, as before.
+When the Server has Cloudflare Realtime set up, up to 16 people can watch one Portal at once. Your Mac sends the picture and sound once to Cloudflare's Realtime SFU in the Server's own Cloudflare account, and each viewer receives it from there in the size that suits their screen. For now the operator turns it on: set `REALTIME_SFU_APP_ID` and `REALTIME_SFU_APP_TOKEN`, or set `PORTAL_SFU_AUTO=1` on a Server that keeps Cloudflare access and it creates the app itself. SFU traffic is billed to that Cloudflare account. Without it, one guest can watch at a time, as before.
 
 With several viewers, nobody controls the window until you allow it. A viewer selects **Ask for control**; PartyPortal's **Share** page lists the viewers and who asks, and **Give control** hands the mouse and keyboard to one of them. **Take control back** on that page, or in PartyPortal's menu bar menu, ends it at once. **Remove** disconnects one viewer; the link keeps working for the others.
 
