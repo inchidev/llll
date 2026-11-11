@@ -38,6 +38,14 @@ export async function testPortal({ api, runtime, origin, channelId }) {
     assert.fail(`Portal: ${label}`)
   }
 
+  // A host offering relay protocol v2 on a Server without a Realtime SFU app is answered as v1.
+  const v2Host = await socket('/host')
+  v2Host.ws.send(JSON.stringify({ t: 'host', key: hostKey, v: 2 }))
+  await until(() => v2Host.frames.length >= 1, 'a v2 host is answered')
+  assert.deepEqual(v2Host.frames[0], { t: 'pp.ready' })
+  v2Host.ws.close(1000)
+  await v2Host.closed
+
   const guest = await socket('/ws')
   guest.ws.send(JSON.stringify({ t: 'auth', token: guestKey }))
   await until(() => guest.frames.some(frame => frame.t === 'pp.wait'), 'the guest waits for the host')
@@ -63,5 +71,5 @@ export async function testPortal({ api, runtime, origin, channelId }) {
   assert.equal(await guest.closed, 4404)
   assert.equal(await host.closed, 4404)
   assert.equal((await runtime.dispatchFetch(opened.url)).status, 404)
-  console.log('PASS: Portal opens with two keys, serves its guest page, relays host and guest, refuses wrong keys and old protocols, and ends')
+  console.log('PASS: Portal opens with two keys, serves its guest page, answers v2 as v1 without an SFU, relays host and guest, refuses wrong keys and old protocols, and ends')
 }
