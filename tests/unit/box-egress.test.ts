@@ -6,7 +6,7 @@ import { factoryHash } from '../../server/utils/factory-authority'
 import { computePoll } from '../../server/utils/compute-nodes'
 import { boxCompletion, ensureBox } from '../../server/utils/factory-boxes'
 import { compileEgress, replacePlaceholders, type EgressInput } from '../../server/utils/box-egress'
-import { decideApproval, expireApprovals, outwardToolCall } from '../../server/utils/factory-approvals'
+import { PERSON_WAIT_MS, decideApproval, expireApprovals, outwardToolCall, unansweredRequest } from '../../server/utils/factory-approvals'
 import { factoryStatus } from '../../server/utils/factory-status'
 import { createProjectSecret, deleteProjectSecret, getProjectNetwork, listProjectSecrets, saveProjectNetwork, updateProjectSecret } from '../../server/utils/project-egress'
 import { findAgentRun } from '../../server/utils/agent-run-service'
@@ -173,6 +173,14 @@ describe('network windows', () => {
     f.db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id)
     f.db.prepare('UPDATE factory_approvals SET expires_at=? WHERE id=?').run(new Date(Date.now() - 60000).toISOString(), asked.approvalId)
     expect((await sync(lease)).egress.hosts).not.toContain('api.telegram.org')
+    // A window nobody answers holds the paid box's turn for half an hour at most, then closes unanswered.
+    const ignored = await windowCall('w3', { host: 'api.telegram.org' }) as { approvalId: string }
+    expect((await boxCompletion(f.env, run)).pending).toBe(true)
+    f.db.prepare('UPDATE factory_approvals SET created_at=? WHERE id=?').run(new Date(Date.now() - PERSON_WAIT_MS - 1000).toISOString(), ignored.approvalId)
+    expect((await boxCompletion(f.env, run)).pending).toBe(false)
+    await expireApprovals(f.env)
+    expect(f.db.prepare('SELECT status FROM factory_approvals WHERE id=?').get(ignored.approvalId)).toMatchObject({ status: 'expired' })
+    expect(await unansweredRequest(f.env, { id: run.id, deadline: new Date(Date.now() + 3_600_000).toISOString() })).toContain('about api.telegram.org')
     // A rejected window stays closed.
     const second = await windowCall('w2', { host: 'api.telegram.org' }) as { approvalId: string }
     await decideApproval(f.env, run.id, ids.owner, { id: second.approvalId, digest: digest(second.approvalId), decision: 'reject' })

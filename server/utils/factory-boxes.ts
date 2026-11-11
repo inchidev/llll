@@ -10,7 +10,7 @@ import { asRpc, type L4Env } from '../../workers/env'
 import { fanoutAgentTurns, patchAgentTurn } from '../../workers/agent-turns'
 import { admitBoxes, BOX_WAITING_DETAIL } from './box-admission'
 import { fail } from './cf'
-import { boxOutwardWork } from './factory-approvals'
+import { boxOutwardWork, personWaitCutoff } from './factory-approvals'
 import { boxEgress, egressSecretValues, markSecretsUsed } from './box-egress'
 
 /** A Node renews every box it lists on each sync; one that misses a minute of syncs loses its lease and its share. */
@@ -159,11 +159,13 @@ export async function releaseBoxTurn(env: L4Env, runId: string) {
 
 /**
  * What still waits before a box's turn may end: a person's decision or a push under way. The commits themselves
- * are in Git. An approved plan or window is settled: it covers what follows and holds no turn.
+ * are in Git. An approved plan or window is settled: it covers what follows and holds no turn. A request nobody
+ * answered within PERSON_WAIT_MS no longer holds it.
  */
 export async function boxCompletion(env: L4Env, run: AgentRun) {
+  // A person's decision holds the turn for PERSON_WAIT_MS at most: the box is paid while it waits.
   const pending = await env.DB.prepare(`SELECT 1 FROM factory_approvals WHERE run_id=? AND expires_at>?
-    AND (status IN ('pending_diff','pending') OR (kind IN ('publish','merge') AND status IN ('approved','publishing'))) LIMIT 1`).bind(run.id, nowIso()).first()
+    AND ((status IN ('pending_diff','pending') AND created_at>?) OR (kind IN ('publish','merge') AND status IN ('approved','publishing'))) LIMIT 1`).bind(run.id, nowIso(), personWaitCutoff()).first()
   return { pending: Boolean(pending) }
 }
 

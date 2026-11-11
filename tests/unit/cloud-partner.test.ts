@@ -474,6 +474,8 @@ describe('the partner’s game doors', () => {
   })
 
   /** A Task whose Agent is at work on its box, in a running turn, with a request of each kind waiting for the creator. */
+  // Requests made moments ago: a person's answer is awaited for PERSON_WAIT_MS from when it was asked.
+  const asked0 = new Date(Date.now() - 120_000).toISOString(), asked1 = new Date(Date.now() - 60_000).toISOString()
   async function waitingTask() {
     const { body: { project } } = await createProject()
     const { body: { task } } = await createTask(project.projectId, { attachments: [] })
@@ -486,8 +488,8 @@ describe('the partner’s game doors', () => {
     const window = { id: '11111111-1111-4111-8111-111111111111', digest: 'a'.repeat(64) }
     const approve = (id: string, kind: string, request: unknown, digest: string, status: string, created: string) => sqlite.prepare('INSERT INTO factory_approvals(id,box_id,run_id,call_id,kind,request_json,digest,status,expires_at,created_at) VALUES(?,\'box1\',?,?,?,?,?,?,?,?)')
       .run(id, run.id, `call-${id}`, kind, JSON.stringify(request), digest, status, deadline, created)
-    approve(window.id, 'window', { host: 'unpkg.com', minutes: 15, secrets: [], reason: 'Download three.module.js once and bundle it' }, window.digest, 'pending', '2026-11-10T10:00:00.000Z')
-    approve('22222222-2222-4222-8222-222222222222', 'publish', { sha: 'f'.repeat(40), title: 'Add the tubes', body: 'Three tubes and a ball.', ref: 'l4-agent/box1' }, 'b'.repeat(64), 'pending_diff', '2026-11-10T10:01:00.000Z')
+    approve(window.id, 'window', { host: 'unpkg.com', minutes: 15, secrets: [], reason: 'Download three.module.js once and bundle it' }, window.digest, 'pending', asked0)
+    approve('22222222-2222-4222-8222-222222222222', 'publish', { sha: 'f'.repeat(40), title: 'Add the tubes', body: 'Three tubes and a ball.', ref: 'l4-agent/box1' }, 'b'.repeat(64), 'pending_diff', asked1)
     return { task, run, window, deadline }
   }
 
@@ -496,8 +498,8 @@ describe('the partner’s game doors', () => {
     const got = (await post('tasks/get', { identity: owner, taskId: task.taskId })).body.task as unknown as { state: string; requests: unknown[] }
     expect(got.state).toBe('waiting')
     expect(got.requests).toEqual([
-      { id: window.id, kind: 'window', status: 'pending', digest: window.digest, createdAt: '2026-11-10T10:00:00.000Z', expiresAt: deadline, host: 'unpkg.com', minutes: 15, reason: 'Download three.module.js once and bundle it', secrets: [] },
-      { id: '22222222-2222-4222-8222-222222222222', kind: 'publish', status: 'pending_diff', digest: 'b'.repeat(64), createdAt: '2026-11-10T10:01:00.000Z', expiresAt: deadline, title: 'Add the tubes', summary: 'Three tubes and a ball.', sha: 'f'.repeat(40), branch: 'l4-agent/box1' },
+      { id: window.id, kind: 'window', status: 'pending', digest: window.digest, createdAt: asked0, expiresAt: deadline, host: 'unpkg.com', minutes: 15, reason: 'Download three.module.js once and bundle it', secrets: [] },
+      { id: '22222222-2222-4222-8222-222222222222', kind: 'publish', status: 'pending_diff', digest: 'b'.repeat(64), createdAt: asked1, expiresAt: deadline, title: 'Add the tubes', summary: 'Three tubes and a ball.', sha: 'f'.repeat(40), branch: 'l4-agent/box1' },
     ])
     // A turn someone else started is theirs to decide; a turn that ended asks nothing any more.
     sqlite.prepare("UPDATE agent_runs SET initiated_by=(SELECT id FROM users WHERE kind='agent' LIMIT 1) WHERE id=?").run(run.id)
@@ -557,6 +559,9 @@ describe('the partner’s game doors', () => {
     const { unansweredRequest } = await import('../../server/utils/factory-approvals')
     // Still in time: nothing to say.
     expect(await unansweredRequest(e, { id: run.id, deadline: new Date(Date.now() + 60_000).toISOString() })).toBeNull()
+    // A request nobody answered for half an hour ends the turn as unanswered, though the Run still had time.
+    sqlite.prepare('UPDATE factory_approvals SET created_at=?').run(new Date(Date.now() - 31 * 60_000).toISOString())
+    expect(await unansweredRequest(e, { id: run.id, deadline: new Date(Date.now() + 60_000).toISOString() })).toContain('The agent waited for your answer')
     const past = new Date(Date.now() - 1000).toISOString()
     sqlite.prepare("UPDATE factory_approvals SET status='expired' WHERE kind='window'").run()
     const reason = await unansweredRequest(e, { id: run.id, deadline: past })

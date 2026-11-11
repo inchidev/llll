@@ -146,7 +146,7 @@ The Server's execution mode (**Server settings → Agents → Execution**) gates
 | `plan` | Covered by the latest approved plan | Needs nobody without secrets; covered by the plan | Covered if the plan names it, else a person | Only those the plan names |
 | `review` | A person, after reading the diff | Needs nobody without secrets, else a person | A person | Only through a window a person opened |
 
-`factory_plan` names the plan's steps, hosts and secrets. A person approves it once in the Inbox or the Run, and it covers the Task until the Agent proposes a new one. A window that names a secret, once a person opens it, allows that secret at its host in any mode. Decisions are made by the person who started the Run, in the Inbox or on the Run page, or in a partner's own chat (below). A Task may publish 50 times by default and its box may run six hours in all; both are execution settings.
+`factory_plan` names the plan's steps, hosts and secrets. A person approves it once in the Inbox or the Run, and it covers the Task until the Agent proposes a new one. A window that names a secret, once a person opens it, allows that secret at its host in any mode. Decisions are made by the person who started the Run, in the Inbox or on the Run page, or in a partner's own chat (below). A request waits for that decision for 30 minutes, as long as one box turn. The box holds its turn while a request waits, and on L4 Compute it is paid by the minute. A request nobody answered in that time closes, and the turn stops saying the Agent waited for an answer; the Agent asks again in its next turn. A Task may publish 50 times by default and its box may run six hours in all; both are execution settings.
 
 ## Network windows and Project secrets
 
