@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { PORTAL_AUTH_TIMEOUT_MS, PORTAL_CLOSE, PORTAL_PROTOCOL, PORTAL_REPLACED_BYE, portalLive, portalMessageType, type PortalRecord } from '../shared/portal'
 import { sha256Hex } from '../shared/server-settings'
 import { portalOpenerMayKeep } from '../server/utils/portals'
+import { portalIceServers } from '../server/utils/portal-turn'
 import type { L4Env } from './env'
 
 export type PortalRole = 'host' | 'guest'
@@ -135,7 +136,9 @@ export class PortalDurableObject extends DurableObject<L4Env> {
       const previous = this.current('host', ws)
       if (previous) this.replace(previous)
       ws.serializeAttachment({ role: 'host', authed: true } satisfies Attachment)
-      this.send(ws, JSON.stringify({ t: 'pp.ready' }))
+      // TURN credentials for this connection, until the Portal ends; the Mac hands them to its guest in its hello.
+      const iceServers = await portalIceServers(this.env, (record!.expiresAt - Date.now()) / 1000).catch(() => null)
+      this.send(ws, JSON.stringify(iceServers ? { t: 'pp.ready', iceServers } : { t: 'pp.ready' }))
       const guest = this.current('guest')
       if (guest) this.introduce(ws, guest)
       return

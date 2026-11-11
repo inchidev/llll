@@ -7,6 +7,8 @@ import { PORTAL_GUEST_HTML } from '../../server/utils/portal-guest-page'
 vi.mock('cloudflare:workers', () => ({ DurableObject: class { constructor(protected ctx: unknown, protected env: unknown) {} } }))
 const mayKeep = vi.fn(async () => true)
 vi.mock('../../server/utils/portals', () => ({ portalOpenerMayKeep: (...args: unknown[]) => mayKeep(...args as []) }))
+const iceServers = vi.fn(async (): Promise<unknown> => null)
+vi.mock('../../server/utils/portal-turn', () => ({ portalIceServers: (...args: unknown[]) => iceServers(...args as []) }))
 vi.stubGlobal('WebSocketRequestResponsePair', class { constructor(readonly request: string, readonly response: string) {} })
 
 const { PortalDurableObject, portalAuthVerdict } = await import('../../workers/portal-do')
@@ -72,7 +74,7 @@ function room() {
 const hostHello = { t: 'host', key: HOST_KEY, v: PORTAL_PROTOCOL }
 const guestHello = { t: 'auth', token: GUEST_KEY }
 
-beforeEach(() => { mayKeep.mockReset(); mayKeep.mockResolvedValue(true) })
+beforeEach(() => { mayKeep.mockReset(); mayKeep.mockResolvedValue(true); iceServers.mockReset(); iceServers.mockResolvedValue(null) })
 
 describe('portal links', () => {
   it('keeps the guest key in the fragment and both keys out of the page URL', () => {
@@ -182,6 +184,20 @@ describe('the relay', () => {
     expect(guest.frames().at(-1)).toEqual({ type: 'bye', final: true, reason: 'The host closed access.' })
     expect(guest.closed?.code).toBe(PORTAL_CLOSE.closedByHost)
     expect(host.frames().at(-1)).toEqual({ t: 'pp.guest', open: false })
+  })
+
+  it('gives the host TURN credentials when the Server has them, and keeps going without', async () => {
+    const turn = [{ urls: ['turn:turn.cloudflare.com:3478?transport=udp'], username: 'u', credential: 'c' }]
+    iceServers.mockResolvedValueOnce(turn)
+    const { portal, connect, say } = room()
+    await portal.open(await record())
+    const host = connect('host')
+    await say(host, hostHello)
+    expect(host.frames()[0]).toEqual({ t: 'pp.ready', iceServers: turn })
+    iceServers.mockRejectedValueOnce(new Error('Cloudflare is down'))
+    const next = connect('host')
+    await say(next, hostHello)
+    expect(next.frames()[0]).toEqual({ t: 'pp.ready' })
   })
 
   it('passes nothing before both keys are shown', async () => {

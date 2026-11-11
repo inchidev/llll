@@ -69,7 +69,7 @@ A Portal shows one window of your Mac to a guest, who watches in any browser wit
 2. Select **Open PartyPortal**. The PartyPortal app on your Mac asks which window to share and connects it to the Portal. The L4 app for Mac will include this; until then it needs the PartyPortal app.
 3. Copy the guest link and send it to your guest.
 
-Opening a Portal needs **Start live sessions** in your Role. The picture goes directly between your Mac and the guest whenever the network allows it; the Server only connects the two. One guest can watch at a time. The Portal ends when you select **End Portal**, when a channel manager ends it, when you lose access to the conversation, or twelve hours after you opened it; its links stop working then.
+Opening a Portal needs **Start live sessions** in your Role. The picture goes directly between your Mac and the guest whenever the network allows it; the Server only connects the two. When no direct path exists, it goes through Cloudflare's TURN relay on the Server's own Cloudflare account, which the Server sets up by itself when it keeps Cloudflare access, and which is billed to that account. One guest can watch at a time. The Portal ends when you select **End Portal**, when a channel manager ends it, when you lose access to the conversation, or twelve hours after you opened it; its links stop working then.
 
 ## Related
 
