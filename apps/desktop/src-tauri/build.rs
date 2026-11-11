@@ -15,6 +15,7 @@ fn main() {
         "recording_limits",
         "transcribe",
         "send_marked",
+        "portal_share",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).expect("error while running tauri-build");
 }

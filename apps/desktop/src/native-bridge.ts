@@ -80,6 +80,14 @@ if (location.protocol === 'https:' || location.protocol === 'http:') {
 }
 
 if (location.protocol === 'https:' || location.protocol === 'http:') {
+  // Portal (ADR 0014): the page only asks. The app checks that the Portal is on this Server, asks the person in
+  // its own dialog and opens PartyPortal; false means they said no.
+  window.__LLLL_NATIVE_PORTAL__ = {
+    share: link => invoke<boolean>('portal_share', { link }),
+  }
+}
+
+if (location.protocol === 'https:' || location.protocol === 'http:') {
   keepRecordingKey({
     serverNeedingKey: async () => {
       const serverId = await invoke<string | null>('server_needing_key')

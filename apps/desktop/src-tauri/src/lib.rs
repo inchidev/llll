@@ -1,3 +1,4 @@
+mod portal;
 mod share;
 
 use tauri::ipc::CapabilityBuilder;
@@ -44,7 +45,9 @@ fn allow_origin(webview: &Webview, origin: &str) -> Result<(), String> {
                 .permission("notification:default")
                 .permission("opener:default")
                 .permission("allow-server-needing-key")
-                .permission("allow-save-recording-key"),
+                .permission("allow-save-recording-key")
+                // Ask to share a window of this Mac: the app checks the link and asks the person (ADR 0014).
+                .permission("allow-portal-share"),
         )
         .map_err(|error| error.to_string())
 }
@@ -171,6 +174,7 @@ pub fn run() {
             share::recording_limits,
             share::transcribe,
             share::send_marked,
+            portal::portal_share,
         ])
         .build(tauri::generate_context!())
         .expect("error while building L4")

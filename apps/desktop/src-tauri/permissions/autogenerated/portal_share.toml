@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-share"
+description = "Enables the portal_share command without any pre-configured scope."
+commands.allow = ["portal_share"]
+
+[[permission]]
+identifier = "deny-portal-share"
+description = "Denies the portal_share command without any pre-configured scope."
+commands.deny = ["portal_share"]
