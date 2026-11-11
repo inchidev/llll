@@ -22,6 +22,9 @@ export type L4Env = {
   AGENT_SCHEDULE_DO?: DurableObjectNamespace
   /** One Durable Object per Portal (ADR 0014). Absent on Servers installed before it. */
   PORTAL_DO?: DurableObjectNamespace
+  /** A Cloudflare Realtime TURN key for Portals; without it a Server in its own account makes one with its kept access. */
+  REALTIME_TURN_KEY_ID?: string
+  REALTIME_TURN_KEY_API_TOKEN?: string
   AGENT_COMPUTE?: DurableObjectNamespace
   AGENT_RUNNER_URL?: string
   AGENT_RUNNER_TOKEN?: string
