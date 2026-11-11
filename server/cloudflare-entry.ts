@@ -1,5 +1,6 @@
 import { fileStorage } from '../shared/file-storage'
 import { getServerId } from '../shared/server-id'
+import { PORTAL_SOCKET_PATH } from '../shared/portal'
 import { createStorageBackup } from '../shared/storage-backup'
 import { uploadBackupToR2 } from '../shared/r2-backup'
 import { version } from '../package.json'
@@ -24,6 +25,7 @@ export { NotificationDurableObject } from '../workers/notification-do'
 export { L4Agent } from '../workers/llll-agent'
 export { AgentRunDurableObject } from '../workers/agent-run-do'
 export { AgentScheduleDurableObject } from '../workers/agent-schedule-do'
+export { PortalDurableObject } from '../workers/portal-do'
 export { AgentComputeDurableObject } from '../workers/agent-compute'
 export { AgentOutbound } from '../workers/agent-outbound'
 
@@ -43,6 +45,12 @@ export default {
       const channel = url.pathname.match(/^\/ws\/channel\/([^/]+)/)
       if (channel?.[1]) {
         return env.CHANNEL_DO.getByName(`channel:${channel[1]}`).fetch(request)
+      }
+      // A Portal's host and guest sockets (ADR 0014): its Durable Object checks the key in the first frame.
+      const portal = url.pathname.match(PORTAL_SOCKET_PATH)
+      if (portal?.[1]) {
+        if (!env.PORTAL_DO) return new Response('This Server was installed before Portal. Update it to use Portal.', { status: 501 })
+        return env.PORTAL_DO.getByName(`portal:${portal[1]}`).fetch(request)
       }
       const server = url.pathname.match(/^\/ws\/server\/([^/]+)/)
       if (server?.[1]) {

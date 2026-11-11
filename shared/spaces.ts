@@ -122,5 +122,6 @@ export const ACTION_RATE_LIMITS: Readonly<Record<string, { limit: number; window
   'task.create': { limit: 300, windowSeconds: 60 },
   'recording.upload': { limit: 60, windowSeconds: 3600 },
   'recording-key.create': { limit: 20, windowSeconds: 3600 },
+  'portal.create': { limit: 30, windowSeconds: 3600 },
   'task-voice.create': { limit: 120, windowSeconds: 3600 },
 }

@@ -61,6 +61,10 @@
       {
         "name": "AGENT_SCHEDULE_DO",
         "class_name": "AgentScheduleDurableObject"
+      },
+      {
+        "name": "PORTAL_DO",
+        "class_name": "PortalDurableObject"
       }
     ]
   },
@@ -91,6 +95,10 @@
     {
       "tag": "v6-lizard-compute",
       "new_sqlite_classes": ["LizardComputeDurableObject"]
+    },
+    {
+      "tag": "v8-portal",
+      "new_sqlite_classes": ["PortalDurableObject"]
     }
   ],
   "vars": {

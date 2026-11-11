@@ -338,6 +338,9 @@ async function onThread(msg: MessageDTO) {
 }
 
 const privateMembersOpen = ref(false)
+const portalOpen = ref(false)
+// Portal shares a Mac window through the PartyPortal app (ADR 0014); whoever may start Live here may open one.
+const canOpenPortal = computed(() => canStartLive.value && !archived.value)
 watch(channelId, () => { privateMembersOpen.value = false })
 const liveMembers = computed<MemberDTO[]>(() => {
   if (!isDm.value) return members.value
@@ -361,6 +364,7 @@ defineShortcuts({
 
 <template>
   <SettingsPrivateChannelMembers v-if="channel && !isDm && channel.visibility === 'private'" v-model:open="privateMembersOpen" :server-id="serverId" :channel="channel" />
+  <LivePortalModal v-if="canOpenPortal" v-model:open="portalOpen" :channel-id="channelId" />
   <div class="relative flex-1 min-h-0 h-full flex bg-default">
     <div
       class="relative flex-1 min-w-0 flex flex-col min-h-0"
@@ -438,6 +442,9 @@ defineShortcuts({
               :aria-label="liveActionLabel"
               @click="openPrejoin()"
             />
+          </UTooltip>
+          <UTooltip v-if="isConversation && !directAgentId && canOpenPortal" text="Share a window">
+            <UButton icon="i-ph-app-window" color="neutral" variant="ghost" size="sm" square aria-label="Share a window" @click="portalOpen = true" />
           </UTooltip>
           <UTooltip v-if="!isDm && type === 'text' && channel?.visibility === 'private' && channel.createdBy === session.user?.id && channelsQ.data.value?.channels.some(item => item.id === channelId)" text="Manage channel members">
             <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-users" aria-label="Manage channel members" @click="privateMembersOpen = true" />

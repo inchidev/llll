@@ -9,6 +9,7 @@ import { receiveMailGatewayRequest } from './mail-gateway-ingress'
 import { routeServerEmail } from './server-mail-router'
 export { AgentRunDurableObject } from './agent-run-do'
 export { AgentScheduleDurableObject } from './agent-schedule-do'
+export { PortalDurableObject } from './portal-do'
 export { AgentComputeDurableObject } from './agent-compute'
 export { AgentOutbound } from './agent-outbound'
 

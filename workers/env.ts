@@ -20,6 +20,8 @@ export type L4Env = {
   /** Isolated Pi executor transport. Never exposed to agents or browser clients. */
   AGENT_RUN_DO?: DurableObjectNamespace
   AGENT_SCHEDULE_DO?: DurableObjectNamespace
+  /** One Durable Object per Portal (ADR 0014). Absent on Servers installed before it. */
+  PORTAL_DO?: DurableObjectNamespace
   AGENT_COMPUTE?: DurableObjectNamespace
   AGENT_RUNNER_URL?: string
   AGENT_RUNNER_TOKEN?: string

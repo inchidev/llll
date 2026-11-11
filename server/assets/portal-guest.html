@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PartyPortal</title>
+<style>
+  /* The look follows Discord's call screen: near-black stage, a quiet title strip above, round controls below. */
+  :root { color-scheme: dark; --bg0: #111214; --bg1: #1e1f22; --bg2: #2b2d31; --bg3: #313338; --bg4: #383a40; --bg5: #4e5058; --line: #3f4147;
+          --text: #f2f3f5; --muted: #b5bac1; --faint: #949ba4; --brand: #5865f2; --brand-hover: #4752c4; --ok: #23a55a; --warn: #f0b232; --bad: #f23f43; --bad-bg: #da373c; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #000; color: var(--text); font: 15px/1.35 "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+  button[hidden] { display: none; }
+  svg { display: block; fill: currentColor; }
+
+  #bar { position: absolute; inset: 0 0 auto 0; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; background: var(--bg1); user-select: none; }
+  #mark { width: 26px; height: 26px; flex: none; }
+  #who { min-width: 0; display: flex; align-items: baseline; gap: 10px; flex: 1; }
+  #title { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+  #state { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 14px; }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+  #dot.ok { background: var(--ok); } #dot.warn { background: var(--warn); } #dot.bad { background: var(--bad); }
+  #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Connection: signal bars and two numbers; the rest opens on hover or a tap. */
+  #conn { position: relative; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: transparent; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #conn:hover, #conn.open { background: var(--bg4); color: var(--text); }
+  #conn[hidden] { display: none; }
+  #bars { width: 18px; height: 18px; color: var(--faint); }
+  #conn.ok #bars { color: var(--ok); } #conn.warn #bars { color: var(--warn); } #conn.bad #bars { color: var(--bad); }
+  #connInfo { position: absolute; right: 0; top: 40px; z-index: 5; min-width: 250px; padding: 12px 14px; border-radius: 8px; background: var(--bg0); box-shadow: 0 8px 24px #0009; color: var(--text); text-align: left; cursor: default; display: none; }
+  #conn:hover #connInfo, #conn.open #connInfo { display: block; }
+  #connInfo h3 { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+  #connInfo dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 14px; }
+  #connInfo dt { color: var(--muted); } #connInfo dd { margin: 0; text-align: right; }
+  #connInfo p { margin: 10px 0 0; font-size: 13px; color: var(--faint); white-space: normal; }
+
+  #stage { position: absolute; inset: 48px 0 80px 0; display: flex; align-items: center; justify-content: center; background: #000; }
+  canvas { display: block; background: #000; outline: none; }
+  canvas.live { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Ccircle cx='4.5' cy='4.5' r='3' fill='white' fill-opacity='.55' stroke='black' stroke-opacity='.6'/%3E%3C/svg%3E") 4 4, crosshair; }
+  #frame { position: relative; }
+  #tv { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; pointer-events: none; }
+  #tv[hidden] { display: none; }
+
+  /* The tray: every control is 48 px tall; the main action has words, the rest are round with a tooltip. */
+  #tray { position: absolute; inset: auto 0 0 0; height: 80px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 12px; background: var(--bg1); user-select: none; }
+  #tray button { position: relative; height: 48px; display: flex; align-items: center; justify-content: center; gap: 9px; border-radius: 24px; background: var(--bg4); color: var(--text); transition: background .12s; }
+  #tray button[hidden] { display: none; }
+  #tray button:hover { background: var(--bg5); }
+  #tray button svg { width: 22px; height: 22px; }
+  #tray .round { width: 48px; }
+  #tray .act { padding: 0 20px 0 16px; font-weight: 600; }
+  #tray .act.primary { background: var(--brand); color: #fff; }
+  #tray .act.primary:hover { background: var(--brand-hover); }
+  #tray .round.on { background: var(--text); color: var(--bg1); }
+  #tray .round.off { background: var(--bad-bg); color: #fff; }
+  #tray .round .slash { display: none; } #tray .round.off .slash { display: block; }
+  #tray [data-tip]::after { content: attr(data-tip); position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); padding: 7px 11px; border-radius: 8px; background: var(--bg0); color: var(--text); font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 18px #0009; opacity: 0; pointer-events: none; transition: opacity .1s; }
+  #tray [data-tip]:hover::after { opacity: 1; }
+  :fullscreen #bar, :fullscreen #tray { display: none; } :fullscreen #stage { inset: 0; }
+
+  #veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; pointer-events: none; }
+  #veil div { max-width: 440px; background: var(--bg3); border-radius: 8px; padding: 20px 24px; font-size: 17px; font-weight: 600; box-shadow: 0 10px 32px #000a; }
+  #veil small { display: block; margin-top: 8px; color: var(--muted); font-size: 14px; font-weight: 400; }
+  #veil[hidden] { display: none; }
+  #toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 24px); background: var(--bg0); border-left: 4px solid var(--bad); color: var(--text); border-radius: 8px; padding: 10px 14px; font-size: 14px; box-shadow: 0 6px 18px #0009; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #toast.show { opacity: 1; }
+  @media (max-width: 720px) {
+    #status, #stats { display: none; }
+    #stage { inset: 48px 0 72px 0; } #tray { height: 72px; gap: 8px; }
+    #tray .act { padding: 0 16px 0 12px; }
+  }
+</style>
+</head>
+<body>
+<header id="bar">
+  <svg id="mark" viewBox="0 0 64 64" aria-hidden="true">
+    <clipPath id="pp-clip"><path d="M0 0H64V47H57A25 9.5 0 0 1 7 47H0Z"/></clipPath>
+    <ellipse cx="32" cy="47" rx="25" ry="9.5" fill="#111214"/>
+    <path d="M7 47a25 9.5 0 0 1 50 0" fill="none" stroke="#5865f2" stroke-width="6" stroke-linecap="round"/>
+    <g clip-path="url(#pp-clip)"><g transform="rotate(-11 32 47)"><path d="M32 9 52.9 60H11.1Z" fill="#ffcf24"/><path d="M26.7 22h10.6l2.1 5H24.6Z" fill="#111214"/><path d="M21.7 34h20.6l2 5H19.7Z" fill="#111214"/></g></g>
+    <circle cx="27.3" cy="9.7" r="5.5" fill="#5865f2"/>
+    <path d="M7 47a25 9.5 0 0 0 50 0" fill="none" stroke="#5865f2" stroke-width="6" stroke-linecap="round"/>
+  </svg>
+  <div id="who"><span id="title">PartyPortal</span><span id="state"><span id="dot"></span><span id="status">connecting…</span></span></div>
+  <button id="conn" hidden aria-label="Connection details">
+    <svg id="bars" viewBox="0 0 18 18" aria-hidden="true"><rect x="1" y="11" width="4" height="6" rx="1"/><rect x="7" y="6" width="4" height="11" rx="1"/><rect x="13" y="1" width="4" height="16" rx="1"/></svg>
+    <span id="stats"></span>
+    <div id="connInfo"><h3 id="connHead">Connection</h3><dl id="connRows"></dl><p id="connNote"></p></div>
+  </button>
+</header>
+<div id="stage">
+  <div id="frame"><canvas id="screen" width="1280" height="720" tabindex="0"></canvas><video id="tv" autoplay muted playsinline disablepictureinpicture hidden></video></div>
+  <div id="veil"><div id="veilText">Connecting…</div></div>
+  <div id="toast"></div>
+</div>
+<footer id="tray">
+  <button id="take" class="act primary" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.6 2.9a1 1 0 0 1 1.1-.2l13 6.4a1 1 0 0 1-.1 1.9l-5.2 1.6 3.4 5.9a1 1 0 0 1-.4 1.4l-1.6.9a1 1 0 0 1-1.4-.4l-3.4-5.9-3.7 4a1 1 0 0 1-1.7-.7V3.6a1 1 0 0 1 0-.7Z"/></svg>
+    <span id="takeLabel">Take control</span>
+  </button>
+  <button id="lockMouse" class="round" hidden data-tip="Game mouse — Esc to leave" aria-label="Game mouse">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2h2v3.1A7 7 0 0 1 18.9 11H22v2h-3.1A7 7 0 0 1 13 18.9V22h-2v-3.1A7 7 0 0 1 5.1 13H2v-2h3.1A7 7 0 0 1 11 5.1Zm1 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
+  </button>
+  <button id="sound" class="round" hidden data-tip="Sound is on" aria-label="Sound">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6a1 1 0 0 0-1.7-.7L6 7.5H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h3l4.3 4.6a1 1 0 0 0 1.7-.7Z"/><path d="M15.2 7.8a1 1 0 0 1 1.4.1 6.4 6.4 0 0 1 0 8.2 1 1 0 1 1-1.5-1.3 4.4 4.4 0 0 0 0-5.6 1 1 0 0 1 .1-1.4Z"/><path d="M18.5 4.7a1 1 0 0 1 1.4.1 11.2 11.2 0 0 1 0 14.4 1 1 0 0 1-1.5-1.3 9.2 9.2 0 0 0 0-11.8 1 1 0 0 1 .1-1.4Z"/><path class="slash" d="M2.3 3.7a1 1 0 0 1 1.4-1.4l18 18a1 1 0 0 1-1.4 1.4Z" stroke="var(--bad-bg)" stroke-width="1.6"/></svg>
+  </button>
+  <button id="full" class="round" data-tip="Full screen" aria-label="Full screen">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h5a1 1 0 0 1 0 2H5v4a1 1 0 0 1-2 0V4a1 1 0 0 1 1-1Zm11 0h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V5h-4a1 1 0 1 1 0-2ZM4 14a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Zm16 0a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 1 1 0-2h4v-4a1 1 0 0 1 1-1Z"/></svg>
+  </button>
+</footer>
+<script>
+(() => {
+  const $ = id => document.getElementById(id)
+  const canvas = $('screen'), ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
+  const token = (location.hash.match(/t=([A-Za-z0-9_-]+)/) || [])[1]
+  const PAUSES = {
+    unfocused: ['Paused: the window is not in front on the host', 'Click the picture to bring it back to the front.'],
+    hidden: ['Paused: the window is minimized', 'The host has to restore it.'],
+    locked: ['Paused: the host screen is locked', ''],
+    noaccess: ['Control is off for now', 'The host has not yet allowed PartyPortal to control the mouse and keyboard.'],
+  }
+
+  // hostAway: the page is served by a portal (an L4 Server) and the host's Mac is not connected to it right now.
+  let hostAway = false
+  let ws, decoder, waitKey = true, gotFrame = false, final = false, retry = 0, bestGap = Infinity, late = 0, skipped = 0, badLog = [], udpGaveUp = false
+  let state = { sharing: false, control: false, viewOnly: false, paused: null, title: '' }
+  let frames = 0, bytes = 0, rtt = null, pingN = 0, pingAt = 0, toastTimer
+
+  // Two ways to the host: the WebSocket (through the tunnel) and, once it is up, a direct WebRTC connection.
+  let pc = null, dcCtl = null, direct = false, rtcTimer = 0, rtcPieces = [], rtcPath = ''
+  // With a media track the picture plays in the <video> over the canvas; the canvas still takes every click.
+  const tv = $('tv')
+  let trackLive = false, trackPrev = null, track = { fps: 0, kbps: 0, freeze: 0, lost: 0, w: 0, h: 0, buffer: 0 }
+  const wsSend = obj => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)) }
+  const send = obj => {
+    if (direct && dcCtl && dcCtl.readyState === 'open' && obj.t !== 'auth' && !obj.t.startsWith('rtc')) dcCtl.send(JSON.stringify(obj))
+    else wsSend(obj)
+  }
+  window.__pp = { get direct() { return direct }, get rtcPath() { return rtcPath }, get state() { return state }, get frames() { return frames }, get gotFrame() { return gotFrame }, get track() { return trackLive ? track : null }, send }
+
+  function veil(text, sub) {
+    $('veil').hidden = !text
+    if (text) $('veilText').innerHTML = ''
+    if (text) { $('veilText').append(text); if (sub) { const s = document.createElement('small'); s.textContent = sub; $('veilText').append(s) } }
+  }
+  function toast(text) {
+    $('toast').textContent = text
+    $('toast').classList.add('show')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => $('toast').classList.remove('show'), 1800)
+  }
+  function layout() {
+    const box = $('stage').getBoundingClientRect()
+    const k = Math.min(box.width / canvas.width, box.height / canvas.height)
+    canvas.style.width = Math.floor(canvas.width * k) + 'px'
+    canvas.style.height = Math.floor(canvas.height * k) + 'px'
+  }
+  addEventListener('resize', layout)
+  document.addEventListener('fullscreenchange', () => {
+    layout()
+    if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock()
+  })
+
+  function render() {
+    const dot = $('dot'), st = $('status')
+    $('take').hidden = !state.sharing || state.viewOnly
+    $('takeLabel').textContent = state.control ? 'Release control' : 'Take control'
+    $('take').className = 'act ' + (state.control ? 'on' : 'primary')
+    $('title').textContent = state.title || 'PartyPortal'
+    $('lockMouse').hidden = !state.control
+    canvas.classList.toggle('live', state.control)
+    if (!ws || ws.readyState !== 1) { dot.className = 'bad'; st.textContent = final ? 'disconnected' : 'no connection, reconnecting…'; return }
+    if (hostAway) { dot.className = 'warn'; st.textContent = 'waiting for the host'; veil('Waiting for the host', 'The host’s PartyPortal is not connected yet.'); return }
+    if (!state.sharing) { dot.className = 'warn'; st.textContent = 'the host is not sharing anything yet'; veil('The host is not sharing anything yet', 'The window will appear here as soon as they pick one.'); return }
+    if (!gotFrame) { dot.className = 'warn'; st.textContent = 'waiting for the picture…'; veil('Waiting for the picture…'); return }
+    if (state.control && state.paused) {
+      const p = PAUSES[state.paused] || ['Paused', '']
+      dot.className = 'warn'; st.textContent = p[0]; veil(p[0], p[1]); return
+    }
+    veil(null)
+    dot.className = 'ok'
+    st.textContent = state.viewOnly ? 'view only' : state.control ? 'you are in control' : 'watching — click “Take control”'
+    if (state.control && state.mouse === false) st.textContent += ' · keyboard only in this app'
+  }
+
+  // ---- video ----
+  function b64(s) { const bin = atob(s), out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out }
+  function configure(cfg) {
+    try { if (decoder && decoder.state !== 'closed') decoder.close() } catch {}
+    decoder = new VideoDecoder({
+      output: frame => {
+        if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) { canvas.width = frame.displayWidth; canvas.height = frame.displayHeight; layout() }
+        ctx.drawImage(frame, 0, 0)
+        frame.close()
+        frames++
+        if (!gotFrame) { gotFrame = true; render() }
+      },
+      error: () => { waitKey = true; send({ t: 'kf' }) },
+    })
+    decoder.configure({ codec: cfg.codec, description: b64(cfg.description), optimizeForLatency: true })
+    waitKey = true
+    if (canvas.width !== cfg.width || canvas.height !== cfg.height) { canvas.width = cfg.width; canvas.height = cfg.height; layout() }
+    bestGap = Infinity
+  }
+  function onVideo(buf) {
+    if (!decoder || decoder.state !== 'configured') return
+    const view = new DataView(buf), key = (view.getUint8(1) & 1) === 1
+    bytes += buf.byteLength
+    if (waitKey && !key) { skipped++; return }
+    if (decoder.decodeQueueSize > 5) { waitKey = true; skipped++; send({ t: 'kf' }); return }  // fell behind: jump to a fresh keyframe
+    waitKey = false
+    // How much later than the best case this frame arrived: grows when frames queue up somewhere on the way.
+    const ts = Number(view.getBigInt64(2)), gap = performance.now() - ts / 1000
+    if (gap < bestGap) bestGap = gap
+    late = Math.max(late, gap - bestGap)
+    if (window.__pp.trace) window.__pp.trace.push([Math.round(performance.now()), Math.round(gap - bestGap), buf.byteLength, key ? 1 : 0])
+    decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: Number(view.getBigInt64(2)), data: new Uint8Array(buf, 10) }))
+  }
+
+  // ---- audio ----
+  // Opus packets → AudioDecoder → short buffers scheduled back to back, a few tens of ms ahead of the clock.
+  let actx, gain, adec, audioKey = '', nextAt = 0, muted = false
+  const audio = { packets: 0, decoded: 0, played: 0, peak: 0, crossings: 0, frames: 0 }
+  function audioConfig(cfg) {
+    const key = cfg ? JSON.stringify(cfg) : ''
+    $('sound').hidden = !cfg || !('AudioDecoder' in window)
+    if (key === audioKey) return
+    audioKey = key
+    try { if (adec && adec.state !== 'closed') adec.close() } catch {}
+    adec = null
+    if (!cfg || !('AudioDecoder' in window)) return
+    adec = new AudioDecoder({ output: onAudio, error: () => { audioKey = '' } })
+    adec.configure({ codec: cfg.codec, sampleRate: cfg.sampleRate, numberOfChannels: cfg.channels })
+  }
+  // Browsers only let sound start from a click or a key press, so the context is made inside the first one.
+  function unlockAudio() {
+    if (actx) { if (actx.state === 'suspended') actx.resume(); return }
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    actx = new Ctx({ sampleRate: 48000, latencyHint: 'interactive' })
+    gain = actx.createGain()
+    gain.gain.value = muted ? 0 : 1
+    gain.connect(actx.destination)
+  }
+  addEventListener('pointerdown', unlockAudio, true)
+  addEventListener('keydown', unlockAudio, true)
+  function onAudioPacket(buf) {
+    audio.packets++
+    if (!adec || adec.state !== 'configured' || adec.decodeQueueSize > 10) return
+    adec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Number(new DataView(buf).getBigInt64(2)), data: new Uint8Array(buf, 10) }))
+  }
+  function onAudio(data) {
+    const n = data.numberOfFrames, channels = Math.min(2, data.numberOfChannels)
+    const planes = []
+    for (let c = 0; c < channels; c++) { const p = new Float32Array(n); data.copyTo(p, { planeIndex: c, format: 'f32-planar' }); planes.push(p) }
+    const rate = data.sampleRate
+    data.close()
+    audio.decoded++
+    audio.frames += n
+    for (let i = 1, p = planes[0]; i < n; i++) { const v = Math.abs(p[i]); if (v > audio.peak) audio.peak = v; if ((p[i - 1] < 0) !== (p[i] < 0)) audio.crossings++ }
+    if (!actx || actx.state !== 'running') return
+    const now = actx.currentTime
+    if (nextAt < now + 0.005) nextAt = now + 0.04  // ran dry: start again with a small cushion
+    if (nextAt > now + 0.25) return                // too much queued: skip this one to stay close to live
+    const buffer = actx.createBuffer(channels, n, rate)
+    planes.forEach((p, c) => buffer.copyToChannel(p, c))
+    const node = actx.createBufferSource()
+    node.buffer = buffer
+    node.connect(gain)
+    node.start(nextAt)
+    nextAt += n / rate
+    audio.played++
+  }
+  $('sound').onclick = () => {
+    muted = !muted
+    if (gain) gain.gain.value = muted ? 0 : 1
+    $('sound').classList.toggle('off', muted)
+    $('sound').dataset.tip = muted ? 'Sound is off' : 'Sound is on'
+  }
+  window.__pp.audio = audio
+  window.__pp.mute = on => { muted = on; if (gain) gain.gain.value = on ? 0 : 1 }
+  window.__pp.audioState = () => (actx ? actx.state : 'none')
+
+  // ---- direct connection ----
+  // The track's first frame (and any later change of its size): the <video> takes over the picture.
+  function onTrackSize() {
+    if (!tv.srcObject || !tv.videoWidth) return
+    if (canvas.width !== tv.videoWidth || canvas.height !== tv.videoHeight) { canvas.width = tv.videoWidth; canvas.height = tv.videoHeight; layout() }
+    if (!trackLive) { trackLive = true; tv.hidden = false; bestGap = Infinity; badLog = [] }
+    if (!gotFrame) gotFrame = true
+    render()
+  }
+  tv.addEventListener('loadeddata', onTrackSize)
+  tv.addEventListener('resize', onTrackSize)
+  function stopRtc(tellHost, why) {
+    clearTimeout(rtcTimer)
+    bestGap = Infinity; badLog = []  // the other path has its own delay: measure lateness afresh
+    const old = pc
+    pc = dcCtl = null
+    direct = false
+    rtcPieces = []
+    rtcPath = ''
+    if (trackLive) { waitKey = true; send({ t: 'kf' }) }  // the canvas decoder sat idle while the track played
+    trackLive = false; trackPrev = null; tv.hidden = true; tv.srcObject = null
+    if (old) { old.onconnectionstatechange = null; old.ontrack = null; try { old.close() } catch {} }
+    if (tellHost) wsSend({ t: 'rtc-off', why: why || '' })
+    render()
+  }
+  function startRtc(cfg) {
+    if (!cfg || !window.RTCPeerConnection || pc || udpGaveUp) return
+    // #relay=1 in the link forces the TURN relay: for measuring that path from a network where direct would win.
+    const peer = pc = new RTCPeerConnection({ iceServers: cfg.iceServers, iceTransportPolicy: /[#&]relay=1/.test(location.hash) ? 'relay' : 'all' })
+    const ctl = dcCtl = peer.createDataChannel('ctl')
+    const video = peer.createDataChannel('video')
+    const sound = peer.createDataChannel('audio', { ordered: false, maxRetransmits: 0 })
+    video.binaryType = sound.binaryType = 'arraybuffer'
+    // Offer to receive the picture as a media track; a host that cannot make one answers "inactive"
+    // and uses the video channel above. #track=0 in the link keeps to the channel, for comparing the two.
+    if (!/[#&]track=0/.test(location.hash) && peer.addTransceiver) {
+      try {
+        const tr = peer.addTransceiver('video', { direction: 'recvonly' })
+        const caps = window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities && RTCRtpReceiver.getCapabilities('video')
+        if (caps && tr.setCodecPreferences) {
+          const h264 = caps.codecs.filter(c => /h264/i.test(c.mimeType))
+          if (h264.length) tr.setCodecPreferences([...h264, ...caps.codecs.filter(c => !/h264/i.test(c.mimeType))])
+        }
+      } catch {}
+    }
+    peer.ontrack = e => {
+      if (pc !== peer || e.track.kind !== 'video') return
+      // Live picture, not a film: show each frame as soon as it is whole.
+      try { e.receiver.jitterBufferTarget = 0 } catch {}
+      try { e.receiver.playoutDelayHint = 0 } catch {}
+      tv.srcObject = new MediaStream([e.track])
+      tv.play().catch(() => {})
+    }
+    peer.onicecandidate = e => { if (e.candidate && pc === peer) wsSend({ t: 'rtc-cand', c: e.candidate.toJSON() }) }
+    ctl.onopen = () => { if (pc !== peer) return; direct = true; clearTimeout(rtcTimer); waitKey = true; bestGap = Infinity; badLog = []; render() }
+    ctl.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'pong' && m.n === pingN) rtt = Math.round(performance.now() - pingAt) }
+    video.onmessage = e => {
+      if (typeof e.data === 'string') { rtcPieces = []; configure(JSON.parse(e.data)); return }  // codec config, in order with the frames
+      // A frame arrives in pieces; the first byte of each says whether it is the last one.
+      const piece = new Uint8Array(e.data)
+      rtcPieces.push(piece.subarray(1))
+      if (!(piece[0] & 1)) return
+      const whole = new Uint8Array(rtcPieces.reduce((n, p) => n + p.length, 0))
+      let off = 0
+      for (const p of rtcPieces) { whole.set(p, off); off += p.length }
+      rtcPieces = []
+      onVideo(whole.buffer)
+    }
+    sound.onmessage = e => onAudioPacket(e.data)
+    let lost = 0
+    peer.onconnectionstatechange = () => {
+      if (pc !== peer) return
+      clearTimeout(lost)
+      if (peer.connectionState === 'failed' || peer.connectionState === 'closed') stopRtc(true)
+      else if (peer.connectionState === 'disconnected') lost = setTimeout(() => { if (pc === peer && peer.connectionState !== 'connected') stopRtc(true) }, 3000)
+    }
+    peer.createOffer().then(o => peer.setLocalDescription(o)).then(() => { if (pc === peer) wsSend({ t: 'rtc-offer', sdp: peer.localDescription.sdp }) }).catch(() => stopRtc(true))
+    // No direct path within fifteen seconds (strict NAT on both sides and no relay): stay on the WebSocket.
+    // A relay on a slow mobile link was seen to need more than ten.
+    rtcTimer = setTimeout(() => { if (pc === peer && !direct) stopRtc(true) }, 15000)
+  }
+  async function rtcStats() {
+    if (!pc || !direct) return
+    const stats = await pc.getStats()
+    let pair = null
+    stats.forEach(s => { if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId) })
+    if (!pair) return
+    const local = stats.get(pair.localCandidateId) || {}, remote = stats.get(pair.remoteCandidateId) || {}
+    rtcPath = `${(local.protocol || 'udp').toUpperCase()} ${local.candidateType}/${remote.candidateType}`
+    if (pair.currentRoundTripTime != null && tv.srcObject) rtt = Math.round(pair.currentRoundTripTime * 1000)
+    let rx = null
+    stats.forEach(s => { if (s.type === 'inbound-rtp' && s.kind === 'video') rx = s })
+    if (!rx) return
+    const now = { at: performance.now(), frames: rx.framesDecoded || 0, bytes: rx.bytesReceived || 0, freeze: rx.totalFreezesDuration || 0,
+                  lost: rx.packetsLost || 0, got: rx.packetsReceived || 0, delay: rx.jitterBufferDelay || 0, out: rx.jitterBufferEmittedCount || 0 }
+    const was = trackPrev
+    trackPrev = now
+    if (!was) return
+    const dt = Math.max(0.2, (now.at - was.at) / 1000), packets = (now.got - was.got) + (now.lost - was.lost)
+    track = {
+      fps: Math.round((now.frames - was.frames) / dt), kbps: Math.round((now.bytes - was.bytes) * 8 / 1000 / dt),
+      freeze: Math.round((now.freeze - was.freeze) * 1000), lost: packets > 0 ? Math.round((now.lost - was.lost) * 1000 / packets) / 10 : 0,
+      w: rx.frameWidth || 0, h: rx.frameHeight || 0, buffer: now.out > was.out ? Math.round((now.delay - was.delay) * 1000 / (now.out - was.out)) : 0,
+    }
+  }
+
+  // ---- connection ----
+  function connect() {
+    if (!token) { final = true; veil('The link has no key', 'Ask the host for the complete link.'); render(); return }
+    if (!('VideoDecoder' in window)) { final = true; veil('This browser will not work', 'You need a recent Chrome, Edge or Safari and a link that starts with https.'); render(); return }
+    // Next to the page: "/" → "/ws" on the host's own server, "/portal/abc" → "/portal/abc/ws" on a portal.
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + location.pathname.replace(/\/$/, '') + '/ws')
+    ws.binaryType = 'arraybuffer'
+    ws.onopen = () => { retry = 0; send({ t: 'auth', token }) }
+    ws.onmessage = e => {
+      if (typeof e.data !== 'string') { if (!direct) new Uint8Array(e.data, 0, 1)[0] === 2 ? onAudioPacket(e.data) : onVideo(e.data); return }
+      const m = JSON.parse(e.data)
+      // The portal itself: the host's Mac is not there (yet, or any more). Not final: hello follows when it comes.
+      if (m.t === 'pp.wait') { hostAway = true; stopRtc(false); state = { sharing: false, control: false, viewOnly: false, paused: null, title: '' }; gotFrame = false; audioConfig(null); render(); return }
+      if (m.type) hostAway = false
+      if (m.type === 'video') configure(m)
+      else if (m.type === 'state') { const was = state.sharing; state = m; if (!m.sharing) gotFrame = false; if (!was && m.sharing) gotFrame = false; audioConfig(m.audio); render() }
+      else if (m.type === 'blocked') toast('🚫 ' + m.what + ' — ' + m.why)
+      else if (m.type === 'pong' && m.n === pingN) rtt = Math.round(performance.now() - pingAt)
+      else if (m.type === 'bye') { final = !!m.final; veil(m.reason || 'Disconnected') }
+      else if (m.type === 'hello') { stopRtc(false); startRtc(m.rtc); render() }
+      else if (m.type === 'rtc-answer') { if (pc) pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(() => stopRtc(true)) }
+      else if (m.type === 'rtc-cand') { if (pc) pc.addIceCandidate(m.c).catch(() => {}) }
+      else if (m.type === 'rtc-down') { stopRtc(false); waitKey = true }
+    }
+    ws.onclose = () => {
+      hostAway = false
+      stopRtc(false)
+      state.control = false
+      gotFrame = false
+      render()
+      if (final) return
+      veil('Connection lost', 'Reconnecting…')
+      setTimeout(connect, Math.min(5000, 500 * 2 ** retry++))
+    }
+  }
+
+  // ---- input ----
+  const clamp = v => Math.min(1, Math.max(0, v))
+  const at = e => { const r = canvas.getBoundingClientRect(); return { x: clamp((e.clientX - r.left) / r.width), y: clamp((e.clientY - r.top) / r.height) } }
+  const locked = () => document.pointerLockElement === canvas
+  let pendingMove = null, moveTimer = 0, held = new Set()
+
+  function flushMove() { moveTimer = 0; if (pendingMove) { send(pendingMove); pendingMove = null } }
+  function queueMove(m) {
+    if (pendingMove && pendingMove.t === 'r' && m.t === 'r') { pendingMove.dx += m.dx; pendingMove.dy += m.dy } else pendingMove = m
+    if (!moveTimer) moveTimer = setTimeout(flushMove, 8)
+  }
+  function setControl(on) {
+    send({ t: 'control', on })
+    // Assume the host agrees so the very next click is not lost; its state message corrects us if it does not.
+    state.control = on && state.sharing && !state.viewOnly
+    render()
+    if (!on && locked()) document.exitPointerLock()
+    if (on) canvas.focus()
+  }
+
+  $('conn').onclick = () => $('conn').classList.toggle('open')  // touch screens have no hover
+  $('take').onclick = () => setControl(!state.control)
+  $('lockMouse').onclick = () => canvas.requestPointerLock()
+  $('full').onclick = async () => {
+    if (document.fullscreenElement) return document.exitFullscreen()
+    await document.documentElement.requestFullscreen()
+    if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock().catch(() => {})
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    e.preventDefault()
+    canvas.focus()
+    if (!state.control) { if (state.sharing && !state.viewOnly) setControl(true); return }
+    flushMove()
+    held.add(e.button)
+    send({ t: 'd', b: e.button, ...(locked() ? {} : at(e)) })
+  })
+  addEventListener('mouseup', e => {
+    if (!held.has(e.button)) return
+    held.delete(e.button)
+    flushMove()
+    send({ t: 'u', b: e.button, ...(locked() ? {} : at(e)) })
+  })
+  addEventListener('mousemove', e => {
+    if (!state.control) return
+    if (locked()) { const r = canvas.getBoundingClientRect(); queueMove({ t: 'r', dx: e.movementX / r.width, dy: e.movementY / r.height }); return }
+    if (e.target !== canvas && !held.size) return
+    queueMove({ t: 'm', ...at(e) })
+  })
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault()
+    if (!state.control) return
+    const k = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? 400 : 1
+    send({ t: 'w', dx: Math.round(e.deltaX * k), dy: Math.round(e.deltaY * k), ...(locked() ? {} : at(e)) })
+  }, { passive: false })
+  canvas.addEventListener('contextmenu', e => e.preventDefault())
+
+  // Touch screens: one finger is the mouse with its left button held, two fingers scroll.
+  let touchScroll = null
+  const touchAt = t => at({ clientX: t.clientX, clientY: t.clientY })
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault()
+    unlockAudio()
+    if (!state.control) { if (state.sharing && !state.viewOnly) setControl(true); return }
+    if (e.touches.length === 1) {
+      const p = touchAt(e.touches[0])
+      send({ t: 'm', ...p })
+      send({ t: 'd', b: 0, ...p })
+      held.add(0)
+    } else if (e.touches.length === 2) {
+      if (held.delete(0)) send({ t: 'u', b: 0 })
+      touchScroll = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 }
+    }
+  }, { passive: false })
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault()
+    if (!state.control) return
+    if (e.touches.length === 1 && held.has(0)) queueMove({ t: 'm', ...touchAt(e.touches[0]) })
+    else if (e.touches.length === 2 && touchScroll) {
+      const x = (e.touches[0].clientX + e.touches[1].clientX) / 2, y = (e.touches[0].clientY + e.touches[1].clientY) / 2
+      send({ t: 'w', dx: Math.round((touchScroll.x - x) * 2), dy: Math.round((touchScroll.y - y) * 2), ...touchAt(e.touches[0]) })
+      touchScroll = { x, y }
+    }
+  }, { passive: false })
+  const touchEnd = e => {
+    e.preventDefault()
+    if (e.touches.length < 2) touchScroll = null
+    if (e.touches.length === 0 && held.delete(0)) {
+      flushMove()
+      send({ t: 'u', b: 0, ...(e.changedTouches[0] ? touchAt(e.changedTouches[0]) : {}) })
+    }
+  }
+  canvas.addEventListener('touchend', touchEnd, { passive: false })
+  canvas.addEventListener('touchcancel', touchEnd, { passive: false })
+
+  function onKey(e, down) {
+    if (!state.control) return
+    e.preventDefault()
+    send({ t: 'k', c: e.code, d: down ? 1 : 0 })
+  }
+  addEventListener('keydown', e => onKey(e, true), true)
+  addEventListener('keyup', e => onKey(e, false), true)
+  const release = () => { held.clear(); send({ t: 'release' }) }
+  addEventListener('blur', release)
+  document.addEventListener('visibilitychange', () => { if (document.hidden) release() })
+
+  setInterval(() => {
+    // With a media track the numbers come from the receiver; otherwise from what we decoded ourselves.
+    const fps = trackLive ? track.fps : frames, kb = trackLive ? track.kbps : Math.round(bytes * 8 / 1000)
+    if (trackLive) late = track.freeze  // milliseconds of this second the picture stood still
+    frames = 0; bytes = 0
+    // The chip in the corner: bars and two numbers. The rest is in the card it opens.
+    const how = direct ? (/relay/.test(rtcPath) ? 'TURN relay (UDP)' : 'Direct (UDP)') : 'Tunnel (TCP)'
+    const frozen = gotFrame && state.sharing && fps === 0
+    $('conn').hidden = !gotFrame
+    const open = $('conn').classList.contains('open')
+    $('conn').className = (open ? 'open ' : '') + (!gotFrame ? '' : frozen || (trackLive && track.lost >= 8) ? 'bad' : !direct || late > 300 || (trackLive && track.lost >= 2) ? 'warn' : 'ok')
+    $('stats').textContent = `${fps} fps` + (rtt != null ? ` · ${rtt} ms` : '')
+    const rows = [['Path', how], ['Picture', `${canvas.width}×${canvas.height}`], ['Frames', `${fps} per second`], ['Bitrate', `${(kb / 1000).toFixed(1)} Mbps`]]
+    if (rtt != null) rows.push(['Ping', `${rtt} ms`])
+    if (trackLive) rows.push(['Packets lost', `${track.lost}%`])
+    $('connRows').innerHTML = ''
+    for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; $('connRows').append(dt, dd) }
+    $('connNote').textContent = direct ? (/relay/.test(rtcPath) ? 'Through a relay server, still real-time UDP.' : 'Straight between the two computers.') : 'Through the tunnel: reliable, with more delay.'
+    $('connNote').title = rtcPath
+    rtcStats().catch(() => {})
+    window.__pp.fps = fps
+    window.__pp.kbps = kb
+    window.__pp.late = Math.round(late)
+    // Tell the host what really arrives: behind a relay it cannot see a slow link from its own side.
+    if (gotFrame && state.sharing) send({ t: 'stat', fps, late: Math.round(late), skipped })
+    // UDP is only worth having while it beats the tunnel. Some networks (phone hotspots, carriers that
+    // throttle UDP) lose so much that frames arrive seconds late: after four such seconds out of six,
+    // go back to the tunnel and stay there for this visit.
+    if (direct) {
+      // A track rides out loss by itself, so only a picture that stands still (or never starts) counts against it.
+      const waitingForTrack = !!tv.srcObject && !trackLive
+      badLog.push((trackLive ? late > 500 : waitingForTrack || late > 300 || skipped > 0) ? 1 : 0)
+      if (badLog.length > 6) badLog.shift()
+      if (badLog.reduce((a, b) => a + b, 0) >= 4) { udpGaveUp = true; stopRtc(true, 'slow'); waitKey = true; toast('Direct path is too lossy — switched to the relay') }
+    }
+    late = 0; skipped = 0
+  }, 1000)
+  setInterval(() => { pingN++; pingAt = performance.now(); send({ t: 'ping', n: pingN }) }, 2000)
+
+  layout()
+  render()
+  connect()
+})()
+</script>
+</body>
+</html>

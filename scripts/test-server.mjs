@@ -20,6 +20,7 @@ import { testInbox } from './test-inbox.mjs'
 import { testInboundMail } from './test-inbound-mail.mjs'
 import { testAccounts } from './test-accounts.mjs'
 import { testAgentBudget } from './test-agent-budget.mjs'
+import { testPortal } from './test-portal.mjs'
 import { testAgentToolDiscovery } from './test-agent-tool-discovery.mjs'
 import { outboundMcpFixture, testOutboundMcp } from './test-outbound-mcp.mjs'
 const root = resolve(import.meta.dirname, '..')
@@ -33,6 +34,7 @@ const classes = {
   RATE_LIMIT_DO: 'RateLimitDurableObject',
   NOTIFICATION_DO: 'NotificationDurableObject',
   AGENT_DO: 'L4Agent',
+  PORTAL_DO: 'PortalDurableObject',
 }
 const origins = {
   alpha: `http://127.0.0.1:${port}`,
@@ -358,6 +360,7 @@ try {
   const outboundMcp = await testOutboundMcp({ api, runtimes, ids, signingSecret: ('alpha-server-secret-').repeat(4), channelId: general.id, memberId })
   const publication = await testRunPublication({ api, runtimes, ids, channelId: general.id })
   await testFactoryTransport({ api })
+  await testPortal({ api, runtime: runtimes.alpha, origin: origins.alpha, channelId: general.id })
   const gitFixture = await testGitConnections({ api, runtimes, ids })
   const projectFixture = await testProjects({ api, runtimes, ids, memberId })
   await testRecordingKeys({
