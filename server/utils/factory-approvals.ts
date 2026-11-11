@@ -60,9 +60,19 @@ const visible = (row: ApprovalRow): FactoryApproval => ({ id: row.id, boxId: row
   request: JSON.parse(row.requestJson), diff: row.diffDigest ? { digest: row.diffDigest } : null, decidedBy: row.decidedBy, decidedAt: row.decidedAt,
   expiresAt: row.expiresAt, result: row.resultJson ? JSON.parse(row.resultJson) : null, createdAt: row.createdAt })
 
+/**
+ * How long a request waits for a person: as long as one box turn. A paid box holds its turn while a request waits,
+ * and nobody who has not answered in half an hour is watching; the Agent asks again in its next turn.
+ */
+export const PERSON_WAIT_MS = 30 * 60_000
+/** Requests made before this still wait for a person; older ones count as unanswered. */
+export const personWaitCutoff = (at = Date.now()) => new Date(at - PERSON_WAIT_MS).toISOString()
+
 export async function expireApprovals(env: L4Env) {
   const now = nowIso()
   await env.DB.batch([
+    // Nobody answered in a turn's time: the request closes, and the box's turn with it.
+    env.DB.prepare("UPDATE factory_approvals SET status='expired' WHERE status IN ('pending_diff','pending') AND created_at<=?").bind(personWaitCutoff()),
     // An approved plan keeps covering the Task, and an open window stays open for its time; everything else
     // waits no longer than its Run.
     env.DB.prepare("UPDATE factory_approvals SET status='expired' WHERE (status IN ('pending_diff','pending') OR (status='approved' AND kind<>'plan')) AND expires_at<=?").bind(now),
@@ -290,10 +300,11 @@ export const UNANSWERED_PREFIX = 'The agent waited for your answer'
  * again.
  */
 export async function unansweredRequest(env: L4Env, run: { id: string; deadline: string }) {
-  if (run.deadline > nowIso()) return null
   const row = await env.DB.prepare(`SELECT ${approvalColumns} FROM factory_approvals WHERE run_id=? AND kind IN ('window','plan','publish') AND decided_at IS NULL
     AND status IN ('pending','pending_diff','expired') ORDER BY created_at DESC,id DESC LIMIT 1`).bind(run.id).first<ApprovalRow>()
   if (!row) return null
+  // The turn ran out of time with the request open, or the request waited its own time for a person.
+  if (run.deadline > nowIso() && row.createdAt > personWaitCutoff()) return null
   const request = personRequest(row)
   const about = request.kind === 'window' && request.host ? `about ${request.host}` : request.kind === 'plan' ? 'about its plan' : request.title ? `about publishing “${request.title.slice(0, 120)}”` : 'about publishing its work'
   return `${UNANSWERED_PREFIX} ${about} until its turn ran out of time, and stopped. Ask it to continue, and answer when it asks again.`
