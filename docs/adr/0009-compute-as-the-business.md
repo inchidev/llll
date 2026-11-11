@@ -1,6 +1,6 @@
 # Compute is the business
 
-Proposed on 2026-11-05, pricing section revised the same day from a flat worker to elastic hours, and the hour with a model inside added by invitation. Nothing here is built; prices are hypotheses to be checked against real use, and the published ones live only in `inchidev/llll-cloud`.
+Amended on 2026-11-12: the product is now L4 Usage, of which Compute is one line (see the last amendment). Proposed on 2026-11-05, pricing section revised the same day from a flat worker to elastic hours, and the hour with a model inside added by invitation. Nothing here is built; prices are hypotheses to be checked against real use, and the published ones live only in `inchidev/llll-cloud`.
 
 ## Problem
 
@@ -49,6 +49,22 @@ Decided with the owner after making the Lizard templates and reading how Lizard 
 **Why not prepaid packs any more.** Paddle cannot bill metered overage by itself, which is why credit was prepaid; it can charge a subscription's card once for an amount we compute, which removes the reason. Packs made the buyer decide how much to buy before working and left credit stranded on one Server. Nothing had been sold under packs, so nothing moves.
 
 **Lizard's ceiling.** Lizard's Pro plan runs at most 40 vCPU of sandboxes at once for the whole of L4 Cloud (20 Small boxes); its higher plans raise that. The plan has to grow with paying accounts before it is the limit.
+
+## Amendment 2026-11-12: Usage, of which Compute is one line
+
+Decided with the owner while folding PartyPortal into L4 as [Portal](0014-portal.md). Friends watching together, a consultant helping a client and a team on calls use files and video without ever starting a box; under the rules above they either hit a ceiling or cost L4 money with no way to pay for it. The reason for a free workspace still holds, so the line moves, not the principle.
+
+**The take.** The workspace is free: L4 charges for no person, message, history, search, Space or feature. Those are bytes in a database, they cost almost nothing, and charging for them is a habit from the seat-priced era. L4 charges for what actually burns resources: machines for Agents, models, and gigabytes of files and video. Every Server gets a free base. A Server on the operator's own infrastructure is free entirely; they pay their own Cloudflare or VPS.
+
+**L4 Usage replaces L4 Compute as the product.** It has one meter in money with one line per resource, each at our cost plus a convenience margin that the Pricing page states openly: box minutes by size (hands), later an hour with a model inside (brains) with things billed per item, such as generated images, on lines of their own, files above the base in gigabyte-months, call and Portal video above the base (participant minutes, relayed or fanned-out gigabytes), and mail if it acquires a real cost. Self-hosted, the same work costs the operator exactly their provider's price; on L4 Cloud it costs that price plus the margin for not operating anything.
+
+**Two ways to pay, one meter.** The account subscription above stays and includes the same amount of Usage instead of Compute alone; overage, limits and the default account limit are unchanged. A prepaid balance in money, the partner credit above, becomes available to any account that prefers no subscription: a top-up is the "pack" for files, calls and Portal, drawn down by the same meter. A balance never expires and never pays a box beyond the spend limit.
+
+**The free base no longer grows with Compute spend.** The per-dollar growth of the files and calls ceilings existed because files and calls could not be bought; now everything above the base draws from Usage. The base itself stays, now including Portal relay traffic, and its size lives in `llll-cloud` next to the prices.
+
+**What does not change.** No price per Server, Space, person, message or feature, and no cap on how many Agents work at once. Direct peer-to-peer video in a Portal is free everywhere because it costs nobody anything. Prices and the base stay in `llll-cloud` only.
+
+**Still to settle.** One margin for every line or one per line; how video is attributed to one tenant on L4 Cloud (one Realtime app per hosted Server is the likely answer, since Cloudflare reports usage per app); a warning before an account reaches its limit.
 
 ## Unknowns to settle before building billing
 
