@@ -143,6 +143,7 @@ describe('the relay', () => {
     const second = connect('guest')
     await say(second, guestHello)
     expect(first.closed?.code).toBe(PORTAL_CLOSE.replaced)
+    expect(first.frames().at(-1)).toEqual({ type: 'bye', final: true, reason: 'This link was opened somewhere else.' })
     // The replaced guest's late close is not reported as the new guest leaving.
     await portal.webSocketClose(first as never)
     expect(host.frames().filter(frame => frame.t === 'pp.guest')).toEqual([{ t: 'pp.guest', open: true }, { t: 'pp.guest', open: false }, { t: 'pp.guest', open: true }])
@@ -150,15 +151,37 @@ describe('the relay', () => {
     expect(host.frames().at(-1)).toEqual({ t: 'pp.guest', open: false })
   })
 
-  it('sends the guest back to waiting when the host leaves', async () => {
+  it('keeps the guest waiting when the host leaves and introduces it to the next host', async () => {
     const { portal, connect, say } = room()
     await portal.open(await record())
     const host = connect('host')
     await say(host, hostHello)
     const guest = connect('guest')
     await say(guest, guestHello)
+    host.close(1006, 'gone')
     await portal.webSocketClose(host as never)
-    expect(guest.closed?.code).toBe(PORTAL_CLOSE.hostLeft)
+    expect(guest.closed).toBeNull()
+    expect(guest.frames().at(-1)).toEqual({ t: 'pp.wait' })
+    const next = connect('host')
+    await say(next, hostHello)
+    expect(next.frames()).toEqual([{ t: 'pp.ready' }, { t: 'pp.guest', open: true }, guestHello])
+  })
+
+  it('drops the Portal\'s own messages from a guest and lets the host close its guest', async () => {
+    const { portal, connect, say } = room()
+    await portal.open(await record())
+    const host = connect('host')
+    await say(host, hostHello)
+    const guest = connect('guest')
+    await say(guest, guestHello)
+    const before = host.frames().length
+    await say(guest, { t: 'pp.guest', open: false })
+    expect(host.frames()).toHaveLength(before)
+    await say(host, { type: 'bye', final: true, reason: 'The host closed access.' })
+    await say(host, { t: 'pp.close' })
+    expect(guest.frames().at(-1)).toEqual({ type: 'bye', final: true, reason: 'The host closed access.' })
+    expect(guest.closed?.code).toBe(PORTAL_CLOSE.closedByHost)
+    expect(host.frames().at(-1)).toEqual({ t: 'pp.guest', open: false })
   })
 
   it('passes nothing before both keys are shown', async () => {

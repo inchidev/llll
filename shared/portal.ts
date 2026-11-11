@@ -19,12 +19,31 @@ export const PORTAL_CLOSE = {
   ended: 4404,
   replaced: 4409,
   protocol: 4426,
-  /** The host left; the guest page reconnects and waits for it. */
-  hostLeft: 1012,
+  /** The host asked the Server to close its guest (`{ t: 'pp.close' }`), after its own `bye`. */
+  closedByHost: 4403,
 } as const
+
+/**
+ * Messages of the Portal itself start with `pp.`: `pp.ready`, `pp.wait`, `pp.guest` from the Server, `pp.close`
+ * from the host. A guest may not speak them; the Server drops a guest's `pp.` message instead of passing it on.
+ */
+export function portalMessageType(raw: string): string | null {
+  if (!raw.includes('"pp.')) return null
+  try {
+    const frame = JSON.parse(raw) as { t?: unknown }
+    return typeof frame?.t === 'string' && frame.t.startsWith('pp.') ? frame.t : null
+  }
+  catch { return null }
+}
+
+/** What a replaced guest's page reads, in PartyPortal's own words, so two pages do not keep pushing each other out. */
+export const PORTAL_REPLACED_BYE = JSON.stringify({ type: 'bye', final: true, reason: 'This link was opened somewhere else.' })
 
 /** A Portal's id is a UUID (v7), as every id on a Server. */
 export const PORTAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
+
+/** The host's and the guest's sockets; the Worker entry hands them to the Portal before Nitro sees them. */
+export const PORTAL_SOCKET_PATH = /^\/portal\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(?:ws|host)$/u
 
 export type PortalRecord = {
   id: string

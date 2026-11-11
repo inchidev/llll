@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { PORTAL_AUTH_TIMEOUT_MS, PORTAL_CLOSE, PORTAL_PROTOCOL, portalLive, type PortalRecord } from '../shared/portal'
+import { PORTAL_AUTH_TIMEOUT_MS, PORTAL_CLOSE, PORTAL_PROTOCOL, PORTAL_REPLACED_BYE, portalLive, portalMessageType, type PortalRecord } from '../shared/portal'
 import { sha256Hex } from '../shared/server-settings'
 import { portalOpenerMayKeep } from '../server/utils/portals'
 import type { L4Env } from './env'
@@ -80,6 +80,18 @@ export class PortalDurableObject extends DurableObject<L4Env> {
       await this.authenticate(ws, me, raw)
       return
     }
+    // The Portal's own messages are not passed on: a guest may not speak them, and the host's are for the Server.
+    const own = typeof raw === 'string' ? portalMessageType(raw) : null
+    if (own) {
+      if (me.role === 'host' && own === 'pp.close') {
+        const guest = this.current('guest')
+        if (guest) {
+          this.replace(guest, PORTAL_CLOSE.closedByHost, 'closed_by_host')
+          this.send(ws, JSON.stringify({ t: 'pp.guest', open: false }))
+        }
+      }
+      return
+    }
     const other = me.role === 'host' ? this.current('guest') : this.current('host')
     if (other) this.send(other, raw)
   }
@@ -102,9 +114,9 @@ export class PortalDurableObject extends DurableObject<L4Env> {
       if (host) this.send(host, JSON.stringify({ t: 'pp.guest', open: false }))
       return
     }
-    // The guest page reconnects on this close and waits for the next host.
+    // The guest stays and waits; its first frame is replayed to the next host that comes.
     const guest = this.current('guest')
-    if (guest) this.close(guest, PORTAL_CLOSE.hostLeft, 'host_left')
+    if (guest) this.send(guest, JSON.stringify({ t: 'pp.wait' }))
   }
 
   private async authenticate(ws: WebSocket, me: Attachment, raw: string | ArrayBuffer) {
@@ -131,6 +143,7 @@ export class PortalDurableObject extends DurableObject<L4Env> {
     const host = this.current('host')
     const previous = this.current('guest', ws)
     if (previous) {
+      this.send(previous, PORTAL_REPLACED_BYE)
       this.replace(previous)
       if (host) this.send(host, JSON.stringify({ t: 'pp.guest', open: false }))
     }
@@ -147,10 +160,10 @@ export class PortalDurableObject extends DurableObject<L4Env> {
     this.send(host, auth)
   }
 
-  private replace(ws: WebSocket) {
+  private replace(ws: WebSocket, code: number = PORTAL_CLOSE.replaced, reason = 'replaced') {
     const me = this.attachment(ws)
     if (me) ws.serializeAttachment({ ...me, replaced: true } satisfies Attachment)
-    this.close(ws, PORTAL_CLOSE.replaced, 'replaced')
+    this.close(ws, code, reason)
   }
 
   /** The authenticated socket of a role that is still open, other than `except`. */

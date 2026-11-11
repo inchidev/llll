@@ -12,15 +12,6 @@ function portalId(event: H3Event): string {
   return id
 }
 
-/** Hand a host's or a guest's WebSocket to the Portal's Durable Object, which checks the key in its first frame. */
-export function portalSocket(event: H3Event) {
-  const { env, request } = cf(event)
-  const id = portalId(event)
-  if (!request || getHeader(event, 'upgrade') !== 'websocket') fail(426, 'upgrade_required', 'Expected WebSocket')
-  if (!env.PORTAL_DO) fail(501, 'portal_unavailable', 'This Server was installed before Portal. Update it to use Portal.')
-  return env.PORTAL_DO.getByName(`portal:${id}`).fetch(request)
-}
-
 const ENDED_PAGE = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal</title>'
   + '<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#1e1f22;color:#dbdee1;font:16px system-ui,sans-serif">'
   + '<p>This Portal has ended. Ask the host for a new link.</p></body>'
